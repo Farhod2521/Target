@@ -461,7 +461,7 @@ def read_everything(
     try:
         return list_everything(ad_account)
     except PermissionDenied as exc:
-        from app.modules.metrics.services.provider_call import refusal_is_the_accounts
+        from app.modules.metrics.services import refusal_is_the_accounts
 
         if refusal_is_the_accounts(db, ad_account, exc=exc):
             logger.warning(
@@ -572,3 +572,52 @@ def resync_account(db: Session, *, ad_account: AdAccount, actor_id: str = "") ->
     logger.info("resync queued for account %s by %s", ad_account.external_id, actor_id or "-")
     on_commit(db, lambda: sync_ad_account_task.delay(account_id))
     on_commit(db, lambda: sync_media_task.delay(account_id))
+
+
+# -- an account we only watch: keep the groups that run as our pages -------------------
+
+
+def sync_watched_account(db: Session, *, ad_account: AdAccount) -> SyncSummary:
+    from app.modules.integrations.selectors import enabled_pages
+    from app.modules.metrics.services import watched_account_failures
+    from core.ads import page_of_post, page_of_promoted
+
+    key = mirror_lock_key(ad_account)
+    if not cache.add(key, "1", SYNC_LOCK_SECONDS):
+        raise SyncAlreadyRunning
+    try:
+        with watched_account_failures(db, ad_account, logger=logger):
+            campaigns, adsets, ads = list_everything(ad_account)
+        pages = {page.external_id for page in enabled_pages(db, owner=ad_account.owner)}
+        by_advert: dict[str, str] = {}
+        for row in sorted(ads, key=lambda item: item.ref.id):
+            creative = row.creative
+            if creative is None:
+                continue
+            page = creative.page_id or page_of_post(creative.post_external_id)
+            if page:
+                by_advert.setdefault(row.adset_ref.id, page)
+        ours = [
+            row
+            for row in adsets
+            if pages
+            and (page_of_promoted(row.promoted_object_raw) or by_advert.get(row.ref.id, "")) in pages
+        ]
+        group_ids = {row.ref.id for row in ours}
+        campaign_ids = {row.campaign_ref.id for row in ours}
+        summary = store_everything(
+            db,
+            ad_account=ad_account,
+            campaigns=[row for row in campaigns if row.ref.id in campaign_ids],
+            adsets=ours,
+            ads=[row for row in ads if row.adset_ref.id in group_ids],
+        )
+        logger.info(
+            "watched %s: %s of %s groups run as our pages",
+            ad_account.external_id,
+            len(ours),
+            len(adsets),
+        )
+        return summary
+    finally:
+        cache.delete(key)
