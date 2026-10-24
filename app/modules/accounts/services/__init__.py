@@ -23,15 +23,23 @@ from app.modules.accounts.services.save_account import (
     save_phone,
 )
 from app.modules.accounts.services.set_language import set_language
+from app.modules.accounts.services.signup_code import (
+    CodeSent,
+    confirm_signup,
+    resend_code,
+    start_signup,
+)
 
 __all__ = [
     "PHONE_SAVED",
     "USER_REGISTERED",
+    "CodeSent",
     "Handoff",
     "PurgeReport",
     "authenticate",
     "block_user",
     "change_password",
+    "confirm_signup",
     "create_member_login",
     "email_in_use",
     "issue_handoff",
@@ -42,9 +50,11 @@ __all__ = [
     "register_user",
     "remove_member_login",
     "rename_member_login",
+    "resend_code",
     "safe_destination",
     "save_account",
     "save_phone",
     "set_language",
     "set_member_password",
+    "start_signup",
 ]

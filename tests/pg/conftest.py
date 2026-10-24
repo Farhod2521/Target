@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app import models as _models  # noqa: F401
 from app.common.db import Base, get_db, utcnow
 from app.main import app
-from tests.conftest import SIGNUP
+from tests.conftest import SIGNUP, register
 
 URL = os.environ.get("TEST_DATABASE_URL", "")
 
@@ -75,7 +75,7 @@ def queued(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, tuple[object, ...
 
 
 def sign_up(client: TestClient, **extra: str) -> dict[str, str]:
-    client.post("/api/v1/auth/signup", json=SIGNUP | extra)
+    register(client, **extra)
     email = extra.get("email", SIGNUP["email"])
     pair = client.post(
         "/api/v1/auth/login", json={"email": email, "password": SIGNUP["password"]}

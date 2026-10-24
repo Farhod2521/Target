@@ -9,23 +9,24 @@ from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.audit.models import Event
 from app.modules.referrals.models import ReferralBinding, ReferralCode
-from tests.conftest import SIGNUP, signed_in
+from tests.conftest import SIGNUP, code_for, register, signed_in
 
 
 def test_signup_normalises_and_records_an_event(
     client: TestClient, db: Session
 ) -> None:
-    response = client.post("/api/v1/auth/signup", json=SIGNUP)
+    response = register(client)
 
     assert response.status_code == 201, response.text
     body = response.json()
-    assert body["email"] == "Ali@example.com"
-    assert body["phone"] == "+998901234567"
+    assert body["user"]["email"] == "Ali@example.com"
+    assert body["user"]["phone"] == "+998901234567"
+    assert body["access_token"] and body["refresh_token"]
     assert db.scalars(select(Event.name)).all() == ["user.registered"]
 
 
 def test_the_same_email_twice_is_refused(client: TestClient) -> None:
-    client.post("/api/v1/auth/signup", json=SIGNUP)
+    register(client)
     again = client.post("/api/v1/auth/signup", json=SIGNUP)
 
     assert again.status_code == 409
@@ -40,7 +41,7 @@ def test_a_bad_phone_is_refused_in_uzbek(client: TestClient) -> None:
 
 
 def test_login_refresh_and_me(client: TestClient) -> None:
-    client.post("/api/v1/auth/signup", json=SIGNUP)
+    register(client)
     pair = client.post(
         "/api/v1/auth/login",
         json={"email": "Ali@EXAMPLE.com", "password": "secret-123"},
@@ -62,7 +63,7 @@ def test_login_refresh_and_me(client: TestClient) -> None:
 
 
 def test_wrong_password_and_missing_token(client: TestClient) -> None:
-    client.post("/api/v1/auth/signup", json=SIGNUP)
+    register(client)
 
     wrong = client.post(
         "/api/v1/auth/login", json={"email": SIGNUP["email"], "password": "nope-nope"}
@@ -148,10 +149,7 @@ def test_a_referral_code_binds_the_new_account(client: TestClient, db: Session) 
     )
     db.commit()
 
-    client.post(
-        "/api/v1/auth/signup",
-        json=SIGNUP | {"email": "guest@example.com", "referral_code": " ab12cd "},
-    )
+    register(client, email="guest@example.com", referral_code=" ab12cd ")
 
     binding = db.scalar(select(ReferralBinding))
     assert (
@@ -160,3 +158,86 @@ def test_a_referral_code_binds_the_new_account(client: TestClient, db: Session) 
         and binding.code == "AB12CD"
     )
     assert "referral.bound" in db.scalars(select(Event.name)).all()
+
+
+def test_signup_waits_for_the_emailed_code(client: TestClient, db: Session) -> None:
+    from app.common import mail
+
+    started = client.post("/api/v1/auth/signup", json=SIGNUP)
+
+    assert started.status_code == 202, started.text
+    assert started.json()["expires_in"] == 180
+    assert db.scalar(select(User.id)) is None
+    letter = mail.outbox[-1]
+    code = code_for(SIGNUP["email"])
+    assert letter.to == "Ali@example.com"
+    assert "TargetologAI" in letter.subject and code in letter.text
+    assert all(f">{digit}</td>" in letter.html for digit in code)
+    assert "3 daqiqa" in letter.text
+
+
+def test_a_wrong_code_counts_down_and_then_locks(client: TestClient) -> None:
+    client.post("/api/v1/auth/signup", json=SIGNUP)
+    code = code_for(SIGNUP["email"])
+    wrong = "00000" if code != "00000" else "11111"
+
+    first = client.post(
+        "/api/v1/auth/signup/verify", json={"email": SIGNUP["email"], "code": wrong}
+    )
+    assert first.status_code == 400 and first.json()["code"] == "code_wrong"
+    assert "4 marta" in first.json()["detail"]
+    for _ in range(4):
+        last = client.post(
+            "/api/v1/auth/signup/verify",
+            json={"email": SIGNUP["email"], "code": wrong},
+        )
+    assert last.status_code == 429 and last.json()["code"] == "code_tries_spent"
+    right_too_late = client.post(
+        "/api/v1/auth/signup/verify", json={"email": SIGNUP["email"], "code": code}
+    )
+    assert right_too_late.json()["code"] == "code_tries_spent"
+
+
+def test_the_code_expires_after_three_minutes(client: TestClient, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import time
+
+    from app.modules.accounts.services import signup_code
+
+    client.post("/api/v1/auth/signup", json=SIGNUP)
+    code = code_for(SIGNUP["email"])
+    later = time.time() + 181
+    monkeypatch.setattr(signup_code.time, "time", lambda: later)
+
+    answer = client.post(
+        "/api/v1/auth/signup/verify", json={"email": SIGNUP["email"], "code": code}
+    )
+    assert answer.status_code == 400 and answer.json()["code"] == "code_expired"
+
+
+def test_resend_waits_a_minute_then_sends_a_new_code(
+    client: TestClient, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    import time
+
+    from app.modules.accounts.services import signup_code
+
+    client.post("/api/v1/auth/signup", json=SIGNUP)
+    first = code_for(SIGNUP["email"])
+    soon = client.post("/api/v1/auth/signup/resend", json={"email": SIGNUP["email"]})
+    assert soon.status_code == 429 and soon.json()["code"] == "resend_too_soon"
+
+    later = time.time() + 61
+    monkeypatch.setattr(signup_code.time, "time", lambda: later)
+    again = client.post("/api/v1/auth/signup/resend", json={"email": SIGNUP["email"]})
+    assert again.status_code == 200, again.text
+    second = code_for(SIGNUP["email"])
+    if second != first:
+        stale = client.post(
+            "/api/v1/auth/signup/verify",
+            json={"email": SIGNUP["email"], "code": first},
+        )
+        assert stale.json()["code"] == "code_wrong"
+    done = client.post(
+        "/api/v1/auth/signup/verify", json={"email": SIGNUP["email"], "code": second}
+    )
+    assert done.status_code == 201, done.text

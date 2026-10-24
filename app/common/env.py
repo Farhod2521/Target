@@ -220,6 +220,19 @@ class Env(BaseSettings):
     cache_backend: Literal["redis", "memory"] = Field(
         default="redis", alias="CACHE_BACKEND"
     )
+    email_backend: Literal["smtp", "console", "memory"] = Field(
+        default="console", alias="EMAIL_BACKEND"
+    )
+    email_host: str = Field(default="", alias="EMAIL_HOST")
+    email_port: int = Field(default=587, alias="EMAIL_PORT")
+    email_host_user: str = Field(default="", alias="EMAIL_HOST_USER")
+    email_host_password: str = Field(default="", alias="EMAIL_HOST_PASSWORD")
+    email_use_tls: bool = Field(default=True, alias="EMAIL_USE_TLS")
+    email_use_ssl: bool = Field(default=False, alias="EMAIL_USE_SSL")
+    email_timeout: int = Field(default=10, alias="EMAIL_TIMEOUT")
+    default_from_email: str = Field(
+        default="TargetologAI <no-reply@targetolog.ai>", alias="DEFAULT_FROM_EMAIL"
+    )
     media_root: Path = Field(default=BASE_DIR / "media", alias="MEDIA_ROOT")
     media_url: str = Field(default="/media/", alias="MEDIA_URL")
     agent_small_budgets: dict[str, tuple[int, int]] = {"USD": (1_000, 500)}

@@ -9,7 +9,11 @@ def slugify(value: object, allow_unicode: bool = False) -> str:
     if allow_unicode:
         text = unicodedata.normalize("NFKC", text)
     else:
-        text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+        text = (
+            unicodedata.normalize("NFKD", text)
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
     text = re.sub(r"[^\w\s-]", "", text.lower())
     return re.sub(r"[-\s]+", "-", text).strip("-_")
 

@@ -14,7 +14,9 @@ def now() -> datetime:
     return utcnow()
 
 
-def localtime(value: datetime | None = None, timezone: tzinfo | None = None) -> datetime:
+def localtime(
+    value: datetime | None = None, timezone: tzinfo | None = None
+) -> datetime:
     return _localtime(value or utcnow(), timezone)
 
 

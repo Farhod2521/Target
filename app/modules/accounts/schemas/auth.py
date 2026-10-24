@@ -25,3 +25,19 @@ class TokenPair(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+class CodeIn(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=5, max_length=5, pattern=r"^\d{5}$")
+
+
+class ResendIn(BaseModel):
+    email: EmailStr
+
+
+class CodeSentOut(BaseModel):
+    email: str
+    expires_in: int
+    resend_in: int
+    message: str = ""

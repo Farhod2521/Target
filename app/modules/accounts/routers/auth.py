@@ -1,16 +1,20 @@
 import uuid
+from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
-from app.api.deps import Db
-from app.common import tokens
+from app.api.deps import Db, client_address
+from app.common import throttle, tokens
 from app.common.db import utcnow
 from app.modules.accounts import services
 from app.modules.accounts.models import User
 from app.modules.accounts.phone import clean_phone
 from app.modules.accounts.schemas import (
+    CodeIn,
+    CodeSentOut,
     LoginIn,
     RefreshIn,
+    ResendIn,
     SignupIn,
     TokenPair,
     UserOut,
@@ -27,9 +31,26 @@ def _pair(user: User) -> TokenPair:
     )
 
 
-@router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def signup(body: SignupIn, db: Db) -> User:
-    return services.register_user(
+SIGNUP_BUCKET = "signup:address"
+SIGNUPS_PER_HOUR = 20
+
+
+@router.post(
+    "/signup", response_model=CodeSentOut, status_code=status.HTTP_202_ACCEPTED
+)
+def signup(body: SignupIn, request: Request, db: Db) -> CodeSentOut:
+    """Step one: check the form and email a five-digit code. No account yet."""
+    if not throttle.hit(
+        bucket=SIGNUP_BUCKET,
+        key=client_address(request),
+        limit=SIGNUPS_PER_HOUR,
+        window_seconds=3600,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.",
+        )
+    sent = services.start_signup(
         db,
         email=body.email,
         full_name=body.full_name,
@@ -37,6 +58,33 @@ def signup(body: SignupIn, db: Db) -> User:
         phone=clean_phone(body.phone),
         language=body.language,
         referral_code=body.referral_code,
+    )
+    return CodeSentOut(
+        **asdict(sent), message="Emailingizga 5 xonali tasdiqlash kodi yuborildi."
+    )
+
+
+@router.post("/signup/resend", response_model=CodeSentOut)
+def signup_resend(body: ResendIn) -> CodeSentOut:
+    sent = services.resend_code(email=body.email)
+    return CodeSentOut(**asdict(sent), message="Yangi kod yuborildi.")
+
+
+class SignedUp(TokenPair):
+    user: UserOut
+
+
+@router.post(
+    "/signup/verify", response_model=SignedUp, status_code=status.HTTP_201_CREATED
+)
+def signup_verify(body: CodeIn, db: Db) -> SignedUp:
+    """Step two: the right code within three minutes creates the account."""
+    user = services.confirm_signup(db, email=body.email, code=body.code)
+    pair = _pair(user)
+    return SignedUp(
+        user=UserOut.model_validate(user),
+        access_token=pair.access_token,
+        refresh_token=pair.refresh_token,
     )
 
 

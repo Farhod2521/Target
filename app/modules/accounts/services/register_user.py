@@ -19,7 +19,8 @@ def register_user(
     *,
     email: str,
     full_name: str,
-    password: str,
+    password: str = "",
+    password_hash: str = "",
     phone: str = "",
     language: str = Language.UZ,
     referral_code: str = "",
@@ -29,7 +30,7 @@ def register_user(
         full_name=full_name.strip(),
         phone=phone,
         language=language,
-        password=make_password(password),
+        password=password_hash or make_password(password),
         date_joined=utcnow(),
     )
     db.add(user)
