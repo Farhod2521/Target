@@ -60,6 +60,20 @@ def client(pg_factory: sessionmaker[Session]) -> Iterator[TestClient]:
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def queued(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, tuple[object, ...]]]:
+    """Celery tasks the flow sent, kept here instead of going to a broker."""
+    from celery import Task
+
+    sent: list[tuple[str, tuple[object, ...]]] = []
+
+    def apply_async(self, args=None, kwargs=None, **options):  # type: ignore[no-untyped-def]
+        sent.append((self.name, tuple(args or ())))
+
+    monkeypatch.setattr(Task, "apply_async", apply_async)
+    return sent
+
+
 def sign_up(client: TestClient, **extra: str) -> dict[str, str]:
     client.post("/api/v1/auth/signup", json=SIGNUP | extra)
     email = extra.get("email", SIGNUP["email"])
