@@ -77,7 +77,9 @@ def sync_insights_task(ad_account_id: str, attempt: int = 0) -> str:
             if exc.cause == TEMPORARY:
                 word = _again(ad_account_id, attempt=attempt, word=word)
             return _note(FIGURES_SWEEP, ad_account_id, word)
-        counted = f"rows:{summary.rows} segments:{summary.segment_rows} calls:{summary.calls}"
+        counted = (
+            f"rows:{summary.rows} segments:{summary.segment_rows} calls:{summary.calls}"
+        )
         if summary.complete:
             return _note(FIGURES_SWEEP, ad_account_id, counted)
         word = f"{counted} stopped:{summary.stopped_at} by:{summary.stopped_by}"
@@ -102,7 +104,9 @@ def _read_today(db: object, ad_account_id: str, *, people_after_seconds: int) ->
         summary = sync_today(
             db,  # type: ignore[arg-type]
             ad_account=account,
-            people_after=timedelta(seconds=people_after_seconds) if people_after_seconds else None,
+            people_after=timedelta(seconds=people_after_seconds)
+            if people_after_seconds
+            else None,
         )
     except SyncAlreadyRunning:
         return "already_running"
@@ -192,14 +196,18 @@ def purge_old_figures_task() -> str:
 @celery_app.task(queue="sync", ignore_result=True)
 def purge_breakdowns_task() -> str:
     with task_session() as db:
-        removed = purge_breakdowns(db, before=retention_floor(today=localtime(utcnow()).date()))
+        removed = purge_breakdowns(
+            db, before=retention_floor(today=localtime(utcnow()).date())
+        )
     return f"purged:{removed}"
 
 
 @celery_app.task(queue="sync", ignore_result=True)
 def purge_ad_metrics_task() -> str:
     with task_session() as db:
-        removed = purge_ad_metrics(db, before=ad_retention_floor(today=localtime(utcnow()).date()))
+        removed = purge_ad_metrics(
+            db, before=ad_retention_floor(today=localtime(utcnow()).date())
+        )
     return f"purged:{removed}"
 
 

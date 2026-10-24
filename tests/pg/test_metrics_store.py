@@ -75,3 +75,13 @@ def test_store_restate_and_read_back(db: Session) -> None:
     )
     assert [int(day.spend_minor) for day in days] == [500, 900]
     assert selectors.short_pages_today(db, owner=owner, account=account, now=utcnow()) == set()
+
+
+def test_lead_sources_endpoint(client) -> None:  # type: ignore[no-untyped-def]
+    from tests.pg.conftest import sign_up
+
+    headers = sign_up(client)
+    answer = client.get("/api/v1/leads/sources?days=7", headers=headers)
+    assert answer.status_code == 200, answer.text
+    body = answer.json()
+    assert body["days"] == 7 and body["report"]["rows"] == []

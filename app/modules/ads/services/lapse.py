@@ -32,7 +32,9 @@ from app.modules.audit.services import emit
 from app.modules.integrations.models import AdAccount
 
 logger = logging.getLogger(__name__)
-STOP_REASON = "Obuna muddati tugagani uchun to'xtatildi. To'lov qilinsa, o'zi qayta yoqiladi."
+STOP_REASON = (
+    "Obuna muddati tugagani uchun to'xtatildi. To'lov qilinsa, o'zi qayta yoqiladi."
+)
 RESUME_REASON = "To'lov qilingani uchun qayta yoqildi."
 REMOVE_REASON = "Obuna 3 kun ichida yangilanmagani uchun o'chirildi."
 
@@ -61,7 +63,9 @@ def open_lapse_hold(db: Session, *, owner: User, now: datetime) -> LapseHold | N
     if ended is None:
         return None
     known = db.scalar(
-        select(LapseHold.id).where(LapseHold.owner_id == owner.id, LapseHold.ended_at == ended)
+        select(LapseHold.id).where(
+            LapseHold.owner_id == owner.id, LapseHold.ended_at == ended
+        )
     )
     if known is not None:
         return None
@@ -148,7 +152,9 @@ def settle_lapse(db: Session, *, hold: LapseHold, now: datetime) -> str:
     if not hold.is_open:
         return "done"
     if _has_live(db, hold.owner):
-        return "later" if resume_after_lapse(db, hold=hold, now=now) is None else "resumed"
+        return (
+            "later" if resume_after_lapse(db, hold=hold, now=now) is None else "resumed"
+        )
     if remove_after_lapse(db, hold=hold, now=now) is not None:
         return "removed"
     stop_running(db, hold=hold)
@@ -218,7 +224,9 @@ def remove_after_lapse(db: Session, *, hold: LapseHold, now: datetime) -> int | 
     return removed
 
 
-def _close(db: Session, *, hold: LapseHold, field: str, name: str, now: datetime) -> None:
+def _close(
+    db: Session, *, hold: LapseHold, field: str, name: str, now: datetime
+) -> None:
     setattr(hold, field, now)
     emit(
         db,

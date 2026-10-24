@@ -23,7 +23,9 @@ from core.ads import page_of_post, page_of_promoted
 # -- the page an ad set promotes ------------------------------------------------------
 
 
-def pages_by_adset(db: Session, *, owner: User, adset_ids: Iterable[str]) -> dict[str, str]:
+def pages_by_adset(
+    db: Session, *, owner: User, adset_ids: Iterable[str]
+) -> dict[str, str]:
     ids = list(adset_ids)
     if not ids:
         return {}
@@ -71,9 +73,12 @@ def _from_adverts(db: Session, *, owner: User, adset_ids: list[str]) -> dict[str
             external_id: page or page_of_post(post)
             for external_id, page, post in db.execute(
                 select(
-                    AdCreative.external_id, AdCreative.page_id, AdCreative.post_external_id
+                    AdCreative.external_id,
+                    AdCreative.page_id,
+                    AdCreative.post_external_id,
                 ).where(
-                    AdCreative.owner_id == owner.id, AdCreative.external_id.in_(creatives)
+                    AdCreative.owner_id == owner.id,
+                    AdCreative.external_id.in_(creatives),
                 )
             )
         }
@@ -241,7 +246,9 @@ def pages_advertising(db: Session, *, owner: User) -> tuple[PageAdvertising, ...
         )
         for pair in pairs
     ) + tuple(
-        _advertising(db, owner=owner, page=page, sole=sole, launches=launches, placed=placed)
+        _advertising(
+            db, owner=owner, page=page, sole=sole, launches=launches, placed=placed
+        )
         for page in pages
         if page.id not in paired
     )
@@ -322,7 +329,9 @@ def _placed_by_mirror(
             .where(AdSet.owner_id == owner.id, Campaign.external_id.in_(unplaced))
         ).all()
     )
-    by_adset = pages_by_adset(db, owner=owner, adset_ids=[group for _c, group in groups])
+    by_adset = pages_by_adset(
+        db, owner=owner, adset_ids=[group for _c, group in groups]
+    )
     known = {page.external_id: page.id for page in pages}
     found: dict[str, uuid.UUID] = {}
     for campaign, group in groups:
@@ -339,13 +348,17 @@ def _launches(db: Session, *, owner: User) -> Launches:
             account_id,
             tuple(
                 external_id
-                for external_id in ref_field.ref_ids(created_refs or {}, LaunchStep.CAMPAIGN)
+                for external_id in ref_field.ref_ids(
+                    created_refs or {}, LaunchStep.CAMPAIGN
+                )
                 if not is_dry_run_id(external_id)
             ),
         )
         for page_id, account_id, created_refs in db.execute(
             select(
-                CampaignLaunch.page_id, CampaignLaunch.ad_account_id, CampaignLaunch.created_refs
+                CampaignLaunch.page_id,
+                CampaignLaunch.ad_account_id,
+                CampaignLaunch.created_refs,
             ).where(CampaignLaunch.owner_id == owner.id)
         )
     ]
@@ -451,7 +464,9 @@ def _built_elsewhere(
             Campaign.provider == META,
             on_account,
             or_(paying.is_active.is_(True), _observed(paying)),
-            or_(Campaign.external_id.in_(unplaced), Campaign.external_id.in_(groupless)),
+            or_(
+                Campaign.external_id.in_(unplaced), Campaign.external_id.in_(groupless)
+            ),
         )
     )
     return frozenset(str(campaign) for campaign in kept), count or 0
@@ -502,14 +517,18 @@ def page_scope(db: Session, *, owner: User) -> PageScope:
             continue
         page_of[adset_id] = page
     campaign_of = {
-        adset_id: campaign for adset_id, campaign in groups.items() if adset_id in page_of
+        adset_id: campaign
+        for adset_id, campaign in groups.items()
+        if adset_id in page_of
     }
     kept = set(campaign_of.values())
     return PageScope(
         pages=pages,
         page_of=page_of,
         campaign_of=campaign_of,
-        blocked=frozenset(campaign for campaign in groups.values() if campaign not in kept),
+        blocked=frozenset(
+            campaign for campaign in groups.values() if campaign not in kept
+        ),
         outside=frozenset(outside),
         current=current,
         account_of={
@@ -554,7 +573,11 @@ def _groups_of(
         )
         .join(Campaign, Campaign.id == AdSet.campaign_id)
         .outerjoin(AdAccount, AdAccount.id == Campaign.ad_account_id)
-        .where(AdSet.owner_id == owner.id, AdSet.provider == META, Campaign.external_id != "")
+        .where(
+            AdSet.owner_id == owner.id,
+            AdSet.provider == META,
+            Campaign.external_id != "",
+        )
     )
     for adset_id, campaign, account, active, seen in rows:
         groups[adset_id] = campaign

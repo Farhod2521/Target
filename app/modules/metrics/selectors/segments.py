@@ -33,7 +33,11 @@ def breakdown_where(
 ) -> list[ColumnElement[bool]]:
     from app.modules.integrations.selectors import active_ad_account
 
-    where = [B.owner_id == owner.id, B.breakdown_kind == str(kind), B.level == str(level)]
+    where = [
+        B.owner_id == owner.id,
+        B.breakdown_kind == str(kind),
+        B.level == str(level),
+    ]
     if account is EVERY_ACCOUNT:
         return where
     chosen = account if account is not None else active_ad_account(db, owner=owner)
@@ -73,7 +77,14 @@ def newest_breakdown_date(
 
 
 def _window(
-    db: Session, *, owner: User, kind: str, level: str, account: Account, since: date, until: date
+    db: Session,
+    *,
+    owner: User,
+    kind: str,
+    level: str,
+    account: Account,
+    since: date,
+    until: date,
 ) -> list[ColumnElement[bool]]:
     return [
         *breakdown_where(db, owner=owner, kind=kind, level=level, account=account),
@@ -96,7 +107,13 @@ def segment_costs(
     scope: Scope = EVERYTHING,
 ) -> SegmentComparison:
     where = _window(
-        db, owner=owner, kind=kind, level=level, account=account, since=since, until=until
+        db,
+        owner=owner,
+        kind=kind,
+        level=level,
+        account=account,
+        since=since,
+        until=until,
     )
     if external_id:
         where.append(B.external_id == external_id)
@@ -155,7 +172,13 @@ def segment_leads(
     scope: Scope = EVERYTHING,
 ) -> list[tuple[str, int]]:
     where = _window(
-        db, owner=owner, kind=kind, level=level, account=account, since=since, until=until
+        db,
+        owner=owner,
+        kind=kind,
+        level=level,
+        account=account,
+        since=since,
+        until=until,
     )
     return _ranked(db, B.leads_reported, limit=limit, where=[*where, scope(B)])
 
@@ -173,14 +196,23 @@ def segment_showing(
     scope: Scope = EVERYTHING,
 ) -> list[tuple[str, int]]:
     where = _window(
-        db, owner=owner, kind=kind, level=level, account=account, since=since, until=until
+        db,
+        owner=owner,
+        kind=kind,
+        level=level,
+        account=account,
+        since=since,
+        until=until,
     )
     return _ranked(db, B.impressions, limit=limit, where=[*where, scope(B)])
 
 
 def segment_engagement(row: MetricsBreakdown) -> EngagementFigures:
     return EngagementFigures(
-        impressions=row.impressions, reach=row.reach, clicks=row.clicks, spend_minor=row.spend_minor
+        impressions=row.impressions,
+        reach=row.reach,
+        clicks=row.clicks,
+        spend_minor=row.spend_minor,
     )
 
 
@@ -196,7 +228,13 @@ def segment_spread(
     scope: Scope = EVERYTHING,
 ) -> list[tuple[str, str, int, int]]:
     where = _window(
-        db, owner=owner, kind=kind, level=level, account=account, since=since, until=until
+        db,
+        owner=owner,
+        kind=kind,
+        level=level,
+        account=account,
+        since=since,
+        until=until,
     )
     rows = db.execute(
         select(
@@ -208,4 +246,7 @@ def segment_spread(
         .where(*where, scope(B))
         .group_by(B.campaign_external_id, B.breakdown_value)
     )
-    return [(campaign, value, int(spend), int(shown)) for campaign, value, spend, shown in rows]
+    return [
+        (campaign, value, int(spend), int(shown))
+        for campaign, value, spend, shown in rows
+    ]

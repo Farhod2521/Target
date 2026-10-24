@@ -64,7 +64,9 @@ def sync_ad_account_task(ad_account_id: str) -> str:
         account = db.get(AdAccount, pk) if pk else None
         if account is None:
             return "gone"
-        note_sync_outcome(sweep=MIRROR_SWEEP, ad_account_id=ad_account_id, outcome=SYNC_STARTED)
+        note_sync_outcome(
+            sweep=MIRROR_SWEEP, ad_account_id=ad_account_id, outcome=SYNC_STARTED
+        )
         try:
             summary = sync_ad_account(db, ad_account=account)
         except SyncAlreadyRunning:
@@ -76,7 +78,9 @@ def sync_ad_account_task(ad_account_id: str) -> str:
             outcome = f"failed:{exc.cause}" if exc.cause else "failed"
         else:
             outcome = _counted(summary)
-        note_sync_outcome(sweep=MIRROR_SWEEP, ad_account_id=ad_account_id, outcome=outcome)
+        note_sync_outcome(
+            sweep=MIRROR_SWEEP, ad_account_id=ad_account_id, outcome=outcome
+        )
         return outcome
 
 
@@ -151,7 +155,9 @@ def drop_empty_campaign_task(self: Task, log_id: str) -> str:
     except (TemporaryFailure, RateLimited) as exc:
         if self.request.retries >= SWEEP_RETRIES:
             return "given up"
-        raise self.retry(exc=exc, countdown=SWEEP_RETRY_SECONDS * (self.request.retries + 1)) from exc
+        raise self.retry(
+            exc=exc, countdown=SWEEP_RETRY_SECONDS * (self.request.retries + 1)
+        ) from exc
 
 
 # -- a lapsed subscription ------------------------------------------------------------

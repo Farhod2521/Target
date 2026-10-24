@@ -69,7 +69,9 @@ def _queue_today(db: Session, account: AdAccount) -> None:
     on_commit(
         db,
         lambda: sync_today_task.apply_async(
-            (account_id,), kwargs={"people_after_seconds": PEOPLE_ASKED_SECONDS}, queue=REFRESH_QUEUE
+            (account_id,),
+            kwargs={"people_after_seconds": PEOPLE_ASKED_SECONDS},
+            queue=REFRESH_QUEUE,
         ),
     )
 
@@ -117,7 +119,9 @@ def chase_missing_leads(db: Session, *, ad_account: AdAccount) -> int:
     """Ask the lead reconciler for pages Meta counted more of today than we hold."""
     from app.modules.leads.tasks import reconcile_page_task
 
-    ids = short_pages_today(db, owner=ad_account.owner, account=ad_account, now=utcnow())
+    ids = short_pages_today(
+        db, owner=ad_account.owner, account=ad_account, now=utcnow()
+    )
     if not ids:
         return 0
     pages = db.scalars(
@@ -155,7 +159,10 @@ def _purge(db: Session, model: object, *where: object) -> int:
 
 def purge_ad_metrics(db: Session, *, before: date) -> int:
     removed = _purge(
-        db, MetricsDaily, MetricsDaily.level == str(MetricLevel.AD), MetricsDaily.date < before
+        db,
+        MetricsDaily,
+        MetricsDaily.level == str(MetricLevel.AD),
+        MetricsDaily.date < before,
     )
     if removed:
         logger.info("purged %s ad-level metric rows older than %s", removed, before)
@@ -180,10 +187,16 @@ def report_unfinished_figures(db: Session, *, now: datetime) -> int:
     ]
     if not watched:
         return 0
-    said = last_sync_outcomes(sweep=FIGURES_SWEEP, ad_account_ids=[str(pk) for pk, _ in watched])
+    said = last_sync_outcomes(
+        sweep=FIGURES_SWEEP, ad_account_ids=[str(pk) for pk, _ in watched]
+    )
     died = [name for pk, name in watched if said.get(str(pk)) == SYNC_STARTED]
     never = [name for pk, name in watched if str(pk) not in said]
-    failed = [name for pk, name in watched if said.get(str(pk), "").startswith(FAILED_OUTCOMES)]
+    failed = [
+        name
+        for pk, name in watched
+        if said.get(str(pk), "").startswith(FAILED_OUTCOMES)
+    ]
     if not died and not never and not failed:
         return 0
     logger.error(
@@ -203,7 +216,9 @@ def report_unfinished_figures(db: Session, *, now: datetime) -> int:
 
 def save_cards(db: Session, *, owner: User, keys: Iterable[str]) -> tuple[CardKey, ...]:
     chosen = chosen_keys(list(keys))
-    row = db.scalars(select(MetricPreference).where(MetricPreference.owner_id == owner.id)).first()
+    row = db.scalars(
+        select(MetricPreference).where(MetricPreference.owner_id == owner.id)
+    ).first()
     if row is None:
         row = MetricPreference(owner_id=owner.id)
         db.add(row)

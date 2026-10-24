@@ -88,9 +88,17 @@ def _dispatch(log_id: str) -> None:
 
 
 def _delete(
-    db: Session, *, user: User, level: str, external_id: str, action: str, origin: Origin
+    db: Session,
+    *,
+    user: User,
+    level: str,
+    external_id: str,
+    action: str,
+    origin: Origin,
 ) -> ActionLog:
-    target = target_for(db, user=user, level=level, external_id=external_id, aspect=REMOVAL)
+    target = target_for(
+        db, user=user, level=level, external_id=external_id, aspect=REMOVAL
+    )
     return open_change(
         db,
         user=user,
@@ -164,7 +172,9 @@ def request_ad_delete(
     )
     siblings = db.scalar(
         select(Ad.id)
-        .where(Ad.owner_id == user.id, Ad.adset_id == target.adset_id, Ad.id != target.id)
+        .where(
+            Ad.owner_id == user.id, Ad.adset_id == target.adset_id, Ad.id != target.id
+        )
         .limit(1)
     )
     if siblings is None:
@@ -208,7 +218,9 @@ def apply_delete(db: Session, *, log_id: str) -> str:
         fail_log(db, log=log, code="gone", message="object is no longer in the mirror")
         return "gone"
     try:
-        _account, token = target_account_and_token(target=target, level=log.target_level)
+        _account, token = target_account_and_token(
+            target=target, level=log.target_level
+        )
     except (NoAdAccount, ConnectionUnusable) as exc:
         fail_log(db, log=log, code="connection", message=exc.message)
         return "unusable"
@@ -239,7 +251,9 @@ def apply_delete(db: Session, *, log_id: str) -> str:
     return "applied"
 
 
-def _deleted_event(db: Session, *, log: ActionLog, dry_run: bool, reason: str = "") -> None:
+def _deleted_event(
+    db: Session, *, log: ActionLog, dry_run: bool, reason: str = ""
+) -> None:
     payload: dict[str, Any] = {
         "level": log.target_level,
         "provider": log.target_provider,
@@ -295,7 +309,9 @@ def drop_empty_campaign(db: Session, *, log_id: str) -> str:
             account=mirror.ad_account,
             row=None,
         )
-    with goal_lock(account_id=str(row.ad_account_id), page_id=str(row.page_id), goal=row.goal):
+    with goal_lock(
+        account_id=str(row.ad_account_id), page_id=str(row.page_id), goal=row.goal
+    ):
         return _drop_if_empty(
             db,
             owner=owner,
@@ -331,7 +347,9 @@ def _drop_if_empty(
         return "unusable"
     if held:
         return "kept"
-    mirror = managed_target(db, owner=owner, level=ManagedLevel.CAMPAIGN, external_id=ref.id)
+    mirror = managed_target(
+        db, owner=owner, level=ManagedLevel.CAMPAIGN, external_id=ref.id
+    )
     dry_run = bool(settings.ads_dry_run)
     log = open_log(
         db,
@@ -364,7 +382,9 @@ def _drop_if_empty(
     return "deleted"
 
 
-def _forget(db: Session, *, owner: User, campaign_id: str, row: GoalCampaign | None) -> None:
+def _forget(
+    db: Session, *, owner: User, campaign_id: str, row: GoalCampaign | None
+) -> None:
     if row is not None:
         row.retired_at = utcnow()
     db.execute(

@@ -71,7 +71,8 @@ def _plain(text: str) -> str:
 def sync_media(db: Session, *, ad_account_id: uuid.UUID | str) -> str:
     account = db.scalars(
         select(AdAccount).where(
-            AdAccount.id == uuid.UUID(str(ad_account_id)), AdAccount.provider == PROVIDER
+            AdAccount.id == uuid.UUID(str(ad_account_id)),
+            AdAccount.provider == PROVIDER,
         )
     ).first()
     if account is None:
@@ -85,7 +86,9 @@ def sync_media(db: Session, *, ad_account_id: uuid.UUID | str) -> str:
         what="media list",
         subject=account.external_id,
     )
-    stored = assets is not None and _store_account(db, account=account, assets=assets, read_at=read_at)
+    stored = assets is not None and _store_account(
+        db, account=account, assets=assets, read_at=read_at
+    )
     pages = _page_library(db, account.owner)
     if assets is not None:
         account.media_synced_at = utcnow()
@@ -117,7 +120,9 @@ def _store_account(
         )
     except DatabaseError:
         db.rollback()
-        logger.exception("media library not stored", extra={"account": account.external_id})
+        logger.exception(
+            "media library not stored", extra={"account": account.external_id}
+        )
         return False
     return True
 
@@ -163,12 +168,16 @@ def _page_posts(db: Session, *, owner: User, page: PageAccount, token: str) -> i
     return len(posts)
 
 
-def _instagram_library(db: Session, *, owner: User, page: PageAccount, token: str) -> int:
+def _instagram_library(
+    db: Session, *, owner: User, page: PageAccount, token: str
+) -> int:
     from app.modules.integrations.selectors import chosen_instagram_ids
     from app.modules.integrations.services import sync_instagram_profile
 
     if not page.instagram_user_id:
-        logger.info("instagram not linked", extra={"page": page.external_id, "media": 0})
+        logger.info(
+            "instagram not linked", extra={"page": page.external_id, "media": 0}
+        )
         return 0
     sync_instagram_profile(db, page=page, token=token)
     counted = 0
@@ -218,7 +227,9 @@ def _instagram_account(
     return len(media)
 
 
-def _read(call: Callable[[], list[MediaDTO]], *, what: str, subject: str) -> list[MediaDTO] | None:
+def _read(
+    call: Callable[[], list[MediaDTO]], *, what: str, subject: str
+) -> list[MediaDTO] | None:
     try:
         return call()
     except MetaError as exc:
@@ -257,7 +268,11 @@ def _store(
         assets=assets,
         instagram_user_id=instagram_user_id,
     )
-    scope = [MediaAsset.page_id == page.id] if page else [MediaAsset.ad_account_id == ad_account.id]  # type: ignore[union-attr]
+    scope = (
+        [MediaAsset.page_id == page.id]
+        if page
+        else [MediaAsset.ad_account_id == ad_account.id]
+    )  # type: ignore[union-attr]
     if page and instagram_user_id:
         own = instagram_user_id == page.instagram_user_id
         scope.append(
@@ -311,7 +326,11 @@ def upsert_media(
             db,
             owner=owner,
             before=captions,
-            after={asset.external_id: asset.name for asset in assets if asset.kind in IG_KINDS},
+            after={
+                asset.external_id: asset.name
+                for asset in assets
+                if asset.kind in IG_KINDS
+            },
         )
     return seen
 
@@ -419,7 +438,9 @@ def follow_captions(
     moved = 0
     for row in rows:
         media_id = row.media_asset.external_id if row.media_asset else ""
-        if media_id not in changed or not same_words(row.primary_text, before[media_id]):
+        if media_id not in changed or not same_words(
+            row.primary_text, before[media_id]
+        ):
             continue
         row.primary_text = changed[media_id]
         moved += 1
@@ -483,7 +504,9 @@ def request_media_refresh(db: Session, *, ad_account: AdAccount) -> None:
     ):
         raise MediaAskedRecently
     account_id = str(ad_account.id)
-    on_commit(db, lambda: sync_media_task.apply_async((account_id,), queue=REFRESH_QUEUE))
+    on_commit(
+        db, lambda: sync_media_task.apply_async((account_id,), queue=REFRESH_QUEUE)
+    )
 
 
 def refresh_media_on_open(db: Session, *, ad_account: AdAccount) -> bool:
@@ -500,7 +523,9 @@ def refresh_media_on_open(db: Session, *, ad_account: AdAccount) -> bool:
     ):
         return False
     account_id = str(ad_account.id)
-    on_commit(db, lambda: sync_media_task.apply_async((account_id,), queue=REFRESH_QUEUE))
+    on_commit(
+        db, lambda: sync_media_task.apply_async((account_id,), queue=REFRESH_QUEUE)
+    )
     return True
 
 

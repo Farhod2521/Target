@@ -32,14 +32,18 @@ from app.modules.integrations.models import AdAccount
 
 _LOADS: dict[str, Any] = {
     ManagedLevel.CAMPAIGN: lambda: joinedload(Campaign.ad_account),
-    ManagedLevel.ADSET: lambda: joinedload(AdSet.campaign).joinedload(Campaign.ad_account),
-    ManagedLevel.AD: lambda: joinedload(Ad.adset)
-    .joinedload(AdSet.campaign)
-    .joinedload(Campaign.ad_account),
+    ManagedLevel.ADSET: lambda: joinedload(AdSet.campaign).joinedload(
+        Campaign.ad_account
+    ),
+    ManagedLevel.AD: lambda: (
+        joinedload(Ad.adset).joinedload(AdSet.campaign).joinedload(Campaign.ad_account)
+    ),
 }
 
 
-def managed_target(db: Session, *, owner: User, level: str, external_id: str) -> Any | None:
+def managed_target(
+    db: Session, *, owner: User, level: str, external_id: str
+) -> Any | None:
     model = MIRRORS.get(level)
     if model is None:
         return None
@@ -51,7 +55,9 @@ def managed_target(db: Session, *, owner: User, level: str, external_id: str) ->
     ).first()
 
 
-def shown_target(db: Session, *, owner: User, level: str, external_id: str) -> Any | None:
+def shown_target(
+    db: Session, *, owner: User, level: str, external_id: str
+) -> Any | None:
     from app.modules.integrations.selectors import enabled_pages, page_shown
 
     row = managed_target(db, owner=owner, level=level, external_id=external_id)
@@ -105,7 +111,9 @@ class HistoryRow:
     moment: str = ""
 
 
-def campaign_history(db: Session, *, owner: User, campaign: Campaign) -> list[HistoryRow]:
+def campaign_history(
+    db: Session, *, owner: User, campaign: Campaign
+) -> list[HistoryRow]:
     log = _log()
     adsets = list(
         db.scalars(
@@ -176,7 +184,9 @@ def budget_floor(*, target: Any, level: str) -> int:
     )
 
 
-def latest_actions(db: Session, *, owner: User, external_ids: list[str]) -> dict[str, Any]:
+def latest_actions(
+    db: Session, *, owner: User, external_ids: list[str]
+) -> dict[str, Any]:
     if not external_ids:
         return {}
     log = _log()
@@ -194,7 +204,9 @@ def still_running(rows: Sequence[Any | None]) -> bool:
 
     cutoff = utcnow() - timedelta(minutes=ACTION_STALE_MINUTES)
     return any(
-        row is not None and row.status == ActionStatus.PENDING and row.created_at >= cutoff
+        row is not None
+        and row.status == ActionStatus.PENDING
+        and row.created_at >= cutoff
         for row in rows
     )
 
@@ -250,14 +262,18 @@ def campaigns_for(
     if external_ids is not None:
         query = query.where(Campaign.external_id.in_(list(external_ids)))
     else:
-        account = ad_account if ad_account is not None else cabinet_account(db, owner=owner)
+        account = (
+            ad_account if ad_account is not None else cabinet_account(db, owner=owner)
+        )
         if account is None:
             return []
         query = query.where(Campaign.ad_account_id == account.id)
     return _counted(list(db.scalars(_listed(query)).unique()))
 
 
-def listed_campaign(db: Session, *, owner: User, campaign_id: uuid.UUID) -> Campaign | None:
+def listed_campaign(
+    db: Session, *, owner: User, campaign_id: uuid.UUID
+) -> Campaign | None:
     found = _counted(
         list(
             db.scalars(
@@ -275,7 +291,9 @@ def listed_campaign(db: Session, *, owner: User, campaign_id: uuid.UUID) -> Camp
     return campaign
 
 
-def campaign_detail(db: Session, *, owner: User, campaign_id: uuid.UUID) -> Campaign | None:
+def campaign_detail(
+    db: Session, *, owner: User, campaign_id: uuid.UUID
+) -> Campaign | None:
     campaign = db.scalars(
         select(Campaign)
         .options(
@@ -319,10 +337,14 @@ def is_running(row: Campaign) -> bool:
     if str(row.delivery) not in NOT_RUNNING:
         return True
     last = getattr(row, "last_action", None)
-    return last is not None and last.action == ActionType.RESUME and still_running([last])
+    return (
+        last is not None and last.action == ActionType.RESUME and still_running([last])
+    )
 
 
-def split_running(*, campaigns: list[Campaign]) -> tuple[list[Campaign], list[Campaign]]:
+def split_running(
+    *, campaigns: list[Campaign]
+) -> tuple[list[Campaign], list[Campaign]]:
     running = [row for row in campaigns if is_running(row)]
     return running, [row for row in campaigns if not is_running(row)]
 
@@ -342,7 +364,9 @@ def live_landing_urls(db: Session, *, owner: User) -> list[str]:
         select(AdCreative.link_url, count)
         .where(
             AdCreative.owner_id == owner.id,
-            AdCreative.external_id.in_(_live_creatives().where(Ad.owner_id == owner.id)),
+            AdCreative.external_id.in_(
+                _live_creatives().where(Ad.owner_id == owner.id)
+            ),
             AdCreative.link_url != "",
         )
         .group_by(AdCreative.link_url)

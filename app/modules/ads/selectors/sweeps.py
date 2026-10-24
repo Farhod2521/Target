@@ -78,7 +78,9 @@ def nightly_swept_account_ids(db: Session) -> list[uuid.UUID]:
     return list(db.scalars(_nightly().with_only_columns(AdAccount.id)))
 
 
-def nightly_due_account_ids(db: Session, *, now: datetime, hour: int) -> list[uuid.UUID]:
+def nightly_due_account_ids(
+    db: Session, *, now: datetime, hour: int
+) -> list[uuid.UUID]:
     from app.modules.integrations.selectors import owners_at_hour
 
     rows = list(
@@ -93,7 +95,8 @@ def nightly_due_account_ids(db: Session, *, now: datetime, hour: int) -> list[uu
 
 def last_sync_outcomes(*, sweep: str, ad_account_ids: Iterable[Any]) -> dict[str, str]:
     keys = {
-        SYNC_OUTCOME_KEY.format(sweep=sweep, account_id=pk): str(pk) for pk in ad_account_ids
+        SYNC_OUTCOME_KEY.format(sweep=sweep, account_id=pk): str(pk)
+        for pk in ad_account_ids
     }
     found = cache.get_many(list(keys))
     return {keys[key]: str(word) for key, word in found.items()}
@@ -145,14 +148,18 @@ def today_in_flight(*, ad_account_ids: Iterable[Any]) -> bool:
     return any(word in IN_FLIGHT for word in said.values())
 
 
-def still_waiting(db: Session, *, owner: User, account_ids: Iterable[str], since: str) -> bool:
+def still_waiting(
+    db: Session, *, owner: User, account_ids: Iterable[str], since: str
+) -> bool:
     try:
         ids = sorted({uuid.UUID(pk) for pk in account_ids})
     except ValueError:
         return False
     accounts = list(
         db.scalars(
-            select(AdAccount).where(AdAccount.owner_id == owner.id, AdAccount.id.in_(ids))
+            select(AdAccount).where(
+                AdAccount.owner_id == owner.id, AdAccount.id.in_(ids)
+            )
         )
     )
     if not ids or len(accounts) != len(ids):

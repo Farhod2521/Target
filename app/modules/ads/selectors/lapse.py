@@ -44,9 +44,9 @@ def lapse_targets(db: Session, *, owner: User) -> list[LapseTarget]:
     found = [
         LapseTarget(ManagedLevel.CAMPAIGN, external_id, account, _spends(delivery))
         for external_id, account, delivery in db.execute(
-            select(Campaign.external_id, Campaign.ad_account_id, Campaign.delivery).where(
-                Campaign.owner_id == owner.id, Campaign.external_id.in_(campaigns)
-            )
+            select(
+                Campaign.external_id, Campaign.ad_account_id, Campaign.delivery
+            ).where(Campaign.owner_id == owner.id, Campaign.external_id.in_(campaigns))
         )
     ]
     found += [
@@ -87,7 +87,11 @@ def _created(db: Session, model: Any, *, owner: User) -> Iterable[dict[str, Any]
 
 
 def _real(ids: set[str]) -> set[str]:
-    return {external_id for external_id in ids if external_id and not is_dry_run_id(external_id)}
+    return {
+        external_id
+        for external_id in ids
+        if external_id and not is_dry_run_id(external_id)
+    }
 
 
 def _spends(delivery: str) -> bool:
@@ -116,7 +120,9 @@ def lapse_candidates(db: Session, *, now: datetime) -> dict[uuid.UUID, datetime]
 
 def _makers(db: Session, model: Any) -> Iterable[uuid.UUID]:
     return db.scalars(
-        select(model.owner_id).where(model.status == str(LaunchStatus.CREATED)).distinct()
+        select(model.owner_id)
+        .where(model.status == str(LaunchStatus.CREATED))
+        .distinct()
     )
 
 
@@ -168,4 +174,6 @@ def stops_in_flight(stops: list[Any]) -> bool:
 
 
 def last_warning_due(*, hold: LapseHold, now: datetime) -> bool:
-    return hold.is_open and hold.started_at + LAPSE_LAST_WARNING <= now < hold.delete_after
+    return (
+        hold.is_open and hold.started_at + LAPSE_LAST_WARNING <= now < hold.delete_after
+    )

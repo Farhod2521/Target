@@ -57,7 +57,9 @@ def target_account_and_token(*, target: Any, level: str) -> tuple[AdAccount, str
     return account, token_for(ad_account=account)
 
 
-def launch_account_and_token(db: Session, *, launch: CampaignLaunch) -> tuple[AdAccount, str]:
+def launch_account_and_token(
+    db: Session, *, launch: CampaignLaunch
+) -> tuple[AdAccount, str]:
     account = db.get(AdAccount, launch.ad_account_id)
     if account is None:
         raise NoAdAccount
@@ -102,7 +104,9 @@ def launch_page_for(db: Session, *, launch: CampaignLaunch) -> PageAccount:
     return page
 
 
-def launch_page_and_token(db: Session, *, launch: CampaignLaunch) -> tuple[PageAccount, str]:
+def launch_page_and_token(
+    db: Session, *, launch: CampaignLaunch
+) -> tuple[PageAccount, str]:
     page = launch_page_for(db, launch=launch)
     return page, _decrypted(page)
 

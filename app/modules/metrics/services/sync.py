@@ -77,7 +77,9 @@ PEOPLE_STEP = "people"
 # -- what a failed call means ---------------------------------------------------------
 
 
-def refusal_is_the_accounts(db: Session, ad_account: AdAccount, *, exc: PermissionDenied) -> bool:
+def refusal_is_the_accounts(
+    db: Session, ad_account: AdAccount, *, exc: PermissionDenied
+) -> bool:
     """A refusal with a token Meta still calls valid lost one account, not the login."""
     from app.modules.integrations.services import mark_unusable, verify_connection
 
@@ -86,7 +88,9 @@ def refusal_is_the_accounts(db: Session, ad_account: AdAccount, *, exc: Permissi
         return True
     db.refresh(connection, attribute_names=["status"])
     if connection.status in USABLE_CONNECTION_STATUSES:
-        mark_unusable(db, connection=connection, status=ConnectionStatus.INVALID, code=exc.code)
+        mark_unusable(
+            db, connection=connection, status=ConnectionStatus.INVALID, code=exc.code
+        )
         db.commit()
     return False
 
@@ -95,7 +99,10 @@ def _mark_invalid(db: Session, ad_account: AdAccount, exc: AuthFailed) -> None:
     from app.modules.integrations.services import mark_unusable
 
     mark_unusable(
-        db, connection=ad_account.connection, status=ConnectionStatus.INVALID, code=exc.code
+        db,
+        connection=ad_account.connection,
+        status=ConnectionStatus.INVALID,
+        code=exc.code,
     )
     db.commit()
 
@@ -129,7 +136,12 @@ def provider_failures(
         )
         raise SyncFailed(cause=TRUNCATED) from exc
     except RateLimited as exc:
-        logger.warning("metrics for %s at %s hit the call budget: %s", ad_account.external_id, doing, exc)
+        logger.warning(
+            "metrics for %s at %s hit the call budget: %s",
+            ad_account.external_id,
+            doing,
+            exc,
+        )
         raise SyncFailed(cause=RATE_LIMITED) from exc
     except TemporaryFailure as exc:
         logger.warning(
@@ -140,19 +152,27 @@ def provider_failures(
         )
         raise SyncFailed(cause=TEMPORARY) from exc
     except ProviderError as exc:
-        logger.warning("metrics for %s at %s failed: %s", ad_account.external_id, doing, exc)
+        logger.warning(
+            "metrics for %s at %s failed: %s", ad_account.external_id, doing, exc
+        )
         raise SyncFailed(cause=PROVIDER_ERROR) from exc
 
 
 @contextmanager
-def watched_account_failures(db: Session, ad_account: AdAccount, *, logger: Logger) -> Iterator[None]:
+def watched_account_failures(
+    db: Session, ad_account: AdAccount, *, logger: Logger
+) -> Iterator[None]:
     try:
         yield
     except AuthFailed as exc:
         _mark_invalid(db, ad_account, exc)
         raise ConnectionUnusable from exc
     except PermissionDenied as exc:
-        logger.info("no longer allowed to read the watched account %s: %s", ad_account.external_id, exc)
+        logger.info(
+            "no longer allowed to read the watched account %s: %s",
+            ad_account.external_id,
+            exc,
+        )
         raise AccountUnreadable from exc
     except ResultTruncated as exc:
         logger.error(
@@ -163,7 +183,11 @@ def watched_account_failures(db: Session, ad_account: AdAccount, *, logger: Logg
         )
         raise SyncFailed(cause=TRUNCATED) from exc
     except RateLimited as exc:
-        logger.warning("the watched account %s hit the call budget: %s", ad_account.external_id, exc)
+        logger.warning(
+            "the watched account %s hit the call budget: %s",
+            ad_account.external_id,
+            exc,
+        )
         raise SyncFailed(cause=RATE_LIMITED) from exc
     except TemporaryFailure as exc:
         logger.warning(
@@ -173,13 +197,17 @@ def watched_account_failures(db: Session, ad_account: AdAccount, *, logger: Logg
         )
         raise SyncFailed(cause=TEMPORARY) from exc
     except ProviderError as exc:
-        logger.warning("the watched account %s could not be read: %s", ad_account.external_id, exc)
+        logger.warning(
+            "the watched account %s could not be read: %s", ad_account.external_id, exc
+        )
         raise SyncFailed(cause=PROVIDER_ERROR) from exc
 
 
 def account_ref_for(ad_account: AdAccount) -> ExternalRef:
     return ExternalRef(
-        provider=ProviderName(ad_account.provider), level="account", id=ad_account.external_id
+        provider=ProviderName(ad_account.provider),
+        level="account",
+        id=ad_account.external_id,
     )
 
 
@@ -241,7 +269,9 @@ class InsightSummary:
 
     @property
     def calls(self) -> int:
-        return sum(level.calls for level in self.levels) + sum(cut.calls for cut in self.breakdowns)
+        return sum(level.calls for level in self.levels) + sum(
+            cut.calls for cut in self.breakdowns
+        )
 
     @property
     def complete(self) -> bool:
@@ -265,14 +295,18 @@ def read_level(
         )
 
 
-def window(db: Session, *, ad_account: AdAccount, today: date, level: str) -> tuple[date, date]:
+def window(
+    db: Session, *, ad_account: AdAccount, today: date, level: str
+) -> tuple[date, date]:
     newest = newest_metrics_date(db, ad_account=ad_account, level=level)
     if newest is None:
         return today - timedelta(days=BACKFILL_DAYS - 1), today
     return min(newest, today - timedelta(days=RESTATE_DAYS - 1)), today
 
 
-def _fill(db: Session, ad_account: AdAccount, *, since: date, until: date, level: str) -> tuple[int, int]:
+def _fill(
+    db: Session, ad_account: AdAccount, *, since: date, until: date, level: str
+) -> tuple[int, int]:
     pieces = [(since, until)]
     rows = calls = 0
     while pieces:
@@ -308,7 +342,9 @@ def sync_insights(db: Session, *, ad_account: AdAccount) -> InsightSummary:
         for level in INSIGHT_LEVELS:
             since, until = window(db, ad_account=ad_account, today=today, level=level)
             try:
-                rows, calls = _fill(db, ad_account, since=since, until=until, level=level)
+                rows, calls = _fill(
+                    db, ad_account, since=since, until=until, level=level
+                )
             except SyncFailed as exc:
                 if not done:
                     raise
@@ -319,26 +355,44 @@ def sync_insights(db: Session, *, ad_account: AdAccount) -> InsightSummary:
                     exc.cause,
                     [entry.level for entry in done],
                 )
-                return InsightSummary(levels=tuple(done), stopped_at=str(level), stopped_by=exc.cause)
-            done.append(LevelSummary(level=str(level), rows=rows, since=since, until=until, calls=calls))
+                return InsightSummary(
+                    levels=tuple(done), stopped_at=str(level), stopped_by=exc.cause
+                )
+            done.append(
+                LevelSummary(
+                    level=str(level), rows=rows, since=since, until=until, calls=calls
+                )
+            )
         try:
             sync_people(db, ad_account=ad_account, today=today)
         except SyncFailed as exc:
-            logger.info("people counts for %s stopped (%s)", ad_account.external_id, exc.cause)
-            return InsightSummary(levels=tuple(done), stopped_at=PEOPLE_STEP, stopped_by=exc.cause)
+            logger.info(
+                "people counts for %s stopped (%s)", ad_account.external_id, exc.cause
+            )
+            return InsightSummary(
+                levels=tuple(done), stopped_at=PEOPLE_STEP, stopped_by=exc.cause
+            )
         cuts: list[BreakdownSummary] = []
         stopped = why = ""
         for kind in NIGHTLY_BREAKDOWNS:
             try:
-                cuts.append(sync_breakdown(db, ad_account=ad_account, today=today, kind=kind))
+                cuts.append(
+                    sync_breakdown(db, ad_account=ad_account, today=today, kind=kind)
+                )
             except SyncFailed as exc:
                 logger.info(
-                    "breakdowns for %s stopped at %s (%s)", ad_account.external_id, kind, exc.cause
+                    "breakdowns for %s stopped at %s (%s)",
+                    ad_account.external_id,
+                    kind,
+                    exc.cause,
                 )
                 stopped, why = str(kind), exc.cause
                 break
         summary = InsightSummary(
-            levels=tuple(done), breakdowns=tuple(cuts), stopped_at=stopped, stopped_by=why
+            levels=tuple(done),
+            breakdowns=tuple(cuts),
+            stopped_at=stopped,
+            stopped_by=why,
         )
         logger.info(
             "insights for %s: %s rows, %s segment rows, %s calls%s",
@@ -370,20 +424,34 @@ def sync_today(
                 rows = read_level(db, ad_account, since=today, until=today, level=level)
             except SyncFailed as exc:
                 logger.info(
-                    "today's insights for %s stopped at %s (%s)", ad_account.external_id, level, exc.cause
+                    "today's insights for %s stopped at %s (%s)",
+                    ad_account.external_id,
+                    level,
+                    exc.cause,
                 )
                 return InsightSummary(
-                    levels=tuple(done), stopped_at=str(level), stopped_by=exc.cause, unread=tuple(unread)
+                    levels=tuple(done),
+                    stopped_at=str(level),
+                    stopped_by=exc.cause,
+                    unread=tuple(unread),
                 )
-            store_metrics(db, ad_account=ad_account, rows=rows, now=utcnow(), level=level)
-            done.append(LevelSummary(level=str(level), rows=len(rows), since=today, until=today))
+            store_metrics(
+                db, ad_account=ad_account, rows=rows, now=utcnow(), level=level
+            )
+            done.append(
+                LevelSummary(level=str(level), rows=len(rows), since=today, until=today)
+            )
         if done:
             synced = people_synced_at(db, ad_account=ad_account, until=today)
             if not synced or utcnow() - synced >= older_than:
                 try:
                     sync_people(db, ad_account=ad_account, today=today)
                 except SyncFailed as exc:
-                    logger.info("people counts for %s stopped (%s)", ad_account.external_id, exc.cause)
+                    logger.info(
+                        "people counts for %s stopped (%s)",
+                        ad_account.external_id,
+                        exc.cause,
+                    )
         return InsightSummary(levels=tuple(done), unread=tuple(unread))
 
 
@@ -401,13 +469,17 @@ def refill_history(db: Session, *, ad_account: AdAccount) -> int:
             return read_store(since, middle, level) + read_store(
                 middle + timedelta(days=1), until, level
             )
-        return store_metrics(db, ad_account=ad_account, rows=rows, now=utcnow(), level=level)
+        return store_metrics(
+            db, ad_account=ad_account, rows=rows, now=utcnow(), level=level
+        )
 
     with _locked(ad_account):
         today = account_today(ad_account)
         written = 0
         for level in INSIGHT_LEVELS:
-            for since, until in chunks(since=today - timedelta(days=BACKFILL_DAYS - 1), until=today):
+            for since, until in chunks(
+                since=today - timedelta(days=BACKFILL_DAYS - 1), until=today
+            ):
                 written += read_store(since, until, str(level))
         return written
 
@@ -429,8 +501,12 @@ def chunks(*, since: date, until: date) -> list[tuple[date, date]]:
     return pieces
 
 
-def breakdown_window(db: Session, *, ad_account: AdAccount, today: date, kind: str) -> tuple[date, date]:
-    newest = newest_breakdown_date(db, owner=ad_account.owner, kind=kind, account=ad_account)
+def breakdown_window(
+    db: Session, *, ad_account: AdAccount, today: date, kind: str
+) -> tuple[date, date]:
+    newest = newest_breakdown_date(
+        db, owner=ad_account.owner, kind=kind, account=ad_account
+    )
     start = (
         today - timedelta(days=BREAKDOWN_BACKFILL_DAYS - 1)
         if newest is None
@@ -439,12 +515,16 @@ def breakdown_window(db: Session, *, ad_account: AdAccount, today: date, kind: s
     return max(start, retention_floor(today=today)), today
 
 
-def sync_breakdown(db: Session, *, ad_account: AdAccount, today: date, kind: str) -> BreakdownSummary:
+def sync_breakdown(
+    db: Session, *, ad_account: AdAccount, today: date, kind: str
+) -> BreakdownSummary:
     since, until = breakdown_window(db, ad_account=ad_account, today=today, kind=kind)
     stored = calls = 0
     bundle = registry.get(ad_account.provider)
     for start, end in chunks(since=since, until=until):
-        with provider_failures(db, ad_account, doing=f"breakdown {kind}", logger=logger):
+        with provider_failures(
+            db, ad_account, doing=f"breakdown {kind}", logger=logger
+        ):
             rows: list[SegmentMetricsDTO] = bundle.metrics.fetch_breakdown(
                 account=account_ref_for(ad_account),
                 since=start,
@@ -453,10 +533,18 @@ def sync_breakdown(db: Session, *, ad_account: AdAccount, today: date, kind: str
                 kind=kind,
                 token=token_for(ad_account=ad_account),
             )
-        store_breakdowns(db, ad_account=ad_account, rows=rows, now=utcnow(), level=str(BREAKDOWN_LEVEL))
+        store_breakdowns(
+            db,
+            ad_account=ad_account,
+            rows=rows,
+            now=utcnow(),
+            level=str(BREAKDOWN_LEVEL),
+        )
         stored += len(rows)
         calls += 1
-    return BreakdownSummary(kind=str(kind), rows=stored, since=since, until=until, calls=calls)
+    return BreakdownSummary(
+        kind=str(kind), rows=stored, since=since, until=until, calls=calls
+    )
 
 
 # -- people ----------------------------------------------------------------------------------
@@ -483,7 +571,9 @@ def sync_people(db: Session, *, ad_account: AdAccount, today: date) -> int:
                 level=str(level),
                 token=token_for(ad_account=ad_account),
             )
-        written += replace_people(db, ad_account=ad_account, level=str(level), rows=rows, now=utcnow())
+        written += replace_people(
+            db, ad_account=ad_account, level=str(level), rows=rows, now=utcnow()
+        )
     return written
 
 
@@ -499,14 +589,18 @@ class ObservedSummary:
     still_delivering: bool = False
 
 
-def sync_observed(db: Session, *, ad_account: AdAccount, now: datetime) -> ObservedSummary:
+def sync_observed(
+    db: Session, *, ad_account: AdAccount, now: datetime
+) -> ObservedSummary:
     from app.modules.integrations.services import note_lead_sighting
 
     with _locked(ad_account):
         groups = watched_groups(db, ad_account=ad_account)
         if not groups:
             return ObservedSummary()
-        since, until = observed_window(db, ad_account=ad_account, today=account_today(ad_account))
+        since, until = observed_window(
+            db, ad_account=ad_account, today=account_today(ad_account)
+        )
         offered = kept = 0
         campaigns = watched_campaigns(db, ad_account=ad_account)
         adset_rows: list[MetricsDTO] = []
@@ -524,13 +618,17 @@ def sync_observed(db: Session, *, ad_account: AdAccount, now: datetime) -> Obser
                 mine = [row for row in rows if row.campaign_external_id in campaigns]
             else:
                 mine = [row for row in rows if row.adset_external_id in groups]
-            store_metrics(db, ad_account=ad_account, rows=mine, now=utcnow(), level=level)
+            store_metrics(
+                db, ad_account=ad_account, rows=mine, now=utcnow(), level=level
+            )
             offered += len(rows)
             kept += len(mine)
             if level == MetricLevel.ADSET:
                 adset_rows = mine
                 campaigns |= {row.campaign_external_id for row in mine} - {""}
-        delivering = _still_delivering(db, ad_account=ad_account, adsets=adset_rows, now=now)
+        delivering = _still_delivering(
+            db, ad_account=ad_account, adsets=adset_rows, now=now
+        )
         if delivering:
             note_lead_sighting(db, account=ad_account, at=now)
             db.commit()
@@ -544,11 +642,17 @@ def sync_observed(db: Session, *, ad_account: AdAccount, now: datetime) -> Obser
             "" if delivering else ", no longer delivering",
         )
         return ObservedSummary(
-            offered=offered, rows=kept, since=since, until=until, still_delivering=delivering
+            offered=offered,
+            rows=kept,
+            since=since,
+            until=until,
+            still_delivering=delivering,
         )
 
 
-def _still_delivering(db: Session, *, ad_account: AdAccount, adsets: list[MetricsDTO], now: datetime) -> bool:
+def _still_delivering(
+    db: Session, *, ad_account: AdAccount, adsets: list[MetricsDTO], now: datetime
+) -> bool:
     from app.modules.integrations.selectors import OBSERVE_DAYS
     from app.modules.leads.models import Lead
 
@@ -574,9 +678,13 @@ def sync_all_observed(db: Session, *, now: datetime, hour: int | None = None) ->
     from app.modules.integrations.selectors import observed_accounts, owners_at_hour
     from app.modules.metrics.tasks import sync_observed_task
 
-    rows = [(account.id, account.owner_id) for account in observed_accounts(db, now=now)]
+    rows = [
+        (account.id, account.owner_id) for account in observed_accounts(db, now=now)
+    ]
     if hour is not None:
-        due = owners_at_hour(db, owner_ids={owner for _, owner in rows}, now=now, hour=hour)
+        due = owners_at_hour(
+            db, owner_ids={owner for _, owner in rows}, now=now, hour=hour
+        )
         rows = [row for row in rows if str(row[1]) in due]
     for account_id, _owner in rows:
         sync_observed_task.delay(str(account_id))

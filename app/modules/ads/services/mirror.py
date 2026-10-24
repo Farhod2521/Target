@@ -75,7 +75,9 @@ def only_filled(defaults: dict[str, Any]) -> dict[str, Any]:
 
 def creatives_held(db: Session, *, owner: User, ads: Sequence[AdDTO]) -> set[str]:
     unread = {
-        dto.creative.ref.id for dto in ads if dto.creative is not None and not dto.creative.story_raw
+        dto.creative.ref.id
+        for dto in ads
+        if dto.creative is not None and not dto.creative.story_raw
     }
     if not unread:
         return set()
@@ -135,7 +137,9 @@ def _upsert(
     try:
         with db.begin_nested():
             row = db.scalars(
-                select(model).where(model.provider == provider, model.external_id == external_id)
+                select(model).where(
+                    model.provider == provider, model.external_id == external_id
+                )
             ).first()
             if row is None:
                 row = model(provider=provider, external_id=external_id)
@@ -145,7 +149,9 @@ def _upsert(
             db.flush()
     except DataError:
         lengths = {
-            key: len(value) for key, value in defaults.items() if isinstance(value, str) and value
+            key: len(value)
+            for key, value in defaults.items()
+            if isinstance(value, str) and value
         }
         logger.warning("%s %s refused by the database: %s", label, external_id, lengths)
         refused.append(f"{label} {external_id}")
@@ -159,7 +165,9 @@ def _upsert(
     return row
 
 
-def _remove_missing(db: Session, model: Any, *where: Any, keep: set[str], label: str) -> None:
+def _remove_missing(
+    db: Session, model: Any, *where: Any, keep: set[str], label: str
+) -> None:
     removed = db.execute(
         delete(model)
         .where(*where, model.external_id.not_in(keep))
@@ -291,7 +299,9 @@ def write_ads(
             "creative_external_id": dto.creative_external_id,
             "lead_form_external_id": dto.lead_form_external_id,
             **_issue_columns(dto.issues),
-            "review_feedback": dto.review_feedback.model_dump() if dto.review_feedback else {},
+            "review_feedback": dto.review_feedback.model_dump()
+            if dto.review_feedback
+            else {},
             "synced_at": now,
         }
         if dto.ref.id in known_forms:
@@ -312,7 +322,12 @@ def write_ads(
 
 
 def write_creatives(
-    db: Session, *, ad_account: AdAccount, ads: Sequence[AdDTO], now: datetime, refused: list[str]
+    db: Session,
+    *,
+    ad_account: AdAccount,
+    ads: Sequence[AdDTO],
+    now: datetime,
+    refused: list[str],
 ) -> set[str]:
     owner = ad_account.owner
     tried: set[str] = set()
@@ -400,11 +415,21 @@ def store_everything(
         label="ad set",
     )
     stored_ads = write_ads(
-        db, ad_account=ad_account, ads=ads, adsets=stored_adsets, now=now, refused=refused
+        db,
+        ad_account=ad_account,
+        ads=ads,
+        adsets=stored_adsets,
+        now=now,
+        refused=refused,
     )
     groups = select(AdSet.id).where(AdSet.campaign_id.in_(on_account))
     _remove_missing(
-        db, Ad, Ad.owner_id == owner_id, Ad.adset_id.in_(groups), keep=stored_ads, label="ad"
+        db,
+        Ad,
+        Ad.owner_id == owner_id,
+        Ad.adset_id.in_(groups),
+        keep=stored_ads,
+        label="ad",
     )
     stored_creatives = write_creatives(
         db, ad_account=ad_account, ads=ads, now=now, refused=refused
@@ -442,11 +467,15 @@ def store_everything(
 # -- reading from the provider --------------------------------------------------------
 
 
-def list_everything(ad_account: AdAccount) -> tuple[list[CampaignDTO], list[AdSetDTO], list[AdDTO]]:
+def list_everything(
+    ad_account: AdAccount,
+) -> tuple[list[CampaignDTO], list[AdSetDTO], list[AdDTO]]:
     token = token_for(ad_account=ad_account)
     bundle = registry.get(ad_account.provider)
     account = ExternalRef(
-        provider=ProviderName(ad_account.provider), level="account", id=ad_account.external_id
+        provider=ProviderName(ad_account.provider),
+        level="account",
+        id=ad_account.external_id,
     )
     return (
         bundle.campaigns.list_campaigns(account=account, token=token),
@@ -465,7 +494,9 @@ def read_everything(
 
         if refusal_is_the_accounts(db, ad_account, exc=exc):
             logger.warning(
-                "sync of %s refused with a working token: %s", ad_account.external_id, exc
+                "sync of %s refused with a working token: %s",
+                ad_account.external_id,
+                exc,
             )
             raise SyncFailed from exc
         raise ConnectionUnusable from exc
@@ -474,7 +505,10 @@ def read_everything(
         from app.modules.integrations.services import mark_unusable
 
         mark_unusable(
-            db, connection=ad_account.connection, status=ConnectionStatus.INVALID, code=exc.code
+            db,
+            connection=ad_account.connection,
+            status=ConnectionStatus.INVALID,
+            code=exc.code,
         )
         db.commit()
         raise ConnectionUnusable from exc
@@ -562,14 +596,18 @@ def _queue(db: Session, account: AdAccount) -> None:
 
     account_id = str(account.id)
     note_sync_outcome(sweep=MIRROR_SWEEP, ad_account_id=account_id, outcome=SYNC_QUEUED)
-    on_commit(db, lambda: sync_ad_account_task.apply_async((account_id,), queue=REFRESH_QUEUE))
+    on_commit(
+        db, lambda: sync_ad_account_task.apply_async((account_id,), queue=REFRESH_QUEUE)
+    )
 
 
 def resync_account(db: Session, *, ad_account: AdAccount, actor_id: str = "") -> None:
     from app.modules.ads.tasks import sync_ad_account_task, sync_media_task
 
     account_id = str(ad_account.id)
-    logger.info("resync queued for account %s by %s", ad_account.external_id, actor_id or "-")
+    logger.info(
+        "resync queued for account %s by %s", ad_account.external_id, actor_id or "-"
+    )
     on_commit(db, lambda: sync_ad_account_task.delay(account_id))
     on_commit(db, lambda: sync_media_task.delay(account_id))
 
@@ -601,7 +639,11 @@ def sync_watched_account(db: Session, *, ad_account: AdAccount) -> SyncSummary:
             row
             for row in adsets
             if pages
-            and (page_of_promoted(row.promoted_object_raw) or by_advert.get(row.ref.id, "")) in pages
+            and (
+                page_of_promoted(row.promoted_object_raw)
+                or by_advert.get(row.ref.id, "")
+            )
+            in pages
         ]
         group_ids = {row.ref.id for row in ours}
         campaign_ids = {row.campaign_ref.id for row in ours}

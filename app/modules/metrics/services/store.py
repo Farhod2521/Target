@@ -67,7 +67,9 @@ COPIED = (
 REFRESHED = ("ad_account_id", *COPIED, "synced_at")
 
 
-def _daily_row(*, ad_account: AdAccount, row: MetricsDTO, now: datetime, level: str) -> dict[str, Any]:
+def _daily_row(
+    *, ad_account: AdAccount, row: MetricsDTO, now: datetime, level: str
+) -> dict[str, Any]:
     return {
         "owner_id": ad_account.owner_id,
         "ad_account_id": ad_account.id,
@@ -92,7 +94,12 @@ def _upsert_daily(db: Session, rows: list[dict[str, Any]]) -> None:
 
 
 def store_metrics(
-    db: Session, *, ad_account: AdAccount, rows: list[MetricsDTO], now: datetime, level: str
+    db: Session,
+    *,
+    ad_account: AdAccount,
+    rows: list[MetricsDTO],
+    now: datetime,
+    level: str,
 ) -> int:
     if not rows:
         return 0
@@ -110,7 +117,9 @@ def store_metrics(
             else row
             for row in rows
         ]
-    made = [_daily_row(ad_account=ad_account, row=row, now=now, level=level) for row in rows]
+    made = [
+        _daily_row(ad_account=ad_account, row=row, now=now, level=level) for row in rows
+    ]
     refused: list[str] = []
     written = 0
     for start in range(0, len(made), WRITE_BATCH):
@@ -126,9 +135,13 @@ def store_metrics(
                         _upsert_daily(db, [one])
                     written += 1
                 except DataError:
-                    lengths = {k: len(v) for k, v in one.items() if isinstance(v, str) and v}
+                    lengths = {
+                        k: len(v) for k, v in one.items() if isinstance(v, str) and v
+                    }
                     logger.warning(
-                        "figure row %s refused by the database: %s", one["external_id"], lengths
+                        "figure row %s refused by the database: %s",
+                        one["external_id"],
+                        lengths,
                     )
                     refused.append(one["external_id"])
     db.commit()
@@ -218,7 +231,12 @@ def store_breakdowns(
 
 
 def replace_people(
-    db: Session, *, ad_account: AdAccount, level: str, rows: list[PeopleCountDTO], now: datetime
+    db: Session,
+    *,
+    ad_account: AdAccount,
+    level: str,
+    rows: list[PeopleCountDTO],
+    now: datetime,
 ) -> int:
     db.execute(
         delete(PeopleCount).where(
@@ -248,7 +266,9 @@ def replace_people(
     ]
     for start in range(0, len(made), WRITE_BATCH):
         db.execute(
-            insert(PeopleCount).values(made[start : start + WRITE_BATCH]).on_conflict_do_nothing()
+            insert(PeopleCount)
+            .values(made[start : start + WRITE_BATCH])
+            .on_conflict_do_nothing()
         )
     db.commit()
     return len(made)

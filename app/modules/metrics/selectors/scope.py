@@ -64,7 +64,10 @@ def page_campaigns(db: Session, *, owner: User) -> PageCampaigns:
 def pages_campaigns(db: Session, *, owner: User) -> tuple[PageCampaigns, ...]:
     from app.modules.ads.selectors import pages_advertising
 
-    return tuple(_campaigns(db, owner=owner, found=found) for found in pages_advertising(db, owner=owner))
+    return tuple(
+        _campaigns(db, owner=owner, found=found)
+        for found in pages_advertising(db, owner=owner)
+    )
 
 
 def _campaigns(db: Session, *, owner: User, found: object) -> PageCampaigns:
@@ -80,7 +83,9 @@ def _campaigns(db: Session, *, owner: User, found: object) -> PageCampaigns:
     )
 
 
-def _one_currency(db: Session, *, owner: User, found: object) -> tuple[frozenset[str], frozenset[str]]:
+def _one_currency(
+    db: Session, *, owner: User, found: object
+) -> tuple[frozenset[str], frozenset[str]]:
     """Figures in two currencies do not add up: keep the home account's."""
     from app.modules.ads.models import Campaign
 
@@ -134,8 +139,10 @@ def has_form_groups(
 ) -> bool:
     from app.modules.ads.models import AdSet, Campaign
 
-    query = select(AdSet.id).join(Campaign, Campaign.id == AdSet.campaign_id).where(
-        AdSet.owner_id == owner.id
+    query = (
+        select(AdSet.id)
+        .join(Campaign, Campaign.id == AdSet.campaign_id)
+        .where(AdSet.owner_id == owner.id)
     )
     if campaign_ids is not None:
         query = query.where(Campaign.external_id.in_(list(campaign_ids)))
@@ -146,7 +153,9 @@ def has_form_groups(
     forms = form_groups(owner).with_only_columns(AdSet.id)
     return (
         db.scalar(
-            query.where(or_(AdSet.optimization_goal_raw == "", AdSet.id.in_(forms))).limit(1)
+            query.where(
+                or_(AdSet.optimization_goal_raw == "", AdSet.id.in_(forms))
+            ).limit(1)
         )
         is not None
     )

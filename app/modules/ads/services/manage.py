@@ -105,7 +105,9 @@ def next_key(db: Session, *, level: str, external_id: str) -> str:
     prefix = f"{MANAGE_LOG_PREFIX}:{level}:{external_id}:"
     attempt = (
         db.scalar(
-            select(func.count(ActionLog.id)).where(ActionLog.idempotency_key.startswith(prefix))
+            select(func.count(ActionLog.id)).where(
+                ActionLog.idempotency_key.startswith(prefix)
+            )
         )
         or 0
     ) + 1
@@ -155,7 +157,9 @@ def close_log(
 ) -> None:
     log.status = str(ActionStatus.APPLIED)
     log.previous_state = previous
-    log.result_payload = dict(result.applied) | ({} if landed is None else {"landed": landed})
+    log.result_payload = dict(result.applied) | (
+        {} if landed is None else {"landed": landed}
+    )
     log.dropped = dict(result.dropped)
     log.dry_run = result.dry_run
     log.applied_at = utcnow()
@@ -190,7 +194,9 @@ ASPECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
 }
 
 
-def target_for(db: Session, *, user: User, level: str, external_id: str, aspect: str) -> Any:
+def target_for(
+    db: Session, *, user: User, level: str, external_id: str, aspect: str
+) -> Any:
     target = managed_target(db, owner=user, level=level, external_id=external_id)
     if target is None:
         raise UnknownTarget
@@ -269,7 +275,9 @@ def open_change(
 # -- the trial's allowance --------------------------------------------------------------
 
 
-def check_campaign_allowance(db: Session, *, owner: User, external_id: str = "") -> None:
+def check_campaign_allowance(
+    db: Session, *, owner: User, external_id: str = ""
+) -> None:
     from app.modules.billing.selectors import trial_in_progress
 
     trial = trial_in_progress(db, owner=owner)
@@ -285,10 +293,14 @@ def check_adset_allowance(db: Session, *, owner: User, external_id: str) -> None
 
     trial = trial_in_progress(db, owner=owner)
     if trial is not None and external_id in shared_adset_ids(db, owner=owner):
-        _check_trial_turn(db, owner=owner, since=trial.started_at, external_id=external_id)
+        _check_trial_turn(
+            db, owner=owner, since=trial.started_at, external_id=external_id
+        )
 
 
-def _check_trial_turn(db: Session, *, owner: User, since: datetime, external_id: str) -> None:
+def _check_trial_turn(
+    db: Session, *, owner: User, since: datetime, external_id: str
+) -> None:
     from app.modules.billing.constants import TRIAL_MAX_CAMPAIGNS
     from app.modules.billing.exceptions import TrialLimitReached
 
@@ -301,8 +313,12 @@ def _check_trial_turn(db: Session, *, owner: User, since: datetime, external_id:
 
 # -- asking for a change ------------------------------------------------------------------
 
-BUDGET_ACTIONS: frozenset[str] = frozenset({ActionType.BUDGET_UP, ActionType.BUDGET_DOWN})
-LIMIT_ACTIONS: frozenset[str] = frozenset({ActionType.END_TIME_SET, ActionType.SPEND_CAP_SET})
+BUDGET_ACTIONS: frozenset[str] = frozenset(
+    {ActionType.BUDGET_UP, ActionType.BUDGET_DOWN}
+)
+LIMIT_ACTIONS: frozenset[str] = frozenset(
+    {ActionType.END_TIME_SET, ActionType.SPEND_CAP_SET}
+)
 REFUSALS: dict[str, type[DomainError]] = {
     REFUSED_ALREADY: AlreadyInState,
     REFUSED_FINISHED: CampaignFinished,
@@ -350,7 +366,12 @@ def request_pause(
     db: Session, *, user: User, level: str, external_id: str, origin: Origin = BY_HAND
 ) -> ActionLog:
     return request_status(
-        db, user=user, level=level, external_id=external_id, wanted=PAUSED, origin=origin
+        db,
+        user=user,
+        level=level,
+        external_id=external_id,
+        wanted=PAUSED,
+        origin=origin,
     )
 
 
@@ -358,7 +379,12 @@ def request_resume(
     db: Session, *, user: User, level: str, external_id: str, origin: Origin = BY_HAND
 ) -> ActionLog:
     return request_status(
-        db, user=user, level=level, external_id=external_id, wanted=ACTIVE, origin=origin
+        db,
+        user=user,
+        level=level,
+        external_id=external_id,
+        wanted=ACTIVE,
+        origin=origin,
     )
 
 
@@ -373,19 +399,27 @@ def request_budget(
     origin: Origin = BY_HAND,
 ) -> ActionLog:
     _live(db, user)
-    target = target_for(db, user=user, level=level, external_id=external_id, aspect=BUDGET)
+    target = target_for(
+        db, user=user, level=level, external_id=external_id, aspect=BUDGET
+    )
     account = account_of(target=target, level=level)
     floor = budget_floor(target=target, level=level)
     state = state_of(target)
     if level == ManagedLevel.ADSET and state.is_learning:
-        state = replace(state, has_spent=_has_spent(db, owner=user, adset_id=external_id))
-    verdict = check_budget_change(state=state, wanted_minor=daily_budget_minor, floor_minor=floor)
+        state = replace(
+            state, has_spent=_has_spent(db, owner=user, adset_id=external_id)
+        )
+    verdict = check_budget_change(
+        state=state, wanted_minor=daily_budget_minor, floor_minor=floor
+    )
     if not verdict.allowed:
         if verdict.reason == REFUSED_BELOW_FLOOR:
             raise BudgetBelowMinimum(
                 minimum_minor=floor,
                 currency=account.currency,
-                places=provider_money(provider=account.provider).decimal_places(account.currency),
+                places=provider_money(provider=account.provider).decimal_places(
+                    account.currency
+                ),
             )
         raise REFUSALS.get(verdict.reason, ChangeRefused)()
     current = getattr(target, "daily_budget_minor", None) or 0
@@ -395,7 +429,9 @@ def request_budget(
         target=target,
         level=level,
         external_id=external_id,
-        action=ActionType.BUDGET_UP if daily_budget_minor > current else ActionType.BUDGET_DOWN,
+        action=ActionType.BUDGET_UP
+        if daily_budget_minor > current
+        else ActionType.BUDGET_DOWN,
         requested={
             "daily_budget_minor": daily_budget_minor,
             "currency": account.currency,
@@ -417,7 +453,9 @@ def request_status(
 ) -> ActionLog:
     if wanted == ACTIVE:
         _live(db, user)
-    target = target_for(db, user=user, level=level, external_id=external_id, aspect=STATUS)
+    target = target_for(
+        db, user=user, level=level, external_id=external_id, aspect=STATUS
+    )
     state = state_of(target)
     counted = wanted == ACTIVE and counted_by_tier(
         db, owner=user, account=account_of(target=target, level=level)
@@ -427,7 +465,9 @@ def request_status(
     if counted and level == ManagedLevel.ADSET:
         check_adset_allowance(db, owner=user, external_id=external_id)
     if level == ManagedLevel.AD and wanted == PAUSED:
-        verdict = check_ad_pause(state=state, parent=_ad_context(db, owner=user, target=target))
+        verdict = check_ad_pause(
+            state=state, parent=_ad_context(db, owner=user, target=target)
+        )
         if not verdict.allowed:
             raise AD_REFUSALS.get(verdict.reason, ChangeRefused)()
     else:
@@ -457,7 +497,11 @@ def request_end_time(
 ) -> ActionLog:
     _live(db, user)
     target = target_for(
-        db, user=user, level=ManagedLevel.ADSET, external_id=external_id, aspect=END_TIME
+        db,
+        user=user,
+        level=ManagedLevel.ADSET,
+        external_id=external_id,
+        aspect=END_TIME,
     )
     verdict = check_limit_change(state=state_of(target))
     if not verdict.allowed:
@@ -471,7 +515,8 @@ def request_end_time(
         external_id=external_id,
         action=ActionType.END_TIME_SET,
         requested={"end_time": end_time.isoformat(), "reverts": reverts},
-        previous=state_payload(target) | {"end_time": previous.isoformat() if previous else ""},
+        previous=state_payload(target)
+        | {"end_time": previous.isoformat() if previous else ""},
         origin=origin,
     )
 
@@ -489,7 +534,11 @@ def request_spend_cap(
     if spend_cap_minor <= 0:
         raise ChangeRefused
     target = target_for(
-        db, user=user, level=ManagedLevel.CAMPAIGN, external_id=external_id, aspect=SPEND_CAP
+        db,
+        user=user,
+        level=ManagedLevel.CAMPAIGN,
+        external_id=external_id,
+        aspect=SPEND_CAP,
     )
     verdict = check_limit_change(state=state_of(target))
     if not verdict.allowed:
@@ -521,12 +570,15 @@ def request_targeting(
     _live(db, user)
     if not targeting:
         raise ChangeRefused
-    target = target_for(db, user=user, level="adset", external_id=external_id, aspect=TARGETING)
+    target = target_for(
+        db, user=user, level="adset", external_id=external_id, aspect=TARGETING
+    )
     verdict = check_targeting_change(state=state_of(target))
     if not verdict.allowed:
-        raise {REFUSED_FINISHED: CampaignFinished, REFUSED_LEARNING: LearningInProgress}.get(
-            verdict.reason, ChangeRefused
-        )()
+        raise {
+            REFUSED_FINISHED: CampaignFinished,
+            REFUSED_LEARNING: LearningInProgress,
+        }.get(verdict.reason, ChangeRefused)()
     if origin.actor_type == ActorType.AGENT:
         campaign = getattr(target, "campaign", None)
         campaign_id = str(getattr(campaign, "external_id", "") or "")
@@ -600,7 +652,11 @@ def request_revert(db: Session, *, user: User, log_id: str) -> ActionLog:
         if ceiling is None:
             raise NothingToRevert
         return request_spend_cap(
-            db, user=user, external_id=external_id, spend_cap_minor=int(ceiling), reverts=reverts
+            db,
+            user=user,
+            external_id=external_id,
+            spend_cap_minor=int(ceiling),
+            reverts=reverts,
         )
     if original.action == ActionType.CREATIVE_SWAP:
         raise NothingToRevert
@@ -608,7 +664,12 @@ def request_revert(db: Session, *, user: User, log_id: str) -> ActionLog:
     if wanted not in (ACTIVE, PAUSED):
         raise NothingToRevert
     return request_status(
-        db, user=user, level=level, external_id=external_id, wanted=wanted, reverts=reverts
+        db,
+        user=user,
+        level=level,
+        external_id=external_id,
+        wanted=wanted,
+        reverts=reverts,
     )
 
 
@@ -623,7 +684,10 @@ def _parse_datetime(value: str) -> datetime | None:
 
 STATUS_WANTED: dict[str, str] = {ActionType.PAUSE: PAUSED, ActionType.RESUME: ACTIVE}
 WRITES: frozenset[str] = (
-    frozenset(STATUS_WANTED) | BUDGET_ACTIONS | LIMIT_ACTIONS | {ActionType.TARGETING_SWAP}
+    frozenset(STATUS_WANTED)
+    | BUDGET_ACTIONS
+    | LIMIT_ACTIONS
+    | {ActionType.TARGETING_SWAP}
 )
 EVENTS: dict[str, str] = {
     ActionType.PAUSE: EventName.CAMPAIGN_PAUSED,
@@ -675,13 +739,19 @@ def apply_change(db: Session, *, log_id: str) -> str:
         logger.exception("change %s could not be prepared", log.id)
         fail_log(db, log=log, code="unknown", message=str(exc))
         return "failed"
-    refusal = _refused(db, log=log, before=before, target=target, port=port, token=token)
+    refusal = _refused(
+        db, log=log, before=before, target=target, port=port, token=token
+    )
     if refusal:
         fail_log(db, log=log, code=refusal, message="the check before the write failed")
         return "refused"
     try:
         result = _write(
-            log=log, provider=provider, ref=ref, token=token, dry_run=bool(settings.ads_dry_run)
+            log=log,
+            provider=provider,
+            ref=ref,
+            token=token,
+            dry_run=bool(settings.ads_dry_run),
         )
     except ProviderError as exc:
         if isinstance(exc, AccountActionRequired):
@@ -723,7 +793,13 @@ def _landed(*, log: ActionLog, after: StatusDTO | None) -> bool | None:
 
 
 def _refused(
-    db: Session, *, log: ActionLog, before: StatusDTO, target: Any, port: Any, token: str
+    db: Session,
+    *,
+    log: ActionLog,
+    before: StatusDTO,
+    target: Any,
+    port: Any,
+    token: str,
 ) -> str:
     state = ObjectState(
         delivery=before.delivery,
@@ -731,7 +807,9 @@ def _refused(
         daily_budget_minor=before.daily_budget_minor,
     )
     if log.target_level == ManagedLevel.AD and log.action == ActionType.PAUSE:
-        return _ad_refusal(db, log=log, state=state, target=target, port=port, token=token)
+        return _ad_refusal(
+            db, log=log, state=state, target=target, port=port, token=token
+        )
     if log.action == ActionType.TARGETING_SWAP:
         verdict = check_targeting_change(state=state)
     elif log.action in LIMIT_ACTIONS:
@@ -740,7 +818,9 @@ def _refused(
         if state.is_learning and log.target_level == ManagedLevel.ADSET:
             state = replace(
                 state,
-                has_spent=_has_spent(db, owner=log.owner, adset_id=log.target_external_id),
+                has_spent=_has_spent(
+                    db, owner=log.owner, adset_id=log.target_external_id
+                ),
             )
         verdict = check_budget_change(
             state=state,
@@ -756,13 +836,21 @@ def _refused(
 
 
 def _ad_refusal(
-    db: Session, *, log: ActionLog, state: ObjectState, target: Any, port: Any, token: str
+    db: Session,
+    *,
+    log: ActionLog,
+    state: ObjectState,
+    target: Any,
+    port: Any,
+    token: str,
 ) -> str:
     parent = getattr(target, "adset", None)
     parent_id = str(getattr(parent, "external_id", "") or "")
     if not parent_id:
         return "gone"
-    parent_ref = ExternalRef(provider=log.target_provider, level=ManagedLevel.ADSET, id=parent_id)
+    parent_ref = ExternalRef(
+        provider=log.target_provider, level=ManagedLevel.ADSET, id=parent_id
+    )
     try:
         found = port.get_status(ref=parent_ref, token=token)
     except ProviderError as exc:
@@ -772,7 +860,8 @@ def _ad_refusal(
     verdict = check_ad_pause(
         state=state,
         parent=AdContext(
-            parent_is_learning=found.is_learning, other_active_ads=context.other_active_ads
+            parent_is_learning=found.is_learning,
+            other_active_ads=context.other_active_ads,
         ),
     )
     return "" if verdict.allowed else verdict.reason
@@ -806,14 +895,19 @@ def _write(
         )
     if log.action == ActionType.SPEND_CAP_SET:
         return provider.campaigns.set_spend_cap(
-            ref=ref, spend_cap_minor=int(payload["spend_cap_minor"]), token=token, dry_run=dry_run
+            ref=ref,
+            spend_cap_minor=int(payload["spend_cap_minor"]),
+            token=token,
+            dry_run=dry_run,
         )
     return provider.campaigns.set_status(
         ref=ref, status=STATUS_WANTED[log.action], token=token, dry_run=dry_run
     )
 
 
-def _read_back(*, port: Any, ref: ExternalRef, token: str, dry_run: bool) -> StatusDTO | None:
+def _read_back(
+    *, port: Any, ref: ExternalRef, token: str, dry_run: bool
+) -> StatusDTO | None:
     if dry_run:
         return None
     try:
@@ -833,12 +927,21 @@ def record(
     after: StatusDTO | None,
     landed: bool | None = None,
 ) -> None:
-    close_log(db, log=log, result=result, previous=_snapshot(before) | _kept(log), landed=landed)
+    close_log(
+        db,
+        log=log,
+        result=result,
+        previous=_snapshot(before) | _kept(log),
+        landed=landed,
+    )
     original_id = str(log.request_payload.get("reverts") or "")
     if original_id:
         db.execute(
             update(ActionLog)
-            .where(ActionLog.id == uuid.UUID(original_id), ActionLog.owner_id == log.owner_id)
+            .where(
+                ActionLog.id == uuid.UUID(original_id),
+                ActionLog.owner_id == log.owner_id,
+            )
             .values(status=str(ActionStatus.REVERTED), reverted_at=utcnow())
         )
     if after is not None:

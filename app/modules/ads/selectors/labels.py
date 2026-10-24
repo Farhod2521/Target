@@ -44,7 +44,9 @@ class AdLabel:
         return self.name or self.external_id
 
 
-def ad_labels(db: Session, *, owner: User, external_ids: Iterable[str]) -> dict[str, AdLabel]:
+def ad_labels(
+    db: Session, *, owner: User, external_ids: Iterable[str]
+) -> dict[str, AdLabel]:
     wanted = {value for value in external_ids if value}
     if not wanted:
         return {}
@@ -60,7 +62,9 @@ def ad_label(db: Session, *, owner: User, external_id: str) -> AdLabel | None:
     return ad_labels(db, owner=owner, external_ids=[external_id]).get(external_id)
 
 
-def campaign_names(db: Session, *, owner: User, external_ids: Iterable[str]) -> dict[str, str]:
+def campaign_names(
+    db: Session, *, owner: User, external_ids: Iterable[str]
+) -> dict[str, str]:
     wanted = {value for value in external_ids if value}
     if not wanted:
         return {}
@@ -115,7 +119,9 @@ def advert_owner(
         )
     ):
         for step, external_id in wanted.items():
-            if external_id and external_id in ref_field.ref_ids(created_refs or {}, step):
+            if external_id and external_id in ref_field.ref_ids(
+                created_refs or {}, step
+            ):
                 return owner_id
     return None
 
@@ -160,14 +166,19 @@ def adsets_here(db: Session, *, owner: User) -> int:
     return adsets_delivering(db, owner=owner, scope=ceiling_scope(whole=whole))
 
 
-def campaigns_switched_on(db: Session, *, owner: User, since: datetime) -> frozenset[str]:
+def campaigns_switched_on(
+    db: Session, *, owner: User, since: datetime
+) -> frozenset[str]:
     from app.modules.audit.constants import ActionStatus, ActionType
     from app.modules.audit.models import ActionLog
 
     cutoff = utcnow() - timedelta(minutes=ACTION_STALE_MINUTES)
     landed_or_on_its_way = or_(
         ActionLog.status.in_([str(ActionStatus.APPLIED), str(ActionStatus.REVERTED)]),
-        and_(ActionLog.status == str(ActionStatus.PENDING), ActionLog.created_at >= cutoff),
+        and_(
+            ActionLog.status == str(ActionStatus.PENDING),
+            ActionLog.created_at >= cutoff,
+        ),
     )
     pressed = list(
         db.execute(
@@ -175,7 +186,9 @@ def campaigns_switched_on(db: Session, *, owner: User, since: datetime) -> froze
             .where(
                 ActionLog.owner_id == owner.id,
                 landed_or_on_its_way,
-                ActionLog.target_level.in_([str(ManagedLevel.CAMPAIGN), str(ManagedLevel.ADSET)]),
+                ActionLog.target_level.in_(
+                    [str(ManagedLevel.CAMPAIGN), str(ManagedLevel.ADSET)]
+                ),
                 ActionLog.target_provider == META,
                 ActionLog.action == str(ActionType.RESUME),
                 ActionLog.created_at >= since,

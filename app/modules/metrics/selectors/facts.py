@@ -53,7 +53,11 @@ def _observed_account() -> Any:
 
 
 def cabinet_where(
-    db: Session, *, owner: User, level: str | None = MetricLevel.ADSET, account: Account = None
+    db: Session,
+    *,
+    owner: User,
+    level: str | None = MetricLevel.ADSET,
+    account: Account = None,
 ) -> list[ColumnElement[bool]]:
     """The filter for one cabinet's figure rows (the Django ``cabinet_rows``)."""
     from app.modules.integrations.selectors import active_ad_account
@@ -113,7 +117,9 @@ def accounts_synced_at(
     return min(stamps, default=None)
 
 
-def _stalest_synced_at(db: Session, *, owner: User, account: AdAccount) -> datetime | None:
+def _stalest_synced_at(
+    db: Session, *, owner: User, account: AdAccount
+) -> datetime | None:
     seen = db.scalars(
         select(func.max(MetricsDaily.synced_at))
         .where(
@@ -290,7 +296,9 @@ def daily_facts(
     from app.modules.leads.models import Lead
     from app.modules.leads.selectors import daily_counts
 
-    spend = spend_by_day(db, owner=owner, since=since, until=until, account=account, scope=scope)
+    spend = spend_by_day(
+        db, owner=owner, since=since, until=until, account=account, scope=scope
+    )
     leads = daily_counts(
         db,
         owner=owner,
@@ -305,7 +313,9 @@ def daily_facts(
     ]
 
 
-def _figures(*, day: date, spend: DaySums | None, leads: tuple[int, int] | None) -> DayFigures:
+def _figures(
+    *, day: date, spend: DaySums | None, leads: tuple[int, int] | None
+) -> DayFigures:
     sums = spend or DaySums()
     count, qualified = leads or (0, 0)
     return DayFigures(
@@ -323,7 +333,11 @@ def _figures(*, day: date, spend: DaySums | None, leads: tuple[int, int] | None)
     )
 
 
-RANKING_FIELDS: Final = ("quality_ranking", "engagement_rate_ranking", "conversion_rate_ranking")
+RANKING_FIELDS: Final = (
+    "quality_ranking",
+    "engagement_rate_ranking",
+    "conversion_rate_ranking",
+)
 LOW_BANDS: Final = frozenset({Ranking.BELOW_AVERAGE_20, Ranking.BELOW_AVERAGE_10})
 RANKING_ROWS: Final = 300
 
@@ -371,7 +385,11 @@ def low_rankings(
             continue
         seen.add(row.external_id)
         verdict = next(
-            (getattr(row, field) for field in RANKING_FIELDS if getattr(row, field) in LOW_BANDS),
+            (
+                getattr(row, field)
+                for field in RANKING_FIELDS
+                if getattr(row, field) in LOW_BANDS
+            ),
             "",
         )
         if verdict:
@@ -407,7 +425,13 @@ class People:
 
 
 def people_counts(
-    db: Session, *, owner: User, level: str, since: date, until: date, ids: Collection[str]
+    db: Session,
+    *,
+    owner: User,
+    level: str,
+    since: date,
+    until: date,
+    ids: Collection[str],
 ) -> dict[str, People]:
     wanted = [one for one in ids if one]
     if not wanted:
@@ -421,7 +445,10 @@ def people_counts(
             PeopleCount.external_id.in_(wanted),
         )
     )
-    return {external_id: People(reach=reach, recallers=recallers) for external_id, reach, recallers in rows}
+    return {
+        external_id: People(reach=reach, recallers=recallers)
+        for external_id, reach, recallers in rows
+    }
 
 
 def with_people_counts(
@@ -433,7 +460,9 @@ def with_people_counts(
     since: date,
     until: date,
 ) -> dict[str, dict[str, int]]:
-    counted = people_counts(db, owner=owner, level=level, since=since, until=until, ids=sums)
+    counted = people_counts(
+        db, owner=owner, level=level, since=since, until=until, ids=sums
+    )
     out: dict[str, dict[str, int]] = {}
     for key, row in sums.items():
         if key not in counted:
@@ -441,7 +470,11 @@ def with_people_counts(
             continue
         found = counted[key]
         impressions = row.get("impressions")
-        reach = {} if impressions is not None and found.reach > impressions else {"reach": found.reach}
+        reach = (
+            {}
+            if impressions is not None and found.reach > impressions
+            else {"reach": found.reach}
+        )
         out[key] = {**row, "recallers": found.recallers, **reach}
     return out
 
@@ -451,17 +484,25 @@ def people_by_range(
 ) -> dict[tuple[date, date], People]:
     rows = db.execute(
         select(
-            PeopleCount.since, PeopleCount.until, PeopleCount.reach, PeopleCount.recallers
+            PeopleCount.since,
+            PeopleCount.until,
+            PeopleCount.reach,
+            PeopleCount.recallers,
         ).where(
             PeopleCount.owner_id == owner.id,
             PeopleCount.level == str(level),
             PeopleCount.external_id == external_id,
         )
     )
-    return {(since, until): People(reach=reach, recallers=recallers) for since, until, reach, recallers in rows}
+    return {
+        (since, until): People(reach=reach, recallers=recallers)
+        for since, until, reach, recallers in rows
+    }
 
 
-def people_synced_at(db: Session, *, ad_account: AdAccount, until: date) -> datetime | None:
+def people_synced_at(
+    db: Session, *, ad_account: AdAccount, until: date
+) -> datetime | None:
     return db.scalar(
         select(func.max(PeopleCount.synced_at)).where(
             PeopleCount.owner_id == ad_account.owner_id,
@@ -544,7 +585,10 @@ def watched_groups(db: Session, *, ad_account: AdAccount) -> set[str]:
         db.scalars(
             select(AdSet.external_id)
             .join(Campaign, Campaign.id == AdSet.campaign_id)
-            .where(AdSet.owner_id == ad_account.owner_id, Campaign.ad_account_id == ad_account.id)
+            .where(
+                AdSet.owner_id == ad_account.owner_id,
+                Campaign.ad_account_id == ad_account.id,
+            )
         )
     )
     return mirrored | set(lead_adset_ids(db, owner=ad_account.owner))
@@ -564,7 +608,9 @@ def watched_campaigns(db: Session, *, ad_account: AdAccount) -> set[str]:
     )
 
 
-def observed_window(db: Session, *, ad_account: AdAccount, today: date) -> tuple[date, date]:
+def observed_window(
+    db: Session, *, ad_account: AdAccount, today: date
+) -> tuple[date, date]:
     from app.modules.metrics.constants import BACKFILL_DAYS, OBSERVED_RESTATE_DAYS
 
     held = db.scalar(

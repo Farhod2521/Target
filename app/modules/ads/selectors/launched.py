@@ -43,7 +43,8 @@ def real_ids(ids: Iterable[str]) -> frozenset[str]:
 
 def launch_refs(db: Session, *where: Any) -> list[dict[str, Any]]:
     return [
-        row or {} for row in db.scalars(select(CampaignLaunch.created_refs).where(*where))
+        row or {}
+        for row in db.scalars(select(CampaignLaunch.created_refs).where(*where))
     ]
 
 
@@ -216,11 +217,15 @@ def launched_campaign_ids(
 ) -> frozenset[str]:
     from app.modules.integrations.selectors import active_ad_account
 
-    account = ad_account if ad_account is not None else active_ad_account(db, owner=owner)
+    account = (
+        ad_account if ad_account is not None else active_ad_account(db, owner=owner)
+    )
     if account is None:
         return frozenset()
     refs = launch_refs(
-        db, CampaignLaunch.owner_id == owner.id, CampaignLaunch.ad_account_id == account.id
+        db,
+        CampaignLaunch.owner_id == owner.id,
+        CampaignLaunch.ad_account_id == account.id,
     )
     return _campaign_ids(refs) | goal_campaign_ids(db, owner=owner, ad_account=account)
 
@@ -258,7 +263,9 @@ def campaign_launch(
         .order_by(CampaignLaunch.created_at.desc())
     )
     for pk, created_refs in rows:
-        if campaign_external_id in ref_field.ref_ids(created_refs or {}, LaunchStep.CAMPAIGN):
+        if campaign_external_id in ref_field.ref_ids(
+            created_refs or {}, LaunchStep.CAMPAIGN
+        ):
             return db.scalars(
                 select(CampaignLaunch)
                 .options(joinedload(CampaignLaunch.page))
@@ -267,7 +274,9 @@ def campaign_launch(
     return None
 
 
-def adset_launch(db: Session, *, owner: User, adset_external_id: str) -> CampaignLaunch | None:
+def adset_launch(
+    db: Session, *, owner: User, adset_external_id: str
+) -> CampaignLaunch | None:
     refs = type_coerce(CampaignLaunch.created_refs, JSONB)
     return db.scalars(
         select(CampaignLaunch)

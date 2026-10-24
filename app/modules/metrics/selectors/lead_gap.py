@@ -69,14 +69,17 @@ def form_groups(owner: User | None = None) -> Select[Any]:
     from app.modules.ads.models import AdSet
 
     query = select(AdSet).where(
-        AdSet.optimization_goal_raw.in_(list(LEAD_GOALS)), AdSet.destination_type_raw != WEBSITE
+        AdSet.optimization_goal_raw.in_(list(LEAD_GOALS)),
+        AdSet.destination_type_raw != WEBSITE,
     )
     if owner is not None:
         query = query.where(AdSet.owner_id == owner.id)
     return query
 
 
-def _groups_on(db: Session, *, owner: User, accounts: Collection[Any], hidden: Collection[str] = ()) -> dict[str, Any]:
+def _groups_on(
+    db: Session, *, owner: User, accounts: Collection[Any], hidden: Collection[str] = ()
+) -> dict[str, Any]:
     from app.modules.ads.models import AdSet, Campaign
 
     query = (
@@ -91,14 +94,22 @@ def _groups_on(db: Session, *, owner: User, accounts: Collection[Any], hidden: C
 
 
 def _counts(
-    db: Session, *, owner: User, account: AdAccount, groups: list[str], since: date, until: date
+    db: Session,
+    *,
+    owner: User,
+    account: AdAccount,
+    groups: list[str],
+    since: date,
+    until: date,
 ) -> tuple[dict[str, int], dict[str, int]]:
     from app.modules.leads.selectors import counts_by_adset
 
     tzinfo = account.tzinfo()
     reported = dict(
         db.execute(
-            select(MetricsDaily.adset_external_id, func.sum(MetricsDaily.leads_reported))
+            select(
+                MetricsDaily.adset_external_id, func.sum(MetricsDaily.leads_reported)
+            )
             .where(
                 *cabinet_where(db, owner=owner, account=account),
                 MetricsDaily.date >= since,
@@ -135,7 +146,10 @@ def lead_gap(
     )
     total_reported, total_ours = sum(reported.values()), sum(ours.values())
     missing = missing_leads(
-        reported=total_reported, ours=total_ours, share_pct=ALARM_GAP_PCT, at_least=ALARM_GAP_MISSING
+        reported=total_reported,
+        ours=total_ours,
+        share_pct=ALARM_GAP_PCT,
+        at_least=ALARM_GAP_MISSING,
     )
     if not missing:
         return None
@@ -192,14 +206,18 @@ def unheard_pages(
     )
     found = [
         UnheardPage(
-            page_id=str(page.id), name=page.name or page.external_id, reported=reported[page.external_id]
+            page_id=str(page.id),
+            name=page.name or page.external_id,
+            reported=reported[page.external_id],
         )
         for page in pages
     ]
     return sorted(found, key=lambda one: -one.reported)
 
 
-def short_pages_today(db: Session, *, owner: User, account: AdAccount, now: datetime) -> set[str]:
+def short_pages_today(
+    db: Session, *, owner: User, account: AdAccount, now: datetime
+) -> set[str]:
     today = now.astimezone(account.tzinfo()).date()
     groups = _groups_on(db, owner=owner, accounts=[account])
     if not groups:
@@ -210,11 +228,15 @@ def short_pages_today(db: Session, *, owner: User, account: AdAccount, now: date
     return {
         str(groups[key]["page_id"])
         for key in groups
-        if reported[key] > ours[key] and isinstance(groups[key], dict) and groups[key].get("page_id")
+        if reported[key] > ours[key]
+        and isinstance(groups[key], dict)
+        and groups[key].get("page_id")
     }
 
 
-def lead_counts_everywhere(db: Session, *, now: datetime, days: int = GAP_DAYS) -> list[OwnerLeads]:
+def lead_counts_everywhere(
+    db: Session, *, now: datetime, days: int = GAP_DAYS
+) -> list[OwnerLeads]:
     from app.modules.ads.models import AdSet
     from app.modules.leads.selectors import lead_counts_by_owner
 
@@ -236,18 +258,28 @@ def lead_counts_everywhere(db: Session, *, now: datetime, days: int = GAP_DAYS) 
         db, since=start_of(since, UTC), until=end_of(until, UTC), adset_ids=ids
     )
     found = [
-        OwnerLeads(owner_id=owner_id, email=email, reported=int(total or 0), ours=ours.get(owner_id, 0))
+        OwnerLeads(
+            owner_id=owner_id,
+            email=email,
+            reported=int(total or 0),
+            ours=ours.get(owner_id, 0),
+        )
         for owner_id, email, total in rows
     ]
     return sorted(found, key=lambda row: -row.missing)
 
 
-def lead_gaps_everywhere(db: Session, *, now: datetime, limit: int | None = 20) -> list[OwnerLeads]:
+def lead_gaps_everywhere(
+    db: Session, *, now: datetime, limit: int | None = 20
+) -> list[OwnerLeads]:
     return [
         row
         for row in lead_counts_everywhere(db, now=now)
         if missing_leads(
-            reported=row.reported, ours=row.ours, share_pct=ALARM_GAP_PCT, at_least=ALARM_GAP_MISSING
+            reported=row.reported,
+            ours=row.ours,
+            share_pct=ALARM_GAP_PCT,
+            at_least=ALARM_GAP_MISSING,
         )
     ][:limit]
 
@@ -264,7 +296,9 @@ def withheld_cost_note(totals: PanelTotals) -> str:
     return GAP_NOTE % {"reported": totals.leads_reported, "ours": totals.leads}
 
 
-def _page_names(db: Session, *, owner: User, promoted: Iterable[object]) -> tuple[str, ...]:
+def _page_names(
+    db: Session, *, owner: User, promoted: Iterable[object]
+) -> tuple[str, ...]:
     ids = {
         str(value.get("page_id"))
         for value in promoted
