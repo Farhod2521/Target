@@ -143,9 +143,15 @@ def seen_keys(db: Session, *, owner: User) -> frozenset[str]:
     )
 
 
+def cached_inbox(db: Session, *, owner: User, now: datetime) -> tuple[Any, ...]:
+    """The cabinet's waiting list. Empty until the inbox screen is ported from Django."""
+    return ()
+
+
 __all__ = [
     "FLAG_FOR",
     "active_chats",
+    "cached_inbox",
     "chat_by_id",
     "chat_for",
     "chats_wanting",

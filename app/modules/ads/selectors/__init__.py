@@ -39,6 +39,7 @@ from app.modules.ads.selectors.creatives import (
     creative_of,
     creative_states,
     creatives_by_external_id,
+    video_cover_hashes,
     with_content,
 )
 from app.modules.ads.selectors.delivery import (
@@ -289,6 +290,7 @@ __all__ = [
     "sync_progress",
     "today_in_flight",
     "trial_campaigns_left",
+    "video_cover_hashes",
     "with_badges",
     "with_content",
     "with_controls",

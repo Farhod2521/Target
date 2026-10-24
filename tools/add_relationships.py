@@ -21,7 +21,10 @@ COLUMN = re.compile(r"^    (\w+)_id: Mapped\[(.+?)\] = mapped_column\(", re.M)
 
 
 def classes_by_table() -> dict[str, str]:
-    return {mapper.local_table.name: mapper.class_.__name__ for mapper in Base.registry.mappers}
+    return {
+        mapper.local_table.name: mapper.class_.__name__
+        for mapper in Base.registry.mappers
+    }
 
 
 def patch(path: Path, tables: dict[str, str]) -> int:
@@ -55,7 +58,9 @@ def patch(path: Path, tables: dict[str, str]) -> int:
         )
     block = "\n".join(added) + "\n"
     if "# -- django extras --" in text:
-        text = text.replace("    # -- django extras --\n", "    # -- django extras --\n" + block, 1)
+        text = text.replace(
+            "    # -- django extras --\n", "    # -- django extras --\n" + block, 1
+        )
     else:
         text = text.rstrip("\n") + "\n    # -- django extras --\n" + block
     path.write_text(text, encoding="utf-8")

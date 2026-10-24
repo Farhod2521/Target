@@ -119,6 +119,7 @@ from app.modules.ads.services.removal import (
     request_delete,
     request_lapse_removal,
 )
+from app.modules.ads.services.swap import apply_swap, request_swap
 
 __all__ = [
     "ACCOUNT_KINDS",
@@ -161,6 +162,7 @@ __all__ = [
     "account_for",
     "apply_change",
     "apply_delete",
+    "apply_swap",
     "by_agent",
     "check_adset_allowance",
     "check_campaign_allowance",
@@ -204,6 +206,7 @@ __all__ = [
     "request_revert",
     "request_spend_cap",
     "request_status",
+    "request_swap",
     "request_sync",
     "request_targeting",
     "resume_after_lapse",

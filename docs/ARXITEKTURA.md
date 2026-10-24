@@ -55,8 +55,8 @@ Modullar bir-birini import qilmasdan ham ta'sir qila oladi:
 | leads | Lidlar, Meta webhook, formalar, eksport | 9.5k | 4 | ✅ selectors, services, tasks, router `/leads`, webhook `/webhooks/meta/leads/` |
 | destinations | Lidlarni Google Sheets'ga yozish | 3.8k | 3 | ⏳ |
 | metrics | Dashboard raqamlari, CRM paneli | 16.0k | 4 | ✅ sinxron (tungi/bugungi/kuzatilgan), saqlash, segmentlar, lid tafovuti, dashboard, kampaniya paneli, kreativ hisobot, tasks, router `/metrics` (asosiy dashboard sahifasidagi onboarding/promo bloklari ⏳) |
-| agent | AI agent: tahlil va takliflar | 11.9k | 5 | ⏳ |
-| chat | AI yordamchi chat | 11.4k | 3 | ⏳ |
+| agent | AI agent: tahlil va takliflar | 11.9k | 5 | 🟡 selectors (takliflar, kartalar, tashxis eslatmalari, maslahatlar, tungi dalillar `account_facts`), `approve_suggestion`; tungi ishga tushirish, baholash, kuzatuv, chastota, router ⏳ |
+| chat | AI yordamchi chat | 11.4k | 3 | ✅ selectors (kontekst, 14 ta lookup, kunlik/haftalik hisobot), services (savol, javob oqimi, rad etish izohi, hisobot izohi), tasks, router `/chat` (ekran, `/ask`, SSE `/stream/{turn_id}`, `/report`, `/choices/{pk}`); kutish ro'yxati (inbox) notifications bilan ⏳ |
 | notifications | Telegram bot, xabarlar, hisobotlar | 13.6k | 4 | 🟡 bot ulash, sozlamalar, referal/pul yechish/fikr xabarlari; bot dialogi, hisobotlar, inbox ⏳ |
 | miniapp | Telegram Mini App kirishi | 0.8k | 0 | ✅ router `/miniapp` |
 | onboarding | Boshlash qadamlari | 0.9k | 0 | ⏳ |

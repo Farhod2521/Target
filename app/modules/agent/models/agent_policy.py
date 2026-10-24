@@ -28,3 +28,14 @@ class AgentPolicy(Base):
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # -- django extras --
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
+
+    def as_policy(self) -> "Policy":  # noqa: F821
+        """This row as the domain's own value object; untouched thresholds keep their defaults."""
+        from core.agent import Policy
+
+        return Policy(
+            window_days=self.window_days,
+            cooldown_hours=self.cooldown_hours,
+            max_per_run=self.max_per_run,
+            budget_step_pct=self.budget_step_pct,
+        )

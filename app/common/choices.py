@@ -10,7 +10,7 @@ import sys
 from enum import EnumType, StrEnum
 from typing import Any
 
-_CAMEL = re.compile(r"(?<!^)(?=[A-Z])")
+_CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 
 def _labels(cls: Any) -> dict[Any, str]:

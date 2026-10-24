@@ -368,7 +368,7 @@ class LLMPurpose(Choices):
     SURVEY = "survey"
 
 
-L_L_M_PURPOSE_LABELS = {
+LLM_PURPOSE_LABELS = {
     LLMPurpose.ONBOARDING: "Tanishuv",
     LLMPurpose.DECISION: "Qaror",
     LLMPurpose.EXPLAIN: "Izoh",
@@ -390,7 +390,7 @@ class LLMCallStatus(Choices):
     FAILED = "failed"
 
 
-L_L_M_CALL_STATUS_LABELS = {
+LLM_CALL_STATUS_LABELS = {
     LLMCallStatus.OK: "Muvaffaqiyatli",
     LLMCallStatus.SCHEMA_ERROR: "Javob sxemaga mos emas",
     LLMCallStatus.RATE_LIMITED: "Limit oshdi",

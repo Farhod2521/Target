@@ -111,3 +111,17 @@ def creative_states(
             name=name,
         )
     return found
+
+
+def video_cover_hashes(owner: User, account: Any):  # type: ignore[no-untyped-def]
+    """The hashes of every cover a video creative on this account names, as a subquery."""
+    from sqlalchemy import type_coerce
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    cover = type_coerce(AdCreative.story_raw, JSONB)["video_data"]["image_hash"].astext
+    return select(cover).where(
+        AdCreative.owner_id == owner.id,
+        AdCreative.ad_account_id == account.id,
+        cover.is_not(None),
+        cover != "",
+    )

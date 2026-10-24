@@ -19,7 +19,9 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-KEEP = re.compile(r"#\s*(noqa|type:|pragma|fmt:|ruff:|pyright:|mypy:|isort:|pylint:)|#!|-\*-")
+KEEP = re.compile(
+    r"#\s*(noqa|type:|pragma|fmt:|ruff:|pyright:|mypy:|isort:|pylint:)|#!|-\*-"
+)
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -120,7 +122,9 @@ def trim(path: Path) -> bool:
     tree = ast.parse(source)
     models = pydantic_classes(path)
     if "*" in models:
-        models = {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
+        models = {
+            node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+        }
     replaced: dict[int, list[str]] = {}
     drop: set[int] = set()
     for doc in docstrings(tree, models=models):

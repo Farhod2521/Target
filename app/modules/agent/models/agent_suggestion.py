@@ -51,3 +51,13 @@ class AgentSuggestion(Base):
     run: Mapped["AgentRun"] = relationship(foreign_keys=[run_id], lazy="select")  # noqa: F821
     decided_by: Mapped["User | None"] = relationship(foreign_keys=[decided_by_id], lazy="select")  # noqa: F821
     action_log: Mapped["ActionLog | None"] = relationship(foreign_keys=[action_log_id], lazy="select")  # noqa: F821
+
+    def to_ref(self) -> "ExternalRef":  # noqa: F821
+        """The three target columns as the one object every other layer passes."""
+        from adskit import ExternalRef
+
+        return ExternalRef(
+            provider=self.target_provider,  # type: ignore[arg-type]
+            level=self.target_level,  # type: ignore[arg-type]
+            id=self.target_external_id,
+        )

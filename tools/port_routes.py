@@ -49,7 +49,11 @@ TOP = {
 
 
 def _literal(node: ast.AST) -> str | None:
-    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+    return (
+        node.value
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        else None
+    )
 
 
 def read(path: Path) -> tuple[str, list[tuple[str, str]]]:
@@ -61,7 +65,10 @@ def read(path: Path) -> tuple[str, list[tuple[str, str]]]:
             isinstance(t, ast.Name) and t.id == "app_name" for t in node.targets
         ):
             app_name = _literal(node.value) or ""
-        if isinstance(node, ast.Call) and getattr(node.func, "id", "") in ("path", "re_path"):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", "") in (
+            "path",
+            "re_path",
+        ):
             pattern = _literal(node.args[0]) if node.args else None
             name = next(
                 (_literal(k.value) for k in node.keywords if k.arg == "name"), None

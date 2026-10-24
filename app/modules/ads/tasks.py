@@ -147,6 +147,15 @@ def apply_delete_task(log_id: str) -> str:
         return apply_delete(db, log_id=log_id)
 
 
+@celery_app.task(queue="agent")
+def apply_swap_task(log_id: str) -> str:
+    """Build the advert's next version and switch this one off. Never retried: every call creates."""
+    from app.modules.ads.services.swap import apply_swap
+
+    with task_session() as db:
+        return apply_swap(db, log_id=log_id)
+
+
 @celery_app.task(bind=True, queue="agent", max_retries=SWEEP_RETRIES)
 def drop_empty_campaign_task(self: Task, log_id: str) -> str:
     try:

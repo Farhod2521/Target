@@ -116,7 +116,7 @@ def port(src: str) -> str:
 def _snake(name: str) -> str:
     import re
 
-    return re.sub(r"(?<!^)(?=[A-Z])", "_", name)
+    return re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", name)
 
 
 if __name__ == "__main__":

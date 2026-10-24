@@ -5,6 +5,7 @@ from app.modules.ads.routers import router as campaigns
 from app.modules.billing.routers import router as billing
 from app.modules.billing.routers import webhooks as billing_webhooks
 from app.modules.businesses.routers import router as businesses
+from app.modules.chat.routers import router as chat
 from app.modules.crm.routers import router as crm
 from app.modules.integrations.routers import router as integrations
 from app.modules.leads.routers import router as leads
@@ -32,6 +33,7 @@ api_router.include_router(notifications)
 api_router.include_router(miniapp)
 api_router.include_router(metrics)
 api_router.include_router(campaigns)
+api_router.include_router(chat)
 
 public_router = APIRouter()
 public_router.include_router(billing_webhooks)
