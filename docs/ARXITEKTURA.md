@@ -51,10 +51,10 @@ Modullar bir-birini import qilmasdan ham ta'sir qila oladi:
 | integrations | Meta ulash (OAuth), reklama akkauntlari, sahifalar | 16.9k | 7 | ✅ selectors, services, tasks, router `/connections` (DRF staff konsoli qolgan) |
 | businesses | Biznes profili, kategoriya | 2.0k | 3 | ✅ selectors, services, router `/business` |
 | billing | Tarif, obuna, to'lov (Payme/Click/Paynet) | 12.1k | 7 | ✅ selectors, services, tasks, router `/billing`, webhook `/webhooks/pay/{provider}` |
-| ads | Kampaniya yaratish (launch), boshqaruv, kreativ, geo | 62.1k | 14 | 🟡 selectors, mirror/media sinxron, boshqaruv, o'chirish, lapse, tasks; launch va API ⏳ |
+| ads | Kampaniya yaratish (launch), boshqaruv, kreativ, geo | 62.1k | 14 | 🟡 selectors, mirror/media sinxron, boshqaruv, o'chirish, lapse, tasks, router `/campaigns` (ro'yxat, tafsilot, sinxron, pauza/yoqish/budjet/qaytarish/o'chirish); launch (reklama yaratish), Google, provider notes ⏳ |
 | leads | Lidlar, Meta webhook, formalar, eksport | 9.5k | 4 | ✅ selectors, services, tasks, router `/leads`, webhook `/webhooks/meta/leads/` |
 | destinations | Lidlarni Google Sheets'ga yozish | 3.8k | 3 | ⏳ |
-| metrics | Dashboard raqamlari, CRM paneli | 16.0k | 4 | 🟡 sinxron (tungi/bugungi/kuzatilgan), saqlash, segment, lid tafovuti, lead_sources, tasks; dashboard va API ⏳ |
+| metrics | Dashboard raqamlari, CRM paneli | 16.0k | 4 | ✅ sinxron (tungi/bugungi/kuzatilgan), saqlash, segmentlar, lid tafovuti, dashboard, kampaniya paneli, kreativ hisobot, tasks, router `/metrics` (asosiy dashboard sahifasidagi onboarding/promo bloklari ⏳) |
 | agent | AI agent: tahlil va takliflar | 11.9k | 5 | ⏳ |
 | chat | AI yordamchi chat | 11.4k | 3 | ⏳ |
 | notifications | Telegram bot, xabarlar, hisobotlar | 13.6k | 4 | 🟡 bot ulash, sozlamalar, referal/pul yechish/fikr xabarlari; bot dialogi, hisobotlar, inbox ⏳ |

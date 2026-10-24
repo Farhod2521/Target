@@ -30,7 +30,9 @@ def _row(day, *, spend: int, leads: int = 0) -> MetricsDTO:  # type: ignore[no-u
 
 
 def test_store_restate_and_read_back(db: Session) -> None:
-    owner = User(email="m@example.com", full_name="M", password="!", date_joined=utcnow())
+    owner = User(
+        email="m@example.com", full_name="M", password="!", date_joined=utcnow()
+    )
     db.add(owner)
     db.commit()
     account, _page = _cabinet(db, owner)
@@ -66,7 +68,11 @@ def test_store_restate_and_read_back(db: Session) -> None:
     sums = selectors.facts_by_campaign(db, owner=owner, since=yesterday, until=today)
     assert sums["c_1"].spend_minor == 1400 and sums["c_1"].leads_reported == 3
     only = selectors.facts_by_campaign(
-        db, owner=owner, since=yesterday, until=today, scope=selectors.campaigns_scope({"x"})
+        db,
+        owner=owner,
+        since=yesterday,
+        until=today,
+        scope=selectors.campaigns_scope({"x"}),
     )
     assert only == {}
 
@@ -74,7 +80,10 @@ def test_store_restate_and_read_back(db: Session) -> None:
         db, owner=owner, since=yesterday, until=today, tzinfo=account.tzinfo()
     )
     assert [int(day.spend_minor) for day in days] == [500, 900]
-    assert selectors.short_pages_today(db, owner=owner, account=account, now=utcnow()) == set()
+    assert (
+        selectors.short_pages_today(db, owner=owner, account=account, now=utcnow())
+        == set()
+    )
 
 
 def test_lead_sources_endpoint(client) -> None:  # type: ignore[no-untyped-def]
@@ -141,7 +150,9 @@ def test_numbers_dashboard_with_figures(client, db: Session) -> None:  # type: i
     assert again["filters"]["key"] == "7"
     cards = client.get("/api/v1/metrics/cards", headers=headers)
     assert cards.status_code == 200 and cards.json()["groups"]
-    saved = client.post("/api/v1/metrics/cards", headers=headers, json={"cards": ["cpl", "spend"]})
+    saved = client.post(
+        "/api/v1/metrics/cards", headers=headers, json={"cards": ["cpl", "spend"]}
+    )
     assert saved.status_code == 200, saved.text
 
     for path in (
@@ -153,6 +164,13 @@ def test_numbers_dashboard_with_figures(client, db: Session) -> None:  # type: i
     ):
         answer = client.get(path, headers=headers)
         assert answer.status_code == 200, (path, answer.text)
-    chips = client.get("/api/v1/metrics/campaigns/figures?period=7", headers=headers).json()
+    chips = client.get(
+        "/api/v1/metrics/campaigns/figures?period=7", headers=headers
+    ).json()
     assert chips["spend_total_minor"] == 700
-    assert client.post(f"/api/v1/metrics/campaigns/{campaign.id}/today", headers=headers).status_code == 200
+    assert (
+        client.post(
+            f"/api/v1/metrics/campaigns/{campaign.id}/today", headers=headers
+        ).status_code
+        == 200
+    )

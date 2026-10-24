@@ -8,7 +8,7 @@ caller's, and the worker task is sent after it.
 
 import logging
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Final
@@ -1022,3 +1022,51 @@ def _refresh_mirror(
     if hasattr(target, "is_learning"):
         target.learning_status = after.learning_status
         target.is_learning = after.is_learning
+
+
+# -- switching a chain on --------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Activation:
+    opened: tuple[ActionLog, ...]
+    refused: tuple[str, ...]
+
+
+def start_delivery(
+    db: Session,
+    *,
+    user: User,
+    targets: Sequence[tuple[str, str]],
+    origin: Origin = BY_HAND,
+) -> Activation:
+    """Resume the campaign and what below it never started, top first."""
+    from app.modules.ads.exceptions import NothingToStart
+
+    if not targets:
+        raise UnknownTarget
+    opened: list[ActionLog] = []
+    refused: list[str] = []
+    for level, external_id in targets:
+        try:
+            opened.append(
+                request_status(
+                    db,
+                    user=user,
+                    level=level,
+                    external_id=external_id,
+                    wanted=ACTIVE,
+                    origin=origin,
+                )
+            )
+        except AlreadyInState:
+            continue
+        except DomainError as exc:
+            logger.info("could not start %s:%s - %s", level, external_id, exc)
+            if exc.message not in refused:
+                refused.append(exc.message)
+            if level == ManagedLevel.CAMPAIGN:
+                break
+    if not opened and not refused:
+        raise NothingToStart
+    return Activation(opened=tuple(opened), refused=tuple(refused))

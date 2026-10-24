@@ -9,7 +9,14 @@ from sqlalchemy.pool import StaticPool
 from app.common.db import Base, get_db
 from app.main import app
 
-TABLES = ["users", "events", "referral_codes", "referral_access", "referral_bindings", "consult_requests"]
+TABLES = [
+    "users",
+    "events",
+    "referral_codes",
+    "referral_access",
+    "referral_bindings",
+    "consult_requests",
+]
 
 
 @pytest.fixture

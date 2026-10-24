@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.modules.accounts.routers import router as accounts
+from app.modules.ads.routers import router as campaigns
 from app.modules.billing.routers import router as billing
 from app.modules.billing.routers import webhooks as billing_webhooks
 from app.modules.businesses.routers import router as businesses
@@ -30,6 +31,7 @@ api_router.include_router(sales)
 api_router.include_router(notifications)
 api_router.include_router(miniapp)
 api_router.include_router(metrics)
+api_router.include_router(campaigns)
 
 public_router = APIRouter()
 public_router.include_router(billing_webhooks)

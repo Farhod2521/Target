@@ -47,7 +47,9 @@ def _cabinet(db: Session, user: User) -> tuple[AdAccount, PageAccount]:
     return account, page
 
 
-def test_trial_then_connections_billing_and_profile(client: TestClient, db: Session) -> None:
+def test_trial_then_connections_billing_and_profile(
+    client: TestClient, db: Session
+) -> None:
     auth = sign_up(client)
     user = db.scalar(select(User))
     assert user is not None
@@ -136,7 +138,9 @@ def test_plans_checkout_and_promo_refusal(client: TestClient, db: Session) -> No
     assert plans.status_code == 200, plans.text
     assert plans.json()["chosen"]["due_minor"] == 3000
 
-    no_provider = client.post("/api/v1/billing/checkout", json={"plan": "pro"}, headers=auth)
+    no_provider = client.post(
+        "/api/v1/billing/checkout", json={"plan": "pro"}, headers=auth
+    )
     assert no_provider.status_code == 400
     invoice = db.scalar(select(Invoice))
     assert invoice is not None and invoice.amount_minor == 3000

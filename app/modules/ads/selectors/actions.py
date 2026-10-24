@@ -8,6 +8,7 @@ from functools import reduce
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.common.db import utcnow
@@ -194,7 +195,7 @@ def latest_actions(
         select(log)
         .where(log.owner_id == owner.id, log.target_external_id.in_(external_ids))
         .order_by(log.target_external_id, log.created_at.desc())
-        .distinct(log.target_external_id)
+        .ext(distinct_on(log.target_external_id))
     )
     return {row.target_external_id: row for row in rows}
 

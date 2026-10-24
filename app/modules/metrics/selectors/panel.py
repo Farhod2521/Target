@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from adskit import MinorUnits
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
@@ -439,7 +440,7 @@ def _ads(
             select(M.external_id, M.quality_ranking)
             .where(*where, M.quality_ranking != "")
             .order_by(M.external_id, M.date.desc())
-            .distinct(M.external_id)
+            .ext(distinct_on(M.external_id))
         ).all()
     )
     labels = dict(Ranking.choices)
