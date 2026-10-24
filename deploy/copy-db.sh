@@ -8,16 +8,19 @@
 set -euo pipefail
 
 OLD_DIR=${OLD_DIR:-/opt/targetolog-ai}
-OLD_COMPOSE=${OLD_COMPOSE:-"-f compose.yaml -f compose.prod.yaml"}
-OLD_DB_SERVICE=${OLD_DB_SERVICE:-db}
+# The old project's Postgres container. Found by name when not given:
+#   OLD_DB_CONTAINER=targetolog-ai-db-1 bash deploy/copy-db.sh
+OLD_DB_CONTAINER=${OLD_DB_CONTAINER:-$(docker ps --format '{{.Names}}' \
+    | grep -i 'targetolog' | grep -iE 'db|postgres' | grep -v '^target-' | head -n1)}
+[ -n "$OLD_DB_CONTAINER" ] || { echo "Eski baza konteyneri topilmadi: OLD_DB_CONTAINER=... bering"; exit 1; }
 
 cd "$(dirname "$0")/.."
 mkdir -p backups media logs
 DUMP=backups/django-$(date +%Y%m%d-%H%M%S).dump
 
-echo "1/5 Eski bazadan dump: $DUMP"
-(cd "$OLD_DIR" && docker compose $OLD_COMPOSE exec -T "$OLD_DB_SERVICE" \
-    sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc --no-owner --no-acl') > "$DUMP"
+echo "1/5 Eski bazadan dump ($OLD_DB_CONTAINER): $DUMP"
+docker exec "$OLD_DB_CONTAINER" \
+    sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc --no-owner --no-acl' > "$DUMP"
 test -s "$DUMP" || { echo "Dump bo'sh chiqdi"; exit 1; }
 
 echo "2/5 api va worker to'xtatiladi, yangi baza ishga tushadi"
