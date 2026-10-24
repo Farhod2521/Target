@@ -85,3 +85,61 @@ def test_lead_sources_endpoint(client) -> None:  # type: ignore[no-untyped-def]
     assert answer.status_code == 200, answer.text
     body = answer.json()
     assert body["days"] == 7 and body["report"]["rows"] == []
+
+
+def test_numbers_dashboard_with_figures(client, db: Session) -> None:  # type: ignore[no-untyped-def]
+    from app.modules.ads.models import AdSet, Campaign
+    from app.modules.leads.models import Lead
+    from tests.pg.conftest import sign_up
+
+    headers = sign_up(client)
+    owner = db.scalar(select(User).order_by(User.date_joined.desc()))
+    account, page = _cabinet(db, owner)
+    account.is_active = account.is_current = True
+    page.is_active = page.is_current = True
+    db.commit()
+    campaign = Campaign(
+        owner_id=owner.id,
+        provider=PROVIDER,
+        external_id="c_1",
+        ad_account_id=account.id,
+        name="Bahor",
+        delivery="active",
+    )
+    db.add(campaign)
+    db.flush()
+    db.add(
+        AdSet(
+            owner_id=owner.id,
+            provider=PROVIDER,
+            external_id="s_1",
+            campaign_id=campaign.id,
+            name="Guruh",
+            delivery="active",
+            optimization_goal_raw="LEAD_GENERATION",
+            promoted_object_raw={"page_id": "page_1"},
+        )
+    )
+    db.commit()
+    today = utcnow().date()
+    services.store_metrics(
+        db,
+        ad_account=account,
+        rows=[_row(today - timedelta(days=1), spend=700, leads=3)],
+        now=utcnow(),
+        level=MetricLevel.ADSET,
+    )
+    _ = Lead
+
+    first = client.get("/api/v1/metrics/numbers?period=7", headers=headers)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["filters"]["key"] == "7"
+    period = body["dashboard"]["period"]
+    assert period["key"] == "7"
+    again = client.get("/api/v1/metrics/numbers", headers=headers).json()
+    assert again["filters"]["key"] == "7"
+    cards = client.get("/api/v1/metrics/cards", headers=headers)
+    assert cards.status_code == 200 and cards.json()["groups"]
+    saved = client.post("/api/v1/metrics/cards", headers=headers, json={"cards": ["cpl", "spend"]})
+    assert saved.status_code == 200, saved.text

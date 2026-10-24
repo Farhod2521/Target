@@ -8,6 +8,7 @@ from app.modules.crm.routers import router as crm
 from app.modules.integrations.routers import router as integrations
 from app.modules.leads.routers import router as leads
 from app.modules.leads.routers import webhooks as leads_webhooks
+from app.modules.metrics.routers import router as metrics
 from app.modules.miniapp.routers import router as miniapp
 from app.modules.notifications.routers import router as notifications
 from app.modules.public.routers import callbacks as public_callbacks
@@ -28,6 +29,7 @@ api_router.include_router(public)
 api_router.include_router(sales)
 api_router.include_router(notifications)
 api_router.include_router(miniapp)
+api_router.include_router(metrics)
 
 public_router = APIRouter()
 public_router.include_router(billing_webhooks)
