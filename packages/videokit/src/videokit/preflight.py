@@ -1,28 +1,4 @@
-"""What is checked before a montage is sent to the renderer.
-
-A render costs minutes and money, and a mistake in it is seen only by
-watching the result. Everything that can be known from the edit alone is
-checked here first; any problem stops the montage with its reason:
-
-- **the opening**: the first frame is the picture, not black (no fade up,
-  no flash over it), and the headline is up within :data:`HOOK_LATEST`;
-- **text**: every text fits its box at a size no smaller than the
-  smallest allowed for it (:data:`FLOORS` - measured in the brand's
-  font, see :mod:`videokit.fit`), subtitles included;
-- **zones**: no two components in the same band at the same moment;
-- **props**: nothing required left blank, nothing drawn with nothing of
-  the brand to show;
-- **the call to action**: the button is on screen when the video ends;
-- **safe zones**: on a vertical frame, nothing drawn where the apps put
-  their own buttons (:func:`videokit.layout.safe_area`);
-- **logos and buttons** (:mod:`videokit.preflight_logos`): every logo
-  whole on its plate, its lettering at least 24 px where it stands for
-  the name, and a button's tap circle clear of its words;
-- **the face** (:mod:`videokit.preflight_faces`): nothing over the
-  speaker's eyes or mouth;
-- **contrast** (:mod:`videokit.preflight_contrast`): words over the
-  footage readable against it, or on a dark backing.
-"""
+"""What is checked before a montage is sent to the renderer."""
 
 from collections.abc import Iterator
 from itertools import combinations
@@ -63,10 +39,7 @@ ProblemKind = Literal[
     "face_covered",
     "low_contrast",
 ]
-# The headline is on screen this soon, or the feed has scrolled on.
 HOOK_LATEST: Final = 0.3
-# The smallest size each kind of text may be drawn at, for a 1080 short
-# side: headlines, chips, subtitles, and the contacts under the button.
 FLOORS: Final[dict[str, int]] = {
     "hook_title.text": 64,
     "hook_counter.value": 96,

@@ -1,25 +1,4 @@
-"""Targeting construction.
-
-Turns a category and a goal into a Meta targeting spec, using the YAML
-presets in ``catalog/``. Presets are data, not code: adding a business
-category must not require a deploy of new logic.
-
-An audience is built one of three ways - the interests the advertiser
-approved, a broad spec with no detailed targeting at all, or the provider
-choosing for itself. Which one is an **answer** and never a reading of the
-finished spec; see :mod:`core.targeting.modes`.
-
-Beside all three sits a second question - which of the advertiser's own
-audiences to aim at or keep away from. It arrives as an argument rather
-than an answer, like the geography and the conversion source, because an
-audience is a row somewhere this package cannot read; see
-:mod:`core.targeting.audiences`.
-
-Nothing in here reads a clock, a database, an environment variable or a
-socket. Everything arrives as an argument and leaves as a value, which is
-what lets the whole flow be exercised before any provider is connected -
-the wizard has to work for someone who has not linked an account yet.
-"""
+"""Targeting construction."""
 
 from core.targeting.adjustments import Adjustment, AdjustmentReason
 from core.targeting.attribution import (

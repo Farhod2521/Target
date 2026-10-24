@@ -1,16 +1,4 @@
-"""Components laid onto tracks, and footage laid out around them.
-
-**Tracks.** Two components on screen at once need two tracks - Shotstack
-plays one clip per track at a time. Each component goes onto the first
-track that is free for its whole stretch; backdrops (an end card) get
-tracks of their own below every other component, so whatever is drawn
-over them stays visible.
-
-**Layouts.** A stretch in ``split_top`` moves the footage down a quarter
-of the frame for exactly that stretch. A kept stretch of the source that
-crosses into or out of one is played as two clips, cut at the boundary -
-same source, same zoom, only the position changes.
-"""
+"""Components laid onto tracks, and footage laid out around them."""
 
 from collections.abc import Callable
 from itertools import pairwise
@@ -20,7 +8,6 @@ from videokit.components import component, component_clip
 from videokit.layout import SPLIT_OFFSET_Y
 from videokit.models import ComponentUse, EditSpec, Layout, LayoutSpan
 
-# Times are rounded to the millisecond where spans and components are made.
 SAME_MOMENT = 0.002
 
 
@@ -122,12 +109,7 @@ def shift_at(spans: tuple[LayoutSpan, ...], at: float) -> float | None:
 def within_limit(
     spec: EditSpec, *, limit: int, size: Callable[[EditSpec], int]
 ) -> tuple[EditSpec, tuple[ComponentUse, ...]]:
-    """``spec`` with graphics left out, latest first, until it fits ``limit``.
-
-    What is still on screen when the video ends - the closing card and its
-    button - is never left out. What was is returned, so a caller can say
-    so. A spec that cannot be made to fit comes back as small as it got.
-    """
+    """``spec`` with graphics left out, latest first, until it fits ``limit``."""
     end = spec.length
     dropped: list[ComponentUse] = []
     while size(spec) > limit:
@@ -140,8 +122,6 @@ def within_limit(
         spec = spec.model_copy(
             update={
                 "components": tuple(u for u in spec.components if u is not last),
-                # A panel's stretch goes with it: footage moved down for a
-                # panel that is not there leaves a black band on top.
                 "layouts": tuple(
                     span for span in spec.layouts if not _spans(span, last)
                 ),

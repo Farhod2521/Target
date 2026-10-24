@@ -1,19 +1,4 @@
-"""What a lead form shows after it is sent, in this product's own words.
-
-The screen after the form is the moment somebody is most interested: they
-have just handed over their number. One button there sends them on - to
-the business's site, its Telegram, or a call - and four endings are
-offered, one of them being no button at all.
-
-Telegram is its own ending here although no provider has a Telegram
-button. To the provider it is a link out like any other; to the person
-choosing it is a different thing, typed as a username rather than an
-address, and a username is what they know.
-
-No Django: the owner's choice arrives as a stored answer and leaves as a
-value, and the rule that picks an ending when nobody chose reads a
-category key and a business's two contact fields.
-"""
+"""What a lead form shows after it is sent, in this product's own words."""
 
 import re
 from collections.abc import Mapping
@@ -28,7 +13,6 @@ ENDING_WEBSITE: Final = "website"
 ENDING_TELEGRAM: Final = "telegram"
 ENDING_CALL: Final = "call"
 
-# In the order the screen offers them.
 ENDING_KINDS: Final[tuple[EndingKind, ...]] = (
     ENDING_NONE,
     ENDING_WEBSITE,
@@ -36,23 +20,12 @@ ENDING_KINDS: Final[tuple[EndingKind, ...]] = (
     ENDING_CALL,
 )
 
-# The words on the button when the owner wrote none. Uzbek, like the title
-# the form already carries: they are read by the business's own customers,
-# not by the person building the ad.
 DEFAULT_BUTTON_TEXT: Final[Mapping[str, str]] = {
     ENDING_WEBSITE: "Saytga o'tish",
     ENDING_TELEGRAM: "Telegram'da yozish",
     ENDING_CALL: "Qo'ng'iroq qilish",
 }
 
-# The ending chosen for a business that left the choice to the AI, by the
-# catalogue category it runs as. A service booked by talking to somebody
-# gets a call; a shop or a trip is looked at before it is bought, so it
-# gets the site. A category missing here - and a business that typed its
-# own trade instead of choosing one - gets no button.
-#
-# Telegram is not in the table: no business profile holds a Telegram
-# address, so the rule would have nothing to put behind the button.
 AI_ENDINGS: Final[Mapping[str, EndingKind]] = {
     "auto": ENDING_CALL,
     "beauty": ENDING_CALL,
@@ -70,20 +43,12 @@ AI_ENDINGS: Final[Mapping[str, EndingKind]] = {
 
 TELEGRAM_HOSTS: Final[frozenset[str]] = frozenset({"t.me", "telegram.me"})
 
-# Telegram's own rule for a public username: five to thirty-two letters,
-# digits and underscores, starting with a letter.
 _USERNAME: Final = re.compile(r"[A-Za-z][A-Za-z0-9_]{4,31}")
 
 
 @dataclass(frozen=True, slots=True)
 class FormEnding:
-    """The screen after the form: its words, and the one button under them.
-
-    ``target`` is what the button needs and nothing more: an address for a
-    site, a bare username for Telegram, an E.164 number for a call, and
-    empty for no button. Empty ``title`` and ``button_text`` mean "the
-    default", which is decided where the form is built.
-    """
+    """The screen after the form: its words, and the one button under them."""
 
     kind: EndingKind
     target: str = ""
@@ -113,12 +78,7 @@ class FormEnding:
 
 
 def ending_from_answer(value: object) -> FormEnding | None:
-    """A stored answer read back, or ``None`` for one that is not there.
-
-    Anything that does not name a known ending reads as no answer rather
-    than raising. The caller falls back to the rule, which is what a launch
-    that never stored one gets anyway.
-    """
+    """A stored answer read back, or ``None`` for one that is not there."""
     if not isinstance(value, dict):
         return None
     kind = str(value.get("kind", ""))
@@ -134,13 +94,7 @@ def ending_from_answer(value: object) -> FormEnding | None:
 
 
 def telegram_username(raw: str) -> str:
-    """The username in what somebody typed, or ``""`` if there is none.
-
-    Four spellings are the same answer: ``osh_markazi``, ``@osh_markazi``,
-    ``t.me/osh_markazi`` and the full ``https://t.me/osh_markazi``. A
-    trailing slash or a query string is dropped with the rest of the
-    address.
-    """
+    """The username in what somebody typed, or ``""`` if there is none."""
     text = raw.strip()
     if not text:
         return ""
@@ -171,13 +125,7 @@ def telegram_of(url: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class EndingLine:
-    """The button as one line on a card: what it says and where it goes.
-
-    Empty ``words`` is a form whose last screen has no button. The target
-    is shown the way the owner would write it - a site without its scheme,
-    a Telegram username with its ``@`` - rather than as the provider holds
-    it.
-    """
+    """The button as one line on a card: what it says and where it goes."""
 
     words: str = ""
     target: str = ""
@@ -196,12 +144,7 @@ def line_of(ending: FormEnding) -> EndingLine:
 
 
 def provider_line(*, kind: str, target: str, button_text: str) -> EndingLine | None:
-    """A form's last screen as the provider described it, as the same line.
-
-    ``None`` when the provider did not say. A link to Telegram reads as the
-    Telegram ending it was built as, and a button this product does not
-    build is shown by its own words alone.
-    """
+    """A form's last screen as the provider described it, as the same line."""
     if kind == ENDING_NONE:
         return EndingLine()
     if kind == ENDING_WEBSITE:
@@ -225,13 +168,7 @@ def provider_line(*, kind: str, target: str, button_text: str) -> EndingLine | N
 
 
 def ai_ending_kind(*, category: str) -> EndingKind:
-    """Which ending the rule picks for this category, before any data.
-
-    The caller passes an empty category for a business that wrote its own
-    trade rather than choosing one of the offered ones. That business runs
-    on the catch-all preset, and the catch-all's ending would be a guess
-    about a business nobody here has classified.
-    """
+    """Which ending the rule picks for this category, before any data."""
     return AI_ENDINGS.get(category, ENDING_NONE)
 
 

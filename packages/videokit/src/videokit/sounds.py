@@ -1,18 +1,5 @@
 """Short sounds under the graphics: a pop as a panel lands, a whoosh into
-a new part, a ding on the closing card.
-
-Each sound is a file in ``videokit/sfx/`` described in ``sounds.json``
-- what it was made from and how long it plays. The files are made once
-(by ElevenLabs, through ``speechkit``) and kept with the package; the
-renderer needs each at a public address, which the caller supplies by
-name (``EditSpec.sound_urls``).
-
-**Under the speech.** Speech is levelled to -14 LUFS with its peaks at
--1.5 dB when the file is prepared (:mod:`videokit.media`). A sound peaks
-at :data:`PEAK_DB` and plays at :data:`SOUND_VOLUME`, about ten decibels
-under the speech's peaks, so it is heard as a texture and never over a
-word.
-"""
+a new part, a ding on the closing card."""
 
 import json
 import re
@@ -26,10 +13,7 @@ from videokit.media import _run, _run_both
 FOLDER: Final = Path(__file__).parent / "sfx"
 CATALOGUE: Final = FOLDER / "sounds.json"
 SOUND_VOLUME: Final = 0.6
-# A sound's loudest moment, after levelling. Short sounds are levelled by
-# their peak: a loudness measure needs seconds of sound to mean anything.
 PEAK_DB: Final = -6.0
-# Quieter than this at its peak, a made sound is as good as silence.
 AUDIBLE_DB: Final = -30.0
 
 
@@ -42,8 +26,6 @@ class Sound:
     seconds: float
     length: float
     path: Path
-    # How loud it plays: the catalogue's own for the soft ones (a riser
-    # under the opening, a pad under the closing card).
     volume: float = SOUND_VOLUME
 
     @property

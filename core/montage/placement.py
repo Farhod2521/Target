@@ -1,44 +1,4 @@
-"""Components placed in time, once the cuts are final.
-
-A planner ties each component to words (``anchor_word``, ``until_word``):
-the numbers in the transcript it was shown. Seconds are worked out here,
-after :mod:`core.montage.settle` has moved, joined and dropped stretches -
-so a component lands on its words whatever the cut did to them.
-
-**A word that was cut out** gives way to the nearest word that stayed,
-counting by position in the transcript (the later one on a tie).
-
-**Lengths** are held to the component's own limits from its manifest.
-
-**Collisions.** Two components may not share a band of the frame at the
-same moment. Placed in a fixed order - the closing ones first, then the
-hook, then the rest by when they start - a newcomer that would collide
-is moved, or a panel shortened, to make room (:mod:`core.montage.fitting`);
-failing both, it is left out. The same input always gives the same video.
-
-**The close comes after the words.** The end card and its button play
-for :data:`END_SECONDS` after the last word kept, over footage that
-carries on silently (``Placed.tail``): nothing said is ever covered, and a
-graphic may stay up until the last word.
-
-**Always there, whatever the plan said:** the end card with the
-call-to-action button on it, a headline from the very first frame - the
-planner's, or the first sentence said - and the name bar: when the
-planner placed none, it goes in the first free stretch of
-:data:`NAME_BAR_WINDOW`, after everything the planner asked for. The
-opening headline stays until its sentence ends, up to
-:data:`core.montage.opening.HOOK_MAX_SECONDS` - longer than its manifest
-allows elsewhere.
-
-**Never the same twice in a row.** A graphic that follows one of its own
-kind is left out (decorations aside).
-
-**Nothing empty.** A component there to show the brand (a name bar, the
-end card) is left out when the brand has none of what it shows - an
-account with no page has no name, and an empty box looks broken.
-
-Every graphic asked for and left out is in ``Placed.dropped``, with why.
-"""
+"""Components placed in time, once the cuts are final."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -53,16 +13,10 @@ from core.montage.fitting import Want, blockers, fit
 from core.montage.opening import auto_hook, first_hook, opening_hook
 from core.montage.word_clock import beat_times, nearest_kept, word_times
 
-# How long the closing card plays, after the last word.
 END_SECONDS: Final = 3.0
-# The button comes a beat after the card.
 CTA_DELAY: Final = 0.3
-# How long the last beat of a component stays on screen before it leaves.
 BEAT_HOLD_SECONDS: Final = 1.2
-# A planner's button this close to the end gives way to the closing one.
 LATE_BUTTON_SECONDS: Final = 8.0
-# Where the name bar goes when the planner left it out: early, after the
-# headline, while the viewer is still deciding whose video this is.
 NAME_BAR_WINDOW: Final = (3.0, 7.0)
 _NAME_BAR_STEP: Final = 0.25
 
@@ -96,7 +50,6 @@ def place(
     brand: Brand,
 ) -> Placed:
     """Every component the video will show, at its seconds."""
-    # Where the words end; the close plays after it, and nothing runs into it.
     limit = round(sum(cut.end - cut.start for cut in cuts), 3)
     times = word_times(words, cuts)
     dropped: list[Dropped] = []
@@ -104,7 +57,6 @@ def place(
     opening = first_hook(asked)
     hooks = [opening] if opening else auto_hook(words, times)
     hooks = [opening_hook(hook) for hook in hooks[:1]]
-    # Decorations go last: they make way for everything with words.
     rest = sorted(
         (w for w in asked if w is not opening),
         key=lambda w: (component(w.name).layer == "decor", w.start, w.name),
@@ -113,7 +65,6 @@ def place(
     last = ""
     for want in [*hooks, *rest]:
         decor = component(want.name).layer == "decor"
-        # The same graphic twice in a row reads as a mistake, not a rhythm.
         reason: DropReason | None = None
         if _used_up(want, kept):
             reason = "max_uses"
@@ -202,8 +153,6 @@ def _wanted(
     start = times[first][0]
     said = max(times[last][1] - start, 0.0)
     beats = beat_times(getattr(event, "beats", None), times, count)
-    # Long enough for the last moment inside it to be seen, not to land
-    # as it leaves.
     landed = max(
         (at for v in beats.values() for at in (v if isinstance(v, list) else [v])),
         default=start,

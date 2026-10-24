@@ -1,14 +1,4 @@
-"""Marking the first step's reading: did the words land on the right row.
-
-Structured, unlike the prose surfaces beside it, so the mark is exact: the
-row the product would show, settled by the product's own
-:func:`core.agent.read_goal_choice`, against the row a person expects.
-Three levels, because the question has three: the right row, the right
-outcome with another row under it, or a different wish altogether.
-
-The cases are invented; the command that sends them is run by hand - see
-``apps.ads.management.commands.evaluate_goal_intent``.
-"""
+"""Marking the first step's reading: did the words land on the right row."""
 
 import json
 from dataclasses import dataclass
@@ -30,12 +20,9 @@ class GoalCase:
     id: str
     text: str
     category: str
-    # Empty for words that say no action - the reading should be unclear.
     expect: str
     lang: str = "uz"
-    # Other rows a careful person would accept as right.
     accept: tuple[str, ...] = ()
-    # Rows closed for this account in the case.
     closed: tuple[str, ...] = ()
     sale: bool = False
     note: str = ""

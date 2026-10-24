@@ -23,9 +23,7 @@ _CAPTION_X: Final = (SAFE_RIGHT_PX, 1080 - SAFE_RIGHT_PX)
 _CAPTION_WIDTH: Final = round((_CAPTION_X[1] - _CAPTION_X[0]) * 0.94)
 _ROW: Final = 1.15
 
-# A subtitle line's place: band top, band bottom, size.
 CaptionPlace = tuple[int, int, int]
-# No place clear of the eyes and mouth: noted, and left to the checks.
 NOWHERE: Final[CaptionPlace] = (-1, -1, -1)
 Busy = tuple[float, float, Rect]
 

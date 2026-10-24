@@ -1,25 +1,4 @@
-"""Payme, as one :class:`~paykit.ports.PaymentPort`.
-
-Payme's Merchant API is JSON-RPC 2.0 posted to an endpoint we publish.
-Three properties of it shape everything below.
-
-**It is a state machine, and Payme is the one driving.** We never call
-them. A payer opens the checkout page, and Payme walks our endpoint
-through check, create and perform - or create and cancel - asking each
-time whether the previous answer still holds. So the adapter's whole job
-is reading a method name and writing a result body; the decisions are the
-domain's.
-
-**Failures live inside a 200.** A non-2xx tells Payme the endpoint is
-broken rather than the request was refused, and enough of those and the
-cashbox is suspended. The single exception is a credential that did not
-authenticate, and even that is answered in the protocol's own envelope.
-
-**Money is counted in the currency's smallest unit** - tiyin - which is
-the same integer this system stores. So there is no amount conversion
-here at all, and ``decimal_places`` goes unused: the one thing that could
-be off by a hundredfold is the one thing that is a pass-through.
-"""
+"""Payme, as one :class:`~paykit.ports.PaymentPort`."""
 
 import base64
 import hmac
@@ -75,13 +54,8 @@ from paykit.refs import (
 
 PROVIDER: Final = ProviderName("payme")
 
-# Where a payer is sent. Configuration rather than a constant because the
-# sandbox lives at a different host, and a deployment testing against it
-# must not need a code change to do so.
 CHECKOUT_URL: Final = "https://checkout.paycom.uz"
 
-# Domain state to Payme's number. The reverse map is deliberately absent:
-# Payme never tells us a state, it asks us for one.
 STATES: Final[dict[TransactionState, int]] = {
     CREATED: STATE_CREATED,
     PERFORMED: STATE_PERFORMED,
@@ -89,8 +63,6 @@ STATES: Final[dict[TransactionState, int]] = {
     REFUNDED: STATE_REFUNDED,
 }
 
-# What a result body carries for a time that has not happened yet. Zero
-# and not null: Payme's own validator reads null as a missing field.
 NO_TIME: Final = 0
 
 
@@ -105,19 +77,7 @@ class PaymeAdapter:
         account_field: str,
         checkout_url: str = CHECKOUT_URL,
     ) -> None:
-        """Hold the merchant credentials. Nothing else, and no connection.
-
-        ``account_field`` is the name Payme was told our order key is
-        called when the cashbox was set up - it appears in the checkout
-        link as ``ac.<field>`` and in every callback's ``account`` object.
-        It is configuration because it is chosen in Payme's cabinet by a
-        person, and a value compiled in here would be wrong for the second
-        cashbox somebody opens.
-
-        Refuses to exist without all three. A blank merchant id builds a
-        link that looks correct, sends the payer to a page that turns them
-        away, and reports nothing.
-        """
+        """Hold the merchant credentials. Nothing else, and no connection."""
         if not merchant_id or not key or not account_field:
             raise ProviderMisconfigured(
                 "payme needs a merchant id, a key and an account field name"
@@ -131,16 +91,8 @@ class PaymeAdapter:
     def name(self) -> ProviderName:
         return PROVIDER
 
-    # --- Going out -------------------------------------------------------
-
     def checkout(self, *, request: CheckoutRequest) -> Checkout:
-        """The checkout link, built offline.
-
-        Payme encodes the whole request into one base64 segment of the
-        path: merchant, account, amount, return address and language. The
-        separator is a semicolon and the encoding is standard base64 with
-        padding - both are Payme's, and both are what their page decodes.
-        """
+        """The checkout link, built offline."""
         parts = [
             f"m={self._merchant_id}",
             f"ac.{self._account_field}={request.number}",
@@ -156,32 +108,14 @@ class PaymeAdapter:
             provider=PROVIDER, kind=REDIRECT, url=f"{self._checkout_url}/{encoded}"
         )
 
-    # --- Coming in -------------------------------------------------------
-
     def authenticate(self, *, request: RawRequest) -> bool:
-        """Whether the Basic credential is this cashbox's key.
-
-        Compared with :func:`hmac.compare_digest` rather than ``==``. The
-        difference is timing: a plain comparison returns sooner on a
-        credential that is wrong in the first byte than on one wrong in the
-        last, and that is enough to recover a key one byte at a time.
-
-        The username half is fixed by Payme and carries no secret, so it is
-        checked as part of the same digest rather than separately.
-        """
+        """Whether the Basic credential is this cashbox's key."""
         header = _header(request.headers, "Authorization")
         expected = base64.b64encode(f"{BASIC_USER}:{self._key}".encode()).decode()
         return hmac.compare_digest(header.strip(), f"Basic {expected}")
 
     def parse(self, *, request: RawRequest) -> CallbackRequest:
-        """Read one JSON-RPC call as a command about one invoice.
-
-        Raises :class:`~paykit.errors.MalformedCallback` for a body that is
-        not JSON, not an object, or names a method Payme does not publish.
-        Everything else - an unknown invoice, a wrong amount, a
-        transaction we never created - parses fine and is the domain's
-        answer to give.
-        """
+        """Read one JSON-RPC call as a command about one invoice."""
         payload = _json_object(request.body)
         method = payload.get("method")
         command = METHODS.get(str(method))
@@ -216,8 +150,6 @@ class PaymeAdapter:
             raw=payload,
         )
 
-    # --- Going back ------------------------------------------------------
-
     def render(self, *, request: CallbackRequest, outcome: Outcome) -> ProviderResponse:
         """The JSON-RPC reply for one decision."""
         if isinstance(outcome, Refused):
@@ -225,11 +157,7 @@ class PaymeAdapter:
         return _result(request=request, result=self._result_body(outcome))
 
     def refuse_unauthenticated(self, *, request: RawRequest) -> ProviderResponse:
-        """Payme's own code for a credential it does not recognise.
-
-        Still a 200 with an error object, and still without reading the
-        body: an endpoint that answers 401 is one Payme reports as down.
-        """
+        """Payme's own code for a credential it does not recognise."""
         return _error_body(
             correlation=_correlation(request),
             code=INSUFFICIENT_PRIVILEGE,
@@ -238,14 +166,7 @@ class PaymeAdapter:
         )
 
     def refuse_malformed(self, *, request: RawRequest) -> ProviderResponse:
-        """Three protocol failures, told apart so the cause is readable.
-
-        A body that is not JSON is a parse error; a body that is JSON but
-        names a method Payme does not publish is a method error; anything
-        else is an invalid request. One code for all three would leave an
-        operator unable to tell a proxy mangling bodies from a protocol
-        version moving under us.
-        """
+        """Three protocol failures, told apart so the cause is readable."""
         correlation = _correlation(request)
         try:
             payload = _json_object(request.body)
@@ -269,8 +190,6 @@ class PaymeAdapter:
             field="",
         )
 
-    # --- Internals -------------------------------------------------------
-
     def _result_body(self, outcome: Outcome) -> dict[str, Any]:
         """The ``result`` object for a decision that was not a refusal."""
         if isinstance(outcome, Allowed):
@@ -282,26 +201,15 @@ class PaymeAdapter:
                 ]
             }
         if isinstance(outcome, Settled):
-            # ``reason`` on every reply, for the same reason as the times:
-            # ``CheckTransaction`` requires it, null while nothing was
-            # cancelled, and the others ignore it.
             return _times(outcome.transaction) | {
                 "transaction": outcome.transaction.reference,
                 "state": STATES[outcome.transaction.state],
                 "reason": outcome.transaction.cancel_reason,
             }
-        # Every member of the union is handled above. Reached only if a new
-        # outcome type is added without a branch here, which is a bug in
-        # this file rather than anything a provider did.
         raise PaymentError(f"payme cannot render {type(outcome).__name__}")
 
     def _statement_entry(self, record: TransactionRecord) -> dict[str, Any]:
-        """One row of ``GetStatement``, in Payme's own field names.
-
-        Carries the account object as well as the times, because a
-        statement is what Payme reconciles against and it has to be able
-        to tell which order each row belongs to without asking again.
-        """
+        """One row of ``GetStatement``, in Payme's own field names."""
         return _times(record) | {
             "id": record.external_id,
             "time": to_epoch_ms(record.requested_at or record.created_at),
@@ -324,13 +232,7 @@ class PaymeAdapter:
 
 
 def _times(record: TransactionRecord) -> dict[str, Any]:
-    """The three timestamps every Payme result carries.
-
-    Zero for the ones that have not happened, which is Payme's own way of
-    saying "not yet" - and the reason this is one helper rather than
-    repeated: a result that omits a field is rejected by their validator,
-    and the omission is easy to make three times and notice once.
-    """
+    """The three timestamps every Payme result carries."""
     return {
         "create_time": to_epoch_ms(record.created_at),
         "perform_time": to_epoch_ms(record.performed_at)
@@ -357,12 +259,7 @@ def _result(*, request: CallbackRequest, result: Mapping[str, Any]) -> ProviderR
 def _error_body(
     *, correlation: str, code: int, message: Mapping[str, str], field: str
 ) -> ProviderResponse:
-    """A JSON-RPC error envelope.
-
-    ``data`` is present only for the merchant-defined band, where Payme
-    uses it to highlight the field the payer typed wrong. Sending it on a
-    protocol-level error makes their validator complain.
-    """
+    """A JSON-RPC error envelope."""
     error: dict[str, Any] = {"code": code, "message": dict(message)}
     if field:
         error["data"] = field
@@ -373,11 +270,7 @@ def _error_body(
 
 
 def _correlation(request: RawRequest) -> str:
-    """The request id, recovered from a body that may not parse.
-
-    Empty when the body is unreadable, which renders as a null id - the
-    honest answer, and one Payme accepts on an error reply.
-    """
+    """The request id, recovered from a body that may not parse."""
     try:
         return json.dumps(_json_object(request.body).get("id"))
     except MalformedCallback:
@@ -420,14 +313,7 @@ def _external_id(value: Any) -> ExternalId | None:
 
 
 def _is_int(value: Any) -> TypeGuard[int]:
-    """Whether this is a number the provider meant as one. ``bool`` is not.
-
-    A ``TypeGuard`` rather than a plain ``bool`` so the narrowing survives
-    into the conditional expression that follows it. Without it every
-    ``int(value)`` beside a check like this is an unchecked call on
-    ``Any | None`` - which is exactly the shape that turns a missing field
-    into a ``TypeError`` on the payment path.
-    """
+    """Whether this is a number the provider meant as one. ``bool`` is not."""
     return isinstance(value, int) and not isinstance(value, bool)
 
 

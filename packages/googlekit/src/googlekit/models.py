@@ -19,14 +19,8 @@ class Grant(BaseModel):
     access_token: str = Field(repr=False)
     refresh_token: str = Field(default="", repr=False)
     expires_in: int = 0
-    # What was actually granted, which is not what was asked for: Google's
-    # consent screen lets a person untick a permission and still press
-    # continue.
     scopes: tuple[str, ...] = ()
     email: str = Field(default="", repr=False)
-    # Google's own id for the person (the ID token's ``sub``). Unlike the
-    # email it never changes, so it is what a rule about one person across
-    # cabinets is keyed to.
     subject: str = ""
 
     def holds(self, scope: str) -> bool:
@@ -45,8 +39,6 @@ class Tab(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    # A string, like every id this package hands out - see
-    # ``googlekit.sheets`` for where the number is rebuilt.
     sheet_id: str
     title: str = ""
 
@@ -58,9 +50,6 @@ class Spreadsheet(BaseModel):
 
     spreadsheet_id: str
     url: str = ""
-    # In the order Google lists them. A new spreadsheet has one; a file
-    # somebody has worked in may have several, and the tab this app writes
-    # to is found by id rather than by position.
     tabs: tuple[Tab, ...] = ()
 
     @property
@@ -89,9 +78,6 @@ class DriveFile(BaseModel):
     name: str = ""
     mime_type: str = ""
     trashed: bool = False
-    # An absent ``capabilities`` is read as "yes". The write itself is the
-    # authority on whether it may happen, and refusing over a field Google
-    # left out of an answer would stop a link that works.
     can_edit: bool = True
 
 

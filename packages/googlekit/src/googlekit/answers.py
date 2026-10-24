@@ -1,11 +1,4 @@
-"""What Google answered, turned into this package's DTOs.
-
-:mod:`googlekit.sheets` holds the calls; this module and
-:mod:`googlekit.cells` hold what goes out and what comes back.
-
-**A tab id is a string outside this package.** Google's JSON carries a
-number; here is where it stops being one.
-"""
+"""What Google answered, turned into this package's DTOs."""
 
 from collections.abc import Mapping
 from typing import Any
@@ -28,11 +21,7 @@ def as_spreadsheet(answer: Mapping[str, Any]) -> Spreadsheet:
 
 
 def as_tab(payload: Mapping[str, Any]) -> Tab:
-    """One tab's properties.
-
-    A tab's id defaults to zero and Google may leave a default out of its
-    JSON, so a tab without one is tab 0 rather than no tab.
-    """
+    """One tab's properties."""
     properties = payload.get("properties") or {}
     return Tab(
         sheet_id=str(int(properties.get("sheetId") or 0)),

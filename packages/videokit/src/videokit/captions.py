@@ -1,14 +1,4 @@
-"""Subtitles over the footage, and the band they sit in.
-
-**Word by word** when the spec carries the words' times, in the brand's
-font and colours: one HTML5 clip per run of lines that sit in the same
-band (see :mod:`videokit.karaoke`). Otherwise the SRT file goes to
-Shotstack's own caption asset, in the provider's font, which knows only
-when a line starts.
-
-The band is ``SUBTITLES``, a little narrower than the frame, and
-``SUBTITLES_LOW`` while the footage is split for a panel.
-"""
+"""Subtitles over the footage, and the band they sit in."""
 
 from typing import Any, Final
 
@@ -34,25 +24,15 @@ from videokit.layout import (
 )
 from videokit.models import CaptionLine, EditSpec
 
-# How much of the frame's width a block of text may take. A narrow frame
-# gives most of its width; a wide one less, so a sentence does not run
-# edge to edge.
 _TEXT_SHARE: Final = 0.86
 _WIDE_TEXT_SHARE: Final = 0.6
-# A line stays a moment after its last word, unless the next one is due.
 _CAPTION_TAIL: Final = 0.15
-# A subtitle line wraps to two rows at most.
 CAPTION_ROWS: Final = 2
-# A lit word may grow (LIT_SCALE); the measure leaves it room.
 _LIT_ROOM: Final = 0.94
 
 
 def text_width(spec: EditSpec) -> int:
-    """How wide a block of text may be, in the frame's pixels.
-
-    On a vertical frame, as wide as the frame less the apps' button column
-    on both sides, so the line stays centred and clear of it.
-    """
+    """How wide a block of text may be, in the frame's pixels."""
     width, height = frame_size(spec.resolution, spec.aspect_ratio)
     if safe_area(spec.aspect_ratio) is not None:
         return width - 2 * scaled(SAFE_RIGHT_PX, spec.resolution)
@@ -89,10 +69,7 @@ def _split_at(spec: EditSpec, at: float) -> bool:
 
 
 def _caption_box(spec: EditSpec, *, low: bool = False) -> dict[str, Any]:
-    """The subtitles' own band, a little narrower than the frame.
-
-    Lower while the footage is split - see ``SUBTITLES_LOW``.
-    """
+    """The subtitles' own band, a little narrower than the frame."""
     return {
         **zone_box(
             "SUBTITLES_LOW" if low else "SUBTITLES",
@@ -104,15 +81,7 @@ def _caption_box(spec: EditSpec, *, low: bool = False) -> dict[str, Any]:
 
 
 def word_clips(spec: EditSpec) -> list[dict[str, Any]]:
-    """The subtitles, all lines in one clip.
-
-    The brand's font goes into the clip, and a font in every line would
-    outgrow the provider's limit on one edit. So one clip covers every
-    band a line sits in - over the mouth, under the chin while the footage
-    is split, or wherever a line was moved off the speaker's face
-    (``CaptionLine.top``) - and each line is drawn at its own height and
-    size inside it.
-    """
+    """The subtitles, all lines in one clip."""
     if not spec.captions:
         return []
     every = caption_px(spec) or MIN_FONT_PX

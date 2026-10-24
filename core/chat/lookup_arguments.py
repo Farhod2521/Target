@@ -1,17 +1,9 @@
-"""The shape and bounds of every look-up's arguments.
-
-Apart from :mod:`core.chat.lookups`, which names the tools, for length. Each
-model is closed - a key nobody declared is refused before a look-up runs -
-and every window is bounded by what the tables actually hold.
-"""
+"""The shape and bounds of every look-up's arguments."""
 
 from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# The longest window any look-up reads. The provider keeps leads for ninety
-# days and the segment rows are kept for ninety, so past this the tables are
-# thinner than they look.
 MAX_DAYS: Final = 90
 DEFAULT_DAYS: Final = 30
 

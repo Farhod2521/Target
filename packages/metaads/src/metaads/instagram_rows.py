@@ -1,12 +1,4 @@
-"""The Instagram professional account behind a page, as its owner sees it.
-
-Its own module rather than a row beside ``InstagramAccountDTO``, because the
-two answer different questions. That one is what an ad creative needs - an
-id and a handle to recognise it by - and it arrives inside the page list.
-This one is the profile itself, read from ``/{ig-user-id}``, and it exists
-so that a screen can show somebody the account they connected the way their
-own phone shows it: picture, name, biography and the three counts.
-"""
+"""The Instagram professional account behind a page, as its owner sees it."""
 
 from pydantic import field_validator
 
@@ -47,11 +39,7 @@ class InstagramProfileDTO(MetaDTO):
     )
     @classmethod
     def _strings(cls, value: object) -> str:
-        """A ``null`` or a number where text belongs reads as no text.
-
-        A profile name is whatever its owner typed, and one that is only
-        digits must not fail the whole read over its type.
-        """
+        """A ``null`` or a number where text belongs reads as no text."""
         return _text(value)
 
     @field_validator("followers_count", "follows_count", "media_count", mode="before")

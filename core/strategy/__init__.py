@@ -1,18 +1,4 @@
-"""The planning layer: what this account should do next.
-
-The third vocabulary of the domain. A *preset* is a recipe - one category
-and one goal, rendered to a spec. A *rule* is
-reactive - one ad set's week, judged, becoming a button. A *strategy* is
-planned - the whole account's standing, read, becoming a direction. The
-three never blur: a strategy proposes no executable change and a rule
-consults no plan, and the day either stops being true this package has
-leaked.
-
-Everything here is arithmetic over values somebody else assembled - no
-Django, no clock, no provider - and every threshold either comes from the
-provider's own verdict or says out loud that it is approximate. See
-``maturity`` for that split; it is the whole epistemology of the package.
-"""
+"""The planning layer: what this account should do next."""
 
 from core.strategy.advice import (
     NEED_SEED_AUDIENCE,

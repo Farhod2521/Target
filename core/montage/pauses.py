@@ -1,26 +1,4 @@
-"""Pauses taken out of the middle of a kept stretch.
-
-The planner keeps or drops whole phrases; inside a phrase it keeps, the
-speaker still breathes, thinks, looks away. Short-form video does not wait
-for that. A silence between two words longer than :data:`PAUSE_SECONDS`
-is cut out, the stretch played as two pieces back to back.
-
-**The edges keep a little air**: :data:`KEEP_BEFORE` before the next word
-and :data:`KEEP_AFTER` after the last one - more after, because the tail
-of an s, z or sh outlasts the time the transcript gives the word.
-
-**No flicker.** A cut that would leave a piece shorter than
-:data:`MIN_PIECE_SECONDS` on either side is not made; that pause stays.
-
-**No jolt.** Every piece creeps closer as it plays (see
-:mod:`videokit.motion`), starting from its own ``zoom``; a piece after a
-removed pause starts where the creep had got to, so the picture carries
-on rather than stepping back. Only the first piece keeps the stretch's
-transition.
-
-Components and subtitles need nothing done: they are placed by the
-words' numbers and found again inside whichever piece holds them.
-"""
+"""Pauses taken out of the middle of a kept stretch."""
 
 from collections.abc import Sequence
 from itertools import pairwise
@@ -35,9 +13,7 @@ PAUSE_SECONDS: Final = 0.30
 KEEP_BEFORE: Final = 0.06
 KEEP_AFTER: Final = 0.08
 MIN_PIECE_SECONDS: Final = 0.4
-# A word belongs to a stretch when it lies inside it, give or take this.
 _INSIDE: Final = 0.05
-# Times are floats: 1.3 - 1.0 is a hair over 0.3.
 _EPSILON: Final = 1e-6
 
 

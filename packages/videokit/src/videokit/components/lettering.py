@@ -1,19 +1,4 @@
-"""Each text of a component at the size it fits its box at.
-
-A component's manifest names the box every text is written in
-(``texts``); here the text the clip will actually show is measured
-(:mod:`videokit.fit`) and given its size as one CSS rule per text. A
-list (the chips) takes one size for all its items, so they stay alike.
-
-**Contacts** are laid out rather than shrunk: the handle and the phone
-share a line while they fit on one at the box's smallest size, and go
-onto lines of their own when they do not. A phone number is never
-broken.
-
-What fits nowhere is named in ``overflow``; the clip is still drawn (at
-the smallest size), and :mod:`videokit.preflight` stops the montage
-before it reaches the renderer.
-"""
+"""Each text of a component at the size it fits its box at."""
 
 from dataclasses import dataclass, field
 from typing import Any, Final
@@ -22,7 +7,6 @@ from videokit.components.registry import Component
 from videokit.fit import fitted_all, fitted_px, packed
 from videokit.models import CONTACT_JOIN, Brand
 
-# The value a component lists contacts in; filled here, not by the brand.
 CONTACT_LINES: Final = "cta_contact_lines"
 
 

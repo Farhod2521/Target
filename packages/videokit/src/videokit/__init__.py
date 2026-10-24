@@ -1,13 +1,4 @@
-"""Video montage, done somewhere else and prepared here.
-
-Two halves. :mod:`videokit.media` reads a file on this machine with FFmpeg
-- its length, a still every few seconds, its sound. :class:`Shotstack`
-takes the file, an :class:`EditSpec` built into JSON by :func:`build_edit`,
-and returns the finished video.
-
-The package knows nothing about advertising, accounts or prompts. What to
-keep and in what order is decided above it.
-"""
+"""Video montage, done somewhere else and prepared here."""
 
 from videokit.edit import MAX_EDIT_BYTES, build_edit, edit_bytes, output_length
 from videokit.errors import (

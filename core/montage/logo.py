@@ -1,18 +1,4 @@
-"""What is known about a logo: what Claude saw once, and which copy goes where.
-
-**Claude's look** (:class:`LogoAnalysis`) is asked for once per logo file
-and prompt version, and stored. Montages never send the picture again;
-they read what was stored.
-
-**Copies.** A logo is drawn over video that may be dark or light. When a
-sixth or more of a logo with transparency disappears on one of them, that
-background gets a copy of its own. A logo in one colour is painted in the
-other - white on dark, near-black on light: nothing of it is lost. A logo
-in several colours keeps them, on a rounded plate of the opposite
-lightness (a *badge*): painting a pink circle and purple lettering white
-would keep the shape and lose the brand. A logo without transparency
-carries its own background and is used as it is everywhere.
-"""
+"""What is known about a logo: what Claude saw once, and which copy goes where."""
 
 import re
 import unicodedata
@@ -28,29 +14,18 @@ from core.montage.colors import DARK, LIGHT, SHAPE_CONTRAST, contrast_ratio
 LogoType = Literal["wordmark", "icon", "combination"]
 Background = Literal["dark", "light", "any"]
 Treatment = Literal["own", "white", "black", "light_badge", "dark_badge"]
-# What a logo stood on: transparency of its own, a plain white or black
-# ground taken away here, or a ground that stays - a coloured tile is
-# part of the design, and a busy one cannot be cut out safely.
 Ground = Literal["clear", "removed", "solid"]
 HexColor = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]
 
 MAX_NOTE_WORDS: Final = 30
-# Thirty words of English, generously.
 MAX_NOTE_CHARS: Final = 300
-# A ground this light or this dark, and this grey, is paper.
 PAPER_LIGHT: Final = 225
 PAPER_DARK: Final = 30
 GREY_SPREAD: Final = 18
-# This much of a logo unseen on a background, and it gets one colour there.
-# Low because lettering is thin: a wordmark beside a big mark is a fifth
-# of the drawing and all of the name.
 VANISHING: Final = 0.15
-# One colour covering this much of the drawing is a one-colour logo; the
-# rest is the soft edge of its strokes.
 MONOCHROME: Final = 0.85
 MAX_KEYWORDS: Final = 6
 MAX_COLORS: Final = 5
-# The silhouettes' colours, matching what text is drawn in.
 WHITE: Final = LIGHT
 BLACK: Final = DARK
 
@@ -109,23 +84,12 @@ class LogoAnalysis(BaseModel):
         return " ".join(words)
 
 
-# Every way the Uzbek o' and g' are typed, and the other marks a name is
-# spelled with (okina, apostrophes, curly quotes, backtick). Dropped before
-# comparing, so every spelling of "O'zbek" and "OZBEK" read the same.
 _MARKS: Final = re.compile(r"['`\u02bb\u02bc\u2018\u2019\u00b4]")
 _NOT_A_LETTER: Final = re.compile(r"[\W_]+")
 
 
 def names_the_brand(*, text_in_logo: str, brand_name: str) -> bool:
-    """Whether the logo's lettering spells the whole brand name.
-
-    Read from the words, not from Claude's ``contains_brand_name``: a logo
-    reading "CHILONZOR" beside the brand "Chilonzor Fitnes" was judged to
-    contain it, and the name next to it would then have gone unwritten.
-    Case, punctuation and the spellings of o' and g' are ignored; spacing
-    is ignored inside the name ("BAHORKAFESI"), but the name must start
-    and end on a word of the logo's - "Bahor" is not in "BAHORGUL".
-    """
+    """Whether the logo's lettering spells the whole brand name."""
     name = _words(brand_name)
     lettering = _words(text_in_logo)
     if not name or not lettering:
@@ -160,14 +124,7 @@ class Copies:
 
 
 def copies(*, has_alpha: bool, shares: Sequence[tuple[str, float]]) -> Copies:
-    """Which copy of the logo each background gets.
-
-    ``shares`` are the logo's colours and how much of the drawing each
-    covers. When :data:`VANISHING` of the drawing would vanish on a
-    background - dark lettering beside a bright mark, say - that background
-    gets a copy: the logo painted in one colour if it is one colour
-    already (:data:`MONOCHROME`), else the logo as it is on a badge.
-    """
+    """Which copy of the logo each background gets."""
     if not has_alpha or not shares:
         return Copies(on_dark="own", on_light="own")
     single = shares[0][1] >= MONOCHROME

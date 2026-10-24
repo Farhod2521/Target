@@ -1,18 +1,4 @@
-"""Filling ``{business.city}`` and ``{answers.age_min}`` in a preset.
-
-A preset is data, so the only thing it can carry is a hole with a name on
-it. The allowed names are a closed set and the caller passes exactly them:
-an open set would make a YAML file able to reach into whatever the caller
-happened to hand over, which is how data files quietly become code.
-
-Three names. ``conversion`` is a source in its own right rather than a
-field on ``business`` for a plain reason: it comes from the ad account,
-not from the profile, and it is absent for most launches.
-
-A placeholder standing alone becomes the value itself, keeping its type -
-``age_min`` has to arrive as a number, not as ``"25"``. A placeholder
-inside a sentence becomes text, because that is the only thing it can be.
-"""
+"""Filling ``{business.city}`` and ``{answers.age_min}`` in a preset."""
 
 import re
 from collections.abc import Mapping
@@ -20,10 +6,6 @@ from typing import Any
 
 from core.targeting.exceptions import CatalogError, UnfilledTemplate
 
-# ``{prefix.name}``. Lowercase on purpose: a mis-cased placeholder does not
-# match, survives into the output, and is then caught by the leftover-brace
-# check below with the file and path attached - which is a far better error
-# than a silently unfilled field.
 PLACEHOLDER = re.compile(r"\{([a-z_]+)\.([a-z_][a-z_0-9]*)\}")
 
 
@@ -34,13 +16,7 @@ def render(
     defaults: Mapping[str, Any],
     path: str = "",
 ) -> Any:
-    """Walk a preset fragment, replacing every placeholder it contains.
-
-    ``defaults`` fills a hole whose source answered ``None`` or ``""``. It
-    is keyed by the bare name, without the prefix, because a preset's
-    ``defaults`` block answers the question "what if nobody said", and the
-    answer does not depend on which object was going to be asked.
-    """
+    """Walk a preset fragment, replacing every placeholder it contains."""
     if isinstance(node, dict):
         return {
             key: render(
@@ -110,11 +86,7 @@ def _lookup(
 
 
 def _is_blank(value: Any) -> bool:
-    """Unanswered, in the two shapes an unanswered field arrives in.
-
-    An empty tuple is not blank. ``genders = ()`` means "everyone", and
-    replacing that with a preset default would overrule a real answer.
-    """
+    """Unanswered, in the two shapes an unanswered field arrives in."""
     return value is None or value == ""
 
 
@@ -129,6 +101,4 @@ def _join(path: str, key: str) -> str:
     return f"{path}.{key}" if path else key
 
 
-# A sentinel, because ``None`` is a value a source may legitimately hold and
-# "the attribute does not exist" is a different mistake with a different fix.
 _MISSING = object()

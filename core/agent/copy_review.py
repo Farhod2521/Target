@@ -1,13 +1,4 @@
-"""The shape of Claude's second read of advert copy.
-
-Its own module rather than a few more classes in ``schemas.py``: this is the
-one answer here that is not a proposal. It judges one - problem by problem,
-with the words that show each - and hands back the advert with them fixed.
-
-Problems first in each item, and that order is the instruction. The model
-fills the fields in the order the schema lists them, so a list of what is
-wrong is written before the corrected text rather than justified after it.
-"""
+"""The shape of Claude's second read of advert copy."""
 
 from typing import Literal
 

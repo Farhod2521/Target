@@ -1,13 +1,4 @@
-"""Something new on screen every few seconds, whatever the plan said.
-
-A talking head with nothing happening loses the viewer in seconds. After
-the components are placed, the moments something changes - a cut, a
-graphic coming in, a punch-in - are lined up; wherever two are more than
-:data:`MAX_QUIET` apart, the picture punches in at the word nearest the
-middle of the gap, until no gap is that long or no word fits. A word too
-close to its cut's edges is passed over, as :mod:`videokit.motion` would
-leave a punch there out anyway.
-"""
+"""Something new on screen every few seconds, whatever the plan said."""
 
 from collections.abc import Sequence
 from itertools import pairwise
@@ -20,7 +11,6 @@ from core.montage.captions import SpokenWord
 from core.montage.word_clock import word_times
 
 MAX_QUIET: Final = 3.5
-# Placed by the code over the whole video: not something that happens.
 _ALWAYS_THERE: Final = frozenset({"corner_logo", "progress_bar"})
 
 

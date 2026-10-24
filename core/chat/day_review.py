@@ -1,17 +1,9 @@
-"""The shape Claude answers the daily report in.
-
-Pydantic, like every wire format the API enforces as a tool signature. It
-may say something about each campaign it was shown and nothing about one it
-was not: ``index`` points into the report's own list, and a note whose
-index is not on that list is dropped by the caller.
-"""
+"""The shape Claude answers the daily report in."""
 
 from typing import Final, Literal
 
 from pydantic import BaseModel, Field
 
-# How many campaigns one day's report may carry. The same ceiling the
-# selector cuts the list at.
 MAX_DAY_CAMPAIGNS: Final = 8
 
 Verdict = Literal["good", "watch", "bad"]

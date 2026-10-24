@@ -1,17 +1,4 @@
-"""Reading the catalogue off disk: ``*.yaml`` in, ``Preset`` out.
-
-Apart from :mod:`core.targeting.presets` because the two answer different
-questions. That module is the catalogue *as the rest of the product sees
-it* - find a preset, list a category's goals - and nothing above it has any
-business knowing the files are YAML at all. This is the parser, and it is
-the half that grows: every field a preset gains is a required key, a type
-check and a sentence about what a missing one means.
-
-**Every value is required unless a comment here says otherwise, and an
-unknown one raises.** A catalogue that falls back is a catalogue that ships
-a typo to production and finds out from a customer whose goal disappeared
-off the first screen.
-"""
+"""Reading the catalogue off disk: ``*.yaml`` in, ``Preset`` out."""
 
 from collections.abc import Mapping
 from pathlib import Path
@@ -33,24 +20,11 @@ from core.targeting.exceptions import CatalogError
 from core.targeting.placements import names_a_placement
 from core.targeting.presets import Category, Preset
 
-# Meta's own word for "draw no button". The catalogue is where a goal's
-# provider words live, so it is named rather than substituted - but a goal
-# that sends nobody anywhere may name **only** this one, which is what
-# :func:`_provider_words` enforces.
-#
-# Not a default filled in on the preset's behalf. A silent substitution
-# here is a catalogue entry saying one thing and a creative doing another,
-# which is the whole failure this stage was written to stop.
 NO_BUTTON = "NO_BUTTON"
 
 
 def read_directory(path: Path) -> tuple[list[Category], list[Preset]]:
-    """Every ``*.yaml`` under ``path``, in filename order.
-
-    A duplicate ``category/goal`` raises rather than being overwritten: two
-    files claiming the same key means one of them is silently dead, and
-    which one depends on the alphabet.
-    """
+    """Every ``*.yaml`` under ``path``, in filename order."""
     categories: list[Category] = []
     presets: list[Preset] = []
     seen: set[tuple[str, str, str]] = set()
@@ -116,19 +90,10 @@ def _read_preset(
     data: dict[str, Any] = entry
     goal = _text(data, "goal", source=source)
     if "schedule" in data:
-        # Nothing reads a schedule: the launch always sends "start now",
-        # because a campaign is created paused and a person switches it on.
-        # Refused
-        # rather than ignored, for the same reason as ``_check_placements``:
-        # a key that looks authoritative in a data file and decides nothing
-        # is worse than no key at all.
         raise CatalogError(f"{goal} names a schedule; nothing reads one", source=source)
     own = _mapping(data.get("targeting"), source=source)
     _check_placements(own, where=goal, source=source)
 
-    # Shallow on purpose: a preset that names ``geo_locations`` replaces the
-    # base's whole block rather than merging into it. Deep-merging two
-    # provider specs produces combinations neither author wrote.
     targeting = {**base, **own}
     if not targeting:
         raise CatalogError(f"{category.key}/{goal} targets nothing", source=source)
@@ -164,18 +129,7 @@ def _read_preset(
 
 
 def _check_placements(targeting: Mapping[str, Any], *, where: str, source: str) -> None:
-    """A preset may not decide where the ad appears. Refused, not ignored.
-
-    The rule this stage was written for, and it is the same shape as the
-    one ``_provider_words`` enforces on chat goals: a key that looks
-    authoritative in a data file and decides nothing is worse than no key
-    at all.
-
-    Where an ad appears is one answer with two states, in
-    :mod:`core.targeting.placements`, and the builder writes the whole
-    block - so a key here would be silently overwritten, which is the one
-    outcome worse than being wrong.
-    """
+    """A preset may not decide where the ad appears. Refused, not ignored."""
     named = names_a_placement(targeting)
     if named:
         raise CatalogError(
@@ -186,13 +140,7 @@ def _check_placements(targeting: Mapping[str, Any], *, where: str, source: str) 
 
 
 def _destination(data: Mapping[str, Any], *, source: str) -> AdDestination:
-    """``sends_to``, checked against the six the domain knows.
-
-    Required, and an unknown value is a refusal rather than a fallback. A
-    typo falling through to "cannot be built" would take a working goal off
-    the first wizard screen with no error anywhere - the failure that is
-    only ever noticed by the customer who stopped seeing their own goal.
-    """
+    """``sends_to``, checked against the six the domain knows."""
     value = _text(data, "sends_to", source=source)
     if value not in DESTINATIONS:
         raise CatalogError(f"unknown sends_to {value!r}", source=source)
@@ -202,19 +150,7 @@ def _destination(data: Mapping[str, Any], *, source: str) -> AdDestination:
 def _chat(
     data: Mapping[str, Any], *, sends_to: str, goal: str, source: str
 ) -> tuple[str, str]:
-    """The two texts a conversation opens with, checked against the goal.
-
-    Required on a goal that opens one and **refused** on a goal that does
-    not, rather than merely ignored. A greeting written under a lead preset
-    is not harmless data: it reads, in the one file that decides what an ad
-    is made of, like a sentence somebody will see - and nothing anywhere
-    would ever say that no ad can show it.
-
-    The pair is required together for the same reason the pixel and its
-    event are (see ``promoted_object``): half of a welcome message is a
-    thread that greets somebody and then leaves their own message box
-    empty, which is worse than the provider's default and looks deliberate.
-    """
+    """The two texts a conversation opens with, checked against the goal."""
     welcome = str(data.get("welcome_message") or "")
     autofill = str(data.get("autofill_message") or "")
 
@@ -238,12 +174,7 @@ def _chat(
 def _chat_questions(
     data: Mapping[str, Any], *, sends_to: str, goal: str, source: str
 ) -> tuple[str, ...]:
-    """The questions offered first when the owner asks for some.
-
-    Optional, and refused off a chat goal for the reason the greeting is.
-    Held to the same ceilings the owner's own questions are, so a catalogue
-    line can never be the one Meta refuses.
-    """
+    """The questions offered first when the owner asks for some."""
     raw = data.get("chat_questions") or []
     if not isinstance(raw, list):
         raise CatalogError(f"{goal}: chat_questions must be a list", source=source)
@@ -267,19 +198,7 @@ def _chat_questions(
 def _provider_words(
     data: Mapping[str, Any], *, sends_to: str, goal: str, source: str
 ) -> tuple[str, str]:
-    """The button and the ad set destination, where the preset owns them.
-
-    Every goal but one names both here: they follow from the goal, and the
-    catalogue is where a goal's provider words live.
-
-    **A chat goal names neither**, and that is the same decision the
-    automation flag makes. The two are a pair Meta refuses to see
-    mismatched - an Instagram Direct ad takes ``INSTAGRAM_MESSAGE`` and
-    nothing else - and which surface a conversation opens on is answered
-    by the owner, one question later, not by the category. A line in
-    twelve files saying ``MESSENGER`` would look authoritative and decide
-    nothing. See :data:`core.targeting.destinations.CHANNELS`.
-    """
+    """The button and the ad set destination, where the preset owns them."""
     given_cta = str(data.get("call_to_action") or "")
     given_destination = str(data.get("destination_type") or "")
 
@@ -295,22 +214,12 @@ def _provider_words(
     if not given_cta:
         raise CatalogError("missing 'call_to_action'", source=source)
 
-    # A goal that sends nobody anywhere may carry exactly one button, and
-    # it is the one that is not a button. Refused rather than corrected,
-    # for the reason every other rule in this file refuses: a preset
-    # reading ``LEARN_MORE`` beside ``sends_to: nothing`` is a sentence
-    # somebody will believe. It produces an awareness ad whose button
-    # opens this deployment's own front page - a real link, on somebody
-    # else's paid impressions, that no screen would ever mention.
     if not shows_a_button(sends_to) and given_cta != NO_BUTTON:
         raise CatalogError(
             f"{goal} sends nobody anywhere: call_to_action must be "
             f"{NO_BUTTON}, not {given_cta}",
             source=source,
         )
-    # The profile's button opens the profile and nothing else. Another word
-    # beside this destination is accepted by Meta and opens the address in
-    # a browser, where somebody not logged in meets a sign-in wall.
     profile_button = FIXED_BUTTONS["profile"]
     if opens_profile(sends_to) and given_cta != profile_button:
         raise CatalogError(
@@ -321,25 +230,11 @@ def _provider_words(
     return given_cta, given_destination
 
 
-# The kinds a ``trait_seeds`` entry may declare. Interests are not among
-# them: those are searched for and belong in ``interest_seeds`` above, and
-# a file that could put one here would be a file with two homes for the
-# same thing.
 TRAIT_KINDS: Final[frozenset[str]] = frozenset({"behaviour", "life_event"})
 
 
 def _traits(raw: Any, *, source: str) -> tuple[Interest, ...]:
-    """``trait_seeds``: a label, a name to match, and which catalogue.
-
-    Refused rather than defaulted when the kind is missing or unknown. The
-    two classes are closed lists at the provider and are matched exactly, so
-    a seed filed under the wrong one resolves to nothing - and "resolves to
-    nothing" is indistinguishable, from every screen, from a class the
-    platform does not offer in this market.
-
-    No ids, for the reason the interest seeds carry none: an id in a data
-    file is a promise the provider never made.
-    """
+    """``trait_seeds``: a label, a name to match, and which catalogue."""
     if not isinstance(raw, list):
         raise CatalogError("trait_seeds must be a list", source=source)
 
@@ -365,11 +260,7 @@ def _traits(raw: Any, *, source: str) -> tuple[Interest, ...]:
 
 
 def _seeds(raw: Any, *, source: str) -> tuple[Interest, ...]:
-    """``interest_seeds``: a label to read and a name to search for.
-
-    No ids. An id in a data file is a promise the provider never made, and
-    it breaks silently the day the provider merges two interests.
-    """
+    """``interest_seeds``: a label to read and a name to search for."""
     if not isinstance(raw, list):
         raise CatalogError("interest_seeds must be a list", source=source)
 
@@ -395,13 +286,7 @@ def _required(data: Mapping[str, Any], key: str, *, source: str) -> Any:
 
 
 def _offered(data: Mapping[str, Any], *, source: str) -> bool:
-    """``offered: false`` withdraws a goal from the wizard, not from lookup.
-
-    Absent means offered. A value that is not a boolean is refused rather than
-    read for truthiness: ``offered: "no"`` is a string, every non-empty
-    string is true, and the goal would go on being offered by a file that
-    says it should not be.
-    """
+    """``offered: false`` withdraws a goal from the wizard, not from lookup."""
     value = data.get("offered", True)
     if not isinstance(value, bool):
         raise CatalogError("'offered' must be true or false", source=source)

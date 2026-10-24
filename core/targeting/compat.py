@@ -1,29 +1,4 @@
-"""What the first step offers, row by row - the one table every layer reads.
-
-The provider asks three things in a row: an objective, where the result
-happens, and what to maximise. An owner is asked the same three in their own
-words: what they want (the *outcome*), how (the *choice*), and - folded away
-for whoever buys advertising for a living - the provider's exact setting
-(the *row*). This module is that structure and nothing else.
-
-**A row is a campaign kind plus where it sits on the screen.** Every row
-that can be built is exactly one of :data:`CAMPAIGN_TYPES` - a test holds
-the two together - so what is chosen here is what the builder buys. A row
-that cannot be built yet is still listed, switched off with its reason: the
-provider offers it, and an owner who reads about it elsewhere should find it
-here and learn why it is not open to them.
-
-**What stops a row is here too**, so the screen, the model, the save and the
-gate agree about it. Only facts decide it - a pixel, enough qualified
-leads, an Instagram account - and they arrive as :class:`AccountFacts`,
-because this package has no database to ask.
-
-**No words for people.** The owner's labels are translated text and live
-above this package, keyed by the same row and outcome keys. What is here in
-English is for the model: what a row means and phrases owners use for it.
-The provider's own names are the grey labels beside the owner's words and
-are never the API's spelling.
-"""
+"""What the first step offers, row by row - the one table every layer reads."""
 
 from dataclasses import dataclass
 from typing import Final, Literal
@@ -35,21 +10,14 @@ from core.targeting.campaign_types import (
     default_type,
 )
 
-# What the owner wants, the first question. Sales is on the screen and
-# switched off until a purchase can be built.
 Outcome = Literal[
     "requests", "calls", "messages", "visits", "profile", "reach", "sales"
 ]
 
-# Where the provider says the result happens. "none" is the objective that
-# asks no location at all.
 Destination = Literal[
     "instant_form", "website", "calls", "messaging", "instagram_profile", "none"
 ]
 
-# What can stop a row. ``not_built`` is a row the provider offers and this
-# product cannot create yet; ``instagram`` is a page with no Instagram
-# account behind it that an advert can run as.
 Requirement = Literal["pixel", "quality_signal", "instagram", "not_built"]
 
 
@@ -59,12 +27,7 @@ class OutcomeSpec:
 
     key: Outcome
     goals: tuple[str, ...]
-    # Switched off on the screen, with "coming soon" beside it.
     live: bool = True
-    # The row the first step opens when only this answer is given, where it
-    # is not the first goal's default kind. That default is what a launch
-    # that never chose a kind is built as, and moving it would rebuild
-    # launches saved before; this moves only what is offered from now on.
     recommended: str = ""
 
 
@@ -84,11 +47,7 @@ class AccountFacts:
     """What the account has, as far as the rows care."""
 
     has_pixel: bool
-    # Enough verdicts to buy on quality - see ``core.targeting.quality``.
     quality_ready: bool = False
-    # An Instagram account behind the page, with the handle its profile's
-    # address is built from. Absent is closed: a caller that does not know
-    # must not open a row whose advert would have no profile to open.
     has_instagram: bool = False
 
 
@@ -99,20 +58,12 @@ class Offer:
     kind: CampaignType
     outcome: Outcome
     destination: Destination
-    # What the provider's screen calls the destination. Empty where it asks
-    # none.
     provider_destination_label: str
-    # The row of the second question this one belongs to - its own key when
-    # it *is* one of the plain choices, empty when none describes it.
     choice: str
     needs: tuple[Requirement, ...] = ()
-    # For the model: what the row means, and words owners use for it.
     meaning: str = ""
     phrases: tuple[str, ...] = ()
     buildable: bool = True
-    # Offered on the first step and to the model. An unlisted row is still
-    # built, read back and shown for a launch that already holds it - it is
-    # only no longer offered to anybody choosing.
     listed: bool = True
 
     @property
@@ -137,8 +88,6 @@ class Offer:
         return self.choice == self.key
 
 
-# Kind keys are unique across the whole table - a test holds that - so the
-# rows below name their kind by key alone.
 _KINDS: Final[dict[str, CampaignType]] = {row.key: row for row in CAMPAIGN_TYPES}
 
 
@@ -146,9 +95,6 @@ def _kind(key: str) -> CampaignType:
     return _KINDS[key]
 
 
-# The provider offers buying a form on qualified leads. It is a row of its
-# own rather than a kind, because a kind is something anybody may tick and
-# this one may only be bought through ``core.targeting.quality``.
 QUALITY_LEADS: Final = CampaignType(
     "meta",
     "leads",
@@ -161,7 +107,6 @@ QUALITY_LEADS: Final = CampaignType(
 )
 
 OFFERS: Final[tuple[Offer, ...]] = (
-    # --- Requests: a form on the ad, or on the owner's own site -----------
     Offer(
         _kind("form_leads"),
         "requests",
@@ -195,8 +140,6 @@ OFFERS: Final[tuple[Offer, ...]] = (
         ),
         phrases=("sifatli ariza", "faqat jiddiy arizalar", "качественные заявки"),
         buildable=False,
-        # Meta asks for a Conversions API link for this goal on a new
-        # campaign, which nothing here sends.
         listed=False,
     ),
     Offer(
@@ -228,7 +171,6 @@ OFFERS: Final[tuple[Offer, ...]] = (
             "Only when the owner says the pixel does not count requests."
         ),
         phrases=("piksel arizani sanamayapti",),
-        # Not among Ads Manager's goals for a request on a website.
         listed=False,
     ),
     Offer(
@@ -240,7 +182,6 @@ OFFERS: Final[tuple[Offer, ...]] = (
         needs=("pixel",),
         meaning="A request on the website, bought on clicks on the link.",
         phrases=("ariza sahifasiga ko'p o'tsin",),
-        # Not among Ads Manager's goals for a request on a website.
         listed=False,
     ),
     Offer(
@@ -254,10 +195,8 @@ OFFERS: Final[tuple[Offer, ...]] = (
             "A request on the website, shown to as many different people as possible."
         ),
         phrases=("ariza sahifasini ko'p odam ko'rsin",),
-        # Not among Ads Manager's goals for a request on a website.
         listed=False,
     ),
-    # --- Calls: one button, three ways of buying it -----------------------
     Offer(
         _kind("calls_many"),
         "calls",
@@ -299,7 +238,6 @@ OFFERS: Final[tuple[Offer, ...]] = (
         ),
         phrases=("Leads maqsadida qo'ng'iroq",),
     ),
-    # --- Messages ---------------------------------------------------------
     Offer(
         _kind("chat_conversations"),
         "messages",
@@ -330,7 +268,6 @@ OFFERS: Final[tuple[Offer, ...]] = (
         ),
         phrases=("chatni ko'p bosishsin",),
     ),
-    # --- Visits to the site ----------------------------------------------
     Offer(
         _kind("site_page_views"),
         "visits",
@@ -378,7 +315,6 @@ OFFERS: Final[tuple[Offer, ...]] = (
         meaning="The website link shown as many times as possible.",
         phrases=("sayt reklamasi ko'p chiqsin",),
     ),
-    # --- A visit to the Instagram profile ----------------------------------
     Offer(
         _kind("profile_visits"),
         "profile",
@@ -400,7 +336,6 @@ OFFERS: Final[tuple[Offer, ...]] = (
             "Instagram sahifamni ko'rishsin",
         ),
     ),
-    # --- Being seen -------------------------------------------------------
     Offer(
         _kind("seen_widely"),
         "reach",
@@ -460,11 +395,7 @@ def outcome_spec(key: str) -> OutcomeSpec | None:
 
 
 def outcome_of(goal: str) -> OutcomeSpec | None:
-    """The first question's answer a stored goal belongs to.
-
-    ``None`` for a goal the step no longer names - an old launch keeps it
-    and the screen shows its label as it was.
-    """
+    """The first question's answer a stored goal belongs to."""
     return _OUTCOME_BY_GOAL.get(goal)
 
 
@@ -473,19 +404,12 @@ def offer(*, provider: str, key: str) -> Offer | None:
 
 
 def offers_for(*, provider: str, outcome: str) -> tuple[Offer, ...]:
-    """Every row under one answer to the first question, in screen order.
-
-    Unlisted rows included - what reads a stored kind back needs them.
-    """
+    """Every row under one answer to the first question, in screen order."""
     return _BY_OUTCOME.get((provider, outcome), ())
 
 
 def listed_for(*, provider: str, outcome: str, keep: str = "") -> tuple[Offer, ...]:
-    """The rows offered under one answer, in screen order.
-
-    ``keep`` is the row a launch already holds: shown even when it is no
-    longer offered, so an old launch opens on what it was saved with.
-    """
+    """The rows offered under one answer, in screen order."""
     return tuple(
         row
         for row in offers_for(provider=provider, outcome=outcome)
@@ -545,13 +469,7 @@ def needs_pixel(*, provider: str, key: str) -> bool:
 def nearest_open(
     row: Offer, facts: AccountFacts, *, preferred: tuple[str, ...] = ()
 ) -> Offer | None:
-    """The best row to offer instead of a closed one, or ``None``.
-
-    Asked in this order: what the model named as an alternative, a row under
-    the same plain choice, the outcome's own default, then anything open
-    under the outcome - listed rows only. Never a row from another outcome - that is a
-    different result, and only the owner changes what they asked for.
-    """
+    """The best row to offer instead of a closed one, or ``None``."""
     same_outcome = listed_for(provider=row.provider, outcome=row.outcome)
     named = tuple(
         found

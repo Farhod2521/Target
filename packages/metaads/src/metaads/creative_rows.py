@@ -45,34 +45,16 @@ class CreativeRow(MetaDTO):
 
     id: str = ""
     name: str = ""
-    # Meta's own word: ACTIVE, IN_PROCESS, WITH_ISSUES, DELETED. Kept raw
-    # like every other provider status here. A creative has no
-    # ``effective_status`` and no delivery of its own - what delivers is the
-    # ad that points at it.
     status: str = ""
     thumbnail_url: str = ""
-    # Set when the creative promotes a post that already existed, and empty
-    # for every creative built from a spec.
     object_story_id: str = ""
     object_story_spec: dict[str, Any] = Field(default_factory=dict)
-    # What Meta answers when it made the post itself - a boosted page post,
-    # an advert built from one in Ads Manager. Read only where the two
-    # fields above are empty: they are what this product wrote, and what a
-    # product wrote about its own advert is the better answer.
     effective_object_story_id: str = ""
-    # The page the advert ran as, where the spec does not name one. Meta
-    # fills it on creatives it built; it is a page id on a page's advert
-    # and is left alone on anything else - see ``page_id``.
     actor_id: str = ""
 
     @property
     def kind(self) -> str:
-        """Which of the three shapes this is: ``link``, ``video`` or ``post``.
-
-        Empty when it is none of them, which is a creative shape this
-        product does not build - a carousel, a dynamic asset feed. Recorded
-        as unknown rather than guessed at.
-        """
+        """Which of the three shapes this is: ``link``, ``video`` or ``post``."""
         if self._block("link_data"):
             return "link"
         if self._block("video_data"):
@@ -93,14 +75,7 @@ class CreativeRow(MetaDTO):
 
     @property
     def instagram_user_id(self) -> str:
-        """The account the ad ran as, under the name v26.0 answers with.
-
-        ``instagram_actor_id`` is not read as a fallback, and that is a
-        decision rather than an oversight: Meta retired the old spelling
-        for every API version on 2025-09-09, so a creative still carrying
-        it would have to predate that - and a column filled from a key the
-        provider no longer sends is a column that quietly stops updating.
-        """
+        """The account the ad ran as, under the name v26.0 answers with."""
         return _text(self.object_story_spec.get("instagram_user_id"))
 
     @property
@@ -126,23 +101,12 @@ class CreativeRow(MetaDTO):
 
     @property
     def link_url(self) -> str:
-        """Where the button goes.
-
-        On a lead creative Meta never follows it - the tap opens the form -
-        and still refuses a creative whose link points back at a page. So a
-        stored link that looks unused is not: it is the field that decides
-        whether this creative could be created at all.
-        """
+        """Where the button goes."""
         return _text(self._data().get("link"))
 
     @property
     def call_to_action(self) -> str:
-        """The button's type, in Meta's vocabulary. ``SIGN_UP``, ``LEARN_MORE``.
-
-        Not translated. It is a word the advertiser chose from a list Meta
-        defines, and there is no domain word it maps onto - what a screen
-        shows is a label decided where the screen is.
-        """
+        """The button's type, in Meta's vocabulary. ``SIGN_UP``, ``LEARN_MORE``."""
         action = self._data().get("call_to_action")
         if not isinstance(action, dict):
             return ""
@@ -159,22 +123,12 @@ class CreativeRow(MetaDTO):
 
     @property
     def image_url(self) -> str:
-        """A video creative's thumbnail, which Meta requires and names oddly.
-
-        Not the same field as ``thumbnail_url`` above: that one is Meta's
-        own rendering of the whole creative and comes back on every kind,
-        this one is the still the advertiser supplied for a video.
-        """
+        """A video creative's thumbnail, which Meta requires and names oddly."""
         return _text(self._data().get("image_url"))
 
     @property
     def lead_form_id(self) -> str:
-        """The form id, dug out of the button, or empty.
-
-        Empty for every creative that does not collect leads, which is most
-        creatives on most accounts - so an empty answer is normal and must
-        not be logged as a failure.
-        """
+        """The form id, dug out of the button, or empty."""
         action = self._data().get("call_to_action")
         if not isinstance(action, dict):
             return ""
@@ -211,11 +165,8 @@ class AdRow(MetaDTO):
     adset_id: str = ""
     status: str = ""
     effective_status: str = ""
-    # Never ``None``: an ad with no creative expansion gets an empty row
-    # whose id is empty, which every accessor below already answers for.
     creative: CreativeRow = Field(default_factory=CreativeRow)
     issues_info: tuple[IssueRow, ...] = ()
-    # Absent on every ad Meta did not refuse, which is most of them.
     ad_review_feedback: ReviewFeedbackRow | None = None
 
     @property
@@ -224,11 +175,5 @@ class AdRow(MetaDTO):
 
     @property
     def lead_form_external_id(self) -> str:
-        """The form id this ad collects into, or empty.
-
-        Kept on the ad rather than read off the creative by every caller,
-        because this is the ad's own answer to "where do my leads go" and
-        the ad is what a webhook names. The digging itself belongs to the
-        creative and lives there.
-        """
+        """The form id this ad collects into, or empty."""
         return self.creative.lead_form_id

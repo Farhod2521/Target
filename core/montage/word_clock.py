@@ -1,10 +1,4 @@
-"""Words of the source on the finished video's clock.
-
-A planner names words by their number in the transcript it was shown; the
-code works in seconds of the finished video. Everything that turns one
-into the other - where a component starts, where its beats land, where
-the picture punches in - goes through here, after the cuts are final.
-"""
+"""Words of the source on the finished video's clock."""
 
 from collections.abc import Sequence
 from typing import Any
@@ -46,11 +40,7 @@ def beat_times(
     beats: Any, times: dict[int, tuple[float, float]], count: int
 ) -> dict[str, float | list[float]]:
     """When each beat a planner gave lands: the start of its word in the
-    finished video, or of the nearest word kept when its own was cut.
-
-    A list beat keeps the items whose word found a place, in order; a
-    beat with none is left out, and the component times it itself.
-    """
+    finished video, or of the nearest word kept when its own was cut."""
     if beats is None:
         return {}
     out: dict[str, float | list[float]] = {}

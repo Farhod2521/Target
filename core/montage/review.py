@@ -1,22 +1,4 @@
-"""Looking at the finished video: which frames, and what Claude answers.
-
-After the render, a handful of frames are taken from the finished file -
-the middle of every component, the end card - and shown to Claude once,
-with a checklist (``core/agent/prompts/montage_review``). What it finds
-comes back as :class:`Review` and is kept on the montage. A finding of
-``high`` severity sends the montage to a person; nothing is rendered
-again on its own.
-
-**Which frames** (:func:`keyframes`): the middle of each component's
-stretch, labelled with what should be on screen there, and the end card
-a little before the end. The corner logo has no moment of its own - it
-is up over most of the video and shows in the other frames. Moments
-closer than :data:`MIN_APART` are one frame. When there are more than
-:data:`MOST`, they are thinned evenly, end card kept; when fewer than
-:data:`FEWEST`, frames of the plain footage fill in between them. A moment
-that falls while a subtitle line is fading in is moved to just after it:
-a line caught half-faded reads as grey, unreadable text.
-"""
+"""Looking at the finished video: which frames, and what Claude answers."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -29,13 +11,9 @@ from videokit.components import component
 FEWEST: Final = 6
 MOST: Final = 8
 MIN_APART: Final = 0.6
-# The end card is looked at once it has settled, before the video fades.
 END_BEFORE: Final = 0.6
-# A component with a late moment is looked at this long after it, and
-# never closer than this to its exit.
 AFTER_BEAT: Final = 0.6
 BEFORE_EXIT: Final = 0.4
-# How long a subtitle line takes to come in, and the margin around it.
 LINE_SETTLES: Final = 0.2
 _LINE_EARLY: Final = 0.05
 MAX_ISSUES: Final = 20
@@ -53,7 +31,6 @@ IssueType = Literal[
 ]
 Severity = Literal["low", "medium", "high"]
 
-# What each component is, in the words the checklist uses.
 _SHOWS: Final[dict[str, str]] = {
     "hook_title": "the opening headline",
     "chips_list": "a panel over the top half with a title and chips",
@@ -109,9 +86,7 @@ def keyframes(
     length: float,
     line_starts: Sequence[float] = (),
 ) -> list[Keyframe]:
-    """The moments to look at, in order. See the module's docstring.
-
-    ``line_starts`` are when the subtitle lines come in."""
+    """The moments to look at, in order. See the module's docstring."""
     wanted: list[Keyframe] = []
     for use in components:
         if use.name not in _SHOWS:

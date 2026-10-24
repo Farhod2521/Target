@@ -1,16 +1,4 @@
-"""A component as a web page, for a browser to show without rendering anything.
-
-The page carries exactly what the render gets - the same HTML, CSS,
-inlined font and brand variables from :func:`component_clip` - so what a
-person sees while filling in their brand is what the video will show.
-
-Two things are added that Shotstack provides itself. GSAP is replaced by
-a stand-in that does nothing: every component draws its finished layout
-in CSS and animates *from* somewhere else, so with no animation the page
-shows the clip's settled frame. And the page zooms itself to the frame's
-width, since components draw in a 1080-pixel-wide canvas and a preview
-is a few hundred pixels wide.
-"""
+"""A component as a web page, for a browser to show without rendering anything."""
 
 from typing import Any, Final
 
@@ -19,7 +7,6 @@ from videokit.components.render import component_clip
 from videokit.layout import DESIGN_SHORT_SIDE
 from videokit.models import Brand, Zone
 
-# Long enough for any timeline's entrance; nothing plays anyway.
 _LENGTH: Final = 4.0
 _STILL: Final = (
     "(()=>{const t={from(){return t},to(){return t},fromTo(){return t},"

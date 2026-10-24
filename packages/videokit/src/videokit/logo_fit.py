@@ -1,24 +1,5 @@
 """How big a logo must be drawn for its lettering to read, and whether it
-sits whole on its plate.
-
-A logo arrives as a small PNG (a data URI, a few hundred pixels wide):
-on its own, or on the light or dark plate made for footage it would be
-lost on (:func:`videokit.images.badge`). Read once per copy:
-
-- **its lettering** - the letters are found as a row of three or more
-  shapes of one height side by side; the tallest such row is the name,
-  and its height as a share of the copy's is what decides how tall the
-  copy must be drawn for the name to be :data:`MIN_TEXT_PX` tall;
-- **the plate** - every pixel of the logo must lie inside the plate with
-  :data:`PLATE_MARGIN` of plate around it. A plate that cuts into the
-  mark is a broken logo.
-
-The sizes each place draws a logo at (:func:`corner_size`,
-:func:`name_bar_logo`, :func:`drawn_size` on the closing card) grow until
-the name reads, up to the place's own limit; past it the place does
-without (the corner) or writes the name in letters instead (the name bar,
-the closing card).
-"""
+sits whole on its plate."""
 
 import base64
 import math
@@ -29,28 +10,18 @@ from typing import Final
 import cv2
 import numpy as np
 
-# The smallest the lettering of a logo may be drawn, for a 1080 short side.
 MIN_TEXT_PX: Final = 24
-# Plate kept clear around the logo, as a share of the plate's short side.
 PLATE_MARGIN: Final = 0.06
-# A colour within this distance (sum over RGB) of the plate's is the plate.
 _PLATE_NEAR: Final = 90
-# A plate fills nearly its whole picture (all but its rounded corners)
-# and its colour covers at least this much of what is opaque.
 _PLATE_FILL: Final = 0.8
 _PLATE_SHARE: Final = 0.35
 _ROW_MIN: Final = 3
 
-# Where each place draws a logo: its smallest height, its largest height
-# and width.
 CORNER_HEIGHT: Final = (90, 160)
 CORNER_MAX_WIDTH: Final = 480
-# A copy that cannot be read here is drawn in the corner's old box.
 UNMEASURED_CORNER: Final = (220, 110)
 NAME_BAR_HEIGHT: Final = (100, 150)
 NAME_BAR_MAX_WIDTH: Final = 620
-# The closing card's logo: large when it stands for the name, smaller
-# when the name is written under it.
 CARD_MAX: Final = (820, 400)
 CARD_WITH_NAME: Final = (600, 240)
 
@@ -61,9 +32,7 @@ class LogoCopy:
 
     width: int
     height: int
-    # The name's letters' height over the copy's height; None: no lettering.
     text_share: float | None
-    # Whether the logo sits whole on its plate (always, with no plate).
     on_plate_whole: bool
 
     @property
@@ -128,8 +97,6 @@ def name_bar_logo(uri: str) -> int | None:
     copy = logo_copy(uri)
     low, high = NAME_BAR_HEIGHT
     if copy is None:
-        # Not a picture this can read - nor anything to measure; drawn as
-        # it always was.
         return low
     height = max(low, copy.needed_height())
     if height > high or height * copy.aspect > NAME_BAR_MAX_WIDTH:

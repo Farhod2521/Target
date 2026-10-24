@@ -1,18 +1,4 @@
-"""The one place this package opens a socket, and how Google's answers read.
-
-REST over httpx rather than Google's own client library: one more
-dependency for every project that uses this package would buy a gRPC stack
-we do not need, and the REST surface is the same API, field for field.
-
-**No developer token.** Since September 2026 the access level belongs to
-the Google Cloud project behind the OAuth client, and Google ignores the
-header. **``login-customer-id``** is sent only when the account is reached
-through a manager account - then Google requires it, otherwise it must be
-absent.
-
-**No retry loop**, as in every package here: whether a second attempt is
-safe is the caller's knowledge, not this module's.
-"""
+"""The one place this package opens a socket, and how Google's answers read."""
 
 from collections.abc import Iterator, Mapping
 from types import TracebackType
@@ -27,28 +13,19 @@ from googleadskit.errors import (
     GoogleAdsUnreachable,
 )
 
-# The one place the API version is written. Google retires a version about
-# a year after it ships; moving it is a change here and a run of the tests.
 API_VERSION: Final = "v25"
 BASE_URL: Final = f"https://googleads.googleapis.com/{API_VERSION}"
 
 CONNECT_TIMEOUT_SECONDS: Final = 5.0
-# A search over a large account is the slowest read this package makes.
 READ_TIMEOUT_SECONDS: Final = 60.0
 
-# Failures that happen before a byte of the request reaches Google.
 _NOT_SENT: Final = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 _MESSAGE_MAX_CHARS: Final = 300
 _FAILURE_TYPE: Final = "GoogleAdsFailure"
 
 
 class AdsClient:
-    """One person's access to Google Ads for the length of a ``with`` block.
-
-    ``token`` is a live access token, not the refresh token. ``http`` is for
-    tests and for a caller that wants to share one connection pool; when it
-    is lent, this class does not close it.
-    """
+    """One person's access to Google Ads for the length of a ``with`` block."""
 
     def __init__(
         self,
@@ -85,7 +62,6 @@ class AdsClient:
             self._http.close()
 
     def __repr__(self) -> str:
-        # The token stays out of every repr, as it stays out of every log.
         return f"AdsClient(login_customer_id={self._login_customer_id!r})"
 
     def get(self, path: str) -> dict[str, Any]:
@@ -95,13 +71,7 @@ class AdsClient:
         return self._call("POST", path, body=body)
 
     def search(self, customer_id: str, query: str) -> Iterator[dict[str, Any]]:
-        """Every row a GAQL query returns, page after page.
-
-        ``:search`` rather than ``:searchStream``: a page that fails can be
-        asked for again by its token, while a stream that breaks halfway
-        has to start over. Each page is one operation against the daily
-        quota, so the pages are as large as Google allows.
-        """
+        """Every row a GAQL query returns, page after page."""
         page_token = ""
         while True:
             body: dict[str, Any] = {"query": query}

@@ -1,79 +1,30 @@
-"""The first days of a new ad group, watched for the two ways they go quiet.
-
-A group this product switched on either starts spending or it does not,
-and if it spends it either brings results or it does not. Both silences
-are normal for a while and both stop being normal at a known hour - and a
-person left to guess which hour that is does one of two things: switches a
-healthy group off on its first afternoon, or leaves a stuck one running
-for a week. This answers "is it time to say something, and what".
-
-**Two questions, five answers.**
-
-*Nothing spent.* At six hours the provider is usually still reviewing the
-advert, and saying so - with how long that can take - is what stops the
-switching off and on. At a day, an advert already approved that still
-spends nothing is outbid or under-funded, and moving the budget is the
-first thing worth trying; one still under review is simply waited for. At
-two days, with nothing spent either way, deleting it and making it again
-is the answer that usually works.
-
-*Money spent, nothing back.* At a day, half a day's budget gone with no
-result is worth a word and not a change: the provider is still learning,
-and the word says so. At three days, the same with that much again, the
-advert is not going to start working, and deleting it is the advice.
-
-**Never a cause it cannot see.** A refused advert, an account the provider
-switched off or an unpaid bill each has its own line elsewhere naming the
-cause. Saying "raise the budget" over one of those would be wrong advice
-dressed as help, so a blocked group gets nothing from here at all.
-
-**The bars are the owner's decision, not a measurement.**
-"""
+"""The first days of a new ad group, watched for the two ways they go quiet."""
 
 from dataclasses import dataclass
 from typing import Final, Literal
 
-# When each step is due, in hours since the group was switched on.
 FIRST_LOOK_HOURS: Final = 6
 DAY_HOURS: Final = 24
 LATE_UNSTARTED_HOURS: Final = 48
 LATE_QUIET_HOURS: Final = 72
 
-# After this the group is not new any more, and the running watch has it
-# - see :mod:`core.agent.running_watch`.
 WATCH_HOURS: Final = 7 * 24
 
-# How much of a day's budget has to be gone, per day watched, before a
-# nought means anything.
 SPENT_SHARE_PCT: Final = 50
 
-# How far the budget moves on an advert that is approved and spends nothing.
-# Larger than the agent's own step on purpose: there is no learning to lose
-# yet, and a fifth more rarely changes whether an advert wins any auction.
 BUDGET_STEP_PCT: Final = 50
 
 Stage = Literal[
-    # Nothing spent at six hours.
     "unstarted",
-    # Nothing spent at a day, the advert still under review.
     "in_review",
-    # Nothing spent at a day, the advert approved.
     "idle",
-    # Nothing spent at two days.
     "stuck",
-    # Half a day's budget gone at a day, nothing back.
     "quiet",
-    # The same at three days.
     "fruitless",
-    # Past the first week: spent before, nothing on the last finished day.
     "stalled",
-    # Past the first week: days without a result, at three, seven, fourteen.
     "dry",
-    # Past the first week: the last week's price well above the weeks before.
     "dearer",
-    # Past the first week: cheaper than before, and the budget spent up.
     "cheaper",
-    # Stopped by the agent itself - see :mod:`core.agent.auto_stop`.
     "stopped",
 ]
 
@@ -82,19 +33,7 @@ Move = Literal["wait", "budget_up", "budget_down", "pause", "delete", "resume"]
 
 @dataclass(frozen=True, slots=True)
 class WatchedGroup:
-    """One new group, in the facts these questions need.
-
-    ``hours`` are since it was switched on. ``spend_minor`` and
-    ``results`` are since that day began in the account's own calendar -
-    the figures are kept per day, and the first day's morning is before
-    the switch-on and so holds nothing. ``results`` is ``None`` for a
-    group whose results are its showings: it has no "nothing back".
-
-    ``in_review`` means no advert of it is delivering and one is still
-    being reviewed. ``blocked`` means something with its own line
-    elsewhere stops it. ``owns_budget`` means the daily figure is the
-    group's own and not a campaign's shared with other groups.
-    """
+    """One new group, in the facts these questions need."""
 
     adset_id: str
     hours: float
@@ -105,19 +44,12 @@ class WatchedGroup:
     blocked: bool = False
     owns_budget: bool = True
     learning: bool = False
-    # The provider stopped learning without finishing: its price is no
-    # price to move a budget on.
     limited: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class Watch:
-    """What is due: the step, the buttons, and which one is advised.
-
-    ``tag`` tells two sayings of one stage apart - a second dry spell, a
-    later week - so each is new news once. ``step_pct`` is how far the
-    budget buttons move it.
-    """
+    """What is due: the step, the buttons, and which one is advised."""
 
     stage: Stage
     moves: tuple[Move, ...]
@@ -151,8 +83,6 @@ def _unstarted(group: WatchedGroup) -> Watch:
     if group.in_review:
         return Watch(stage="in_review", moves=("wait",), advised="wait")
     if not (group.owns_budget and group.daily_budget_minor):
-        # A campaign's budget shared with other groups: moving it moves
-        # theirs, which is not a button to put beside one group's name.
         return Watch(stage="idle", moves=("wait",), advised="wait")
     return Watch(
         stage="idle",

@@ -1,8 +1,4 @@
-"""What can go wrong, in words that do not name the provider's codes.
-
-Three kinds, because a caller does three different things with them: wait
-and try again later, stop and tell a person, or stop and fix the setup.
-"""
+"""What can go wrong, in words that do not name the provider's codes."""
 
 
 class VideoError(Exception):

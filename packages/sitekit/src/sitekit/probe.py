@@ -1,12 +1,4 @@
-"""One look at a web page: does it open, and what does it carry.
-
-**An outcome, never an exception.** A page that does not open is the
-answer this module exists to give, so every way of not opening is a value
-of :data:`sitekit.models.Outcome`. Nothing from httpx leaves the module.
-
-**No retry.** The caller decides whether a second look is worth it, and
-the only caller today asks once per launch attempt.
-"""
+"""One look at a web page: does it open, and what does it carry."""
 
 import ssl
 from collections.abc import Iterator
@@ -29,16 +21,11 @@ from sitekit.tags import has_tag_manager, meta_pixel_ids
 CONNECT_TIMEOUT_SECONDS: Final = 5.0
 READ_TIMEOUT_SECONDS: Final = 10.0
 MAX_REDIRECTS: Final = 5
-# Enough for the head of any real page, where tags are pasted. A page is
-# read no further than this, so a large download costs nothing.
 MAX_BODY_BYTES: Final = 512_000
-# Says what it is. Some sites refuse unknown agents with 403, which reads as
-# ``http_error`` and is deliberately not treated as down.
 USER_AGENT: Final = "Mozilla/5.0 (compatible; TargetologAI-SiteCheck/0.1)"
 
 _GONE: Final = frozenset({404, 410})
 _REDIRECTS: Final = frozenset({301, 302, 303, 307, 308})
-# How far down an exception chain to look for the socket's own error.
 _CHAIN_DEPTH: Final = 10
 
 
@@ -49,12 +36,7 @@ def probe(
     resolve: Resolver | None = None,
     user_agent: str = USER_AGENT,
 ) -> SiteProbe:
-    """Open ``url`` once, following redirects, and say what happened.
-
-    ``http`` and ``resolve`` exist for tests. A lent client must not follow
-    redirects itself, or the address check would be skipped on every hop
-    after the first.
-    """
+    """Open ``url`` once, following redirects, and say what happened."""
     lookup = resolve or system_resolver
     with _session(http) as client:
         return _follow(client, url=url, resolve=lookup, user_agent=user_agent)
@@ -116,11 +98,7 @@ def _answered(*, url: str, final: httpx.URL, response: httpx.Response) -> SitePr
 
 
 def _head_of(response: httpx.Response) -> str:
-    """The first ``MAX_BODY_BYTES`` of the page, as text.
-
-    A body that stops arriving after the status line still counts as a
-    page that opened - it simply carries no tags this module could read.
-    """
+    """The first ``MAX_BODY_BYTES`` of the page, as text."""
     chunks: list[bytes] = []
     size = 0
     try:
@@ -175,9 +153,6 @@ def _session(http: httpx.Client | None) -> Iterator[httpx.Client]:
             pool=CONNECT_TIMEOUT_SECONDS,
         ),
         follow_redirects=False,
-        # No proxy or certificate settings from the environment: a package
-        # takes its configuration as arguments, and a proxy picked up
-        # silently would also route around the address check above.
         trust_env=False,
     )
     try:

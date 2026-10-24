@@ -1,27 +1,4 @@
-"""What Claude is asked to return for a montage, from prompt v6 on.
-
-**One shape for every montage.** The JSON schema the answer is held to
-is sent with the request, and a request whose schema changes with the
-transcript can never be served from the prompt cache. So nothing in the
-schema depends on the montage: word numbers are any number from 0, and
-the bounds that do depend on it - the last word, how many events a video
-this short may hold - are checked by a validator once the answer is in
-(:func:`plan_schema_v6`). A broken bound is handed back with its reason,
-like any invalid answer (llmkit does that).
-
-**One event shape for every graphic.** A union of one event per
-component, each with its own props, compiles into a grammar the API
-refuses as too large. So an event is a component's name, its words, its
-props as ``{name, text}`` or ``{name, items}`` and its beats as
-``{name, words}``; once the answer is in, each event is read into its
-own component's model (props held to the manifest, beats to its names) -
-and a wrong one is handed back like any other.
-
-**The planner names words, not layouts.** v6 drops ``layout`` (a panel
-brings its own) and ``why`` from a stretch; the code may change a
-stretch's framing to hide a jump. The answer settles exactly like a v3
-one (:func:`core.montage.settle.settle_v3` reads the same fields).
-"""
+"""What Claude is asked to return for a montage, from prompt v6 on."""
 
 from functools import cache
 from typing import Annotated, Any, ClassVar, Literal
@@ -46,7 +23,6 @@ from core.montage.plan import (
 )
 
 MAX_EVENTS_V6 = 20
-# What the opening line is built on: the hook's kind.
 HookType = Literal["number", "question", "claim", "result", "offer"]
 Index = Annotated[int, Field(ge=0)]
 _PROPS_HELP = "Its props by name: a text as {name, text}, a list as {name, items}."
@@ -124,7 +100,6 @@ class _PlanV6(BaseModel):
     """Checks every word number against the transcript the plan was for."""
 
     model_config = ConfigDict(extra="forbid")
-    # Set on each montage's class; never part of the schema.
     last_word: ClassVar[int] = -1
 
     @model_validator(mode="before")

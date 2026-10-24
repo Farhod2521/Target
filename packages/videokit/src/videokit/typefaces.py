@@ -1,19 +1,4 @@
-"""The font presets a brand picks from, and each as inlined CSS.
-
-A preset is one font at one weight (see ``videokit/fonts/README.md``).
-
-**Cut to the clip.** Shotstack refuses an edit over 390 KB and every
-HTML5 clip that writes words carries its own copy of the font, so a clip
-is given only the letters it writes (:func:`font_css` with ``letters``)
-and the space - which is why no component sets its words in capitals
-with CSS: a component that wants capitals has its props written so
-(``caps`` in its manifest). No layout tables are kept - no kerning,
-ligatures or alternates: lines are measured without kerning
-(:mod:`videokit.fit` - Pillow here has no shaping engine), so a line
-drawn without it is exactly as wide as measured. A cut copy is about a
-fifth of the whole file. The
-same preset and letters give the same string, built once per process.
-"""
+"""The font presets a brand picks from, and each as inlined CSS."""
 
 import base64
 import io
@@ -28,15 +13,11 @@ from fontTools.ttLib import TTFont
 FontPreset = Literal["bold", "modern", "elegant", "friendly"]
 FONT_PRESETS: Final[tuple[FontPreset, ...]] = get_args(FontPreset)
 DEFAULT_FONT: Final[FontPreset] = "modern"
-# The CSS name every component writes its text in.
 FAMILY: Final = "Brand"
-# Kept in every cut copy: the family's name (which file a clip carries can
-# be read back from it).
 _FEATURES: Final[list[str]] = []
 _FAMILY_NAME_ID: Final = 1
 
 _FONTS: Final = Path(__file__).parent / "fonts"
-# fontTools reports every table it cuts at INFO, once per clip.
 logging.getLogger("fontTools").setLevel(logging.WARNING)
 
 
@@ -46,11 +27,7 @@ def font_file(preset: FontPreset) -> Path:
 
 
 def font_css(preset: FontPreset = DEFAULT_FONT, *, letters: str = "") -> str:
-    """The preset's font as an ``@font-face`` with the file inlined.
-
-    With ``letters``, only those and the space are kept; without, the
-    whole file.
-    """
+    """The preset's font as an ``@font-face`` with the file inlined."""
     return _css(preset, needed(letters) if letters else "")
 
 

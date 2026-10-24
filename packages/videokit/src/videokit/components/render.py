@@ -1,45 +1,4 @@
-"""A component, its props and a brand, made into one Shotstack ``html5`` clip.
-
-**Templates.** ``{{ name }}`` is a value, always escaped; ``{{{ name }}}``
-is the drawing of an icon prop (:mod:`videokit.icons`),
-``{{{ icon:star }}}`` that icon itself, and ``{{{ use:star }}}`` the same
-drawn once per clip and repeated by reference - for an icon drawn many
-times that no timeline reaches inside - the only markup a template is
-given. A list repeats
-what lies between ``{{#name}}`` and ``{{/name}}``, with ``{{ . }}`` for each
-item; the same pair around a plain value keeps what is between only when
-the value is not empty. Nothing else - no logic in templates.
-
-Every template sees the component's props and the brand's fields
-(``brand_name``, ``name_shown`` - empty when the logo already spells the
-name - ``brand_tagline``, ``brand_initial``, ``logo``, the logo's copy for
-the brand's own colour ``logo_on_primary``, and for dark and light footage
-``logo_on_dark`` and ``logo_on_light``; ``cta_label``, ``cta_text`` and
-``cta_contacts``, and ``cta_contact_lines`` - the same laid out on one
-or more lines, see :mod:`videokit.components.lettering`). The timeline
-sees the shared motion (``M`` and its helpers, see
-:mod:`videokit.motion_tokens`), the props and the clip's own length as
-``P`` - ``P.length`` is how
-a component knows when to leave - and ``P.beats``: when each of its beats
-lands (see ``beats`` in the registry), in seconds from the clip's start,
-a list for a beat that is one per item. A beat nobody gave is missing,
-and the timeline falls back to its own spacing.
-
-**Sizes.** Every text is drawn at the size it was measured to fit its
-box at (:mod:`videokit.components.lettering`), never cut off.
-
-**Style.** The brand's font preset is inlined into each clip that writes
-words, cut to the letters that clip writes - its text, its props (the
-timeline may write them) and the manifest's ``glyphs`` (what a timeline
-writes of its own, a counter's digits) - see :mod:`videokit.typefaces`.
-Every colour is the brand's, as CSS variables: ``--primary``,
-``--primary-deep`` (the primary darkened, for the far side of a
-gradient and for dark plates), ``--accent``, ``--ink``, ``--on-primary``,
-``--on-accent`` and ``--on-deep`` (text that reads on each - the
-brand's own text colour when it does, else black or white). The canvas
-is exactly the zone the clip sits in, so a component draws in that
-zone's pixels. At a resolution other than 1080 the whole page is zoomed.
-"""
+"""A component, its props and a brand, made into one Shotstack ``html5`` clip."""
 
 import json
 import re
@@ -63,10 +22,7 @@ _DRAWING: Final = re.compile(r"\{\{\{\s*(icon:|use:)?(\w+)\s*\}\}\}")
 _SVG_BODY: Final = re.compile(r"^<svg[^>]*>(.*)</svg>$", re.DOTALL)
 _ITEM: Final = re.compile(r"\{\{\s*\.\s*\}\}")
 _TAG: Final = re.compile(r"<[^>]*>")
-# How much of the primary is left in its deep shade.
 DEEP_SHARE: Final = 0.35
-# A beat lands no sooner than this into its clip (the entrance is under
-# way) and no later than this before it leaves (the exit has begun).
 BEAT_FIRST: Final = 0.05
 BEAT_LAST: Final = 0.35
 _BASE: Final = (
@@ -171,7 +127,6 @@ def fill(
     def value(match: re.Match[str]) -> str:
         return escape(str(values.get(match.group(1), "")))
 
-    # A section inside another comes out on the next pass.
     while (inner := _SECTION.sub(section, template)) != template:
         template = inner
     return _VALUE.sub(value, template)
@@ -201,12 +156,7 @@ def _literal(text: str) -> Any:
 
 
 def brand_values(brand: Brand) -> dict[str, Any]:
-    """What every template sees of the brand - see the module's docstring.
-
-    The logo stands for the name only where its lettering reads at the
-    size that place allows (:mod:`videokit.logo_fit`); elsewhere the name
-    is written out beside or under it.
-    """
+    """What every template sees of the brand - see the module's docstring."""
     on_primary = brand.logo_on(brand.primary)
     spelled = brand.name_in_logo and bool(brand.logo)
     bar_named = not (spelled and name_bar_logo(on_primary))
@@ -226,8 +176,6 @@ def brand_values(brand: Brand) -> dict[str, Any]:
         "logo": brand.logo,
         "logo_on_primary": on_primary,
         "card_logo": on_primary if brand.logo else "",
-        # A name bar's three ways to start: the logo instead of the name
-        # it spells, the logo beside the name, or the name's first letter.
         "logo_instead_of_name": "" if bar_named else on_primary,
         "logo_beside_name": on_primary if bar_named else "",
         "initial_without_logo": "" if brand.logo else initial,
@@ -236,7 +184,6 @@ def brand_values(brand: Brand) -> dict[str, Any]:
         "cta_label": brand.cta_label,
         "cta_text": brand.cta_text,
         "cta_contacts": brand.cta_contacts,
-        # The closing button: what to do, and every way to do it below.
         "cta_button_text": button,
         "end_contact_lines": contacts if brand.cta_text else contacts[1:],
     }
@@ -288,5 +235,4 @@ def _script(
     data = json.dumps(
         {**values, "length": round(length, 3), "beats": beats}, ensure_ascii=False
     )
-    # A prop that says "</script>" must stay a string.
     return f"const P={data.replace('</', '<\\/')};{prelude(js)}{js}"

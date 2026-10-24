@@ -1,8 +1,4 @@
-"""Google's rows as the domain's DTOs, and its statuses in the domain's words.
-
-The reading half of the adapter, apart from the port class so that each
-stays a size somebody can read. Nothing here calls Google.
-"""
+"""Google's rows as the domain's DTOs, and its statuses in the domain's words."""
 
 from decimal import Decimal
 from typing import Any, Final
@@ -13,8 +9,6 @@ from adskit.refs import Delivery, ExternalRef, Level, MinorUnits, ProviderName
 
 PROVIDER: Final = ProviderName("google")
 
-# Google's primary status in the domain's words. Anything Google adds
-# later reads as "unknown" rather than a guess.
 _PRIMARY: Final[dict[str, Delivery]] = {
     "ELIGIBLE": "active",
     "LIMITED": "active",
@@ -27,8 +21,6 @@ _PRIMARY: Final[dict[str, Delivery]] = {
     "MISCONFIGURED": "rejected",
 }
 
-# Google's word for a campaign held back by its budget, carried as advice:
-# the campaign serves, and could serve more.
 BUDGET_CONSTRAINED: Final = "BUDGET_CONSTRAINED"
 
 _MICROS_EXPONENT: Final = -6
@@ -45,11 +37,7 @@ def delivery_of(*, status: str, primary_status: str) -> Delivery:
 
 
 def micros_to_minor(micros: object, currency: str) -> MinorUnits | None:
-    """Google's millionths of a unit as the currency's minor units.
-
-    ``None`` for an absent amount - a campaign on a shared budget the
-    query could not see is not a campaign with no budget.
-    """
+    """Google's millionths of a unit as the currency's minor units."""
     if micros is None or micros == "":
         return None
     amount = Decimal(str(micros)).scaleb(_MICROS_EXPONENT)
@@ -109,7 +97,6 @@ def ad_dto(row: dict[str, Any]) -> AdDTO:
     return AdDTO(
         ref=_ref("ad", str(node.get("resourceName") or "")),
         adset_ref=_ref("adset", str(row.get("adGroup", {}).get("resourceName") or "")),
-        # Most Google ad types carry no name; the type stands in.
         name=str(ad.get("name") or ad.get("type") or ""),
         status=status,
         effective_status=primary,

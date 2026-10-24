@@ -1,14 +1,4 @@
-"""Meta's prose as plain text.
-
-Some of the sentences Meta writes for an advertiser arrive as HTML: an
-issue on an object that cannot deliver says ``can&#039;t``, breaks its
-lines with ``<br />`` and ends in ``<a href="...">See Details</a>``. Every
-screen in a caller prints text, so markup kept here reaches a person as
-entities and tags.
-
-The link goes with its tag. Its words alone - "See Details" - promise
-something the sentence no longer carries.
-"""
+"""Meta's prose as plain text."""
 
 import re
 from html import unescape

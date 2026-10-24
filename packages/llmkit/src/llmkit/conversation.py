@@ -1,23 +1,4 @@
-"""An answer that may look things up before it is written, read as it arrives.
-
-:class:`~llmkit.streaming.TextStream` asks once and reads the answer. This
-asks, and when the model calls a tool instead of answering, runs the call
-through the caller, hands the result back and asks again - streaming
-whatever text each round writes, so a person reading sees one answer.
-
-**The rounds are bounded, and the last one cannot call anything.** A model
-that keeps looking things up is a bill that keeps growing while somebody
-waits, so the final round is sent with ``tool_choice`` set to none: the
-model must answer from what it has gathered. The bound is the caller's,
-because only the caller knows how long its reader will wait.
-
-**One receipt for the whole answer.** Every round is charged, and the
-ledger wants what the answer cost, not what its last request cost - so the
-usage of every round is added into the one :class:`~llmkit.LLMResult`.
-
-Synchronous, for the reason the text stream is: this runs in a worker, and
-two paths through the same accounting are two paths that drift.
-"""
+"""An answer that may look things up before it is written, read as it arrives."""
 
 import time
 from collections.abc import Generator, Iterator, Sequence
@@ -31,12 +12,8 @@ from llmkit.models import LLMResult, Pricing
 from llmkit.tools import Tool, ToolOutput, ToolRunner, checked
 from llmkit.transport import translated
 
-# How many requests one answer may take when the caller does not say.
 DEFAULT_MAX_ROUNDS: Final = 4
 
-# What separates text written before a look-up from text written after it.
-# A model that says a sentence and then calls a tool continues in a new
-# request, and without a break the two halves run into one word.
 ROUND_BREAK: Final = "\n\n"
 
 NOT_FINISHED: Final = "the stream has not been read to the end yet"
@@ -161,8 +138,6 @@ class ToolStream:
         self._usage[1] += usage.output_tokens
         self._usage[2] += int(usage.cache_creation_input_tokens or 0)
         self._usage[3] += int(usage.cache_read_input_tokens or 0)
-        # A round that ran out of room ends the answer mid-sentence; the
-        # loop above stops on it like on any finished answer.
         self._truncated += int(final.stop_reason == "max_tokens")
 
     def _receipt(self, *, text: str, latency_ms: int) -> LLMResult[str]:

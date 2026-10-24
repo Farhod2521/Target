@@ -1,17 +1,4 @@
-"""Tools Claude may call while it writes an answer, and what comes back.
-
-The package knows how a tool round works - the call, the arguments, the
-result handed back, the next round - and nothing about what any tool does.
-The caller names its tools and runs them; this module only describes them
-to the API and checks what the model sent before the caller ever sees it.
-
-**Arguments are a pydantic model, checked here.** A model can send a
-string where a number belongs, or a key nobody declared, and the caller
-should not have to guard every tool against that. A call whose arguments
-do not fit is answered with the problem instead of being run, so the model
-can correct itself in the next round, and the caller's function is only
-ever handed a validated instance.
-"""
+"""Tools Claude may call while it writes an answer, and what comes back."""
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -20,19 +7,12 @@ from typing import Any, cast
 from anthropic.types import ToolParam
 from pydantic import BaseModel, ValidationError
 
-# How many of a refusal's problems are handed back. Enough to fix a call;
-# a call with more wrong fields than this was not an attempt at this tool.
 SHOWN_PROBLEMS = 5
 
 
 @dataclass(frozen=True, slots=True)
 class Tool:
-    """One tool: its name, what it is for, and the shape of its arguments.
-
-    ``description`` is read by the model, not by a person, and it is the
-    whole of what decides whether the tool is called: say what it returns
-    and when to use it.
-    """
+    """One tool: its name, what it is for, and the shape of its arguments."""
 
     name: str
     description: str
@@ -57,11 +37,7 @@ class ToolCall:
 
 @dataclass(frozen=True, slots=True)
 class ToolOutput:
-    """What the caller hands back. Text, because the model reads it.
-
-    ``is_error`` marks an output the model should treat as a refusal - a
-    missing object, a limit reached - rather than as data.
-    """
+    """What the caller hands back. Text, because the model reads it."""
 
     text: str
     is_error: bool = False

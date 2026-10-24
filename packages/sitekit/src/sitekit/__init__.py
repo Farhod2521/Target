@@ -1,9 +1,4 @@
-"""sitekit - does a web page open, and which advertising tags it carries.
-
-No Django, no project imports, no environment. The address is checked
-before every request - see :mod:`sitekit.guard` for why that matters when
-the address is typed by a customer and fetched by a server.
-"""
+"""sitekit - does a web page open, and which advertising tags it carries."""
 
 from sitekit.guard import (
     ALLOWED_PORTS,

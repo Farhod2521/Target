@@ -1,52 +1,4 @@
-"""An :class:`~videokit.models.EditSpec` written out as Shotstack's edit JSON.
-
-Kept apart from the client so the shape can be tested without a network
-and read without one: this file is the whole answer to "what does a
-montage look like to Shotstack".
-
-**Tracks are drawn top first.** A transition's flash over everything,
-components over the picture (see :mod:`videokit.graphics`), then text,
-then subtitles, then the footage, then short sounds and the music
-underneath - a track higher in the list covers the ones below it.
-
-**The cuts play back to back.** Each kept stretch becomes one clip that
-starts where the previous one ended, trimmed into the source by its own
-start. Order is the caller's: a plan may open on the strongest moment even
-when it was said last. Between cuts there is no transition - a hard cut is
-what short video is made of. The video opens on its first frame, picture
-and headline at once - a feed decides in the first half second, and a
-fade up from black spends it on nothing - and fades down at the very end,
-so it does not stop dead.
-
-**The closing card has time of its own** (``EditSpec.tail``): after the
-last cut the source carries on, silent and as framed, under the card -
-the words are never covered by it, and the card never shows a black
-frame as it comes in.
-
-**A push-in hides a jump.** A cut with ``zoom`` above one is scaled up for
-its stretch. Two takes of one talking shot played back to back jump; the
-same two with the second a little closer read as a deliberate edit.
-
-**Moving** (``EditSpec.motion``): each cut also creeps closer as it plays,
-punches in where the plan marked the point, comes in with its transition,
-ramps its sound at both ends and plays the components' sounds - see
-:mod:`videokit.motion` and :mod:`videokit.audio`. ``still`` is the edit
-as it was before any of that, for montages planned the old way.
-
-**The footage is cropped, never stretched.** ``fit: crop`` fills the
-frame and keeps the picture's proportions; ``cover`` would stretch a
-landscape clip to fill a portrait frame.
-
-**Subtitles are word by word** when the spec carries their words, in the
-brand's font and colours: one HTML5 clip per run of lines that sit in the
-same band. Without words, an SRT file goes to Shotstack's caption asset,
-which knows only when a line starts - see :mod:`videokit.captions`.
-
-Sizes are written for a 1080-pixel short side and scaled to the frame
-(:mod:`videokit.layout`). Text over the picture and the SRT fallback are
-Roboto, Shotstack's fallback, which renders the same whether or not a font file loads -
-though it has no Uzbek okina, which callers write as an apostrophe.
-"""
+"""An :class:`~videokit.models.EditSpec` written out as Shotstack's edit JSON."""
 
 import json
 from typing import Any, Final
@@ -72,14 +24,9 @@ from videokit.motion import (
 )
 
 FONT: Final = "Roboto"
-# Shotstack refuses an edit larger than 390 KB; this leaves room for
-# what its own client adds around the body.
 MAX_EDIT_BYTES: Final = 380_000
-# The frame rate the footage is prepared at. Shotstack's default is 25,
-# which drops every sixth frame of a phone clip.
 FPS: Final = 30
 
-# A line of text over the picture (the old way of planning).
 _OVERLAY_FONT_PX: Final = 84
 _TEXT_HEIGHT_PX: Final = 480
 
@@ -168,7 +115,6 @@ def _footage(spec: EditSpec) -> list[dict[str, Any]]:
         cursor += length
     if spec.tail > 0:
         clips.append(_tail(spec, at=cursor))
-    # The first frame is the picture itself; only the end fades down.
     first = {key: value for key, value in clips[0].items() if key != "transition"}
     clips[0] = first
     last = clips[-1]
@@ -206,10 +152,7 @@ def _moving(
     anchor: tuple[float, float] | None,
 ) -> dict[str, Any]:
     """A footage clip with its motion, held on the face at ``anchor``,
-    its transition and its sound ramps.
-
-    ``low`` is where the clip starts within its cut.
-    """
+    its transition and its sound ramps."""
     length = clip["length"]
     clip["scale"] = scale_tweens(keys, low, low + length)
     if anchor is not None:

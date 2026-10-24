@@ -1,12 +1,4 @@
-"""The check before a render that words over the footage can be read.
-
-Apart from :mod:`videokit.preflight` only to keep each file short.
-**low_contrast**: a headline or a subtitle line whose words, against how
-light the footage behind them is (``backdrop``, measured on the stills
-while they are up), fall under :data:`MIN_CONTRAST` - and that has no dark
-backing (``scrim``) to make up for it. Words on a plate of their own (the
-name bar, a button, a panel, the closing card) are not over footage.
-"""
+"""The check before a render that words over the footage can be read."""
 
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Final
@@ -18,9 +10,7 @@ from videokit.models import EditSpec
 if TYPE_CHECKING:
     from videokit.preflight import Problem
 
-# Large, bold words read at 3:1 (WCAG's figure for large text).
 MIN_CONTRAST: Final = 3.0
-# The components whose words sit straight on the footage.
 OVER_FOOTAGE: Final = frozenset(
     {"hook_title", "hook_counter", "headline_slam", "price_tag"}
 )

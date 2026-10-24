@@ -1,21 +1,4 @@
-"""Signing somebody in to Google, and keeping the permission alive.
-
-Four calls: the consent URL, the code traded for tokens, the refresh
-token traded for a fresh access token, and the permission given back.
-
-**Offline, and consent every time.** ``access_type=offline`` is what makes
-Google send a refresh token at all. ``prompt=consent`` is what makes it
-send one on the *second* connection too: without it, somebody who
-disconnects and connects again comes back with an access token that dies
-in an hour and nothing to renew it with.
-
-**The email comes from the ID token, not another request.** Google returns
-a signed JWT beside the tokens when ``openid email`` is asked for, and the
-address is read out of it. The signature is not checked, which is Google's
-own guidance for exactly this case: the token arrived on a direct TLS
-connection to Google's token endpoint, so there is nobody in between for a
-signature to catch.
-"""
+"""Signing somebody in to Google, and keeping the permission alive."""
 
 import base64
 import json
@@ -33,18 +16,10 @@ AUTHORIZE_URL: Final = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL: Final = "https://oauth2.googleapis.com/token"
 REVOKE_URL: Final = "https://oauth2.googleapis.com/revoke"
 
-# The narrowest file permission Google has: files this app created, and
-# nothing else in the person's Drive. Non-sensitive in Google's own
-# classification, which is what keeps the app out of the weeks-long
-# verification the full ``spreadsheets`` scope would trigger.
 SCOPE_DRIVE_FILE: Final = "https://www.googleapis.com/auth/drive.file"
 
-# Who the person is, and the one permission that does anything.
 DEFAULT_SCOPES: Final = ("openid", "email", SCOPE_DRIVE_FILE)
 
-# Read and write the person's Google Ads accounts. Sensitive in Google's
-# classification: until the app passes verification, only the Cloud
-# project's test users can grant it without a warning screen.
 SCOPE_ADWORDS: Final = "https://www.googleapis.com/auth/adwords"
 
 
@@ -55,12 +30,7 @@ def authorize_url(
     state: str,
     scopes: tuple[str, ...] = DEFAULT_SCOPES,
 ) -> str:
-    """Where to send the browser.
-
-    ``state`` ties the callback to the session that started it. The caller
-    mints it, keeps it in the session and compares on the way back - see
-    ``metaads.oauth.authorize_url`` for what happens without it.
-    """
+    """Where to send the browser."""
     query = urlencode(
         {
             "client_id": client_id,
@@ -84,13 +54,7 @@ def exchange_code(
     code: str,
     http: httpx.Client | None = None,
 ) -> Grant:
-    """Trade the callback's code for tokens.
-
-    ``redirect_uri`` must be the same string the consent URL carried. A
-    code that was already used, or has expired, answers ``invalid_grant``
-    and arrives as :class:`AccessRevoked` - to the person it means the
-    same thing: press the button again.
-    """
+    """Trade the callback's code for tokens."""
     form = {
         "code": code,
         "client_id": client_id,
@@ -123,12 +87,7 @@ def refresh(
 
 
 def revoke(*, token: str, http: httpx.Client | None = None) -> None:
-    """Give the permission back.
-
-    Revoking the refresh token revokes the whole grant, access tokens
-    included. ``invalid_token`` means it was already gone - the outcome
-    being asked for - and is not an error.
-    """
+    """Give the permission back."""
     with session(http) as client:
         try:
             call(client, "POST", REVOKE_URL, form={"token": token})

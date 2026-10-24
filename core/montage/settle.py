@@ -1,32 +1,4 @@
-"""Claude's plan, made safe to render.
-
-The plan is read as a proposal, never as a command. Every stretch is held
-inside the file it names, a boundary that falls mid-word is moved to the
-edge of that word, stretches too short to see are dropped, and the whole
-is held near the length the owner asked for. What survives is what is
-rendered - and if nothing does, the montage stops here rather than paying
-for an empty video.
-
-Three things an editor does by hand are done here, where they can be
-tested rather than hoped for from the model:
-
-- **Breath room.** A cut exactly on a word's edges clips its first
-  consonant and its last; each stretch opens a little before its first
-  word and closes a little after its last, without reaching into the
-  words either side.
-- **No needless cuts.** Two stretches that follow each other in the
-  source with next to nothing between them are one stretch - unless the
-  plan framed them differently or brought the second in with a
-  transition; then they stay two cuts that meet exactly.
-- **No dead air** (v3). A long silence inside a kept stretch is cut out;
-  see :mod:`core.montage.pauses`.
-- **No greeting first** (v3). A video that opens on "Assalomu alaykum"
-  starts on the word after it; see :mod:`core.montage.greetings`.
-- **No visible jumps.** Two takes of the same shot played back to back
-  jump on screen. When a stretch follows the one before it closely in the
-  source and both have the same framing, the second is pushed in (or back
-  out), which reads as a deliberate cut.
-"""
+"""Claude's plan, made safe to render."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -44,26 +16,15 @@ from core.montage.placement import closing_seconds, place
 from core.montage.plan import MontagePlan, PlanSegment, PlanSegmentV3
 from core.montage.rhythm import lively_punches
 
-# Shorter than this is a flicker, not a shot.
 MIN_SEGMENT_SECONDS = 0.6
-# Room left before the first word and after the last of a stretch.
 PAD_BEFORE_SECONDS = 0.08
 PAD_AFTER_SECONDS = 0.18
-# A word this close to a boundary means the boundary is on speech.
 SPEECH_EDGE_SECONDS = 0.05
 _OVERLAP = -(PAD_BEFORE_SECONDS + PAD_AFTER_SECONDS) - 0.01
-# A gap this small between two stretches in source order is no cut at all.
 JOIN_GAP_SECONDS = 0.15
-# A later stretch that starts within this of the previous one's end is most
-# likely the same shot - the kind of cut that jumps.
 JUMP_WINDOW_SECONDS = 20.0
-# How far a "close" stretch pushes in.
 CLOSE_ZOOM = 1.15
-# More new parts than this and nothing reads as a new part.
 MOST_CHANGES = 4
-# How far past the asked length the finished video may run before the
-# last stretches are dropped. A little slack, because cutting a sentence
-# in half to save two seconds is worse than two seconds.
 LENGTH_SLACK = 1.15
 
 
@@ -94,10 +55,7 @@ def settle(
     target_seconds: float,
     words: tuple[SpokenWord, ...],
 ) -> Settled:
-    """The plan, held to the file, to whole words and to the asked length.
-
-    ``NothingToKeepError`` when no stretch survives.
-    """
+    """The plan, held to the file, to whole words and to the asked length."""
     kept = kept_cuts(
         segments=plan.segments,
         source_seconds=source_seconds,
@@ -112,14 +70,9 @@ def settle(
 @dataclass(frozen=True, slots=True)
 class SettledV3:
     """A v3 plan made safe: cuts, components on the clock, layouts, and the
-    moments to punch in on.
-
-    Each cut carries how it comes in (``Cut.enter``); the first always
-    opens plainly.
-    """
+    moments to punch in on."""
 
     cuts: tuple[Cut, ...]
-    # The whole video: the words, then ``tail`` seconds of closing card.
     length: float
     components: tuple[ComponentUse, ...]
     layouts: tuple[LayoutSpan, ...]
@@ -137,13 +90,7 @@ def settle_v3(
     words: tuple[SpokenWord, ...],
     brand: Brand,
 ) -> SettledV3:
-    """A v3 plan (see :func:`core.montage.plan.plan_schema`) made safe to render.
-
-    ``plan`` is typed loosely because its class is built per montage. The
-    words are held to :func:`speech_limits`: the closing card comes after
-    them, inside the length asked for.
-    ``NothingToKeepError`` when no stretch survives.
-    """
+    """A v3 plan (see :func:`core.montage.plan.plan_schema`) made safe to render."""
     tail = closing_seconds(brand)
     kept: list[tuple[Cut, PlanSegmentV3]] = kept_cuts(
         segments=plan.segments,
@@ -207,10 +154,7 @@ def kept_cuts[S: PlanSegment](
     tail: float = 0.0,
 ) -> list[tuple[Cut, S]]:
     """Each cut that survives, with the segment that opened it; together
-    no longer than the words may run (:func:`speech_limits`).
-
-    ``NothingToKeepError`` when none does.
-    """
+    no longer than the words may run (:func:`speech_limits`)."""
     _target, ceiling = speech_limits(target_seconds, tail=tail)
     kept: list[tuple[Cut, S]] = []
     total = 0.0
@@ -294,11 +238,7 @@ def _snap_end(
 def _padded(
     start: float, end: float, words: tuple[SpokenWord, ...], limit: float
 ) -> tuple[float, float]:
-    """A little room either side of speech, short of the neighbouring words.
-
-    Only where the stretch opens or closes on a word. A boundary in a
-    silence was placed there on purpose and is left where it is.
-    """
+    """A little room either side of speech, short of the neighbouring words."""
     if any(start <= w.start <= start + SPEECH_EDGE_SECONDS for w in words):
         before = max((w.end for w in words if w.end <= start), default=0.0)
         start = max(start - PAD_BEFORE_SECONDS, before, 0.0)
@@ -310,20 +250,13 @@ def _padded(
 
 def _follows(prev: Cut, start: float, end: float) -> bool:
     """The stretch carries straight on from the one before it in the source."""
-    # Below nought only by the breath room the two were given, never by a
-    # stretch played twice.
     gap = start - prev.end
     carries_on = _OVERLAP <= gap <= JOIN_GAP_SECONDS
     return bool(carries_on and prev.start < start and end > prev.end)
 
 
 def _meets(asked_end: float, segment: PlanSegment) -> bool:
-    """The plan itself put this stretch right after the one before it.
-
-    Two stretches that meet in the middle of a word both snap to that
-    word's edges and overlap by it - which is not a stretch played twice.
-    Judged on the times the plan asked for, before any snapping.
-    """
+    """The plan itself put this stretch right after the one before it."""
     gap = segment.start - asked_end
     return -SPEECH_EDGE_SECONDS <= gap <= JOIN_GAP_SECONDS and segment.end > asked_end
 

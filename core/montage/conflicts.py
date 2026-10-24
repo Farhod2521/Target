@@ -1,13 +1,5 @@
 """Which graphics can never be on screen together, worked out from their
-manifests, for the planner to be told rather than to find out.
-
-Two graphics clash when their bands of the frame share a row of pixels
-(:func:`videokit.layout.zones_meet`) and at least one is drawn in front:
-a panel's band covers the title's, so no headline can be up while a panel
-is. The code holds to the same rule when it places them
-(:func:`core.montage.fitting.blockers`); the planner is told it once, the
-same for every montage.
-"""
+manifests, for the planner to be told rather than to find out."""
 
 from collections import defaultdict
 from typing import Final
@@ -15,7 +7,6 @@ from typing import Final
 from videokit.components import Component, component, components
 from videokit.layout import zones_meet
 
-# Placed by the code while people talk, so it is in the planner's way too.
 _NAME_BAR: Final = "lower_third"
 
 

@@ -1,12 +1,4 @@
-"""The check before a render that the speaker's eyes and mouth stay clear.
-
-Apart from :mod:`videokit.preflight` only to keep each file short.
-**face_covered**: a component's content, or a subtitle line, over the
-part of the face never to be covered (:attr:`videokit.models.FaceMark.guard`)
-while it is on screen - the face moved down where the footage is split.
-Nothing is checked over a backdrop (the closing card hides the footage),
-or with no face found.
-"""
+"""The check before a render that the speaker's eyes and mouth stay clear."""
 
 from collections.abc import Iterator
 from typing import TYPE_CHECKING

@@ -1,8 +1,4 @@
-"""Colour arithmetic for a brand: how readable one colour is on another.
-
-The arithmetic itself is :mod:`videokit.colors`, which draws the video with
-it; this adds what only the brand form needs.
-"""
+"""Colour arithmetic for a brand: how readable one colour is on another."""
 
 import re
 from typing import Final

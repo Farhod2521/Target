@@ -1,24 +1,4 @@
-"""Paynet, as one :class:`~paykit.ports.PaymentPort`.
-
-Written ahead of the contract, on purpose and with the seams visible.
-:mod:`paykit.paynet.codes` says which parts are provisional; this module
-is the parts that are not - the JSON-RPC envelope, the Basic credential
-checked in constant time, the reading of a request into a command, and the
-writing of a decision back into a result.
-
-**There is no redirect.** Paynet is an agent network: a payer can settle
-at a counter with cash, and what they hand over is a number. So
-:meth:`checkout` answers with a reference rather than a URL, and the
-screen renders instructions instead of a button. Everything after that -
-the callback, the invoice, the subscription - is identical to the two card
-providers, which is the whole reason this fits behind the same port.
-
-**A counter payment has no hold step.** Money changes hands and
-``PerformTransaction`` arrives without a create before it. The domain's
-perform path is written to open an attempt it has not seen before for
-exactly this reason; nothing about that is Paynet-specific in the service
-layer.
-"""
+"""Paynet, as one :class:`~paykit.ports.PaymentPort`."""
 
 import base64
 import hmac
@@ -67,10 +47,6 @@ from paykit.refs import (
 
 PROVIDER: Final = ProviderName("paynet")
 
-# Domain state as a word rather than as a number. Paynet's own state
-# encoding is one of the things the contract fixes, and a word survives
-# being wrong in a way an integer does not: an operator reading a log sees
-# what happened instead of having to look up which sign meant refunded.
 STATES: Final[dict[TransactionState, str]] = {
     CREATED: "created",
     PERFORMED: "performed",
@@ -83,14 +59,7 @@ class PaynetAdapter:
     """Stateless translator between Paynet's JSON-RPC and the domain."""
 
     def __init__(self, *, username: str, password: str, service_id: str) -> None:
-        """Hold the merchant credentials, and nothing else.
-
-        ``service_id`` is not used in a checkout link - there is none - but
-        it is what a statement is reconciled against and what a support
-        conversation starts from, so it is required rather than optional:
-        a deployment that cannot name its own service has not finished
-        being configured.
-        """
+        """Hold the merchant credentials, and nothing else."""
         if not username or not password or not service_id:
             raise ProviderMisconfigured(
                 "paynet needs a username, a password and a service id"
@@ -103,26 +72,12 @@ class PaynetAdapter:
     def name(self) -> ProviderName:
         return PROVIDER
 
-    # --- Going out -------------------------------------------------------
-
     def checkout(self, *, request: CheckoutRequest) -> Checkout:
-        """The number the payer gives a cashier or types into the app.
-
-        The invoice number itself, unmodified. It is already short enough
-        to read out and unique enough to find, and inventing a second
-        identifier here would mean two numbers for one invoice - one on
-        the screen and one in support's search box.
-        """
+        """The number the payer gives a cashier or types into the app."""
         return Checkout(provider=PROVIDER, kind=REFERENCE, reference=request.number)
 
-    # --- Coming in -------------------------------------------------------
-
     def authenticate(self, *, request: RawRequest) -> bool:
-        """Whether the Basic credential is this merchant's.
-
-        Constant time, like the other two adapters: the comparison is
-        against a secret, and how long a mismatch takes is information.
-        """
+        """Whether the Basic credential is this merchant's."""
         header = _header(request.headers, "Authorization")
         expected = base64.b64encode(
             f"{self._username}:{self._password}".encode()
@@ -166,8 +121,6 @@ class PaynetAdapter:
             raw=payload,
         )
 
-    # --- Going back ------------------------------------------------------
-
     def render(self, *, request: CallbackRequest, outcome: Outcome) -> ProviderResponse:
         """The JSON-RPC reply for one decision."""
         if isinstance(outcome, Refused):
@@ -203,8 +156,6 @@ class PaynetAdapter:
             else INVALID_REQUEST
         )
         return _error(correlation=correlation, code=code, note=ERROR_NOTES[MALFORMED])
-
-    # --- Internals -------------------------------------------------------
 
     def _result(self, outcome: Outcome) -> dict[str, Any]:
         if isinstance(outcome, Allowed):
@@ -286,11 +237,7 @@ def _header(headers: Mapping[str, str], name: str) -> str:
 
 
 def _is_int(value: Any) -> TypeGuard[int]:
-    """Whether this is a number the provider meant as one. ``bool`` is not.
-
-    A ``TypeGuard`` so the narrowing survives into the conditional
-    expression that follows it - see the note on the Payme side.
-    """
+    """Whether this is a number the provider meant as one. ``bool`` is not."""
     return isinstance(value, int) and not isinstance(value, bool)
 
 

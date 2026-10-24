@@ -1,8 +1,4 @@
-"""The rules every component keeps, checked when its folder is read.
-
-A component that breaks one never reaches a render; see
-:mod:`videokit.components.registry` for what each rule protects.
-"""
+"""The rules every component keeps, checked when its folder is read."""
 
 import re
 from typing import Final
@@ -20,12 +16,8 @@ _FORBIDDEN_MARKUP: Final = re.compile(
     r"<script|<canvas|<link|<iframe|@import|url\(\s*['\"]?(?!data:)|https?://",
     re.IGNORECASE,
 )
-# Lengths in px. A share (%) is allowed: it is a share of a canvas whose
-# size is set in pixels by the zone, so it renders the same everywhere.
 _PIXELS_ONLY: Final = re.compile(r"\d(?:em|rem|vh|vw|vmin|vmax)\b")
 _CASE_BY_CSS: Final = re.compile(r"text-transform|font-variant", re.IGNORECASE)
-# The renderer draws a clip on its own and lays it over the footage, so a
-# backdrop filter sees nothing behind it (measured: docs/montage_spike2.md).
 _BACKDROP: Final = re.compile(r"backdrop-filter", re.IGNORECASE)
 
 

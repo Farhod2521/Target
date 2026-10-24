@@ -1,17 +1,4 @@
-"""What Claude is asked to return for one montage.
-
-Claude watches nothing. It reads the words that were said, each with its
-time, and looks at a still every few seconds - and from those it names the
-stretches of the source worth keeping, in the order they should play.
-
-**Times are the source's own clock.** Every number Claude writes is a
-second in the uploaded file, which is the only clock it was shown. Turning
-them into positions in the finished video is arithmetic, done afterwards in
-:mod:`core.montage.settle` where it can be tested.
-
-Bounds on lengths and counts are checked here by pydantic once the answer
-is in; the API does not hold them while the answer is written.
-"""
+"""What Claude is asked to return for one montage."""
 
 from typing import Annotated, Any, Literal, Union
 
@@ -20,11 +7,7 @@ from videokit import Layout, Transition
 from videokit.components import Component, components
 
 TextPlace = Literal["top", "center", "bottom"]
-# What a stretch does in the finished video, in the order an advert is
-# built: stop the scroll, say what it is, show it is true, give the offer,
-# say what to do.
 SegmentRole = Literal["hook", "body", "proof", "offer", "cta"]
-# ``close`` pushes in on the picture for the stretch.
 Framing = Literal["wide", "close"]
 
 MAX_SEGMENTS = 40
@@ -78,14 +61,6 @@ class MontagePlan(BaseModel):
         ),
     )
 
-
-# --- v3 --------------------------------------------------------------------
-# Claude says what goes on screen and against which words; the code says
-# where in pixels, how it moves and for exactly how long. The schema is
-# built per montage from the component registry and the transcript, so
-# every bound - which components, which zones, which word numbers, how
-# long each text - is checked on the answer, and an answer that breaks
-# one is handed back once with the reason (llmkit does that).
 
 MAX_EVENTS = 12
 MAX_EMPHASIS = 4

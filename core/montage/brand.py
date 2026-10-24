@@ -1,15 +1,4 @@
-"""A page's brand made whole for a montage, and an SVG logo made safe.
-
-**Gaps.** What the brand leaves empty is filled when a montage is made:
-the page's name for the brand's, the logo's own colour for the primary,
-a neutral palette for the rest.
-
-**SVG.** A logo drawn as SVG is markup, and markup can carry scripts,
-event handlers and links that reach out. What is kept is drawing only -
-shapes, paths, gradients, text - by an allowlist of elements and
-attributes; anything else is dropped, and a file that declares entities
-is refused outright rather than parsed.
-"""
+"""A page's brand made whole for a montage, and an SVG logo made safe."""
 
 import re
 import xml.etree.ElementTree as ET
@@ -20,7 +9,6 @@ from videokit.typefaces import DEFAULT_FONT, FONT_PRESETS
 
 from core.montage.errors import MontageError
 
-# A neutral palette for a kit with nothing in it: dark slate, warm yellow.
 NEUTRAL_PRIMARY: Final = "#1e293b"
 NEUTRAL_ACCENT: Final = "#facc15"
 NEUTRAL_TEXT: Final = "#ffffff"
@@ -40,7 +28,6 @@ _ATTRIBUTES: Final = frozenset(
      "gradientTransform", "clip-path", "mask", "font-size", "font-weight",
      "font-family", "text-anchor", "preserveAspectRatio", "style"}
 )  # fmt: skip
-# A reference may only point inside the file.
 _OUTSIDE: Final = re.compile(
     r"url\(\s*['\"]?(?!#)|expression|@import|javascript:", re.I
 )
@@ -66,11 +53,7 @@ def resolved(
     logo_color: str,
     font: str = DEFAULT_FONT,
 ) -> Brand:
-    """The brand with every gap filled: what a montage is made with.
-
-    The handle shown is Telegram's when there is one, else Instagram's;
-    a font that is not a preset is the default one.
-    """
+    """The brand with every gap filled: what a montage is made with."""
     return Brand(
         primary=primary or logo_color or NEUTRAL_PRIMARY,
         accent=accent or NEUTRAL_ACCENT,

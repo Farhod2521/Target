@@ -1,20 +1,4 @@
-"""A brand's face: when it is complete, its short brief, the colours it suggests.
-
-**Complete** means a video can be made with it: a name, a sentence on
-what the business does, and at least one place to send a viewer. A logo
-helps but is not required - the components draw the name's initial.
-
-**Brief.** What Claude reads about the brand when it plans a montage:
-assembled here from the fields and the stored look at the logo, never by
-asking Claude, and at most :data:`BRIEF_MAX_WORDS` words. The logo itself
-is never sent with a montage.
-
-**Suggested colours.** The logo's first strong colour is the primary;
-the accent is what Claude suggested for the logo, else its next strong
-colour, else the neutral one - whichever first is bright enough to light
-a word over dark footage; text is whichever of near-black and white
-reads on the primary.
-"""
+"""A brand's face: when it is complete, its short brief, the colours it suggests."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -32,8 +16,6 @@ from core.montage.logo import LogoAnalysis
 
 BRIEF_MAX_WORDS: Final = 100
 
-# What reads badly: the text colour on the primary, and the accent - the
-# lit subtitle word, the button - over dark footage.
 ContrastProblem = Literal["text_on_primary", "accent_on_video"]
 
 

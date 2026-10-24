@@ -1,37 +1,4 @@
-"""The transcript put right where the recogniser clearly misheard it.
-
-Speech recognition knows Uzbek, not this business: a brand's name, its
-products and its slogan come back as the nearest common words -
-"Targetolog AI" heard as "targetologiya" (``kind="brand"``). It also
-mishears ordinary words now and then - "yordamiylasiz" for
-"yordamingizsiz" (``kind="word"``). One cheap look by Claude, with the
-brand's own words beside it, names the stretches it got wrong
-(:class:`TranscriptFixes`); everything else is done here.
-
-**Meaning is never changed.** Claude marks how sure it is, and only a
-``high`` fix is made. A ``medium`` one - words that make no sense as
-heard, with a guess at what was said - is not made but listed for a
-person to read (:func:`doubts`), and so is a sure fix the guard below
-refused. An ordinary word must also be put right into
-something spelled much like it (:data:`MIN_LIKENESS`) - a mishearing
-sounds like what was said - and may not add or take away a "not"
-(:data:`_NEGATIONS`): "ishlaydi" into "ishlamaydi" is a different
-sentence however alike it looks.
-
-**Times are kept.** A fix replaces words ``first`` to ``last`` with new
-ones that take the same stretch of time between them, shared out by
-length: one word heard where two were said is split in proportion. Every
-other word keeps its time to the millisecond, and its place: the numbers
-the planner ties graphics to are counted on the transcript after this.
-
-**Checked, not trusted.** A fix pointing outside the transcript, crossing
-another, longer than a few words, changing nothing, unsure, or (for an
-ordinary word) unlike what was heard or turning it negative is dropped. A word
-that ended a sentence keeps its full stop.
-
-**Kept as a diff.** What each fix replaced and with what, times and all,
-so the words as heard can be read back and the fix can be judged.
-"""
+"""The transcript put right where the recogniser clearly misheard it."""
 
 import re
 from collections.abc import Sequence
@@ -43,14 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from core.montage.captions import SpokenWord
 
 MAX_FIXES: Final = 40
-# How many words one fix may replace, and how many it may put in.
 MAX_SPAN: Final = 5
 MAX_NEW_WORDS: Final = 5
 _CLOSING: Final = ".,!?:;…"
-# How alike, letter by letter (0-1), an ordinary word and its fix must be.
 MIN_LIKENESS: Final = 0.6
-# Words and endings that make an Uzbek sentence negative. Broad on
-# purpose: a word caught by mistake only keeps its fix from being made.
 _NEGATIONS: Final = re.compile(
     r"\b(?:emas|yo['\u02bb\u02bc]?q)\b|ma(?:y|di|gan|sin|ng|s)", re.IGNORECASE
 )

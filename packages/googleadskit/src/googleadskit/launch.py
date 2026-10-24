@@ -1,32 +1,4 @@
-"""A whole Search campaign, created in one request or not at all.
-
-``googleAds:mutate`` takes every object - budget, campaign, ad group,
-keywords, the ad, places, negative keywords, the call asset - with
-temporary ids standing in for the ones Google has not issued yet, and
-applies them atomically: all of it lands, or none of it does. So there is
-no half-built campaign to clean up after a refusal, which is the whole of
-what Meta's rollback exists for.
-
-**What is fixed here, and why.** Every campaign this product makes is the
-same shape, chosen for a small advertiser with no conversion tracking:
-
-- Google Search only - no search partners' display, no Display expansion.
-- Maximize clicks (``targetSpend``): maximize conversions needs a
-  conversion tag on the site, which these sites do not have.
-- Keywords as phrase or exact match. Broad match is Google's default and
-  is meant for smart bidding on conversion data; on clicks it spends the
-  budget on searches that are only loosely related.
-- Declared as not EU political advertising, which Google requires on every
-  new campaign.
-- No language criterion: Uzbek is not a Google language, and narrowing to
-  Russian or English would hide the searches an Uzbek shop wants.
-- Shown to people in the places, not to people elsewhere searching about
-  them - Google's default, which a local business pays for and cannot use.
-- Enabled at once, as Meta's are once created.
-
-``validate_only`` is Google's own dry run: every object is checked as if
-created, and nothing is.
-"""
+"""A whole Search campaign, created in one request or not at all."""
 
 from typing import Any, Final, Literal
 
@@ -37,7 +9,6 @@ from googleadskit.client import AdsClient
 
 MatchType = Literal["PHRASE", "EXACT"]
 
-# Google's limits, enforced before the request so a refusal names the field.
 HEADLINE_MAX: Final = 30
 HEADLINES_MIN: Final = 3
 HEADLINES_MAX: Final = 15
@@ -229,11 +200,9 @@ def _budget(name: str, spec: SearchCampaignSpec) -> dict[str, Any]:
     places = ISO_MONEY.decimal_places(spec.currency)
     return {
         "resourceName": name,
-        # Budget names are unique in an account like campaign names.
         "name": spec.name,
         "amountMicros": str(spec.daily_budget_minor * 10 ** (_MICROS_PLACES - places)),
         "deliveryMethod": "STANDARD",
-        # Google's default is a shared budget; this one is the campaign's own.
         "explicitlyShared": False,
     }
 

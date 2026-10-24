@@ -1,30 +1,4 @@
-"""Why a group spends without results, named from its own figures.
-
-One cause per group, chosen by arithmetic somebody can read - the same
-discipline as the rules. A language model explains the cause later; it
-does not choose it, so the card, the chat and the notification cannot
-disagree about what is wrong.
-
-**The earliest step that failed is the cause.** Money is shown, then
-clicked, then lands somewhere, then becomes a lead - and a problem at one
-step makes every later step unreadable. See the declaration order of
-:data:`core.agent.signals.Signal`.
-
-**Opinions need poor results; facts do not.** A provider that stopped the
-group, a page that does not open and a group too new to judge are stated
-whatever the results say. Everything else is only a cause on a group whose
-results cost too much - a lead, a conversation, a call, a visit, whatever
-it was bought for - and a group doing well is ``no_problem`` with its
-signals still recorded. A group whose results are poor and whose figures
-point nowhere is ``unclear``, which is a finding of its own - the honest
-answer, rather than the likeliest-sounding one.
-
-**A group is judged by its own result and nothing else.** A low
-click-through rate on a conversation group bringing conversations at the
-usual price is not a problem; it is how that group looks. A group whose
-result nothing here counts is never given an opinion - see
-:func:`core.agent.benchmark.results_are_poor`.
-"""
+"""Why a group spends without results, named from its own figures."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -58,19 +32,12 @@ Cause = Literal[
     "weak_creative",
     "costly_audience",
     "promise_mismatch",
-    # The provider gave up on learning: too few results a week to find the
-    # people who bring them. Named only when nothing in the funnel is.
     "learning_limited",
-    # Not causes of anything, and both written down: a group checked and
-    # found well, and a group whose results are poor for a reason its
-    # figures do not show.
     "no_problem",
     "unclear",
 ]
 CAUSES: Final[tuple[Cause, ...]] = get_args(Cause)
 
-# Which cause each signal points at. Iterated in the order signals are
-# declared, which is the funnel's.
 CAUSE_OF: Final[Mapping[Signal, Cause]] = {
     "provider_issue": "provider_stopped",
     "site_down": "landing_blocks",
@@ -90,9 +57,6 @@ CAUSE_OF: Final[Mapping[Signal, Cause]] = {
     "learning_limited": "learning_limited",
 }
 
-# A slice of a group whose thousand impressions cost this share of the
-# group's own or more, while taking a real share of its money, is named in
-# the evidence. Approximate, like every threshold in ``signals``.
 COSTLY_SLICE_CPM_PCT: Final = 130
 
 _ACTIVE = "active"
@@ -100,11 +64,7 @@ _ACTIVE = "active"
 
 @dataclass(frozen=True, slots=True)
 class Diagnosis:
-    """One group's cause, the signals behind it, and the numbers they read.
-
-    ``evidence`` is numbers and provider ids only - no sentence is built in
-    this package - and it is what makes a cause re-checkable months later.
-    """
+    """One group's cause, the signals behind it, and the numbers they read."""
 
     adset_id: str
     name: str
@@ -114,11 +74,7 @@ class Diagnosis:
 
 
 def diagnose(*, account: AccountFacts, policy: Policy) -> tuple[Diagnosis, ...]:
-    """A diagnosis for every group delivering, or stopped by the provider.
-
-    A group the owner paused is not here. It spends nothing, and a cause for
-    it would be an opinion about a decision somebody already made.
-    """
+    """A diagnosis for every group delivering, or stopped by the provider."""
     return tuple(
         _diagnosis(
             account=account,
@@ -160,13 +116,7 @@ def _cause(
 
 
 def _figures(*, item: AdSetFacts, bench: Benchmark) -> dict[str, Any]:
-    """Each step's figure beside the account's, for the card to quote.
-
-    ``outcome``, ``results`` and the two costs are the verdict's own
-    figures - what one result cost here and what it usually costs on this
-    account's groups bought for the same thing. Everything else explains
-    them.
-    """
+    """Each step's figure beside the account's, for the card to quote."""
     own = item.funnel
     leads = lead_count(item)
     family = family_of(item)
@@ -207,9 +157,6 @@ def _context(*, item: AdSetFacts, policy: Policy) -> dict[str, Any]:
         "rankings": [
             {
                 "ad": ad.external_id,
-                # The advert's own name, so the cause can say which one.
-                # A group runs several and "this advert" leaves the owner
-                # guessing which of four to replace.
                 "name": ad.name,
                 "quality": ad.quality_ranking,
                 "engagement": ad.engagement_ranking,
@@ -226,14 +173,7 @@ def _context(*, item: AdSetFacts, policy: Policy) -> dict[str, Any]:
 
 
 def _costly_slice(*, item: AdSetFacts, policy: Policy) -> dict[str, Any] | None:
-    """The biggest spender among the slices dear to show this group to.
-
-    Across every cut the sync keeps - placement, region, age and gender. A
-    slice counts when its thousand impressions cost well over the group's
-    own and it takes a real share of the money. Said, never removed: a
-    placement is the provider's to choose, and a region or an age the
-    owner's.
-    """
+    """The biggest spender among the slices dear to show this group to."""
     base = item.funnel.cpm_minor
     if base is None:
         return None

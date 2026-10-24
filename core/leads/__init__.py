@@ -1,11 +1,4 @@
-"""What a lead is, once a provider's answer sheet has been read.
-
-No Django and no provider vocabulary that is not universal. The questions
-on a lead form are chosen by the advertiser, so the only thing this layer
-can do is recognise the handful that every platform names the same way -
-a name, a phone number, an email address, a city - and leave the rest
-whole.
-"""
+"""What a lead is, once a provider's answer sheet has been read."""
 
 from core.leads.contact_questions import ContactKind, contact_kind
 from core.leads.mapping import (

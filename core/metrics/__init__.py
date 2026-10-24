@@ -1,14 +1,4 @@
-"""Derived advertising figures.
-
-What a range of days adds up to, how it moved, and the two costs the whole
-product turns on: what a lead cost, and what a lead worth having cost. No
-ad platform can compute the second one - it needs a verdict only the
-advertiser has - and the gap between the two is this product's claim.
-
-Nothing here reads a clock, a database or a setting. Days arrive as values
-and leave as values, which is what lets the arithmetic be checked without a
-provider, a migration or a fixture.
-"""
+"""Derived advertising figures."""
 
 from core.metrics.cards import (
     BY_KEY,

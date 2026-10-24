@@ -1,19 +1,4 @@
-"""Reading a video on this machine: how long, what it shows, what it says.
-
-FFmpeg and FFprobe run as processes. Their paths are arguments, never
-looked up from the environment, so a deployment that keeps them somewhere
-odd says so once in its own configuration.
-
-The montage itself is rendered elsewhere; this is what has to be done
-*before* asking for it - the length, one clean copy of the file, a still
-every few seconds for Claude to look at, and the sound for the transcript.
-
-**One clean copy.** A phone hands over HEVC at a variable frame rate with
-the rotation in a side tag, and its sound has the room in it. Every later
-step - the transcript, the stills, the renderer's trims - is more exact on
-an H.264 file at a steady thirty frames with the voice cleaned and levelled,
-and that file is a fraction of the upload's size for the slow trip out.
-"""
+"""Reading a video on this machine: how long, what it shows, what it says."""
 
 import json
 import re
@@ -25,28 +10,14 @@ from typing import Any, Final
 from videokit.errors import MediaToolError
 from videokit.models import AudioTreatment, Frame, MediaInfo
 
-# Long enough for a ten-minute file on one slow core, short enough that a
-# file FFmpeg chokes on does not hold a worker for the task's whole limit.
 DEFAULT_TIMEOUT_SECONDS: Final = 300.0
-# JPEG quality on FFmpeg's 2-31 scale, lower is better. Five is clean enough
-# to read a face or a price tag and keeps a still near forty kilobytes.
 _JPEG_QUALITY: Final = "5"
 
-# Preparing re-encodes the whole picture, which is the slow part: a ten
-# minute 1080p file is a few minutes on an ordinary core.
 PREPARE_TIMEOUT_SECONDS: Final = 480.0
-# The long side of the prepared picture. What Reels and Shorts show; a 4K
-# phone file is cut down, a smaller one is left at its own size.
 PREPARED_LONG_SIDE: Final = 1920
 PREPARED_FPS: Final = 30
 
-# Loudness the social apps normalise to (-14 LUFS), with the peaks held
-# under the ceiling so their own levelling never has to squash it.
 _LEVEL: Final = "loudnorm=I=-14:TP=-1.5:LRA=11"
-# Voice clean-up before levelling: rumble and hiss outside the voice's
-# band, then the steady noise under it - a fan, traffic, a fridge - which
-# the denoiser learns as it goes. Gentle on purpose: a voice scrubbed too
-# hard sounds underwater, which is worse than a quiet room tone.
 _VOICE: Final = "highpass=f=80,lowpass=f=12000,afftdn=nr=12:nf=-30:tn=1"
 _AUDIO_FILTERS: Final[dict[AudioTreatment, str]] = {
     "none": "",
@@ -92,7 +63,6 @@ def probe(
     )
 
 
-# A scene score over this is a new shot rather than a hand moving.
 SCENE_THRESHOLD: Final = 0.3
 _PTS_TIME: Final = re.compile(r"pts_time:([0-9.]+)")
 
@@ -106,12 +76,7 @@ def frames(
     ffmpeg: str = "ffmpeg",
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> list[Frame]:
-    """One still every ``every`` seconds, at most ``limit`` of them.
-
-    ``width`` is the still's width in pixels; the height follows the
-    picture. Small on purpose - each still is paid for as tokens, and a
-    face or a product reads fine at a few hundred pixels.
-    """
+    """One still every ``every`` seconds, at most ``limit`` of them."""
     if every <= 0 or limit <= 0:
         return []
     with tempfile.TemporaryDirectory(prefix="videokit-") as folder:
@@ -207,11 +172,7 @@ def prepare(
     ffmpeg: str = "ffmpeg",
     timeout: float = PREPARE_TIMEOUT_SECONDS,
 ) -> Path:
-    """One clean MP4 of the upload: H.264, steady frames, sound treated.
-
-    ``audio`` is ``none`` for a file without sound - asking FFmpeg to
-    filter a stream that is not there is an error, not a no-op.
-    """
+    """One clean MP4 of the upload: H.264, steady frames, sound treated."""
     side = PREPARED_LONG_SIDE
     command = [
         ffmpeg,
@@ -265,11 +226,7 @@ def extract_audio(
     ffmpeg: str = "ffmpeg",
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> Path:
-    """The sound alone, mono and small, for a transcript.
-
-    Sixteen kilohertz mono is what speech recognition listens at anyway;
-    sending the full video would upload the picture for nothing.
-    """
+    """The sound alone, mono and small, for a transcript."""
     _run(
         [
             ffmpeg,
@@ -302,7 +259,6 @@ def _run(command: list[str], *, timeout: float) -> bytes:
 def _run_both(command: list[str], *, timeout: float) -> tuple[bytes, str]:
     """What a tool wrote out and what it said on the side (its report)."""
     try:
-        # A list of arguments, never a shell string: a file name cannot run.
         done = subprocess.run(
             command, capture_output=True, timeout=timeout, check=False
         )

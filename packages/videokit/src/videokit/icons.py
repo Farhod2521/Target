@@ -1,14 +1,4 @@
-"""The icons components draw: twenty, one style, one colour.
-
-Each is an inline SVG in ``videokit/icons/<name>.svg`` on a 24-unit grid,
-drawn in ``currentColor`` - a component colours it with one of the
-brand's tokens (``color: var(--accent)``) and sizes it with its box. The
-renderer draws inline SVG and moves it (docs/montage_spike2.md).
-
-A component takes one as a prop of type ``icon`` (see the registry):
-the planner picks a name from :data:`ICONS`, and the template writes the
-drawing where it says ``{{{ name }}}``.
-"""
+"""The icons components draw: twenty, one style, one colour."""
 
 from functools import cache
 from pathlib import Path

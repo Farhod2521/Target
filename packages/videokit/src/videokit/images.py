@@ -1,26 +1,4 @@
-"""A logo read once, cut to its drawing, and described by its colours.
-
-A logo arrives as PNG, JPEG, WebP or SVG. :func:`read_logo` makes it one
-RGBA picture (an SVG is drawn by resvg, which needs no system library),
-and the helpers below each do one thing to it:
-
-- :func:`plain_background` finds the one colour a picture without
-  transparency sits on, if its whole edge is that colour, and
-  :func:`remove_background` lets it through - from the edge inwards, so
-  the same colour inside the drawing stays;
-- :func:`trim` cuts away the empty margin: transparent pixels, or for a
-  picture with no transparency, the plain colour it sits on;
-- :func:`fit` shrinks it to a side, never enlarging;
-- :func:`silhouette` keeps its shape and paints every pixel one colour -
-  a dark logo on a dark video is drawn white instead;
-- :func:`badge` keeps its colours and puts it on a rounded plate - for a
-  logo of several colours some of which a video would swallow;
-- :func:`palette` finds its few main colours (median cut refined by
-  k-means), :func:`ink` the average colour of what is drawn.
-
-Every picture leaves as a PNG (:func:`png`). Nothing here decides which
-variant a video uses; that is the caller's.
-"""
+"""A logo read once, cut to its drawing, and described by its colours."""
 
 import io
 import math
@@ -33,31 +11,17 @@ from PIL import Image, ImageChops, ImageDraw, UnidentifiedImageError
 from videokit.errors import VideoError
 
 LOGO_SIDE: Final = 512
-# The margin a badge leaves round a logo, as a share of its shorter side.
 BADGE_PADDING: Final = 0.22
-# Plate kept clear between the picture's corners and the rounding, as a
-# share of the plate's short side (the same margin
-# :mod:`videokit.logo_fit` checks every plate for).
 BADGE_MARGIN: Final = 0.07
 SVG_FONT: Final = Path(__file__).parent / "fonts" / "svg" / "Inter-Regular.ttf"
 SVG_FONT_FAMILY: Final = "Inter"
-# An SVG is drawn this big before it is trimmed and fitted, so a logo
-# with wide margins still has pixels to spare once they are cut.
 SVG_DRAW_SIDE: Final = 1024
-# A pixel this see-through or more counts as background.
 ALPHA_FLOOR: Final = 16
-# How far from the background colour a pixel must be to count as drawing,
-# for a picture with no transparency (per channel, 0-255).
 PLAIN_TOLERANCE: Final = 24
-# Pixels sampled for colours: enough to be stable, few enough to be quick.
 SAMPLE_SIDE: Final = 96
-# A colour covering less than this share of the drawing is antialiasing.
 MIN_SHARE: Final = 0.03
-# Share of the edge that must be one colour for it to be a background.
 PLAIN_EDGE: Final = 0.97
-# How far a JPEG's background wanders from its own colour (per channel).
 BACKGROUND_TOLERANCE: Final = 40
-# Two colours closer than this (summed over channels) are one colour.
 SAME_COLOUR: Final = 48
 
 
@@ -108,7 +72,7 @@ def _png_to_image(data: bytes) -> Image.Image:
 
 def has_alpha(image: Image.Image) -> bool:
     """Whether any pixel lets the background through."""
-    low = image.getchannel("A").getextrema()[0]  # one band: (low, high)
+    low = image.getchannel("A").getextrema()[0]
     return isinstance(low, int | float) and low < 255 - ALPHA_FLOOR
 
 
@@ -167,15 +131,7 @@ def silhouette(image: Image.Image, color: str) -> Image.Image:
 
 
 def badge(image: Image.Image, color: str) -> Image.Image:
-    """The picture as it is, on a rounded plate of ``color`` around it.
-
-    The plate is the picture grown by :data:`BADGE_PADDING` of its shorter
-    side, its corners rounded as far as half the plate's shorter side: a
-    round plate for a square mark, a pill for a wide wordmark. Along the
-    long side it grows further, enough that the picture's corners stay
-    :data:`BADGE_MARGIN` inside the rounding - a wide wordmark's last
-    letter, or a mark in its corner, is never cut by it.
-    """
+    """The picture as it is, on a rounded plate of ``color`` around it."""
     width, height = image.size
     short = min(width, height)
     pad = round(short * BADGE_PADDING)

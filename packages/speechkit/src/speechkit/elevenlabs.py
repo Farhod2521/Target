@@ -1,13 +1,5 @@
 """ElevenLabs: a recording in, the words and their times out - and, once
-in a while, a short sound made from a description.
-
-One request, answered when the transcript is done. The file travels in the
-request body, so a machine with no public address can use it too.
-
-Only words come back. Scribe also reports the gaps between words and
-sounds such as laughter as entries of their own; a caller cutting a video
-by its speech wants the words, and the gaps are what lies between them.
-"""
+in a while, a short sound made from a description."""
 
 import re
 from collections.abc import Iterator, Sequence
@@ -25,14 +17,8 @@ MODEL: Final = "scribe_v2"
 SOUND_URL: Final = "https://api.elevenlabs.io/v1/sound-generation"
 SOUND_MODEL: Final = "eleven_text_to_sound_v2"
 SOUND_FORMAT: Final = "mp3_44100_128"
-# A ten-minute recording is transcribed in well under a minute; the rest is
-# the upload. Generous, because the alternative is paying for a transcript
-# and closing the connection before it arrives.
 DEFAULT_TIMEOUT_SECONDS: Final = 600.0
 
-# Keyterm limits, from the API reference: each under 50 characters and
-# five words, none of < > { } [ ] \ in it. More than 100 makes every
-# request billed as at least 20 seconds.
 KEYTERM_CHARS: Final = 50
 KEYTERM_WORDS: Final = 5
 MAX_KEYTERMS: Final = 100
@@ -64,13 +50,7 @@ class ElevenLabs:
     def transcribe(
         self, *, path: Path, language: str = "", keyterms: Sequence[str] = ()
     ) -> Transcript:
-        """The words in a recording. ``language`` helps; empty lets it guess.
-
-        ``keyterms`` are words to expect - a brand's name, its products -
-        which Scribe v2 then spells as given when the context fits. Any the
-        API would refuse are left out (:func:`usable_keyterms`). Asking
-        with them costs a fifth more.
-        """
+        """The words in a recording. ``language`` helps; empty lets it guess."""
         fields: dict[str, str | list[str]] = {
             "model_id": self._model,
             "timestamps_granularity": "word",
@@ -79,7 +59,6 @@ class ElevenLabs:
         if language:
             fields["language_code"] = language
         if terms := usable_keyterms(keyterms):
-            # A list in a form is the field repeated, once per term.
             fields["keyterms"] = list(terms)
         try:
             with path.open("rb") as handle:
@@ -145,11 +124,7 @@ class ElevenLabs:
 def usable_keyterms(terms: Sequence[str]) -> tuple[str, ...]:
     """``terms`` as the API takes them: each under :data:`KEYTERM_CHARS`
     characters and at most :data:`KEYTERM_WORDS` words, none of the
-    characters it refuses, no repeats, at most :data:`MAX_KEYTERMS`.
-
-    Over a hundred, every request is billed as at least twenty seconds;
-    the cap keeps short clips at their own length.
-    """
+    characters it refuses, no repeats, at most :data:`MAX_KEYTERMS`."""
     kept: list[str] = []
     seen: set[str] = set()
     for raw in terms:

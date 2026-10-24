@@ -1,11 +1,4 @@
-"""The headline the video opens on.
-
-A feed decides in the first half second, so the opening headline is on
-screen from the very first frame: the planner's, or - when it planned
-none - the first sentence said. It stays until its sentence ends, up to
-:data:`HOOK_MAX_SECONDS`, longer than its manifest lets the same graphic
-stay anywhere else in the video.
-"""
+"""The headline the video opens on."""
 
 from dataclasses import replace
 from typing import Final
@@ -16,14 +9,9 @@ from core.montage.captions import SpokenWord
 from core.montage.fitting import Want
 
 HOOK_MAX_WORDS: Final = 7
-# How long the opening headline may stay: until its sentence ends, but
-# never longer than this, whatever its manifest says.
 HOOK_MAX_SECONDS: Final = 5.0
-# A headline asked for this early opens the video; a later one is a
-# headline in the middle of it.
 OPENING_SECONDS: Final = 4.0
 _SENTENCE_END: Final = (".", "!", "?", "…")
-# Punctuation a headline does not end on: commas, colons, dashes.
 _TRAILING: Final = ",;:- " + chr(0x2013) + chr(0x2014)
 
 

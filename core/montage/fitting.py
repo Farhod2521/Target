@@ -1,21 +1,4 @@
-"""Making room for a graphic whose band is already taken.
-
-Two graphics may not share a band of the frame at the same moment (see
-:func:`videokit.layout.zones_meet`; a panel's band covers the title's).
-When a newcomer would, three things are tried in turn, and the first
-that works is kept:
-
-1. **Move it** to just after or just before what is in its way - or, on
-   the last words, earlier so it is seen whole before the closing card -
-   by at most :data:`MAX_SHIFT_SECONDS` either side of where it was asked
-   for (the nearer move first, later on a tie).
-2. **Shorten a panel**: the newcomer, to the free part of its own
-   stretch; or the panels in its way, so they end before it starts or
-   start after it ends - each never below its own shortest.
-3. **Leave it out**, saying why (:mod:`core.montage.dropped`).
-
-Nothing ever runs into the closing card: ``limit`` is where it starts.
-"""
+"""Making room for a graphic whose band is already taken."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
@@ -34,11 +17,7 @@ _EPS: Final = 1e-6
 
 @dataclass(frozen=True, slots=True)
 class Want:
-    """A graphic and the stretch it asks for, on the finished video's clock.
-
-    ``said`` is how long its words run, before its manifest's limits;
-    ``anchor_word`` is None for a graphic the code adds itself.
-    """
+    """A graphic and the stretch it asks for, on the finished video's clock."""
 
     name: str
     zone: Zone
@@ -86,11 +65,7 @@ def fit(want: Want, kept: list[Want], *, limit: float) -> Fitted:
 
 
 def blockers(zone: Zone, start: float, end: float, kept: Sequence[Want]) -> list[Want]:
-    """What already holds a band ``zone`` shares, while ``[start, end)``.
-
-    Only graphics drawn in front count: a decoration gives way to
-    everything and is never in anything's way.
-    """
+    """What already holds a band ``zone`` shares, while ``[start, end)``."""
     return [
         other
         for other in kept

@@ -1,8 +1,4 @@
-"""Speech to text, word by word.
-
-Knows nothing about video, advertising or accounts: a recording goes in,
-the words and their times come out.
-"""
+"""Speech to text, word by word."""
 
 from speechkit.elevenlabs import ElevenLabs, usable_keyterms
 from speechkit.errors import (

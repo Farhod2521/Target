@@ -1,28 +1,4 @@
-"""What the assistant may look up about an account while it answers.
-
-The context that travels with a question is chosen by
-:func:`core.chat.route.route` and bounded by construction: ten campaigns, six
-groups, the current ad account only. That keeps a greeting cheap, and it
-leaves every question outside those bounds answered with "look at the
-Reklama screen" - a second page, an older campaign, an id somebody pasted.
-The look-ups are the other half: the model asks for what the question
-needs, and only that is read.
-
-**Read-only, every one.** Nothing here changes an account; a change is
-still a proposal somebody presses. And nothing here returns a customer's
-name, phone number, email or answers - counts only, for the rule the
-prompt already states and the review checklist enforces.
-
-**Declared here, answered in Django.** This file is the catalogue - names
-and what each is for; the arguments are in :mod:`core.chat.lookup_arguments`
-- and it has no database. :mod:`apps.chat.selectors.lookups` reads the
-tables, always scoped to the owner the answer belongs to; the model never
-names an owner and cannot reach another account's rows by any argument it
-sends.
-
-Descriptions are English for the reason the prompt is: they are read by the
-model, not by a person.
-"""
+"""What the assistant may look up about an account while it answers."""
 
 from typing import Final
 
@@ -44,20 +20,11 @@ from core.chat.lookup_arguments import (
     Window,
 )
 
-# How many look-ups one answer may make, and how many requests it may take.
-# Eight is well past what a real question needs - "which page is this
-# campaign on and how did it do" is two - and it bounds the bill of a model
-# that goes looking for everything. Five rounds leaves room for a look-up
-# that leads to another, and the last one is forced to answer.
 MAX_LOOKUPS: Final = 8
 MAX_ROUNDS: Final = 5
 
-# How much of one result the model is handed. A result longer than this is
-# cut with a line saying so, which tells the model to narrow the question
-# rather than letting one look-up cost more than the rest of the answer.
 OUTPUT_CHARS: Final = 8_000
 
-# Row ceilings, per look-up.
 FOUND_ROWS: Final = 20
 CAMPAIGN_ROWS: Final = 40
 ADSET_ROWS: Final = 15
@@ -67,11 +34,7 @@ CHANGE_ROWS: Final = 30
 PROPOSAL_ROWS: Final = 15
 PROBLEM_ROWS: Final = 15
 GROUP_ROWS: Final = 40
-# Preparations, newest first. A fortnight of an active cabinet is a
-# handful; the tail is old drafts nobody finished.
 PREPARATION_ROWS: Final = 12
-# Per cut of an audience. Age and gender is about twenty cells; a country's
-# regions can be more, and the tail past this spent too little to matter.
 SLICE_ROWS: Final = 25
 
 

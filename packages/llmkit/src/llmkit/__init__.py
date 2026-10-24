@@ -1,15 +1,4 @@
-"""Claude, made reliable.
-
-The package solves "talk to Claude without surprises" - structured output,
-error translation, cost accounting. It does not solve "what should we ask",
-which is domain knowledge and lives in ``core/agent/prompts/``.
-
-It therefore knows nothing about advertising: no targeting, no ad set, no
-lead, no CPQL. That ignorance is what lets it move to another project
-unchanged.
-
-Claude only. A second LLM SDK is a product decision, not a patch.
-"""
+"""Claude, made reliable."""
 
 from llmkit.client import ClaudeClient
 from llmkit.conversation import ToolStream

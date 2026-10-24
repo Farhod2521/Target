@@ -1,16 +1,4 @@
-"""The window against the same length of time just before it, in words.
-
-"Is it getting worse?" is one of the questions owners ask most, and the
-context answered it with one period: thirty days of spend and results and
-nothing to hold them against. The model would then either refuse or work
-out a percentage of its own - and a percentage worked out by the model is
-a figure no context supplied, which the gate removes from the answer.
-
-So the movement is worked out here, once, the way the dashboard's arrows
-are - see :func:`core.metrics.movement` - and handed over as text the answer
-may quote. **Each kind of result against itself**: conversations last
-month against leads this month is no movement at all.
-"""
+"""The window against the same length of time just before it, in words."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -35,12 +23,7 @@ def moves(
     now: Sequence[KindTotal],
     before: Sequence[KindTotal],
 ) -> tuple[str, ...]:
-    """``("spend up 12%", "leads down 20%", ...)``, flat figures left out.
-
-    Empty when the earlier period spent nothing: an account that started
-    this month did not improve, it started, and the answer should say there
-    is nothing to compare with rather than read a movement out of nought.
-    """
+    """``("spend up 12%", "leads down 20%", ...)``, flat figures left out."""
     if spend_before <= 0:
         return ()
     lines = [_said("spend", spend_now, spend_before, lower_is_better=None)]
@@ -66,8 +49,6 @@ def moves(
                     counts=counts,
                 )
             )
-    # A kind bought last period and not at all this one is the loudest
-    # movement there is, and the loop above never meets it.
     current = {item.kind for item in now}
     for was in before:
         if was.kind not in current and was.count > 0:
@@ -86,15 +67,7 @@ def _said(
     lower_is_better: bool | None,
     counts: tuple[int, int] = (0, 0),
 ) -> str:
-    """One movement as a phrase, or ``""`` when it did not move.
-
-    ``lower_is_better`` is ``None`` for spend, which is neither: more money
-    out is the owner's choice, not news about the advertising.
-
-    ``counts`` are the results behind it, now and before. A movement those
-    counts are too small to carry is said as "within chance" rather than
-    better or worse - see :func:`_beyond_chance`.
-    """
+    """One movement as a phrase, or ``""`` when it did not move."""
     move = movement(now=now, before=before, lower_is_better=bool(lower_is_better))
     if move.direction == "flat":
         return ""
@@ -107,13 +80,7 @@ def _said(
 
 
 def _beyond_chance(percent: int, now: int, before: int) -> bool:
-    """Whether a movement is larger than counting error on these counts.
-
-    The error bar alone, without the weekly report's floor of five: forty
-    leads falling to two is real however few the two are, and two falling
-    to one is not. A kind that stopped after enough of them is news
-    whatever the arithmetic - nought has no error bar to compare with.
-    """
+    """Whether a movement is larger than counting error on these counts."""
     if now == 0:
         return before >= MIN_WEEK_LEADS
     bar = noise_pct(now=now, before=before)

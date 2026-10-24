@@ -1,16 +1,4 @@
-"""A greeting at the very start is cut, whatever the plan said.
-
-"Assalomu alaykum, do'stlar" is how people start talking to a camera and
-the worst way to start a video in a feed: it spends the first second on
-nothing. When the video opens on one of :data:`GREETINGS` and the speaker
-goes on to say something in the same stretch, the stretch starts on the
-first word after it (with the usual breath room). A stretch that is the
-greeting and nothing more is left alone - the planner kept it for a
-reason, and an empty video is worse.
-
-Words are compared as the filler list compares them (:func:`normal`),
-greetings one after another taken off together.
-"""
+"""A greeting at the very start is cut, whatever the plan said."""
 
 from collections.abc import Sequence
 from typing import Final
@@ -31,7 +19,6 @@ GREETINGS: Final[tuple[tuple[str, ...], ...]] = (
     ("друзья",),
     ("здравствуйте",),
 )
-# What has to remain after the greeting for it to be cut: a few words.
 CONTENT_WORDS: Final = 3
 PAD_BEFORE: Final = 0.08
 

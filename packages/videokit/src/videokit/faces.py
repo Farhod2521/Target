@@ -1,20 +1,4 @@
-"""The speaker's face: found on a still, and where it sits in the frame.
-
-**Found** by YuNet (OpenCV's face detector, the model in ``yunet/`` - see
-``docs/assets_licenses.md``) on the small stills a montage already takes.
-Each face comes back as its box and the part of it that must never be
-covered: the eyes and the mouth (:attr:`Face.guard`), from the five
-points the detector marks. Shares of the still, so a still of any size
-reads the same.
-
-**In the frame.** The finished frame is the still cropped to the frame's
-shape around its middle and pushed in by the cut's zoom; :func:`on_frame`
-maps a face through both into design pixels (1080 wide, 1920 tall).
-
-**Over a stretch** (:func:`face_during`): every face seen while an
-element is up, joined into one box, grown by :data:`MARGIN` - one
-still is a moment, and the speaker moves.
-"""
+"""The speaker's face: found on a still, and where it sits in the frame."""
 
 from collections.abc import Sequence
 from functools import cache
@@ -29,21 +13,12 @@ from videokit.layout import DESIGN_HEIGHT, DESIGN_SHORT_SIDE
 from videokit.models import AspectRatio, FaceMark, Rect
 
 MODEL: Final = Path(__file__).parent / "yunet" / "face_detection_yunet_2023mar.onnx"
-# Below this the detector's guess is not a face.
 SCORE: Final = 0.7
-# The model is trained on faces up to about 300 px; a bigger still is
-# made smaller first.
 MAX_SIDE: Final = 640
-# How far past the eyes and the mouth the guard reaches, as shares of the
-# eyes-to-mouth height (up for the brows, down for the lower lip) and of
-# the eyes' distance apart (to each side).
 _BROWS: Final = 0.35
 _LIP: Final = 0.28
 _SIDES: Final = 0.45
-# Room kept around a face over a stretch, as a share of its box's height
-# on every side.
 MARGIN: Final = 0.1
-# A stretch with no still inside takes the nearest one this close.
 NEAREST_SECONDS: Final = 1.5
 
 _RATIO: Final[dict[AspectRatio, float]] = {

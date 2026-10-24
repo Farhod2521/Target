@@ -1,37 +1,4 @@
-"""Every component this package can draw, read from its own folder.
-
-A component is a folder under ``videokit/components/`` holding four files:
-
-- ``manifest.json`` - its name, one or two sentences a planner reads, the
-  props it takes (texts and lists with length limits, and icons - one of
-  :data:`videokit.icons.ICONS` - of type ``icon``), the zones it may sit in, how long
-  it may stay, its sound (one of :mod:`videokit.sounds`), whether it
-  needs a layout, which of the brand's values it is there to show
-  (``shows_brand`` - with none of them it is not drawn at all), example
-  props, where its content sits in its zone (``box``: left, top, right,
-  bottom in design pixels) and the box each text is written in
-  (``texts``: size, smallest size, width and lines - see
-  :mod:`videokit.fit`) and any letters its timeline writes on its own
-  (``glyphs``: a counter's digits), which the clip's font must keep, and
-  its beats (``beats``: name - what happens - for each moment inside it
-  that lands on a word: a stamp hitting, a list's item checked; a beat
-  named after a list prop is one moment per item);
-- ``template.html``, ``style.css``, ``timeline.js`` - what is drawn and
-  how it moves.
-
-A new folder is a new component: nothing else lists them. The rules every
-component keeps are checked here, when the folder is read, so a component
-that breaks one never reaches a render:
-
-- motion only through the GSAP timeline the renderer seeks - no timers,
-  no animation frames, no clock;
-- nothing fetched - no remote script, style, image or font;
-- no canvas, which the renderer cannot seek;
-- sizes in pixels, never relative to a font or a window;
-- no capitals by CSS (``text-transform``): a clip's font keeps only the
-  letters it writes, so a prop meant in capitals is listed in ``caps``
-  and written so before it is drawn.
-"""
+"""Every component this package can draw, read from its own folder."""
 
 import json
 from dataclasses import dataclass
@@ -50,16 +17,9 @@ from videokit.sounds import sounds
 
 FOLDER: Final = Path(__file__).parent
 
-# Who places a component: the planner, or the code on its own (an end card
-# is never left to a planner's choice).
 Placement = Literal["planner", "auto"]
-# A backdrop fills the frame under the other components and does not
-# compete with them for a zone; a decoration (a sticker flying past) is
-# drawn under the front ones, never shares a moment with one in its band,
-# and is not counted when bands are checked for clashes.
 Layer = Literal["front", "decor", "backdrop"]
 
-# Brand values a component can be there to show (``shows_brand``).
 BRAND_VALUES: Final = frozenset({"name", "logo", "tagline", "cta_label"})
 
 
@@ -94,34 +54,18 @@ class Component:
     html: str
     css: str
     js: str
-    # Props to show it with when nobody gave any: demos and tests.
     example: dict[str, Any]
     shows_brand: tuple[str, ...] = ()
-    # Whether it writes any words. One that does not is drawn without the
-    # brand's font - a font inlined into a picture is weight for nothing.
     lettering: bool = True
-    # Where its content sits in its zone, and each text's box, by the
-    # name of the value it shows (a prop or a brand value).
     box: tuple[int, int, int, int] | None = None
     texts: tuple[tuple[str, TextBox], ...] = ()
-    # A tap circle on the button's edge: its radius, and how far in from
-    # that edge the button's words start.
     tap: tuple[int, int] | None = None
-    # Letters its timeline writes that no prop or template holds: a
-    # counter's digits. Kept in the clip's cut of the font.
     glyphs: str = ""
-    # Props drawn in capitals, written so before the template is filled.
     caps: tuple[str, ...] = ()
-    # Moments inside it that land on words, each with what happens then.
     beats: tuple[tuple[str, str], ...] = ()
-    # A sound for each beat that has one (``start``: as it comes in), and
-    # where a beat lands when the planner gave no word for it, in seconds
-    # from the start - so the sound and the motion always meet.
     sounds: tuple[tuple[str, str], ...] = ()
     beat_defaults: tuple[tuple[str, float], ...] = ()
-    # An opening headline: one of these is on screen from the first frame.
     hook: bool = False
-    # How many times one video may show it; None: no limit.
     max_uses: int | None = None
 
     def beats_at(
@@ -136,10 +80,7 @@ class Component:
         return any(p.name == name and p.kind == "list" for p in self.props)
 
     def drawable(self, brand: Brand) -> bool:
-        """Whether the brand has anything this component is there to show.
-
-        A name bar with no name would be an empty box; it is left out.
-        """
+        """Whether the brand has anything this component is there to show."""
         return not self.shows_brand or any(
             getattr(brand, value) for value in self.shows_brand
         )
@@ -219,7 +160,6 @@ def _read(folder: Path) -> Component:
         (folder / name).read_text(encoding="utf-8")
         for name in ("template.html", "style.css", "timeline.js")
     )
-    # Every byte of a clip counts against the provider's limit on an edit.
     css = " ".join(line.strip() for line in css.splitlines() if line.strip())
     js = "\n".join(line.strip() for line in js.splitlines() if line.strip())
     check(folder.name, html=html, css=css, js=js)

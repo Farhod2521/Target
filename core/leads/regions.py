@@ -1,21 +1,5 @@
 # ruff: noqa: RUF001 - place names in Cyrillic, spelt as people write them.
-"""Which of Uzbekistan's fourteen regions a place name belongs to.
-
-A lead's place arrives in two spellings this product does not choose. A
-form's city is whatever somebody typed - ``Toshkent``, ``ташкент``,
-``Farg'ona sh.`` - and the provider's region breakdown is its own English
-name - ``Tashkent Region``, ``Qashqadaryo Region``. The CRM map needs both
-on the same fourteen shapes, so both are folded to one key here.
-
-**The capital is the one name that means two places.** ``Toshkent`` on its
-own is the city; with ``viloyati`` or ``Region`` beside it, it is the region
-around the city. Every other region shares its name with its centre, so the
-two readings land on the same key anyway.
-
-Cities beyond each region's own name come from the caller (the geography
-catalogue the campaign wizard already keeps): this module holds the
-regions and the ways their names are written, not a gazetteer.
-"""
+"""Which of Uzbekistan's fourteen regions a place name belongs to."""
 
 import re
 import unicodedata
@@ -26,7 +10,6 @@ from typing import Final
 CAPITAL: Final = "toshkent_shahri"
 CAPITAL_REGION: Final = "toshkent"
 
-# The fourteen, in the order a list of them is read when no count orders it.
 REGIONS: Final[tuple[tuple[str, str], ...]] = (
     (CAPITAL, "Toshkent shahri"),
     (CAPITAL_REGION, "Toshkent viloyati"),
@@ -45,15 +28,12 @@ REGIONS: Final[tuple[tuple[str, str], ...]] = (
 )
 REGION_LABELS: Final[dict[str, str]] = dict(REGIONS)
 
-# Words that say "the region of", in the three languages and the
-# provider's. Their presence is what tells the capital from its region.
 _REGION_WORDS: Final = frozenset(
     {
         "viloyati", "viloyat", "vil", "region", "province", "oblast",
         "oblasti", "область", "обл", "вилояти", "вилоят",
     }
 )  # fmt: skip
-# Words that only say what kind of place it is.
 _NOISE_WORDS: Final = frozenset(
     {
         "respublikasi", "respublika", "republic", "of", "the", "республика",
@@ -63,8 +43,6 @@ _NOISE_WORDS: Final = frozenset(
     }
 )  # fmt: skip
 
-# Every way the regions themselves are written that folding alone does not
-# reach: Latin and Cyrillic Uzbek, Russian, and the provider's English.
 _REGION_NAMES: Final[dict[str, tuple[str, ...]]] = {
     CAPITAL_REGION: ("toshkent", "tashkent", "ташкент", "тошкент"),
     "andijon": ("andijon", "andijan", "андижан", "андижон"),
@@ -94,7 +72,6 @@ _REGION_NAMES: Final[dict[str, tuple[str, ...]]] = {
         "қорақалпоғистон", "коракалпогистон",
     ),
 }  # fmt: skip
-# Russian region adjectives ("Ташкентская", "Ферганская") end in this.
 _ADJECTIVE: Final = re.compile(r"(ская|ский|ское)$")
 _APOSTROPHES: Final = re.compile(r"[ʻʼ’‘`'´ʹ]")
 _WORD: Final = re.compile(r"[^\W_]+")
@@ -109,13 +86,7 @@ class Folded:
 
 
 def fold(text: str) -> Folded:
-    """``"Farg'ona viloyati"`` -> ``Folded("fargona", True)``.
-
-    Lower case, apostrophes dropped (Uzbek writes ``o'`` four ways),
-    accents off Latin letters, the kind-of-place words taken out and what
-    is left joined without spaces - ``Yangi yo'l`` and ``Yangiyo'l`` are
-    one town.
-    """
+    """``"Farg'ona viloyati"`` -> ``Folded("fargona", True)``."""
     text = unicodedata.normalize("NFKC", text).casefold()
     text = _APOSTROPHES.sub("", text)
     text = "".join(
@@ -132,11 +103,7 @@ def fold(text: str) -> Folded:
 
 
 class RegionIndex:
-    """Place names to region keys, with the cities a caller knows of.
-
-    Built once per screen: ``cities`` is ``(region key, names)`` for every
-    town the caller can place, each in as many spellings as it has.
-    """
+    """Place names to region keys, with the cities a caller knows of."""
 
     def __init__(self, cities: Iterable[tuple[str, Iterable[str]]] = ()) -> None:
         self._names: dict[str, str] = {}
@@ -147,7 +114,6 @@ class RegionIndex:
             if region not in REGION_LABELS:
                 continue
             for town in towns:
-                # A region's own name wins over a town that shares it.
                 self._names.setdefault(fold(town).base, region)
 
     def region_of(self, text: str) -> str | None:
@@ -169,11 +135,7 @@ _CAPITAL_BASES: Final = frozenset(
 def by_region(
     rows: Iterable[tuple[str, int]], *, index: RegionIndex
 ) -> tuple[dict[str, int], int]:
-    """Counts per place summed per region, and how many named no region.
-
-    ``rows`` is ``(place, count)`` as a breakdown returns it; places that
-    fold to the same region add up.
-    """
+    """Counts per place summed per region, and how many named no region."""
     found: dict[str, int] = {}
     unplaced = 0
     for place, count in rows:

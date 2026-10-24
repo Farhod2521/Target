@@ -1,43 +1,5 @@
 """How the footage moves: a slow push-in, punch-ins, and the way a new
-part of the video comes in.
-
-**Push-in.** Every cut creeps closer while it plays - a few per cent over
-its length, never more than :data:`PUSH_MAX` - so a talking head is never
-quite still. It starts from the cut's own ``zoom``, so the jump between
-two takes of one shot stays hidden.
-
-**Punch-in.** At a moment a planner marked as the point - the price, the
-result - the picture steps :data:`PUNCH` closer at once and stays there;
-a second mark in the same cut steps back out. A step too close to the
-cut's start or end would read as a stutter, so it is left out.
-
-**Transitions** (``Cut.enter``) mark a new part, never an ordinary cut:
-
-- ``fade`` and ``slide`` are Shotstack's own (``fadeFast``,
-  ``slideUpFast``), coming up out of the black background;
-- ``zoom`` lands from :data:`ENTER_ZOOM` times closer in a third of a
-  second (a scale tween);
-- ``flash`` is a white frame that peaks on the cut and clears - an HTML5
-  clip over everything;
-- ``burst`` is both: the flash, and the picture landing from closer - a
-  new part of the video, in place of the reference montage's colour
-  glitch, which a renderer that only places clips cannot draw.
-
-**Held on the face.** Shotstack scales a clip about its middle, which
-pushes a face that is not in the middle out towards the edge. Where the
-speaker's face is known (``EditSpec.faces``), every scale comes with an
-``offset`` that keeps the face's middle where it was
-(:func:`held_offset`): ``offset = ∓(scale - 1)·(face - ½)``, measured on
-stage within a hundredth of the frame (docs/montage_spike2.md).
-
-All of it is Shotstack ``scale`` tweens on the footage clips, by each
-clip's own clock, and each clip's tweens run on from one another without
-a jump: the renderer turns a jump between two tweens into a drift over
-the first (measured on stage), so a punch-in is a cut of the clip
-instead, the next clip starting at the new scale. A cut played as
-several clips has its curve sliced at the boundaries, so the motion
-carries on across them unbroken.
-"""
+part of the video comes in."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -52,11 +14,9 @@ PUSH_MAX: Final = 0.05
 PUNCH: Final = 1.12
 ENTER_ZOOM: Final = 1.25
 ENTER_SECONDS: Final = 0.35
-# A punch nearer than this to the cut's start or end is left out.
 PUNCH_CLEAR_START: Final = 0.6
 PUNCH_CLEAR_END: Final = 0.5
 SHOTSTACK_IN: Final[dict[str, str]] = {"fade": "fadeFast", "slide": "slideUpFast"}
-# The transitions that land from closer, and those that flash.
 LANDS: Final = frozenset({"zoom", "burst"})
 FLASHES: Final = frozenset({"flash", "burst"})
 FLASH_BEFORE: Final = 0.1
@@ -97,10 +57,7 @@ def cut_starts(cuts: tuple[Cut, ...]) -> list[float]:
 
 
 def cut_keys(cut: Cut, *, at: float, punches: tuple[float, ...]) -> list[Key]:
-    """The scale over ``cut``, which starts ``at`` in the finished video.
-
-    ``punches`` are moments of the finished video; those inside it count.
-    """
+    """The scale over ``cut``, which starts ``at`` in the finished video."""
     length = cut.end - cut.start
     return scale_keys(
         length,
@@ -113,10 +70,7 @@ def cut_keys(cut: Cut, *, at: float, punches: tuple[float, ...]) -> list[Key]:
 def scale_keys(
     length: float, *, base: float, punches: tuple[float, ...], enter: Transition
 ) -> list[Key]:
-    """The scale over one cut of ``length`` seconds, by the cut's clock.
-
-    ``punches`` are moments in the cut; those too near its edges are left out.
-    """
+    """The scale over one cut of ``length`` seconds, by the cut's clock."""
     push = min(PUSH_PER_SECOND * length, PUSH_MAX)
 
     def at(moment: float) -> float:
@@ -141,11 +95,7 @@ def scale_keys(
 
 
 def scale_tweens(keys: list[Key], low: float, high: float) -> list[dict[str, Any]]:
-    """The part of ``keys`` inside ``[low, high)``, as tweens by that clip's clock.
-
-    A key cut in two is cut where a straight line between its ends would
-    be - exact for the push-in, near enough for a landing zoom's curve.
-    """
+    """The part of ``keys`` inside ``[low, high)``, as tweens by that clip's clock."""
     tweens = []
     for key in keys:
         a, b = max(key.start, low), min(key.end, high)
@@ -184,12 +134,7 @@ def face_anchor(
 def held_offset(
     scale: list[dict[str, Any]], anchor: tuple[float, float]
 ) -> dict[str, list[dict[str, Any]]]:
-    """Offset tweens that keep ``anchor`` in place under ``scale``'s tweens.
-
-    Shotstack's ``offset`` is a share of the frame, up being positive; the
-    offset is a straight function of the scale, so each offset tween runs
-    with its scale tween's own timing and easing.
-    """
+    """Offset tweens that keep ``anchor`` in place under ``scale``'s tweens."""
     x, y = anchor
 
     def follow(t: dict[str, Any], lean: float) -> dict[str, Any]:
@@ -206,13 +151,7 @@ def held_offset(
 
 
 def steps(keys: list[Key]) -> list[float]:
-    """Where the scale jumps rather than moves, by the cut's clock.
-
-    The renderer eases from one tween's end to the next one's start over
-    the earlier tween, so a jump inside one clip comes out as a slow drift
-    (measured). A footage clip is cut at each of these instead, and the
-    clip after it simply starts at the new scale.
-    """
+    """Where the scale jumps rather than moves, by the cut's clock."""
     return [b.start for a, b in pairwise(keys) if abs(a.high - b.low) > 1e-6]
 
 

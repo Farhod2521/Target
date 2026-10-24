@@ -1,24 +1,4 @@
-"""Google Ads campaigns, ad groups and ads as :class:`adskit.CampaignControlPort`.
-
-Three GAQL reads and three writes - the switch, the budget, the removal,
-built in :mod:`googleadskit.writes`. Google's hierarchy maps onto the
-domain's one for one - campaign, ad group (our "adset"), ad - and the budget
-sits on the campaign, the only level Google keeps one.
-
-**Removed objects are not listed.** Google keeps them forever and they can
-never run again; the mirror drops a row the provider stops sending, which
-is what removed means. Their figures stay in the metrics table.
-
-**Delivery** is read from ``primary_status``, Google's own summary of why
-something is or is not serving, and the object's ``status`` beside it. A
-group switched on under a paused campaign reports ``PAUSED`` as its
-primary status while its own status is ``ENABLED`` - which is the
-domain's ``paused_above``.
-
-Ad ids are Google's ``adGroupAds`` names (``{group}~{ad}``): an ad is
-addressed through the group it sits in, and that is the name a mutate
-takes.
-"""
+"""Google Ads campaigns, ad groups and ads as :class:`adskit.CampaignControlPort`."""
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -72,7 +52,6 @@ _AD_FIELDS: Final = (
 )
 
 _FROM: Final[dict[str, tuple[str, str]]] = {
-    # level: (GAQL resource, fields)
     "campaign": ("campaign", _CAMPAIGN_FIELDS),
     "adset": ("ad_group", _GROUP_FIELDS),
     "ad": ("ad_group_ad", _AD_FIELDS),
@@ -93,20 +72,12 @@ def _where_not_removed(resource: str) -> str:
 
 
 class GoogleCampaigns:
-    """Read an account's campaigns, ad groups and ads; start and stop them.
-
-    ``token`` is a live access token - the caller trades the stored refresh
-    token for one through the connect port before it gets here.
-    """
+    """Read an account's campaigns, ad groups and ads; start and stop them."""
 
     def __init__(
         self, *, http: httpx.Client | None = None, rehearse_writes: bool = False
     ) -> None:
-        # Lent, never closed here: a test's mock transport, or a pool a
-        # caller wants shared. ``None`` opens one per call.
         self._http = http
-        # True sends every write as ``validateOnly`` whatever ``dry_run``
-        # says - the deployment's switch, set at registration.
         self._rehearse = rehearse_writes
 
     def list_campaigns(self, *, account: ExternalRef, token: str) -> list[CampaignDTO]:
@@ -173,12 +144,7 @@ class GoogleCampaigns:
     def set_status(
         self, *, ref: ExternalRef, status: str, token: str, dry_run: bool = True
     ) -> ActionResult:
-        """Pause or resume one object.
-
-        ``dry_run`` is Google's ``validateOnly``: the request is checked in
-        full and nothing is changed. Setting a status twice is harmless, so
-        a write whose answer was lost may simply be sent again.
-        """
+        """Pause or resume one object."""
         dry_run = dry_run or self._rehearse
         wanted = status.strip().lower()
         if wanted not in SETTABLE:
@@ -201,12 +167,7 @@ class GoogleCampaigns:
         token: str,
         dry_run: bool = True,
     ) -> ActionResult:
-        """The campaign's daily amount, changed on the budget it draws on.
-
-        A shared budget changes for every campaign on it - see
-        :mod:`googleadskit.writes`. Setting the same figure twice is
-        harmless, so a lost answer may be sent again.
-        """
+        """The campaign's daily amount, changed on the budget it draws on."""
         dry_run = dry_run or self._rehearse
         with google_calls(), AdsClient(token=token, http=self._http) as client:
             answer = change_budget(
@@ -238,9 +199,6 @@ class GoogleCampaigns:
             raw_response=answer,
         )
 
-    # --- Not built yet ---------------------------------------------------
-    # Each refuses by name, as ``Unavailable`` does for a whole port.
-
     def count_adsets(self, *, campaign: ExternalRef, token: str) -> int:
         raise PortNotAvailable(provider=PROVIDER, port="campaigns.count_adsets")
 
@@ -263,8 +221,6 @@ class GoogleCampaigns:
         dry_run: bool = True,
     ) -> ActionResult:
         raise PortNotAvailable(provider=PROVIDER, port="campaigns.set_spend_cap")
-
-    # --- Reading ---------------------------------------------------------
 
     @staticmethod
     def _source(level: Level) -> tuple[str, str]:

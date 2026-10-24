@@ -1,24 +1,4 @@
-"""What crosses the boundary, in both directions.
-
-Pydantic and frozen, like every package DTO in this workspace: these are
-built from bytes somebody else sent and read by code that decides whether
-to hand over a month of service, so the validation is the point.
-
-Three groups, and the split is the direction of travel.
-
-**Going out.** :class:`CheckoutRequest` and :class:`Checkout` - what the
-payer is sent to. Built locally, with no call to anybody.
-
-**Coming in.** :class:`RawRequest` and :class:`CallbackRequest` - the
-provider's HTTP request, and the provider-neutral reading of it.
-
-**Going back.** :class:`Allowed`, :class:`Settled`, :class:`Statement`,
-:class:`Refused` and :class:`ProviderResponse` - what the domain decided,
-and the body the provider is given for it.
-
-Nothing here holds a clock. Every time is a value the provider sent or a
-value the caller read from a row.
-"""
+"""What crosses the boundary, in both directions."""
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -43,9 +23,6 @@ class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-# --- Going out -----------------------------------------------------------
-
-
 class CheckoutRequest(Frozen):
     """Everything an adapter needs to build a payment page link.
 
@@ -65,8 +42,6 @@ class CheckoutRequest(Frozen):
     amount_minor: MinorUnits
     decimal_places: int = Field(ge=0, le=4)
     return_url: str = ""
-    # The payer's language, as a two-letter code, for providers that will
-    # render their own page in it. Empty means "do not ask for one".
     language: str = ""
 
 
@@ -85,14 +60,9 @@ class Checkout(Frozen):
     """
 
     provider: ProviderName
-    # :data:`~paykit.refs.REDIRECT` fills ``url``;
-    # :data:`~paykit.refs.REFERENCE` fills ``reference``.
     kind: CheckoutKind
     url: str = ""
     reference: str = ""
-
-
-# --- Coming in -----------------------------------------------------------
 
 
 class RawRequest(Frozen):
@@ -138,20 +108,12 @@ class CallbackRequest(Frozen):
     amount_minor: MinorUnits | None = None
     requested_at: datetime | None = None
 
-    # Why the provider is cancelling, in its own numbering. Stored and
-    # shown to an operator, never branched on: the reasons are a provider's
-    # vocabulary and translating them into a domain enum would be a table
-    # that has to be revisited every time somebody publishes a new one.
     cancel_reason: int | None = None
 
-    # The window a statement covers. Both set, or neither.
     window_start: datetime | None = None
     window_end: datetime | None = None
 
     raw: Mapping[str, object] = Field(default_factory=dict)
-
-
-# --- Going back ----------------------------------------------------------
 
 
 class TransactionRecord(Frozen):

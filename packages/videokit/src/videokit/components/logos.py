@@ -1,9 +1,4 @@
-"""The size each component draws the logo at, as CSS.
-
-Worked out by :mod:`videokit.logo_fit` from the copy the component shows:
-tall enough for the logo's lettering to read, within the component's own
-limits. The CSS follows the component's own, so it wins.
-"""
+"""The size each component draws the logo at, as CSS."""
 
 from typing import Any
 

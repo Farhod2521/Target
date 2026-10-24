@@ -1,35 +1,12 @@
-"""Reading what Telegram posted, without a request object in sight.
-
-Everything that decides whether to trust or act on an incoming update is a
-pure function here - the rule ``metaads.webhooks`` is held to, and for the
-same reason. A view that parses its own body is a view whose parsing can
-only be tested through a view, and the interesting cases (a body that is
-not what the docs promise, a secret that nearly matches) are exactly the
-ones nobody writes a view test for.
-
-**Four update types, everything else ignored.** A command, a button
-press, something somebody typed - because this bot answers questions -
-and a message with no words in it, so that a photograph is met with a
-sentence rather than with silence. An ``edited_message`` handler is a
-surface with no product behind it: a question is answered once, and
-re-reading an edit would be a second answer to a message the reader can
-no longer see the first of.
-"""
+"""Reading what Telegram posted, without a request object in sight."""
 
 import hmac
 from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-# Telegram's own ceiling on inline button data, in bytes. Checked when a
-# keyboard is built rather than when it is sent: a button that is one byte
-# over is refused by the API with a message about the whole request, and
-# by then the number that was too long is three frames up the stack.
 CALLBACK_DATA_MAX_BYTES: Final = 64
 
-# What a command looks like. ``/start payload`` and ``/start@thebot
-# payload`` are the same command - Telegram appends the username in group
-# chats, and a bot that only matched the bare form would be silent there.
 _COMMAND_PREFIX: Final = "/"
 
 
@@ -91,9 +68,6 @@ class TextMessage(BaseModel):
     sender: Sender
     message_id: int
     text: str
-    # The message this one answers, when it was sent as a reply. Zero for
-    # a message that quotes nothing. Carried because a reply is how a
-    # person in Telegram says which of the bot's messages they mean.
     reply_to_message_id: int = 0
 
 
@@ -144,33 +118,18 @@ Update = Command | ButtonPress | TextMessage | OtherMessage
 
 
 def secret_matches(*, header: str, expected: str) -> bool:
-    """Whether this delivery carries the secret ``setWebhook`` registered.
-
-    Constant-time, like every other secret comparison in this codebase. An
-    empty expected value is **never** a match: a deployment that has not
-    configured a secret refuses everything rather than accepting whoever
-    posts first, which is what ``META_WEBHOOK_VERIFY_TOKEN`` does with the
-    same problem.
-    """
+    """Whether this delivery carries the secret ``setWebhook`` registered."""
     if not expected or not header:
         return False
     return hmac.compare_digest(header, expected)
 
 
 def read_update(payload: dict[str, Any]) -> Update | None:
-    """One posted body as something to act on, or nothing.
-
-    ``None`` for every update this bot has no behaviour for, and that is
-    the common case rather than an error: Telegram delivers whatever the
-    subscription allows, and a channel post is not a malformed command.
-    """
+    """One posted body as something to act on, or nothing."""
     press = _press(payload.get("callback_query"))
     if press is not None:
         return press
     message = payload.get("message")
-    # A command first, because a command is also a message with text in
-    # it, and anything with no words last. The order is the whole
-    # distinction between the three readers.
     return _command(message) or _text(message) or _other(message)
 
 
@@ -186,7 +145,6 @@ def _command(message: Any) -> Command | None:
         return None
 
     head, _, argument = text.partition(" ")
-    # ``/start@thebot`` in a group is the same command as ``/start``.
     name, _, _bot = head[1:].partition("@")
     if not name:
         return None
@@ -197,13 +155,7 @@ def _command(message: Any) -> Command | None:
 
 
 def _text(message: Any) -> TextMessage | None:
-    """A message that carried words rather than an instruction.
-
-    Everything without text is not this: a photograph, a voice note, a
-    location, a sticker arrive as :class:`OtherMessage`, and a caption on
-    a photograph is not read as a question - the words are usually about
-    the picture, and an answer that could not see it would be a guess.
-    """
+    """A message that carried words rather than an instruction."""
     if not isinstance(message, dict):
         return None
 
@@ -226,13 +178,7 @@ def _text(message: Any) -> TextMessage | None:
 
 
 def _other(message: Any) -> OtherMessage | None:
-    """A message somebody sent that carried no words, or nothing.
-
-    Only a message a person sent: one with a sender and an id. Called
-    after the two readers above, so anything that reaches here with text
-    in it is something they already refused - a command addressed to
-    nobody, say - and it is not a picture either.
-    """
+    """A message somebody sent that carried no words, or nothing."""
     if not isinstance(message, dict) or str(message.get("text") or "").strip():
         return None
 
@@ -266,10 +212,6 @@ def _press(query: Any) -> ButtonPress | None:
 
     message = query.get("message")
     if not isinstance(message, dict):
-        # A press on a message too old for Telegram to send back. Nothing
-        # can be edited and nothing identifies what was pressed on, so
-        # there is no safe action - and answering the query is the
-        # caller's business, not the parser's.
         return None
 
     chat_id = _chat_id(message.get("chat"))
@@ -293,14 +235,7 @@ def _press(query: Any) -> ButtonPress | None:
 
 
 def _chat_type(chat: Any) -> str:
-    """Telegram's own word for where this was said, or an empty string.
-
-    Empty when the field is missing, which Telegram's documentation says
-    cannot happen - so an empty value is a body that is not Telegram's,
-    and a caller comparing it against "private" refuses it. That is the
-    right direction to fail in: a bot that goes quiet is recoverable and a
-    bot answering every message in somebody's group is not.
-    """
+    """Telegram's own word for where this was said, or an empty string."""
     if not isinstance(chat, dict):
         return ""
     value = chat.get("type")
@@ -308,12 +243,7 @@ def _chat_type(chat: Any) -> str:
 
 
 def _chat_id(chat: Any) -> str:
-    """Telegram's numeric chat id, as the string everything else stores.
-
-    A string for the reason ``ExternalRef.id`` is one: it is an identifier
-    rather than a quantity, nothing adds two of them, and a channel id is
-    already a thirteen-digit negative number.
-    """
+    """Telegram's numeric chat id, as the string everything else stores."""
     if not isinstance(chat, dict):
         return ""
     value = chat.get("id")

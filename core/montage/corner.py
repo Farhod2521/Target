@@ -1,21 +1,4 @@
-"""The small logo in the corner: when it shows, and which copy of it.
-
-**When.** All through the video, except while something else is up at the
-top of the frame - a headline, a panel (and the split footage under it),
-the end card - or something that shows the brand itself, like the name
-bar: two logos at once is one too many. A gap shorter than
-:data:`SHORTEST` is skipped rather than blinked through.
-
-**One clip per copy**: every stretch shown in the dark copy is one clip
-that fades in and out of its stretches, the same for the light one.
-
-**Which copy.** The one made for the footage behind the corner: the
-dark-background copy over dark footage, the light one over light. The
-brightness is measured on the stills the planner was shown, at the moments
-that ended up inside each stretch, and the lightest of them decides: a
-white logo is lost the moment the footage behind it turns light, a dark
-one on dark footage only dims. With no still inside, the nearest one.
-"""
+"""The small logo in the corner: when it shows, and which copy of it."""
 
 from collections.abc import Sequence
 from typing import Final
@@ -29,9 +12,7 @@ from videokit.models import FaceMark
 
 CORNER: Final[Zone] = "CORNER"
 SHORTEST: Final = 1.0
-# Footage darker than this, on a 0-1 scale, gets the dark-background copy.
 DARK_BELOW: Final = 0.5
-# A component showing either of these is the brand on screen already.
 _SHOWS_BRAND: Final = frozenset({"name", "logo"})
 
 
@@ -44,13 +25,7 @@ def corner_logos(
     brand: Brand,
     faces: Sequence[FaceMark] = (),
 ) -> tuple[ComponentUse, ...]:
-    """The corner logo's clips. ``brightness`` is ``(source second, 0-1)``.
-
-    A stretch whose copy of the logo cannot be drawn there with its
-    lettering readable (:func:`videokit.logo_fit.corner_size`) goes
-    without: a corner logo whose name is a smudge is worse than none.
-    So does a stretch where the logo would sit on the speaker's face.
-    """
+    """The corner logo's clips. ``brightness`` is ``(source second, 0-1)``."""
     length = round(sum(cut.end - cut.start for cut in cuts), 3)
     seen = [
         (moment, value)

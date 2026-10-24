@@ -1,16 +1,4 @@
-"""The checks before a render that look at logos and buttons.
-
-Apart from :mod:`videokit.preflight` only to keep each file short; the
-problems are its own (:class:`videokit.preflight.Problem`).
-
-- **logo_cut** - a logo copy on a plate whose mark reaches the plate's
-  edge (:attr:`videokit.logo_fit.LogoCopy.on_plate_whole`).
-- **logo_text** - a logo shown in place of the name (the corner, the name
-  bar, the closing card) whose lettering would be drawn under
-  :data:`videokit.logo_fit.MIN_TEXT_PX`.
-- **tap_on_text** - a button's tap circle that, grown as far as its
-  timeline grows it (:data:`TAP_GROW`), would reach the button's words.
-"""
+"""The checks before a render that look at logos and buttons."""
 
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Final
@@ -31,8 +19,6 @@ from videokit.models import ComponentUse, EditSpec
 if TYPE_CHECKING:
     from videokit.preflight import Problem
 
-# How far a tap circle grows as it fades (``scale`` in the timelines), and
-# the gap it keeps from the words even then.
 TAP_GROW: Final = 1.4
 TAP_GAP: Final = 6
 

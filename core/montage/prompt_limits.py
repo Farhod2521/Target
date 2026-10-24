@@ -1,10 +1,4 @@
-"""Every number the montage planner is told, from where the code keeps it.
-
-The prompt never carries a number of its own: what it says about time,
-counts or the frame is filled in here from the constant the code acts
-on, so the two cannot drift apart. The only numbers defined here are the
-ones nothing but the planner acts on - how long a shot runs at each pace.
-"""
+"""Every number the montage planner is told, from where the code keeps it."""
 
 from typing import Final
 
@@ -21,8 +15,6 @@ from core.montage.plan_v6 import MAX_EVENTS_V6
 from core.montage.rhythm import MAX_QUIET
 from core.montage.settle import MOST_CHANGES
 
-# How long a shot runs before the next one, by pace: guidance for the
-# planner only - the code does not cut on a clock.
 SHOT_SECONDS: Final = {"dynamic": (2.0, 4.0), "calm": (4.0, 8.0)}
 
 

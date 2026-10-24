@@ -1,9 +1,4 @@
-"""What goes into a montage and what comes back from the provider.
-
-Times are seconds as floats: they are positions in a media file, measured
-by FFprobe and spoken by Shotstack in the same unit, and nothing here is
-money.
-"""
+"""What goes into a montage and what comes back from the provider."""
 
 from datetime import datetime
 from typing import Annotated, Any, Literal
@@ -17,8 +12,6 @@ Environment = Literal["stage", "v1"]
 AspectRatio = Literal["9:16", "1:1", "16:9", "4:5"]
 Resolution = Literal["sd", "hd", "1080"]
 TextPosition = Literal["top", "center", "bottom"]
-# Named bands of the frame and the two ways footage fills it; the pixels
-# behind both live in :mod:`videokit.layout`.
 Zone = Literal[
     "SAFE_TOP",
     "CORNER",
@@ -33,17 +26,8 @@ Zone = Literal[
     "FULL",
 ]
 Layout = Literal["full", "split_top"]
-# How a cut comes in. ``none`` is a plain cut; the rest mark a new part of
-# the video (see :mod:`videokit.motion`); ``burst`` is the flash and the
-# landing zoom at once, with a whoosh.
 Transition = Literal["none", "fade", "slide", "zoom", "flash", "burst"]
-# ``still`` keeps the footage as cut; ``moving`` adds the slow push-in,
-# punch-ins, transitions and sound of :mod:`videokit.motion` and
-# :mod:`videokit.audio`.
 Motion = Literal["still", "moving"]
-# What happens to the sound while a file is prepared: ``none`` for a file
-# with no sound, ``level`` evens out the loudness only, ``voice`` also
-# strips the hum and hiss under speech before levelling.
 AudioTreatment = Literal["none", "level", "voice"]
 
 SourceStatus = Literal["queued", "importing", "ready", "failed", "deleted"]
@@ -88,7 +72,6 @@ class Overlay(_Frozen):
 
 
 HexColor = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]
-# Between a handle and a phone number on one line.
 CONTACT_JOIN = " \u00b7 "
 
 
@@ -114,10 +97,7 @@ class Brand(_Frozen):
     logo_on_dark: str = ""
     logo_on_light: str = ""
     font: FontPreset = DEFAULT_FONT
-    # A small logo in the corner all through the video.
     show_corner_logo: bool = False
-    # Whether the logo's own lettering already spells ``name``: a name bar
-    # beside it then shows the logo without writing the name again.
     name_in_logo: bool = False
 
     @property
@@ -152,15 +132,9 @@ class CaptionLine(_Frozen):
     start: float = Field(ge=0)
     end: float = Field(gt=0)
     words: tuple[CaptionWord, ...] = Field(min_length=1)
-    # Where the line is drawn, when it was moved off the speaker's face:
-    # its band's top and bottom in design pixels, and its size. None: the
-    # subtitles' own band, at the size every line fits at.
     top: int | None = None
     bottom: int | None = None
     px: int | None = None
-    # How light the footage behind the line is (0-1, its lighter part),
-    # and whether a dark backing is drawn under it because that is too
-    # light for the words.
     backdrop: float | None = None
     scrim: bool = False
 
@@ -173,17 +147,9 @@ class ComponentUse(_Frozen):
     start: float = Field(ge=0)
     length: float = Field(gt=0)
     props: dict[str, Any] = Field(default_factory=dict)
-    # The zone's band moved to start here (design pixels), off the
-    # speaker's face; None: where the zone is.
     top: int | None = None
-    # Words over the footage: how light the footage behind them is, and
-    # whether a soft dark backing is drawn under them.
     backdrop: float | None = None
     scrim: bool = False
-    # When each of its beats lands (see the component's manifest), by the
-    # finished video's clock: one moment, or one per item of a list.
-    # ``shows`` is the code's own: start and end of each stretch a long
-    # clip is actually seen in, one after another.
     beats: dict[str, float | list[float]] = Field(default_factory=dict)
 
     def windows(self) -> list[tuple[float, float]]:
@@ -194,7 +160,6 @@ class ComponentUse(_Frozen):
         return [(self.start, self.start + self.length)]
 
 
-# Left, top, right, bottom.
 Rect = tuple[float, float, float, float]
 
 
@@ -214,8 +179,6 @@ class LayoutSpan(_Frozen):
     start: float = Field(ge=0)
     end: float = Field(gt=0)
     layout: Layout
-    # How far a split moves the footage down, as a share of the frame's
-    # height; None: the usual distance.
     shift: float | None = None
 
 
@@ -226,29 +189,18 @@ class EditSpec(_Frozen):
     cuts: tuple[Cut, ...] = Field(min_length=1)
     aspect_ratio: AspectRatio = "9:16"
     resolution: Resolution = "hd"
-    # Subtitles word by word; when empty, ``captions_url`` (an SRT file)
-    # is the fallback that only knows when each line starts and ends.
     captions: tuple[CaptionLine, ...] = ()
     captions_url: str = ""
     overlays: tuple[Overlay, ...] = ()
-    # Graphics over the footage, and where the footage moves aside for
-    # them. Times are the finished video's.
     components: tuple[ComponentUse, ...] = ()
     layouts: tuple[LayoutSpan, ...] = ()
     brand: Brand = Field(default_factory=Brand)
     motion: Motion = "still"
-    # Moments of the finished video to punch in on, and where each short
-    # sound is (by name, see :mod:`videokit.sounds`); a sound with no
-    # address is left out.
     punches: tuple[float, ...] = ()
     sound_urls: dict[str, str] = Field(default_factory=dict)
-    # The speaker's face through the video (see :mod:`videokit.faces`),
-    # for the checks before a render.
     faces: tuple[FaceMark, ...] = ()
     music_url: str = ""
     music_volume: float = Field(default=0.2, ge=0, le=1)
-    # Seconds the video runs on after its last cut, under the closing
-    # card: the source carries on from ``tail_from``, silent.
     tail: float = Field(default=0.0, ge=0)
     tail_from: float = Field(default=0.0, ge=0)
 
@@ -266,8 +218,6 @@ class Source(_Frozen):
     status: SourceStatus
     url: str = ""
     duration: float | None = None
-    # When the provider took the file and when it last changed state: once
-    # ``ready``, the two apart are how long the copy-in took.
     created: datetime | None = None
     updated: datetime | None = None
 
@@ -279,11 +229,8 @@ class RenderState(_Frozen):
     status: RenderStatus
     url: str = ""
     error: str = ""
-    # What the provider bills by and how long it worked, once ``done``.
     duration: float | None = None
     render_ms: int | None = None
-    # From the request to the finished file: queue, fetching and saving
-    # as well as the render itself.
     total_ms: int | None = None
     created: datetime | None = None
     updated: datetime | None = None

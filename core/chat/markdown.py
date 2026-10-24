@@ -1,21 +1,4 @@
-"""Claude's Markdown, turned into the small set of tags a chat bubble needs.
-
-**Everything is escaped first, and only then formatted.** That order is the
-whole security argument, and it is stronger than filtering the model's HTML
-afterwards would be: by the time any tag is written here, every ``<`` that
-came from the model is already ``&lt;``. The model cannot emit a tag,
-because what it emits is no longer markup - it is text. The only tags in
-the output are the ones this module wrote itself.
-
-That is what lets a chat answer be rendered at all in a codebase with no
-``|safe`` anywhere: the one value marked safe is the one built here, out of
-a closed set of tags, from input that was neutralised before it was read.
-
-The subset is small on purpose - bold, lists, a table, inline code. It is
-what the prompt asks for and what an answer to "why did leads get dearer"
-actually needs. Anything outside it stays as literal text, which is the
-safe direction for a renderer to fail in.
-"""
+"""Claude's Markdown, turned into the small set of tags a chat bubble needs."""
 
 import html
 import re
@@ -26,37 +9,15 @@ CODE: Final = re.compile(r"`([^`]+)`")
 HEADING: Final = re.compile(r"^#{1,6}\s+(.*)$")
 BULLET: Final = re.compile(r"^\s*[-*]\s+(.*)$")
 NUMBERED: Final = re.compile(r"^\s*\d+[.)]\s+(.*)$")
-# The row of dashes under a table's header. Without one, a line of pipes is
-# just a line with pipes in it.
 DIVIDER: Final = re.compile(r"^\|?[\s:|-]*-[\s:|-]*\|[\s:|-]*$")
 BLANK_LINE: Final = re.compile(r"\n\s*\n")
-# A name and what it did, on one line: «Bahor» — 45 USD · natija yo'q.
-#
-# **The shape is the instruction.** The prompt asks for it wherever two
-# things are compared, and a run of such lines is drawn as rows: the names
-# line up in one column and their figures in the other, which is what the
-# eye needs to compare them and what a paragraph cannot give. A sentence
-# about the same two campaigns is drawn as a sentence - so the model picks
-# between the two by writing one or the other, and cannot ask for a layout
-# the product has not built.
-#
-# The bullet and the asterisks are tolerated rather than expected: a model
-# that has been told to write a list writes the marks of one, and a row
-# that lost its layout over a stray "-" would be a rule nobody could see
-# they had broken.
 FACT: Final = re.compile(
     r"^\s*(?:[-*•]\s+)?\*{0,2}(«[^»\n]{1,80}»)\*{0,2}\s+—\s+(\S.*)$"
 )
 
 
 def render(text: str) -> str:
-    """The answer as HTML, safe to mark safe.
-
-    Called on the whole answer so far, once per streamed frame. Re-rendering
-    beats patching: a frame that arrives mid-``**`` renders the asterisks as
-    themselves and the next frame corrects it, where a patch would have to
-    guess what the half-written markup was going to be.
-    """
+    """The answer as HTML, safe to mark safe."""
     escaped = html.escape(text, quote=False)
     return "".join(
         _block(block.strip("\n"))
@@ -89,8 +50,6 @@ def _block(block: str) -> str:
 def _classify(line: str) -> tuple[str, str]:
     if match := HEADING.match(line):
         return "heading", match.group(1)
-    # Before the bullet: a row written as a list item is a row, and the
-    # dash in front of it is the model's habit rather than its meaning.
     if FACT.match(line):
         return "fact", line
     if match := BULLET.match(line):
@@ -102,10 +61,6 @@ def _classify(line: str) -> tuple[str, str]:
 
 def _emit(kind: str, items: list[str]) -> str:
     if kind == "fact":
-        # A name and its figures, as the one pairing HTML already has. No
-        # class and no attribute: the renderer writes none anywhere, and a
-        # <dl> appears nowhere else in an answer, so the stylesheet can
-        # reach these rows by the tag alone.
         pairs = [match.groups() for item in items if (match := FACT.match(item))]
         return (
             "<dl>"
@@ -120,9 +75,6 @@ def _emit(kind: str, items: list[str]) -> str:
     if kind == "numbered":
         return "<ol>" + "".join(f"<li>{_inline(item)}</li>" for item in items) + "</ol>"
     if kind == "heading":
-        # Not an <h*>. These sit inside a chat bubble, and a heading level
-        # there would claim a place in the page's outline that it has not
-        # got - a screen reader would announce it as document structure.
         return "".join(f"<p><strong>{_inline(item)}</strong></p>" for item in items)
 
     body = "<br>".join(_inline(item) for item in items if item.strip())
@@ -152,10 +104,6 @@ def _cells(line: str) -> list[str]:
 
 
 def _inline(text: str) -> str:
-    """Bold and code, in that order.
-
-    Code first so that asterisks inside a code span stay asterisks - which
-    is the whole point of writing them in one.
-    """
+    """Bold and code, in that order."""
     with_code = CODE.sub(lambda match: f"<code>{match.group(1)}</code>", text)
     return BOLD.sub(lambda match: f"<strong>{match.group(1)}</strong>", with_code)

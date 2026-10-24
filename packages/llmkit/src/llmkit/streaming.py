@@ -1,20 +1,4 @@
-"""Claude's answer as it arrives, and what it cost once it has.
-
-Streaming exists for one reason and it is not decoration: an answer that
-takes eight seconds to compose reads as a broken page when it appears all
-at once, and as a person thinking when it appears as it is written.
-
-Free text here, deliberately, where :meth:`ClaudeClient.structured` forces
-a schema. The two are not alternatives - a schema is how an answer becomes
-data the product acts on, and this is how an answer becomes a sentence a
-person reads. Nothing downstream of this parses what comes back.
-
-Synchronous, like the rest of the package. An async client would be a
-second path through the same error translation, the same price arithmetic
-and the same accounting - and two paths that must agree are two paths that
-eventually do not. Where this runs, blocking is correct anyway: the call
-happens inside a Celery task, never inside a request.
-"""
+"""Claude's answer as it arrives, and what it cost once it has."""
 
 import time
 from collections.abc import Iterator
@@ -27,19 +11,11 @@ from llmkit.errors import LLMError
 from llmkit.models import LLMResult, Pricing
 from llmkit.transport import translated
 
-# What a half-read stream can honestly report about itself.
 NOT_FINISHED: Final = "the stream has not been read to the end yet"
 
 
 class TextStream:
-    """One streamed answer. Iterate for the text, then read ``result``.
-
-    Two objects would be tidier - a generator and a receipt - but the
-    receipt is only knowable once the generator is done, and handing back
-    a pair invites the caller to keep the wrong half. Here the object is
-    the same one before and after, and asking it the wrong question at the
-    wrong time raises rather than answering nought.
-    """
+    """One streamed answer. Iterate for the text, then read ``result``."""
 
     def __init__(
         self,
@@ -47,9 +23,6 @@ class TextStream:
         client: anthropic.Anthropic,
         model: str,
         max_tokens: int,
-        # A string, or the blocks a cache breakpoint needs - whichever the
-        # client assembled. Typed loosely on purpose: which of the two it
-        # is, is a decision made one layer up and nothing here reads it.
         system: Any,
         messages: list[MessageParam],
         pricing: Pricing,
@@ -67,12 +40,7 @@ class TextStream:
         self._result: LLMResult[str] | None = None
 
     def __iter__(self) -> Iterator[str]:
-        """The answer in pieces, in the order Claude wrote them.
-
-        The pieces are whatever the SDK hands over and carry no meaning of
-        their own: a piece may end mid-word, mid-number or mid-sentence.
-        Everything downstream of this is written to expect that.
-        """
+        """The answer in pieces, in the order Claude wrote them."""
         started = time.monotonic()
         collected: list[str] = []
 
@@ -107,25 +75,14 @@ class TextStream:
             prompt_name=self._prompt_name,
             prompt_version=self._prompt_version,
             model=self._model,
-            # Counted here as well as in ``structured``, because a streamed
-            # answer is charged the same three ways and this is where the
-            # caching actually pays: a conversation re-sends the same
-            # instructions on every question.
             cache_write_tokens=written,
             cache_read_tokens=served,
-            # Free text cut off reads as an answer that simply stopped, and
-            # nothing else in it says so - the caller has to be told.
             truncated=int(final.stop_reason == "max_tokens"),
         )
 
     @property
     def result(self) -> LLMResult[str]:
-        """What the answer cost. Only after the stream has been read out.
-
-        Raising rather than returning zeros: a cost of nought written to
-        the ledger is indistinguishable from a call that never happened,
-        and the month's total is what the ceiling is compared against.
-        """
+        """What the answer cost. Only after the stream has been read out."""
         if self._result is None:
             raise LLMError(NOT_FINISHED)
         return self._result

@@ -1,19 +1,4 @@
-"""Google's resource names, which are the ids this package hands out.
-
-Every Google Ads object is addressed inside one customer: a campaign id
-alone does not say which account to ask, and every read and write goes to
-``customers/{id}/...``. A Meta id is global, so the ports carry a bare
-:class:`~adskit.refs.ExternalRef` and nothing else - and for Google that
-ref must therefore carry the customer too.
-
-So the id in a Google ref is Google's own resource name, exactly as the API
-prints it: ``customers/1234567890/campaigns/111``,
-``customers/1234567890/adGroups/222``,
-``customers/1234567890/adGroupAds/222~333``. A mutate takes it as it is,
-a GAQL filter compares against it, and nothing has to be reassembled from
-parts on the way back. The account itself stays the bare customer id, the
-way the account list reports it.
-"""
+"""Google's resource names, which are the ids this package hands out."""
 
 from typing import Final
 
@@ -22,7 +7,6 @@ from adskit.refs import Level
 
 _PREFIX: Final = "customers/"
 
-# Our level name and Google's collection name for it.
 COLLECTIONS: Final[dict[str, str]] = {
     "campaign": "campaigns",
     "adset": "adGroups",

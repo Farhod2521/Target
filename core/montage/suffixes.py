@@ -1,14 +1,4 @@
-"""An Uzbek ending written apart from the brand's word it belongs to.
-
-The recogniser splits a word it does not know from the ending it hears
-on it: "Meta dan" for "Metadan", "Bahor ning" for "Bahorning". Uzbek
-endings are never words of their own, so an ending (:data:`ENDINGS`) said
-straight after one of the brand's own words - its name, its key terms -
-with no pause between them (:data:`MAX_GAP`) is joined back on, the
-ending's time with it.
-
-Only for Uzbek: in Russian "до" or "на" after a name is a word.
-"""
+"""An Uzbek ending written apart from the brand's word it belongs to."""
 
 from collections.abc import Sequence
 from typing import Final
@@ -20,7 +10,6 @@ ENDINGS: Final = frozenset(
      "lari", "larni", "larga", "lardan", "larda", "larning", "dek", "day",
      "cha", "gacha", "dir"}
 )  # fmt: skip
-# Seconds between the word and its ending that still count as one word.
 MAX_GAP: Final = 0.08
 _PUNCTUATION: Final = '.,!?:;…"«»'
 _APOSTROPHES: Final = str.maketrans(

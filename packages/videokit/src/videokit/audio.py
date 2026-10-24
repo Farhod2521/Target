@@ -1,23 +1,5 @@
 """The sound of a montage: no clicks at cuts, music under the voice, and
-short sounds on the graphics.
-
-**Cuts.** Two stretches of speech butted together click, and the room
-tone jumps. Every cut's sound comes up over :data:`RAMP_SECONDS` and goes
-down over the same at its end - too short to hear as a fade, long enough
-to take the click away. A cut played as several clips (it crosses a
-layout change) ramps only at its own ends.
-
-**Ducking.** Music sits at its full level in the gaps and drops to
-:data:`DUCKED` of it while anyone speaks, easing between the two. Pauses
-shorter than :data:`DUCK_JOIN_SECONDS` do not let it back up - a level
-pumping between words is worse than one that stays down.
-
-**Sounds.** Each component plays the sound its manifest names as it
-comes in and one on each beat its manifest gives a sound (a stamp's thud,
-stars' sparkle); the opening headline rises in over a soft riser; a cut
-that comes in with ``slide``, ``zoom``, ``flash`` or ``burst`` plays its
-own. Sounds that would play together go on separate tracks.
-"""
+short sounds on the graphics."""
 
 from collections.abc import Sequence
 from itertools import pairwise
@@ -31,7 +13,6 @@ RAMP_SECONDS: Final = 0.06
 DUCKED: Final = 0.3
 DUCK_RAMP_SECONDS: Final = 0.3
 DUCK_JOIN_SECONDS: Final = 0.6
-# A headline that starts this early opens the video, and rises in.
 OPENING: Final = 0.5
 TRANSITION_SOUNDS: Final[dict[str, str]] = {
     "slide": "whoosh",
@@ -42,10 +23,7 @@ TRANSITION_SOUNDS: Final[dict[str, str]] = {
 
 
 def cut_volume(length: float, *, head: float, tail: float) -> list[dict[str, Any]]:
-    """A clip's volume, by its clock: up over ``head`` seconds, down over ``tail``.
-
-    Zero for an end that is not a cut - a layout change inside one cut.
-    """
+    """A clip's volume, by its clock: up over ``head`` seconds, down over ``tail``."""
     head, tail = min(head, length / 3), min(tail, length / 3)
     points = [(0.0, 0.0 if head else 1.0), (head, 1.0), (length - tail, 1.0)]
     return _tweens([*points, (length, 0.0 if tail else 1.0)])
@@ -104,10 +82,7 @@ def _volume(low: float, high: float, start: float, length: float) -> dict[str, A
 def sound_tracks(
     spec: EditSpec, *, cut_starts: Sequence[float]
 ) -> list[dict[str, Any]]:
-    """Tracks of short sounds: each component's, and each transition's.
-
-    ``cut_starts`` is where each cut begins in the finished video.
-    """
+    """Tracks of short sounds: each component's, and each transition's."""
     cues = [cue for use in spec.components for cue in _cues(use)]
     cues += [
         (at, TRANSITION_SOUNDS.get(cut.enter, ""))

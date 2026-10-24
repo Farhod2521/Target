@@ -1,10 +1,4 @@
-"""The shape Claude answers the weekly report in.
-
-Pydantic, like every wire format the API enforces as a tool signature. Two
-fields and no per-campaign notes: the week's message already judges each
-campaign by the product's own rules, and what it lacks without a model is
-the reading of the week as a whole and the one thing to do next.
-"""
+"""The shape Claude answers the weekly report in."""
 
 from pydantic import BaseModel, Field
 

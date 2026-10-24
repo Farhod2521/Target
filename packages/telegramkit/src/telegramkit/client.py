@@ -1,25 +1,4 @@
-"""Bot API transport: the single place this product talks to Telegram.
-
-Nine methods, and the list is the whole product surface: send a message,
-send a picture or a file, edit one, answer a button press, register the
-webhook, set the menu button, ask who we are, and ask what Telegram
-thinks the webhook is. A bot that holds no conversation needs nothing
-else.
-
-The last of those is the only one no feature calls. It is here because the
-failure this package can have - "nothing arrived" - leaves no trace on our
-side at all: the update was never posted, so there is no log line to find
-and no row to inspect. Telegram is the only party holding that fact.
-
-**No retry loop.** Same rule as ``metaads.GraphClient``, and the callers in
-this product decide against retrying every time: the three notifications
-are each visible in the cabinet too, so a dropped message costs somebody a
-ping and never a fact.
-
-**No configuration read here.** The token and the base URL arrive as
-arguments, like everywhere else in ``packages/`` - which is what lets this
-be lifted into another project unchanged.
-"""
+"""Bot API transport: the single place this product talks to Telegram."""
 
 import json
 from types import TracebackType
@@ -38,50 +17,22 @@ from telegramkit.models import BotIdentity, Button, SentMessage, WebhookInfo
 
 API_BASE_URL: Final = "https://api.telegram.org"
 
-# Deliberately short. Every call this package makes is on a path where
-# something is waiting: a button press has about ten seconds before
-# Telegram gives up on the answer, and a notification nobody gets is
-# better than a worker slot held for a minute.
 CONNECT_TIMEOUT_SECONDS: Final = 5.0
 READ_TIMEOUT_SECONDS: Final = 10.0
 
-# Telegram's own ceiling on message text, in UTF-16 code units. Ours is
-# well under it - the longest message this product sends is a suggestion
-# card, and Claude writes the sentence in the middle of one - so this is a
-# guard rather than a budget, and text is cut rather than the send being
-# refused: a truncated notification still says which screen to open, and a
-# refused one says nothing at all.
-#
-# **Code units and not characters**, which is the ceiling Telegram counts
-# in: an emoji is one character here and two units there, so a message
-# measured with ``len`` can pass this and be refused by the API.
 MESSAGE_MAX_CHARS: Final = 4_096
 
-# The most buttons Telegram draws side by side. A longer shared row is
-# wrapped onto the next line rather than refused: a scale from 0 to 10 is
-# eleven answers to one question and still reads as one choice.
 ROW_MAX_BUTTONS: Final = 8
 ELLIPSIS: Final = "…"
 
-# What a bot may upload, per Telegram: a picture sent as a photo up to ten
-# megabytes, anything sent as a document up to fifty. The caller checks
-# before reading the file - a refused upload is a whole file read for
-# nothing - and sends a bigger one by name only.
 PHOTO_MAX_BYTES: Final = 10 * 1024 * 1024
 DOCUMENT_MAX_BYTES: Final = 50 * 1024 * 1024
 
-# An upload is the one call here whose size the caller does not choose,
-# and fifty megabytes do not leave in ten seconds.
 UPLOAD_TIMEOUT_SECONDS: Final = 60.0
 
 
 class BotClient:
-    """One conversation with the Bot API.
-
-    Holds the token because every call uses it and holds an ``httpx.Client``
-    because a sweep sends several messages in a row. Both are the caller's
-    to supply and the caller's to close.
-    """
+    """One conversation with the Bot API."""
 
     def __init__(
         self,
@@ -120,7 +71,6 @@ class BotClient:
         if self._owns_client:
             self._client.close()
 
-    # --- Methods ---------------------------------------------------------
     def send_message(
         self,
         *,
@@ -130,25 +80,7 @@ class BotClient:
         preview: bool = False,
         reply_to: int = 0,
     ) -> SentMessage:
-        """Post one message, optionally with a row of inline buttons.
-
-        HTML rather than Markdown, and the caller escapes: Telegram's
-        Markdown dialects treat an unescaped underscore in a campaign name
-        as formatting and refuse the whole message for it, while HTML has
-        exactly three characters to escape and a helper in the standard
-        library. See ``apps.notifications.services.compose``.
-
-        Link previews are off unless asked for. A notification that turns
-        into a card of somebody's landing page is a notification whose own
-        sentence has scrolled off the screen.
-
-        ``reply_to`` quotes the message being answered. For a notification
-        there is nothing to quote and it stays at zero; for an answer that
-        took a model twenty seconds to write there may be three messages
-        in between, and an answer to no visible question is a puzzle.
-        ``allow_sending_without_reply`` so a quoted message somebody
-        deleted costs the answer rather than only the quote.
-        """
+        """Post one message, optionally with a row of inline buttons."""
         payload: dict[str, Any] = {
             "chat_id": chat_id,
             "text": _fits(text),
@@ -197,20 +129,10 @@ class BotClient:
         )
 
     def send_chat_action(self, *, chat_id: str, action: str = "typing") -> None:
-        """The "typing…" line, while something slow is happening.
-
-        Telegram shows it for five seconds or until the next message,
-        whichever comes first, so it is sent again rather than cancelled.
-        Nothing is read back and a failure is not raised: this is a hint
-        about a message that is coming, and losing the hint must never
-        lose the message.
-        """
+        """The "typing…" line, while something slow is happening."""
         try:
             self._call("sendChatAction", {"chat_id": chat_id, "action": action})
         except TelegramError:
-            # Deliberately swallowed, and the only place in this client
-            # that swallows anything. Every other call is something the
-            # caller has to know the outcome of.
             return
 
     def edit_message_text(
@@ -221,13 +143,7 @@ class BotClient:
         text: str,
         buttons: tuple[Button, ...] = (),
     ) -> None:
-        """Rewrite a message that is already on somebody's screen.
-
-        With no ``buttons`` the keyboard goes: an empty ``reply_markup`` is
-        how Telegram is told to remove one, and removing it is the point -
-        a card whose buttons still offer a decision that has been made is a
-        card that invites a second press.
-        """
+        """Rewrite a message that is already on somebody's screen."""
         payload: dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,
@@ -241,17 +157,7 @@ class BotClient:
     def edit_message_buttons(
         self, *, chat_id: str, message_id: int, buttons: tuple[Button, ...] = ()
     ) -> None:
-        """Change a message's buttons and leave its text where it is.
-
-        For a message whose text must survive being acted on: an answer
-        somebody asked for, with a button under it. Rewriting the whole
-        message - which is how a card reports its own outcome - would take
-        the answer off the screen and leave the reader holding the reply
-        to a question they can no longer see.
-
-        With no ``buttons`` the keyboard goes, which is the ordinary call
-        here: the decision is made and there is nothing left to press.
-        """
+        """Change a message's buttons and leave its text where it is."""
         self._call(
             "editMessageReplyMarkup",
             {
@@ -264,17 +170,7 @@ class BotClient:
     def answer_callback_query(
         self, *, query_id: str, text: str = "", alert: bool = False
     ) -> None:
-        """Stop the button spinning, and optionally say why.
-
-        **Mandatory after every press.** Telegram leaves the button in a
-        loading state until this arrives and gives up after about ten
-        seconds, so a press that is silently handled looks broken even when
-        it worked.
-
-        ``alert`` is the modal box rather than the toast that fades. Used
-        for refusals: a sentence explaining why nothing happened has to be
-        dismissed rather than missed.
-        """
+        """Stop the button spinning, and optionally say why."""
         payload: dict[str, Any] = {"callback_query_id": query_id}
         if text:
             payload["text"] = text[:200]
@@ -283,39 +179,19 @@ class BotClient:
         self._call("answerCallbackQuery", payload)
 
     def set_webhook(self, *, url: str, secret_token: str) -> None:
-        """Point Telegram at our endpoint, and at nothing else.
-
-        ``allowed_updates`` is narrowed to what this bot acts on. Not an
-        optimisation: an update type nobody handles is a body arriving at a
-        public endpoint for no reason, and the shortest list is the one
-        with the least to go wrong in it.
-        """
+        """Point Telegram at our endpoint, and at nothing else."""
         self._call(
             "setWebhook",
             {
                 "url": url,
                 "secret_token": secret_token,
                 "allowed_updates": ["message", "callback_query"],
-                # Anything queued while the webhook was unset is about a
-                # cabinet state that has since moved on.
                 "drop_pending_updates": True,
             },
         )
 
     def set_chat_menu_button(self, *, text: str, url: str) -> None:
-        """Put a permanent Mini App button in the bot's menu, for everybody.
-
-        No ``chat_id``, so this sets the default every conversation
-        inherits. The per-chat form exists and is not used: a label chosen
-        per reader would be one write to Telegram per person and one more
-        thing to keep in step with a language somebody changed in the
-        cabinet an hour ago.
-
-        The same shape as :meth:`set_webhook` and run the same way - by
-        hand, once, against the deployment somebody meant. It is a write to
-        somebody else's system that changes what every user of this bot
-        sees.
-        """
+        """Put a permanent Mini App button in the bot's menu, for everybody."""
         self._call(
             "setChatMenuButton",
             {"menu_button": {"type": "web_app", "text": text, "web_app": {"url": url}}},
@@ -329,17 +205,9 @@ class BotClient:
         )
 
     def get_webhook_info(self) -> WebhookInfo:
-        """What Telegram believes about our webhook, including its own errors.
-
-        Reads nothing about this deployment and changes nothing on
-        Telegram's side, which is what makes it safe to run against a
-        production bot from a shell while somebody waits - unlike
-        :meth:`set_webhook` next door, which redirects every update this
-        bot has.
-        """
+        """What Telegram believes about our webhook, including its own errors."""
         return WebhookInfo.model_validate(self._call("getWebhookInfo", {}))
 
-    # --- Transport -------------------------------------------------------
     def _upload(
         self,
         method: str,
@@ -391,9 +259,6 @@ class BotClient:
             raise translate(status=response.status_code, payload=body)
 
         result = body.get("result")
-        # ``getMe`` and ``sendMessage`` answer with an object; the rest
-        # answer with a bare ``true``. Normalised so no caller has to
-        # check the type of what it got.
         return result if isinstance(result, dict) else {}
 
 
@@ -412,18 +277,7 @@ def _decode(response: httpx.Response) -> dict[str, Any]:
 
 
 def _keyboard(buttons: tuple[Button, ...]) -> dict[str, Any]:
-    """The answers on one row, and anything that opens a page under them.
-
-    A button asking for a row of its own gets one, under the shared row and
-    above the pages - see :attr:`Button.row`. A shared row longer than
-    Telegram draws is wrapped, :data:`ROW_MAX_BUTTONS` to a line.
-
-    The split is about what a row means. Two buttons side by side read as
-    a choice between them, and a card offering "Tasdiqlash · Rad etish ·
-    Batafsil" invites somebody to read the third as a third answer. A page
-    is not an answer, so it gets a line of its own - and on a narrow phone
-    three long words in one row are truncated into each other anyway.
-    """
+    """The answers on one row, and anything that opens a page under them."""
     answers = [
         button.as_payload()
         for button in buttons
@@ -444,21 +298,7 @@ def _keyboard(buttons: tuple[Button, ...]) -> dict[str, Any]:
 
 
 def _fits(text: str) -> str:
-    """The text, cut to something Telegram accepts as HTML.
-
-    **A cut is not a slice, and that is the whole of this function.** Every
-    message here is sent with ``parse_mode="HTML"``, so a cut that lands
-    inside ``<a href="...">`` or leaves a ``<b>`` unclosed is not a shorter
-    message - it is "can't parse entities" and no message at all, which is
-    exactly the outcome the comment on :data:`MESSAGE_MAX_CHARS` says this
-    exists to avoid. So the cut is taken at a boundary outside any tag and
-    whatever is still open is closed after it.
-
-    The tags are the caller's own - this package writes none - and the set
-    it has to survive is whatever the caller writes. Tracking names rather
-    than counting brackets is what makes that true of the next tag somebody
-    adds.
-    """
+    """The text, cut to something Telegram accepts as HTML."""
     if _units(text) <= MESSAGE_MAX_CHARS:
         return text
     return _cut(text)
@@ -478,7 +318,6 @@ def _cut(text: str) -> str:
         start = text.find("<", index)
         plain = len(text) if start == -1 else start
         if _units(text[:plain]) > room:
-            # The cut lands in ordinary text, where any boundary is safe.
             cut = _prefix(text, room)
             if len(cut) >= index:
                 return cut.rstrip() + ELLIPSIS + closers
@@ -490,8 +329,6 @@ def _cut(text: str) -> str:
 
         end = text.find(">", start)
         if end == -1:
-            # A "<" that never closes. Telegram reads everything after it
-            # as a tag, so nothing past it can be kept.
             break
         _track(stack, text[start + 1 : end])
         index = end + 1
@@ -500,12 +337,7 @@ def _cut(text: str) -> str:
 
 
 def _track(stack: list[str], inside: str) -> None:
-    """What one tag does to the list of things still open.
-
-    A close takes its own name and everything opened after it, which is
-    what a browser and Telegram's parser both do with badly nested markup -
-    guessing otherwise would leave a closer this function invented.
-    """
+    """What one tag does to the list of things still open."""
     tag = inside.strip()
     if not tag or tag.startswith("!") or tag.endswith("/"):
         return
@@ -518,17 +350,7 @@ def _track(stack: list[str], inside: str) -> None:
 
 
 def message_units(text: str) -> int:
-    """How long Telegram thinks this is: UTF-16 code units.
-
-    Anything outside the basic plane - an emoji in a campaign name - is one
-    character to Python and two to the API.
-
-    Public because a caller assembling a long message has to be able to ask
-    before it sends one. This package cuts an over-long message rather than
-    failing to send it, and a cut takes the tail - so a caller whose most
-    valuable lines are at the end must measure and drop its own least
-    valuable ones first. See :data:`MESSAGE_MAX_CHARS`.
-    """
+    """How long Telegram thinks this is: UTF-16 code units."""
     return len(text) + sum(1 for char in text if char > "\uffff")
 
 

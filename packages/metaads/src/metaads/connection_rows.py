@@ -1,9 +1,4 @@
-"""The connect flow's mirrors: the token, and the assets hanging off it.
-
-One file per lifecycle, along the same seam as the other row modules.
-Import from ``metaads.dto`` - the import surface for every row - or from
-here; both are the same class.
-"""
+"""The connect flow's mirrors: the token, and the assets hanging off it."""
 
 from datetime import UTC, datetime
 
@@ -76,11 +71,7 @@ class TokenInfoDTO(MetaDTO):
     granular_scopes: tuple[GranularScopeDTO, ...] = ()
 
     def targets(self, scope: str) -> tuple[str, ...]:
-        """The asset ids ``scope`` was granted for; empty when not narrowed.
-
-        Empty is also the answer for a scope that was not granted at all,
-        which is ``scopes``'s question to settle, not this one's.
-        """
+        """The asset ids ``scope`` was granted for; empty when not narrowed."""
         for grant in self.granular_scopes:
             if grant.scope == scope:
                 return grant.target_ids
@@ -89,15 +80,7 @@ class TokenInfoDTO(MetaDTO):
     @model_validator(mode="before")
     @classmethod
     def _flatten_error(cls, value: object) -> object:
-        """Lift ``error: {code, subcode}`` onto the model.
-
-        Before rather than after, because the nested object is what
-        arrives and ``extra="ignore"`` would otherwise drop it silently.
-        Anything that is not the shape documented is left alone: a
-        payload without an error is the ordinary case, and one whose
-        error is not an object is somebody else's bug to survive rather
-        than to raise on.
-        """
+        """Lift ``error: {code, subcode}`` onto the model."""
         if not isinstance(value, dict):
             return value
         error = value.get("error")
@@ -199,19 +182,5 @@ class MediaDTO(MetaDTO):
     height: int = 0
     created_time: datetime | None = None
 
-    # Whether the provider will let this be advertised at all, and why not.
-    #
-    # Only Instagram answers it, so ``None`` is the ordinary value and means
-    # "not asked" rather than "no" - the same three states the page's
-    # ``may_advertise`` uses, read the same way.
-    #
-    # It is a refusal and not a warning. A reel whose audio is licensed
-    # comes back ineligible while its file downloads perfectly well, so a
-    # picker reading only ``thumbnail_url`` would offer a video that gets
-    # the finished ad rejected.
-    #
-    # The reason is Meta's own English sentence - "Remove or choose
-    # different audio." - kept for the log and for support. A screen says
-    # its own words.
     is_eligible: bool | None = None
     ineligible_reason: str = ""

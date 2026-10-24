@@ -1,16 +1,4 @@
-"""Measuring whether sound, picture and subtitles land on the same moment.
-
-A test clip (:func:`sync_clip`) beeps and flashes white on every whole
-second from the first. Sent through the same steps a montage takes, the
-three can be found again in what comes back and compared: when the beep
-is heard (:func:`beep_onsets`), when the frame goes white
-(:func:`flash_onsets`), when a colour shows inside a box - a subtitle word
-lighting up (:func:`colour_onsets`). :func:`speech_onsets` finds where
-speech starts after a silence, to hold a transcript's word times against.
-
-Everything is decoded by FFmpeg into raw numbers and read here in plain
-Python: the clips are seconds long, and nothing needs to be fast.
-"""
+"""Measuring whether sound, picture and subtitles land on the same moment."""
 
 import math
 import statistics
@@ -23,7 +11,6 @@ from videokit.media import DEFAULT_TIMEOUT_SECONDS, _run
 SAMPLE_RATE: Final = 16_000
 FPS: Final = 30
 BEEP_SECONDS: Final = 0.05
-# Quiet for this long before a sound counts as a new one.
 QUIET_BEFORE: Final = 0.2
 _WINDOW: Final = 0.002
 
@@ -83,10 +70,7 @@ def colour_onsets(
     share: float = 0.002,
     ffmpeg: str = "ffmpeg",
 ) -> list[float]:
-    """Seconds at which ``colour`` starts to cover ``share`` of ``box``.
-
-    ``box`` is left, top, right, bottom as shares of the frame.
-    """
+    """Seconds at which ``colour`` starts to cover ``share`` of ``box``."""
     left, top, right, bottom = box
     crop = (
         f"crop=iw*{right - left:.4f}:ih*{bottom - top:.4f}:iw*{left:.4f}:ih*{top:.4f},"

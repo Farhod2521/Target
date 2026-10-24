@@ -1,9 +1,4 @@
-"""Google Ads answers as typed values.
-
-Field names are this package's, not Google's camelCase. Google sends the
-customer id as a string (an int64 in JSON), and it stays one: ids are never
-arithmetic, and a number would drop nothing today and something tomorrow.
-"""
+"""Google Ads answers as typed values."""
 
 from pydantic import BaseModel, ConfigDict
 
@@ -28,7 +23,6 @@ class CustomerDTO(BaseModel):
     time_zone: str = ""
     is_manager: bool = False
     is_test: bool = False
-    # ENABLED, CANCELED, SUSPENDED, CLOSED - Google's own word.
     status: str = ""
 
     @property

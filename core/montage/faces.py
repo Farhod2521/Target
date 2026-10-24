@@ -1,20 +1,4 @@
-"""The faces found on the stills, moved into the finished video.
-
-The planner's stills are taken from the source; a face on one is where
-the speaker was at that second of the source. Once the cuts are final,
-each still that was kept is a moment of the finished video, and its face
-is mapped into the frame through the cut's crop and zoom
-(:func:`videokit.faces.on_frame`).
-
-**The zoom moves.** A cut creeps closer as it plays and may punch in
-(:mod:`videokit.motion`), held on the face: the face grows about its own
-middle and stays where it is. The mark is the face at the least zoom and
-at the most in the second either side of the still, joined - however
-big it is then, it is inside.
-
-Stored on the montage as ``[source second, still width, still height,
-box, guard, score]``, shares of the still (see :func:`stored`).
-"""
+"""The faces found on the stills, moved into the finished video."""
 
 from collections.abc import Sequence
 from typing import Any, Final
@@ -26,10 +10,7 @@ from videokit.motion import PUNCH, PUSH_MAX, PUSH_PER_SECOND
 
 from core.montage.corner import output_time
 
-# A still stands for the footage this far either side of its moment.
 SPAN: Final = 1.0
-# Faces smaller than this share of the still's height are someone in the
-# background, not the speaker.
 MIN_HEIGHT: Final = 0.08
 
 

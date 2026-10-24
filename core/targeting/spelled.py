@@ -1,15 +1,4 @@
-"""A targeting spec spelled out: which places, which interests, where shown.
-
-:func:`core.targeting.describe.describe` counts - "3 ta joy, 2 qiziqish" -
-because a row on a list has room for a count and the question it answers is
-how narrow an audience is. A question *about* an audience needs the names:
-which three places, which interests, whether Instagram Stories is in. This
-is that reading of the same document.
-
-Tolerant the way ``describe`` is. The spec is the provider's JSON or a row
-somebody edited, so an entry of the wrong shape is dropped and the rest of
-the audience survives; nothing here raises.
-"""
+"""A targeting spec spelled out: which places, which interests, where shown."""
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -17,7 +6,6 @@ from typing import Any, Final, Literal
 
 from core.targeting.describe import _DETAILED_KEYS, describe
 
-# Where a place can sit in ``geo_locations``, in the order they narrow.
 _PLACE_KEYS: Final[tuple[str, ...]] = (
     "custom_locations",
     "places",
@@ -29,8 +17,6 @@ _PLACE_KEYS: Final[tuple[str, ...]] = (
     "country_groups",
 )
 
-# Every key a placement is read out of, and the platforms whose positions
-# are listed under ``<platform>_positions``.
 _PLATFORMS_KEY: Final = "publisher_platforms"
 _DEVICES_KEY: Final = "device_platforms"
 
@@ -46,17 +32,7 @@ class Place:
 
 @dataclass(frozen=True, slots=True)
 class AudienceWords:
-    """What one spec is aimed at, by name.
-
-    ``detailed`` is one tuple per block of the provider's detailed
-    targeting: a person matches a block by matching any name in it, and has
-    to match every block. This product writes one block; a group built in
-    Ads Manager can carry several, and flattening them would turn "and" into
-    "or".
-
-    ``placements`` is empty when the spec names none, which is the
-    provider choosing them itself - not an audience shown nowhere.
-    """
+    """What one spec is aimed at, by name."""
 
     places: tuple[Place, ...] = ()
     excluded_places: tuple[Place, ...] = ()

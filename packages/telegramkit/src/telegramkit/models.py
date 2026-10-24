@@ -1,13 +1,4 @@
-"""What goes into a message and what comes back from one.
-
-Three small shapes, kept apart from the transport for the reason
-``llmkit.models`` is: a caller that builds a keyboard should not have to
-import a client to do it, and the client's own file should be about
-requests.
-
-``Button`` is the only one with behaviour, and the behaviour is a check -
-see :meth:`Button.as_payload`.
-"""
+"""What goes into a message and what comes back from one."""
 
 from typing import Any, Literal
 
@@ -39,21 +30,8 @@ class Button(BaseModel):
 
     text: str
     data: str = ""
-    # An absolute https:// address. Not validated as a URL here: the only
-    # caller builds it from SITE_URL and a reversed route, and a check
-    # that could only fail on a misconfigured deployment belongs where the
-    # configuration is read.
     web_app: str = ""
-    # Where the button sits. ``shared`` puts it on one row with the other
-    # answers, which is how two answers to one question read as a choice
-    # between them. ``own`` gives it a line of its own: for a list of
-    # several answers, each a few words long, which side by side on a
-    # phone would be cut into each other.
     row: Literal["shared", "own"] = "shared"
-    # The button's colour, on clients from February 2026 on: green for the
-    # answer the sender recommends, red for one that destroys something.
-    # Older clients ignore the field and draw a plain button, so it is a
-    # hint and never the only place the recommendation is said.
     style: Literal["success", "danger", "primary"] | None = None
 
     def as_payload(self) -> dict[str, Any]:
@@ -73,11 +51,7 @@ class Button(BaseModel):
 
     @property
     def opens_a_page(self) -> bool:
-        """Whether this button leads somewhere rather than answering something.
-
-        Read by the keyboard builder, which puts the two on separate rows -
-        see ``telegramkit.client._keyboard``.
-        """
+        """Whether this button leads somewhere rather than answering something."""
         return bool(self.web_app)
 
 
@@ -121,14 +95,8 @@ class WebhookInfo(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
-    # Empty when no webhook is registered at all, which is not an error
-    # state on Telegram's side: it is what a bot polling for updates looks
-    # like, and what a bot nobody has set up looks like too.
     url: str = ""
     pending_update_count: int = 0
-    # Unix seconds, as Telegram sends them. Left unconverted because this
-    # package reads no clock and owns no timezone - the caller that prints
-    # it knows which one the reader is in.
     last_error_date: int = 0
     last_error_message: str = ""
     allowed_updates: tuple[str, ...] = ()

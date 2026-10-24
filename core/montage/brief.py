@@ -1,8 +1,4 @@
-"""What Claude is shown, written as text it can point back into.
-
-Every number in here is a second in the source, so every number Claude
-writes back can be checked against the file.
-"""
+"""What Claude is shown, written as text it can point back into."""
 
 from typing import Any
 
@@ -14,26 +10,16 @@ from core.montage.captions import SpokenWord
 
 NOTHING_SAID = "(nothing is said in this video)"
 
-# The transcript is shown phrase by phrase rather than word by word: a
-# phrase per line reads like speech and still carries a time Claude can
-# cut at. A gap this long between words starts a new phrase.
 PHRASE_GAP_SECONDS = 0.5
 MAX_PHRASE_WORDS = 12
 
-# Stills cost tokens, so a long file gets them further apart. Never closer
-# than every two seconds, never more than this many in all.
 MIN_FRAME_EVERY = 2.0
 MAX_FRAMES = 40
 
 
-# The stills the planner is shown: one where the picture changes, at
-# least this many and at most that many, and one every few seconds where
-# it never does. Each still is tokens, and a talking head looks the same
-# from one second to the next.
 MIN_SHOWN = 6
 MAX_SHOWN = 16
 QUIET_EVERY = 5.0
-# A still a moment after the change, not on the blur of the cut itself.
 AFTER_CHANGE = 0.4
 _APART = 1.5
 
@@ -95,11 +81,7 @@ def indexed_transcript_lines(words: tuple[SpokenWord, ...]) -> str:
 
 
 def faces_for_prompt(faces: list[list[Any]], *, stills: int) -> str:
-    """Where the speaker's face was on the stills, in words.
-
-    ``faces`` as the montage keeps them: ``[second, width, height, box,
-    guard, score]`` with the box and the guard as shares of the still.
-    """
+    """Where the speaker's face was on the stills, in words."""
     if not faces:
         return f"No face was found on the {stills} stills."
     middles = [((f[4][0] + f[4][2]) / 2, (f[4][1] + f[4][3]) / 2) for f in faces]

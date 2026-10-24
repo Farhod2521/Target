@@ -1,26 +1,4 @@
-"""Graphics and subtitles moved off the speaker's face.
-
-**The rule.** The eyes and the mouth are never covered (the face's
-*guard*, :mod:`videokit.faces`). Short of that, an element is kept off the
-whole face (its *box*) where there is room: first under the chin, then
-over the head, then wherever only the eyes and the mouth stay clear;
-failing all of those, a few beats later; failing that, it is left out and
-the reason is noted.
-
-- **Name bar and button** (``LOWER_THIRD``) move as a band, up or down,
-  their content box (the manifest's ``box``) clear of the face and of
-  whatever else is on screen then.
-- **A panel** (``split_top``) moves the footage down exactly far enough
-  for the eyes to sit under the panel - not the usual fixed distance -
-  and is left out when even :data:`MAX_SPLIT` is not enough.
-- **Subtitles**, line by line (:mod:`core.montage.face_captions`), take
-  the free band under the chin, else over the head, else under the mouth,
-  at the largest size that fits - split in two where only one row fits.
-  A panel beside which a subtitle still finds no room is left out, with
-  its split: the words said matter more than a list of them.
-
-A montage with no face found keeps every zone where it is.
-"""
+"""Graphics and subtitles moved off the speaker's face."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -60,10 +38,7 @@ class Arranged:
     layouts: tuple[LayoutSpan, ...]
     captions: tuple[CaptionPlace | None, ...]
     notes: tuple[str, ...] = field(default=())
-    # The subtitle lines as drawn: the ones given, a line split in two
-    # where only one row fits off the face. ``captions`` follows these.
     lines: tuple[Line, ...] = field(default=())
-    # The graphics that found no room off the face and were left out.
     dropped: tuple[ComponentUse, ...] = field(default=())
 
 
@@ -76,11 +51,7 @@ def arrange(
     font: FontPreset,
     caption_shift: float = 0.0,
 ) -> Arranged:
-    """``components``, ``layouts`` and subtitle ``lines`` kept off the face.
-
-    ``caption_shift`` is how far every subtitle is moved in time when it
-    is drawn (the measured sync offset): a line is placed for the moments
-    it is actually on screen."""
+    """``components``, ``layouts`` and subtitle ``lines`` kept off the face."""
     if not marks:
         return Arranged(
             tuple(components), tuple(layouts), (None,) * len(lines), lines=tuple(lines)
@@ -93,8 +64,6 @@ def arrange(
         )
         if not crowded:
             return result
-        # A panel the subtitles found no room beside goes, and its split:
-        # the words said matter more than a list of them.
         for span in crowded:
             given.append(f"panel at {span.start:.1f}s left out: no room for subtitles")
         gone += [c for c in components if _panel_of(c, crowded)]
@@ -117,9 +86,7 @@ def _once(
     caption_shift: float,
     given: tuple[Sequence[str], Sequence[ComponentUse]],
 ) -> tuple[Arranged, list[LayoutSpan]]:
-    """One arrangement, and the splits a subtitle found no room in.
-
-    ``given`` is what earlier rounds already said and left out."""
+    """One arrangement, and the splits a subtitle found no room in."""
     notes: list[str] = list(given[0])
     dropped: list[ComponentUse] = list(given[1])
     spans, uses = _splits(layouts, components, marks, (notes, dropped))
@@ -154,7 +121,6 @@ def _once(
         end = max(line.end + caption_shift, start + 0.01)
         place = place_caption(line, (start, end), marks, spans, busy, font)
         if place == NOWHERE and len(line.words) > 1:
-            # Two short lines, one row each, fit where one long one does not.
             queue[:0] = halves(line)
             continue
         if place == NOWHERE:

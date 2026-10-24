@@ -1,23 +1,4 @@
-"""Shotstack: put a file there, ask for a render, read how it went.
-
-Three APIs on one host, and the environment is part of every path:
-``stage`` renders free with a watermark, ``v1`` renders for credits. Which
-one is configuration, so it arrives through the constructor.
-
-**Uploads go straight to storage.** The Ingest API hands out a signed URL
-and the file is ``PUT`` to it, which is what lets a machine with no public
-address - a laptop, a worker behind a firewall - give Shotstack a file at
-all. The signed URL is S3's, not Shotstack's: it is sent without the API
-key, because a header the signature did not cover is a header S3 refuses.
-
-**Polling, not webhooks.** A callback needs an address Shotstack can
-reach, and the one place that matters most for trying this out - a laptop
-- has none. Rendering takes about twenty seconds per minute of video, so
-asking every few seconds costs a handful of requests.
-
-Nothing from httpx leaves this module: every failure becomes one of the
-three errors in :mod:`videokit.errors`.
-"""
+"""Shotstack: put a file there, ask for a render, read how it went."""
 
 import time
 from collections.abc import Iterator
@@ -33,22 +14,15 @@ from videokit.models import Environment, RenderState, Source
 
 BASE_URL: Final = "https://api.shotstack.io"
 DEFAULT_TIMEOUT_SECONDS: Final = 30.0
-# A file going up is the one slow request here: two hundred megabytes over
-# an ordinary uplink is minutes, not seconds.
 UPLOAD_TIMEOUT_SECONDS: Final = 900.0
 
-# One read of a finished file. Short enough to leave a worker's time
-# limit far behind it; the rest is asked for on the next call.
 DOWNLOAD_SECONDS: Final = 240.0
-# A connection that goes quiet for a minute is given up on, not waited for.
 _DOWNLOAD_TIMEOUT: Final = httpx.Timeout(30.0, read=60.0)
 _PARTIAL: Final = 206
 _RANGE_DONE: Final = 416
 
 _AUTH: Final = frozenset({401, 403})
 _BUSY: Final = frozenset({408, 409, 425, 429})
-# How much of a refusal's body is kept in the message. Enough for the
-# provider's sentence, not enough to fill a log with a whole edit echoed back.
 _REASON_CHARS: Final = 300
 
 
@@ -70,13 +44,8 @@ class Shotstack:
         self._http = http
         self._timeout = timeout
 
-    # --- Ingest ----------------------------------------------------------
     def upload(self, *, path: Path, filename: str = "") -> str:
-        """Send a local file; the source's id comes back.
-
-        The file is not usable the moment this returns - Shotstack copies it
-        in behind the upload. :meth:`source` says when it is ``ready``.
-        """
+        """Send a local file; the source's id comes back."""
         body: dict[str, str] = {"filename": filename or path.name}
         answer = self._call(
             "POST", f"/ingest/{self._env}/upload", json=body, what="upload"
@@ -106,7 +75,6 @@ class Shotstack:
             updated=_when(attributes.get("updated")),
         )
 
-    # --- Edit ------------------------------------------------------------
     def render(self, *, edit: dict[str, Any]) -> str:
         """Queue one render; its id comes back."""
         answer = self._call(
@@ -140,15 +108,7 @@ class Shotstack:
     def download(
         self, *, url: str, to: Path, max_seconds: float = DOWNLOAD_SECONDS
     ) -> bool:
-        """Bring a finished file to disk, picking up where the last try stopped.
-
-        True once the whole file is there. False when ``max_seconds`` ran
-        out first: what arrived stays in ``to`` and the next call asks only
-        for the rest (an HTTP range). The output lives in Sydney, and from
-        some networks it trickles in at a dozen kilobytes a second - one
-        long read would outlive any worker's time limit, so it is cut into
-        reads that each fit inside one.
-        """
+        """Bring a finished file to disk, picking up where the last try stopped."""
         have = to.stat().st_size if to.exists() else 0
         headers = {"Range": f"bytes={have}-"} if have else {}
         deadline = time.monotonic() + max_seconds
@@ -162,7 +122,6 @@ class Shotstack:
                 if reply.status_code == _RANGE_DONE:
                     return True
                 _raise_for(reply, what="download", body="")
-                # A server that ignored the range sends the whole file again.
                 mode = "ab" if reply.status_code == _PARTIAL else "wb"
                 with to.open(mode) as out:
                     for chunk in reply.iter_bytes():
@@ -173,7 +132,6 @@ class Shotstack:
             raise VideoTemporaryError(f"download failed: {type(exc).__name__}") from exc
         return True
 
-    # --- Transport -------------------------------------------------------
     def _call(
         self, method: str, path: str, *, what: str, json: Any = None
     ) -> dict[str, Any]:
@@ -215,8 +173,6 @@ class Shotstack:
             yield client
 
 
-# The upload goes to S3, which answers a dropped or slow connection with a
-# 400 whose body names it - not a refusal of the file, a try-again.
 _S3_BUSY: Final = ("<Code>RequestTimeout</Code>", "<Code>SlowDown</Code>")
 
 

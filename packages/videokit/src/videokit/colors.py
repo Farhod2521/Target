@@ -1,10 +1,4 @@
-"""Colour arithmetic: how readable one colour is on another.
-
-Contrast is WCAG 2's ratio (1 to 21) from relative luminance, with the
-sRGB curve undone first. Text needs :data:`TEXT_CONTRAST`; a logo or an
-icon, which is bigger and not read letter by letter, needs
-:data:`SHAPE_CONTRAST`.
-"""
+"""Colour arithmetic: how readable one colour is on another."""
 
 from typing import Final
 

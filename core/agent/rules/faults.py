@@ -1,32 +1,4 @@
-"""Adverts the provider has stopped, and the fix each one can be given.
-
-Not a measurement, like the rules about money and attention: a fault is a
-fact the provider reported, and it needs no window, no learning to finish
-and no days with spend - see :func:`core.agent.facts.troubled`, which the
-group-level twin of this module rests on.
-
-**A fault becomes a proposal only where there is a fix to press.** The fix
-is decided here, from the facts, and never by the model: the model explains
-the proposal, it does not choose what gets written to somebody's account.
-
-Three faults are handled here.
-
-**A page the adverts send people to does not open.** Nothing on the
-account fixes a website, so the fix offered is the one that stops the
-money: the group is switched off until the page is back. Any campaign, like
-every stop - a stop is the owner's own protection and never a rewrite.
-
-**A refused advert** gets new words: the provider names the policy, the
-words are written to keep the offer and stop doing what the policy objects
-to, and they are read on the card before the press.
-
-**A picture the provider cannot show** gets a picture the account holds. It
-is recognised two ways, because either alone misses a case. The picture is
-not one the account holds - which is how another account's picture, listed
-on this account's library edge, reaches an advert and fails it once
-delivery starts. Or the provider's own words say the picture is the
-problem, for a picture the account did hold and lost.
-"""
+"""Adverts the provider has stopped, and the fix each one can be given."""
 
 from typing import Final
 
@@ -40,34 +12,19 @@ BROKEN_PICTURE: Final = "broken_picture"
 REFUSED_AD: Final = "refused_ad"
 SITE_DOWN: Final = "site_down"
 
-# The creative kinds whose words can be written again: a picture with a
-# link, and a video. A promoted post keeps its words on the post.
 _REWRITABLE_KINDS: Final = ("link", "video")
 
-# How much of the provider's refusal rides on the proposal, for the words
-# to be written against and for the assistant to explain.
 _REFUSAL_CHARS: Final = 500
 
-# The one delivery state a stop is proposed for.
 _ACTIVE: Final = "active"
 
-# The creative kind a picture can be swapped on: a picture and a link. A
-# video's frame and a promoted post are different creatives.
 _PICTURE_KIND: Final = "link"
 
-# How the provider's own summary names a picture fault, lowercased. Read
-# only for an advert it has already stopped, and only to decide which fix
-# fits - never to decide that something is wrong.
 _PICTURE_WORDS: Final = ("image",)
 
 
 def broken_picture(*, account: AccountFacts, policy: Policy) -> list[Finding]:
-    """Every stopped advert whose picture is the fault, with one to replace it.
-
-    Not inside a group or campaign the owner switched off: the provider keeps
-    calling a refused advert refused there, and a fix for it would be a fix
-    for something nobody is running.
-    """
+    """Every stopped advert whose picture is the fault, with one to replace it."""
     own = {image.image_hash: image for image in account.library}
     found: list[Finding] = []
     for item in account.adsets:
@@ -86,12 +43,7 @@ def broken_picture(*, account: AccountFacts, policy: Policy) -> list[Finding]:
 
 
 def refused_ad(*, account: AccountFacts, policy: Policy) -> list[Finding]:
-    """Every advert refused under a policy, proposed as a new one with new words.
-
-    The words themselves are written after the rules - see
-    ``apps.agent.services.write_ad_copy`` - and a refusal they cannot be
-    written for is not proposed at all.
-    """
+    """Every advert refused under a policy, proposed as a new one with new words."""
     found: list[Finding] = []
     for item in account.adsets:
         if switched_off(item):
@@ -121,11 +73,7 @@ def refused_ad(*, account: AccountFacts, policy: Policy) -> list[Finding]:
 
 
 def site_down(*, account: AccountFacts, policy: Policy) -> list[Finding]:
-    """Every delivering group whose adverts send people to a page that is down.
-
-    Spend is the weight, as for every stop: the money that is leaving for
-    a page nobody can open.
-    """
+    """Every delivering group whose adverts send people to a page that is down."""
     return [
         Finding(
             kind="pause",
@@ -162,12 +110,7 @@ def _replacement(
     ad: AdFacts,
     own: dict[str, LibraryImage],
 ) -> LibraryImage | None:
-    """The picture this advert is given instead, or nothing to offer.
-
-    A picture a delivering advert beside it already shows, first in its own
-    group and then in its campaign: it is a picture the owner already chose
-    for this offer. Failing that, the newest picture the account holds.
-    """
+    """The picture this advert is given instead, or nothing to offer."""
     for pool in (item.ads, _campaign_ads(account=account, item=item)):
         for other in pool:
             if (
@@ -199,12 +142,7 @@ def _finding(
     ad: AdFacts,
     replacement: LibraryImage,
 ) -> Finding:
-    """The proposal. ``weight`` is what the group is set to spend a day.
-
-    A stopped advert has usually spent nothing, so its spend would rank it
-    below every improvement. What it stands to lose is the group's money
-    not reaching anybody, and the daily budget is that figure.
-    """
+    """The proposal. ``weight`` is what the group is set to spend a day."""
     return Finding(
         kind="new_picture",
         rule=BROKEN_PICTURE,

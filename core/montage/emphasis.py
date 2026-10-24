@@ -1,11 +1,4 @@
-"""Where the picture punches in: the words a planner marked as the point.
-
-A planner names words (``emphasis``) by their number in the transcript;
-each becomes the moment that word starts in the finished video. A word
-that was cut out is let go rather than moved - a punch-in on the wrong
-word is worse than none. Two closer than :data:`MIN_GAP_SECONDS` are one,
-the first kept: punching in and out in a breath reads as a stutter.
-"""
+"""Where the picture punches in: the words a planner marked as the point."""
 
 from collections.abc import Sequence
 from typing import Final

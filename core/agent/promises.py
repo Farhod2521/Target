@@ -1,17 +1,4 @@
-"""What each change promised, and how that promise is tested.
-
-:mod:`core.agent.assess` holds the argument; this module holds the answers
-to "did it?" - one per rule, and two of the eleven rules share a promise
-with a neighbour rather than inventing one of their own.
-
-**A rule is judged on the figure it was triggered by.** Triggering on one
-measure and grading on a neighbouring one is how a rule quietly acquires a
-pass mark it never earned.
-
-Everything compares per-day rates rather than window totals, because the
-two windows are never the same length: the evidence summed a week, the
-aftermath sums however many full days have passed since the change.
-"""
+"""What each change promised, and how that promise is tested."""
 
 from collections.abc import Mapping
 from typing import Any, Final, Protocol
@@ -37,20 +24,11 @@ from core.agent.rules import (
     WINNING,
 )
 
-# How a change turned out. Codes, never sentences - the Django layer maps
-# them to Uzbek, the same bargain every domain word here makes.
-#
-# ``GONE`` is never returned by :func:`core.agent.assess`: an object that no
-# longer exists is a fact about the mirror, and the mirror is the caller's
-# to read. The code lives here so the vocabulary has one home.
 WORKED: Final = "worked"
 NOT_WORKED: Final = "not_worked"
 UNCLEAR: Final = "unclear"
 GONE: Final = "gone"
 
-# What each rule's change promises, by rule code. The screen's "what we
-# expect" line and the assessment's question are both this table, which is
-# what keeps them the same sentence.
 EXPECTATIONS: Final[dict[str, str]] = {
     WASTING: "spend_stops",
     WINNING: "more_leads",
@@ -58,36 +36,17 @@ EXPECTATIONS: Final[dict[str, str]] = {
     STARVED: "more_delivery",
     IDLE: "delivery_resumes",
     JUNK: "spend_stops",
-    # Graded on what the group was bought for, the figure that decided the
-    # proposal - never on the click rate that explains it. See
-    # :func:`_cheaper_results`.
     SATURATED: "cheaper_results",
     NARROW_AUDIENCE: "cheaper_reported_leads",
-    # The one promise not about the object the change was made to. Switching
-    # an advert off is graded on the **group** it sat in, because that is
-    # what it was meant to help - see :func:`_group_gets_cheaper`.
     WEAK_AD: "cheaper_group_leads",
-    # The two whose subject is the provider. They promise what the two
-    # rules above them promise and are graded by the same two checks -
-    # taking a dead audience out is meant to start delivery again, and
-    # accepting the provider's advice is meant to buy more of it - which
-    # is deliberate: a promise invented for a new rule is a promise with
-    # no test behind it.
     PROVIDER_STOPPED: "delivery_resumes",
     PROVIDER_ADVICE: "more_delivery",
-    # The second promise about a group made through one of its adverts. The
-    # advert that gets a new picture is switched off and replaced by one with
-    # a new id, so the group is the only thing whose figures continue.
     REFRESH_AD: "group_cheaper_results",
-    # A new picture is a new advert with a new id, for the reason above -
-    # so the promise is the group's: it delivers again.
     BROKEN_PICTURE: "group_delivery_resumes",
     REFUSED_AD: "group_delivery_resumes",
     SITE_DOWN: "spend_stops",
 }
 
-# The promises whose aftermath is the parent group's rather than the
-# object's own - see ``core.agent.assess.JUDGED_ON_PARENT``.
 PARENT_PROMISES: Final = frozenset(
     {
         "cheaper_group_leads",
@@ -131,15 +90,7 @@ def _delivery_resumes(
 def _more_leads(
     *, evidence: Mapping[str, Any], after: Aftermath, min_days: int
 ) -> Verdict | None:
-    """More budget should buy more leads at no worse a price.
-
-    Both halves, deliberately: a raise that lifts the count by buying dear
-    leads has moved money, not results. The price bound is the evidence's
-    own cost per lead - strict, because "no worse" was the promise. Leads
-    are counted the larger way on both sides, as the rule counted them.
-
-    A group bought for something else is graded on that - see
-    :func:`_more_results`."""
+    """More budget should buy more leads at no worse a price."""
     if _priced_as_other(evidence):
         return _more_results(evidence=evidence, after=after, min_days=min_days)
     if after.days < min_days:
@@ -191,11 +142,7 @@ def _priced_as_other(evidence: Mapping[str, Any]) -> bool:
 def _more_results(
     *, evidence: Mapping[str, Any], after: Aftermath, min_days: int
 ) -> Verdict | None:
-    """More budget should buy more of the group's own result at no worse a price.
-
-    :func:`_more_leads` for a conversation, a call or a visit: both halves,
-    counted and priced the way the rule counted and priced them.
-    """
+    """More budget should buy more of the group's own result at no worse a price."""
     if after.days < min_days:
         return None
     family = str(evidence.get("outcome") or "")
@@ -235,13 +182,7 @@ def _more_delivery(
 def _attention_recovers(
     *, evidence: Mapping[str, Any], after: Aftermath, min_days: int
 ) -> Verdict | None:
-    """A fresher audience should click again.
-
-    Graded on the figure the rule fired on - link clicks over impressions,
-    in ten-thousandths - and against the *later* half of the evidence,
-    which is the worn state the change was meant to undo. Beating the
-    early half was never the promise: some of that fall is the ad ageing
-    and no audience change reverses it."""
+    """A fresher audience should click again."""
     if after.days < min_days:
         return None
     before = as_int(evidence.get("late_ctr_bp"))
@@ -258,12 +199,7 @@ def _attention_recovers(
 def _cheaper_reported_leads(
     *, evidence: Mapping[str, Any], after: Aftermath, min_days: int
 ) -> Verdict | None:
-    """Cutting a dead slice out of the audience should lower what a lead costs.
-
-    The provider's own lead count on both sides, and it has to be: a
-    segment carries no lead of ours, so the decision was made on the
-    provider's figure and the grading cannot quietly switch to a better
-    one - see the note in ``core.metrics.segment_compare``."""
+    """Cutting a dead slice out of the audience should lower what a lead costs."""
     if after.days < min_days:
         return None
     before = rate(evidence.get("spend_minor"), evidence.get("leads_reported"))
@@ -281,18 +217,7 @@ def _group_gets_cheaper(
     *, evidence: Mapping[str, Any], after: Aftermath, min_days: int
 ) -> Verdict | None:
     """Switching off the advert that returned nothing should make the group
-    cheaper - and leave it spending.
-
-    **The aftermath here is the group's, not the advert's.** Grading the
-    advert would be grading the pause: it stopped, so it spent nothing, and
-    every such change would pass. What was promised is that the same budget,
-    now going only to the adverts that work, buys leads at a lower price -
-    so that is what is read, and the caller supplies the parent's figures.
-
-    A group that has stopped spending altogether answers ``UNCLEAR`` rather
-    than failing. Something else happened to it - the owner paused it, its
-    campaign ended - and a division by an empty aftermath would report that
-    as this change having gone wrong."""
+    cheaper - and leave it spending."""
     if after.days < min_days:
         return None
     if after.totals.spend_minor <= 0:
@@ -314,18 +239,7 @@ def _group_gets_cheaper(
 def _group_attention_recovers(
     *, evidence: Mapping[str, Any], after: Aftermath, min_days: int
 ) -> Verdict | None:
-    """A new advert should bring the group's clicks back up.
-
-    **The group's aftermath, for the reason** :func:`_group_gets_cheaper`
-    **gives and one more.** The advert that got new words is switched off,
-    and the one that replaced it has an id nobody wrote down - so the group
-    is the only object whose figures run through the change.
-
-    Graded on the rate the diagnosis quoted - the group's link clicks over
-    impressions for the whole window - and the bar is that it rose. Not
-    that it reached the account's average: that is the aim printed on the
-    card, and a change that moved the rate halfway there did what it said.
-    """
+    """A new advert should bring the group's clicks back up."""
     assert isinstance(after, Aftermath)
     if after.days < min_days:
         return None
@@ -343,17 +257,7 @@ def _group_attention_recovers(
 def _cheaper_results(
     rule: str, *, evidence: Mapping[str, Any], after: Aftermath, min_days: int
 ) -> Verdict | None:
-    """One of the results the group was bought for should cost less.
-
-    **The figure the proposal was decided on, on both sides.** The evidence
-    stored which kind of result the group is judged by and what one cost;
-    the aftermath is counted as that kind and priced the same way - a
-    conversation as a conversation, a thousand showings as a thousand.
-
-    A group that stopped spending cannot say, for the reason
-    :func:`_group_gets_cheaper` gives. Money spent since with nothing to
-    show is not a cheaper group, it is the change having failed.
-    """
+    """One of the results the group was bought for should cost less."""
     if after.days < min_days:
         return None
     family = str(evidence.get("outcome") or "")
@@ -377,11 +281,7 @@ def _cheaper_results(
 def _audience_gets_cheaper(
     *, evidence: Mapping[str, Any], after: Aftermath, min_days: int
 ) -> Verdict | None:
-    """A wider audience should bring the group's result back to its price.
-
-    A proposal whose evidence carries no price is graded on the click rate
-    it was made on, which is the only figure it stored.
-    """
+    """A wider audience should bring the group's result back to its price."""
     if "cost_minor" not in evidence:
         return _attention_recovers(evidence=evidence, after=after, min_days=min_days)
     return _cheaper_results(
@@ -392,12 +292,7 @@ def _audience_gets_cheaper(
 def _new_picture_gets_cheaper(
     *, evidence: Mapping[str, Any], after: Aftermath, min_days: int
 ) -> Verdict | None:
-    """A new picture should bring the group's result back to its price.
-
-    The group's aftermath, as for every advert-level promise. A proposal
-    whose evidence carries no price is graded on the click rate it was made
-    on, for the reason :func:`_audience_gets_cheaper` gives.
-    """
+    """A new picture should bring the group's result back to its price."""
     if "cost_minor" not in evidence:
         return _group_attention_recovers(
             evidence=evidence, after=after, min_days=min_days
@@ -437,11 +332,7 @@ CHECKS: Final[dict[str, Check]] = {
 
 
 def figures(rule: str, after: Aftermath) -> dict[str, Any]:
-    """The aftermath as stored: raw sums plus the promise they answered.
-
-    Sums rather than rates - the rates are derivable and a stored rounded
-    rate is a second version of the truth. ``expected`` rides along so the
-    history screen can say what the question was without re-deriving it."""
+    """The aftermath as stored: raw sums plus the promise they answered."""
     cost = lead_cost(after.totals)
     return {
         "expected": EXPECTATIONS.get(rule, ""),
@@ -459,11 +350,7 @@ def figures(rule: str, after: Aftermath) -> dict[str, Any]:
 
 
 def rate(total: Any, per: Any) -> float | None:
-    """One stored value over another, or nothing.
-
-    ``None`` for anything missing or empty: evidence written by an older
-    version of a rule is a real thing to meet, and a comparison against a
-    guessed nought would produce a confident verdict from no data."""
+    """One stored value over another, or nothing."""
     amount = as_int(total)
     span = as_int(per)
     if amount is None or span is None or span <= 0:
