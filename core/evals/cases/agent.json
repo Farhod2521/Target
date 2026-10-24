@@ -1,0 +1,69 @@
+[
+  {
+    "id": "agent-figures-support-the-stop",
+    "prompt": "agent_review",
+    "note": "The ordinary night: three days of spend, nothing back. The sentence has to rest on that figure rather than on an adjective.",
+    "question": "## The shortlist\n\n### 0. Reklama guruhi: \"Tushlik - kun\"\nTaklif: To'xtatish (sarf bor, natija yo'q)\nBiz kutamiz: to'xtatilgandan keyin bu pul boshqa guruhlarga o'tadi\nNatija: Murojaat: 0, odatda bitta murojaat 7 USD\n- Sarflandi: 45 USD\n- Kunlar: 3\n- Murojaat: 0\n- Guruh holati: faol",
+    "context": "Answer in: uz\n\n## The business\n\n- Nomi: Osh markazi\n- Sohasi: Restoran va kafe\n- Nima sotadi: Tushlik va osh\n- Valyuta: USD\n\n## The account over the last 7 days\n\n- Sarflandi: 312 USD\n- Murojaat: 37\n- Bitta murojaat narxi: 8 USD",
+    "required": [
+      "45 USD",
+      "3 kun",
+      "murojaat"
+    ],
+    "forbidden": [
+      "adset",
+      "CPM",
+      "CTR",
+      "konversiya",
+      "optimizatsiya"
+    ]
+  },
+  {
+    "id": "agent-thin-evidence-is-not-evidence",
+    "prompt": "agent_review",
+    "note": "One day and two dollars. Rule 2 names too few days and too little spend as numbers that contradict a stop, so this entry may be dropped - what the sentence must not do is drop it without saying which figure was too small.",
+    "question": "## The shortlist\n\n### 0. Reklama guruhi: \"Yangi - sinov\"\nTaklif: To'xtatish (sarf bor, natija yo'q)\nBiz kutamiz: to'xtatilgandan keyin bu pul boshqa guruhlarga o'tadi\nNatija: Murojaat: 0, odatda bitta murojaat 7 USD\n- Sarflandi: 2 USD\n- Kunlar: 1\n- Murojaat: 0\n- Guruh holati: hali o'rganmoqda",
+    "context": "Answer in: uz\n\n## The business\n\n- Nomi: Osh markazi\n- Sohasi: Restoran va kafe\n- Nima sotadi: Tushlik va osh\n- Valyuta: USD\n\n## The account over the last 7 days\n\n- Sarflandi: 312 USD\n- Murojaat: 37\n- Bitta murojaat narxi: 8 USD",
+    "required": [
+      "o'rgan"
+    ],
+    "forbidden": [
+      "adset",
+      "CPM",
+      "CTR",
+      "konversiya"
+    ]
+  },
+  {
+    "id": "agent-platform-stopped-the-group",
+    "prompt": "agent_review",
+    "note": "The platform broke the group off. The figures beside it are the size of what stopped, never evidence that the change is a good idea - and dropping the entry leaves an advert switched off with nobody told why.",
+    "question": "## The shortlist\n\n### 0. Reklama guruhi: \"Implant - mart\"\nTaklif: Auditoriyani almashtirish (platforma qiziqishni olib tashladi)\nBiz kutamiz: guruh yana ko'rsatila boshlaydi\nMeta nima dedi: tanlangan qiziqish endi ishlatilmaydi, shuning uchun guruh ko'rsatilmayapti\n- Sarflandi: 38 USD\n- Kunlar: 5\n- Murojaat: 4\n- Guruh holati: ko'rsatilmayapti",
+    "context": "Answer in: uz\n\n## The business\n\n- Nomi: Stomatologiya markazi\n- Sohasi: Tibbiyot\n- Nima sotadi: Implant va davolash\n- Valyuta: USD\n\n## The account over the last 7 days\n\n- Sarflandi: 210 USD\n- Murojaat: 18\n- Bitta murojaat narxi: 11 USD",
+    "required": [
+      "ko'rsatil"
+    ],
+    "forbidden": [
+      "adset",
+      "CPM",
+      "CTR",
+      "kafolat"
+    ]
+  },
+  {
+    "id": "agent-rests-on-the-diagnosis",
+    "prompt": "agent_review",
+    "note": "The product found the cause before the model was asked, and the owner reads it on the card above the sentence. Repeating it fills the card with the same sentence twice; replacing it gives the owner two causes to choose between.",
+    "question": "## The shortlist\n\n### 0. Reklama guruhi: \"Bahor - ayollar\"\nTaklif: Rasmni almashtirish (reklama e'tibor tortmayapti)\nBiz kutamiz: bosishlar ulushi o'sadi\nSabab: Reklama e'tibor tortmaydi - 1000 ko'rsatishda 2 bosish, akkauntda odatda 9\nNatija: Murojaat: 1, bitta murojaat 45 USD, odatda 7 USD\n- Sarflandi: 45 USD\n- Kunlar: 6\n- Murojaat: 1\n- Guruh holati: faol",
+    "context": "Answer in: uz\n\n## The business\n\n- Nomi: Gul do'koni\n- Sohasi: Sovg'a va gullar\n- Nima sotadi: Guldasta va sovg'alar\n- Valyuta: USD\n\n## The account over the last 7 days\n\n- Sarflandi: 180 USD\n- Murojaat: 12\n- Bitta murojaat narxi: 15 USD",
+    "required": [
+      "rasm"
+    ],
+    "forbidden": [
+      "adset",
+      "CTR",
+      "CPM",
+      "bosishlar ulushi o'sadi"
+    ]
+  }
+]

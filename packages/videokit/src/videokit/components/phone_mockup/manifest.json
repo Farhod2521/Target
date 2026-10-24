@@ -1,0 +1,145 @@
+{
+  "name": "phone_mockup",
+  "description": "A panel over the top half while the speaker moves to the bottom half: a phone showing the business's post (its logo and name, a picture made of an icon, a short headline and a button), and beside it a title, two or three chips popping in, and optionally a switch a cursor turns on, a success badge and hearts flying up from the post. For an app, an online service, ordering on the phone, an advert going live - anything that happens on a phone.",
+  "props": {
+    "title": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 14,
+      "description": "The title beside the phone, e.g. 'Targeting', 'Buyurtma'."
+    },
+    "chips": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 16
+      },
+      "minItems": 2,
+      "maxItems": 3,
+      "description": "Two or three short chips, in the order they are said, e.g. 'Toshkent', '18-35 yosh'."
+    },
+    "headline": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 18,
+      "description": "Optional: the words on the post's picture."
+    },
+    "button": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 12,
+      "description": "Optional: the post's button, e.g. 'Batafsil', 'Buyurtma'."
+    },
+    "icon": {
+      "type": "icon",
+      "description": "Optional: the drawing on the post's picture."
+    },
+    "toggle": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 20,
+      "description": "Optional: what the switch turns on, e.g. 'Reklamani yoqish'."
+    },
+    "badge": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 22,
+      "description": "Optional: the success badge after the switch, e.g. 'Buyurtma qabul qilindi'."
+    }
+  },
+  "required": [
+    "title",
+    "chips"
+  ],
+  "zones": [
+    "TOP_PANEL"
+  ],
+  "min_seconds": 3.0,
+  "max_seconds": 7.0,
+  "sfx": "pop",
+  "layout": "split_top",
+  "placement": "planner",
+  "layer": "front",
+  "beats": {
+    "chips": "Each chip pops in on the word that says it, in order.",
+    "switch": "The word on which the cursor turns the switch on."
+  },
+  "example": {
+    "title": "Targeting",
+    "chips": [
+      "Toshkent",
+      "18-35 yosh",
+      "Qiziqishlar"
+    ],
+    "headline": "AI target",
+    "button": "Batafsil",
+    "icon": "target",
+    "toggle": "Reklamani yoqish",
+    "badge": "Reklama ishga tushdi"
+  },
+  "box": [
+    72,
+    240,
+    940,
+    900
+  ],
+  "texts": {
+    "brand_name": {
+      "selector": ".bn",
+      "px": 24,
+      "min_px": 18,
+      "width": 200,
+      "lines": 1
+    },
+    "headline": {
+      "selector": ".hl",
+      "px": 32,
+      "min_px": 22,
+      "width": 270,
+      "lines": 2
+    },
+    "button": {
+      "selector": ".bt",
+      "px": 24,
+      "min_px": 18,
+      "width": 220,
+      "lines": 1
+    },
+    "title": {
+      "selector": ".ti",
+      "px": 72,
+      "min_px": 48,
+      "width": 470,
+      "lines": 1,
+      "spacing": -1
+    },
+    "chips": {
+      "selector": ".cp",
+      "px": 34,
+      "min_px": 26,
+      "width": 360,
+      "lines": 1
+    },
+    "toggle": {
+      "selector": ".tg",
+      "px": 34,
+      "min_px": 26,
+      "width": 300,
+      "lines": 2
+    },
+    "badge": {
+      "selector": ".bd",
+      "px": 30,
+      "min_px": 22,
+      "width": 380,
+      "lines": 1
+    }
+  },
+  "sounds": {
+    "switch": "click"
+  },
+  "beat_defaults": {
+    "switch": 2.6
+  }
+}

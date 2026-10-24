@@ -1,0 +1,16 @@
+[project]
+name = "sitekit"
+version = "0.1.0"
+description = "Mijoz saytini tekshirish — sahifa ochiladimi va qaysi reklama teglari bor"
+requires-python = ">=3.13,<3.14"
+# httpx and pydantic, like googlekit and telegramkit, and nothing else. No
+# adskit: a web page is where an advert sends somebody, not an ad platform,
+# and tying this release to the advertising contract would buy nothing.
+dependencies = [
+    "httpx>=0.28",
+    "pydantic>=2.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

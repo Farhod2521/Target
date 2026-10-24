@@ -1,0 +1,84 @@
+[project]
+name = "targetolog-backend"
+version = "0.1.0"
+description = "TargetologAI backend on FastAPI"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "python-multipart>=0.0.20",
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary,pool]>=3.2",
+    "alembic>=1.14",
+    "pydantic-settings>=2.8",
+    "email-validator>=2.2",
+    "celery>=5.5",
+    "redis>=5.2",
+    "cryptography>=44.0",
+    "pyjwt>=2.10",
+    "pyyaml>=6.0",
+    "phonenumbers>=9.0",
+    "sentry-sdk>=2.20",
+    "adskit",
+    "metaads",
+    "llmkit",
+    "telegramkit",
+    "paykit",
+    "googlekit",
+    "googleadskit",
+    "sitekit",
+    "videokit",
+    "speechkit",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+    "responses>=0.25",
+    "ruff>=0.9",
+    "mypy>=1.15",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+adskit = { workspace = true }
+metaads = { workspace = true }
+llmkit = { workspace = true }
+telegramkit = { workspace = true }
+paykit = { workspace = true }
+googlekit = { workspace = true }
+googleadskit = { workspace = true }
+sitekit = { workspace = true }
+videokit = { workspace = true }
+speechkit = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--strict-markers --import-mode=importlib"
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+extend-exclude = ["migrations/versions", "app/modules/*/models"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["B008", "E501", "SIM105", "RUF001", "RUF002", "RUF003", "UP031"]
+
+[tool.ruff.lint.per-file-ignores]
+"tools/*" = ["E501", "UP038"]
+"app/modules/*/constants.py" = ["E501"]
+"app/modules/*/exceptions.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["core", "packages"]

@@ -1,0 +1,167 @@
+"""Derived advertising figures.
+
+What a range of days adds up to, how it moved, and the two costs the whole
+product turns on: what a lead cost, and what a lead worth having cost. No
+ad platform can compute the second one - it needs a verdict only the
+advertiser has - and the gap between the two is this product's claim.
+
+Nothing here reads a clock, a database or a setting. Days arrive as values
+and leave as values, which is what lets the arithmetic be checked without a
+provider, a migration or a fixture.
+"""
+
+from core.metrics.cards import (
+    BY_KEY,
+    CARDS,
+    DEFAULT_KEYS,
+    GROUPS,
+    ROW_KEYS,
+    Basis,
+    CardGroup,
+    CardKey,
+    CardSpec,
+    Unit,
+    chosen_keys,
+    specs_for,
+    stored_or_default,
+)
+from core.metrics.contracts import (
+    DayFigures,
+    Direction,
+    Movement,
+    Totals,
+    cost_per,
+    share,
+)
+from core.metrics.derive import LEAD_RUNGS, daily_rate, funnel, movement, total
+from core.metrics.engagement import (
+    EngagementFigures,
+    WatchPoint,
+    click_quality,
+    completion_rate,
+    frequency,
+    hold_rate,
+    hook_rate,
+    link_ctr,
+    unique_ctr,
+    value_per_spend,
+    watch_shape,
+)
+from core.metrics.lead_gap import (
+    ALARM_GAP_MISSING,
+    ALARM_GAP_PCT,
+    SCREEN_GAP_MISSING,
+    SCREEN_GAP_PCT,
+    missing_leads,
+)
+from core.metrics.outcomes import (
+    LEAD_GOALS,
+    OUTCOMES,
+    Outcome,
+    campaign_goal,
+    counts_leads,
+    is_counted,
+    outcome_for,
+    outcome_of,
+)
+from core.metrics.panel import (
+    BASIS_POINTS,
+    PER_MILLE,
+    PanelDay,
+    PanelTotals,
+    frequency_bp,
+    newest_measured,
+    panel_total,
+    rate_bp,
+    with_provider_leads,
+)
+from core.metrics.segment_compare import (
+    MIN_SEGMENT_LEADS,
+    SegmentComparison,
+    SegmentCost,
+    SegmentFigures,
+    compare_segments,
+)
+from core.metrics.segments import (
+    SEPARATOR,
+    UNKNOWN,
+    join_segment,
+    split_segment,
+)
+from core.metrics.significance import (
+    MIN_WEEK_LEADS,
+    is_beyond_noise,
+    noise_pct,
+)
+
+__all__ = [
+    "ALARM_GAP_MISSING",
+    "ALARM_GAP_PCT",
+    "BASIS_POINTS",
+    "BY_KEY",
+    "CARDS",
+    "DEFAULT_KEYS",
+    "GROUPS",
+    "LEAD_GOALS",
+    "LEAD_RUNGS",
+    "MIN_SEGMENT_LEADS",
+    "MIN_WEEK_LEADS",
+    "OUTCOMES",
+    "PER_MILLE",
+    "ROW_KEYS",
+    "SCREEN_GAP_MISSING",
+    "SCREEN_GAP_PCT",
+    "SEPARATOR",
+    "UNKNOWN",
+    "Basis",
+    "CardGroup",
+    "CardKey",
+    "CardSpec",
+    "DayFigures",
+    "Direction",
+    "EngagementFigures",
+    "Movement",
+    "Outcome",
+    "PanelDay",
+    "PanelTotals",
+    "SegmentComparison",
+    "SegmentCost",
+    "SegmentFigures",
+    "Totals",
+    "Unit",
+    "WatchPoint",
+    "campaign_goal",
+    "chosen_keys",
+    "click_quality",
+    "compare_segments",
+    "completion_rate",
+    "cost_per",
+    "counts_leads",
+    "daily_rate",
+    "frequency",
+    "frequency_bp",
+    "funnel",
+    "hold_rate",
+    "hook_rate",
+    "is_beyond_noise",
+    "is_counted",
+    "join_segment",
+    "link_ctr",
+    "missing_leads",
+    "movement",
+    "newest_measured",
+    "noise_pct",
+    "outcome_for",
+    "outcome_of",
+    "panel_total",
+    "rate_bp",
+    "share",
+    "specs_for",
+    "split_segment",
+    "stored_or_default",
+    "total",
+    "unique_ctr",
+    "value_per_spend",
+    "watch_shape",
+    "with_provider_leads",
+]

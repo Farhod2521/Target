@@ -1,0 +1,98 @@
+{
+  "name": "reach_globe",
+  "description": "A panel over the top half while the speaker moves to the bottom half: a title typed in letter by letter, a label popping under it, and a turning globe where arcs fly out from a home pin to other places that light up. For reach and growth: other cities, all regions, abroad, the whole country, the area a business delivers to.",
+  "props": {
+    "title": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 12,
+      "description": "The title, e.g. 'Dunyo'. Written in capitals by the code."
+    },
+    "pill": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 14,
+      "description": "The label under it, e.g. 'bozoriga', 'viloyatlarga'. Written in capitals by the code."
+    },
+    "home": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 3,
+      "description": "Optional: two or three letters on the home pin, e.g. 'UZ', 'TSH'."
+    },
+    "places": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 12
+      },
+      "minItems": 1,
+      "maxItems": 5,
+      "description": "Optional: up to five places the arcs reach, in the order they are said, e.g. 'Samarqand'."
+    }
+  },
+  "required": [
+    "title",
+    "pill"
+  ],
+  "zones": [
+    "TOP_PANEL"
+  ],
+  "min_seconds": 2.5,
+  "max_seconds": 6.0,
+  "sfx": "whoosh",
+  "layout": "split_top",
+  "placement": "planner",
+  "layer": "front",
+  "caps": [
+    "title",
+    "pill",
+    "home"
+  ],
+  "beats": {
+    "lands": "The word the label pops in on.",
+    "places": "Each place lights up on the word that names it, in order."
+  },
+  "example": {
+    "title": "Dunyo",
+    "pill": "bozoriga",
+    "home": "UZ"
+  },
+  "box": [
+    72,
+    240,
+    940,
+    930
+  ],
+  "texts": {
+    "title": {
+      "selector": ".tt",
+      "px": 96,
+      "min_px": 64,
+      "width": 868,
+      "lines": 1,
+      "spacing": -1
+    },
+    "pill": {
+      "selector": ".pl",
+      "px": 74,
+      "min_px": 52,
+      "width": 760,
+      "lines": 1
+    },
+    "places": {
+      "selector": ".pt",
+      "px": 30,
+      "min_px": 22,
+      "width": 260,
+      "lines": 1
+    }
+  },
+  "sounds": {
+    "lands": "pop"
+  },
+  "beat_defaults": {
+    "lands": 0.9
+  }
+}

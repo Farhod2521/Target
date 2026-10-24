@@ -1,0 +1,41 @@
+{
+  "name": "lower_third",
+  "description": "The business's name and slogan in a bar that slides in under the speaker's face, early in the video. Placed by the code; never by a planner. Takes no text: the name and slogan come from the brand.",
+  "props": {},
+  "required": [],
+  "zones": [
+    "LOWER_THIRD"
+  ],
+  "min_seconds": 2.5,
+  "max_seconds": 4.0,
+  "sfx": "swoosh",
+  "layout": null,
+  "placement": "auto",
+  "layer": "front",
+  "shows_brand": [
+    "name"
+  ],
+  "example": {},
+  "box": [
+    48,
+    20,
+    940,
+    220
+  ],
+  "texts": {
+    "name_shown": {
+      "selector": ".n",
+      "px": 58,
+      "min_px": 40,
+      "width": 668,
+      "lines": 1
+    },
+    "brand_tagline": {
+      "selector": ".s",
+      "px": 34,
+      "min_px": 28,
+      "width": 380,
+      "lines": 2
+    }
+  }
+}

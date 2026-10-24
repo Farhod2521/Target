@@ -1,0 +1,137 @@
+# Avto xizmat / avtosalon. Meta vocabulary, no interest ids - see restaurant.yaml.
+provider: meta
+category: auto
+label: "Avto xizmat / avtosalon"
+version: 6
+
+interest_seeds:
+  - { label: "Avtomobillar", query: "Cars" }
+  - { label: "Avtosalonlar", query: "Car dealerships" }
+  - { label: "Ehtiyot qismlar", query: "Auto parts" }
+  - { label: "Avto ta'mir", query: "Auto mechanic" }
+  - { label: "Shinalar", query: "Tires" }
+  - { label: "Avto yuvish", query: "Car wash" }
+  - { label: "Avto sug'urta", query: "Vehicle insurance" }
+  - { label: "Krossoverlar", query: "Sport utility vehicle" }
+
+targeting_base:
+  geo_locations:
+    custom_locations:
+      - latitude: "{business.lat}"
+        longitude: "{business.lng}"
+        radius: "{answers.radius_km}"
+        distance_unit: kilometer
+  age_min: "{answers.age_min}"
+  age_max: "{answers.age_max}"
+  genders: "{answers.genders}"
+  locales: "{business.locales}"
+  # No placements here, and none in any preset below: where the ad appears
+  # is one answer with two states, in core/targeting/placements.py, and the
+  # loader refuses a placement key in this file.
+
+presets:
+  - goal: leads
+    label: "Ariza / lid"
+    objective: OUTCOME_LEADS
+    optimization_goal: LEAD_GENERATION
+    billing_event: IMPRESSIONS
+    sends_to: form
+    call_to_action: SIGN_UP
+    destination_type: ON_AD
+    defaults:
+      radius_km: 15
+      age_min: 25
+      age_max: 55
+
+  - goal: messages
+    label: "Xabar yozish"
+    objective: OUTCOME_ENGAGEMENT
+    optimization_goal: CONVERSATIONS
+    billing_event: IMPRESSIONS
+    sends_to: chat
+    welcome_message: "{business.name} — salom! Mavjud avtomobillar, narx va sinov haydovi bo'yicha shu yerda yozing, tez orada javob beramiz."
+    autofill_message: "Salom! Ushbu taklif haqida ma'lumot bering."
+    chat_questions:
+      - "Narxi qancha?"
+      - "Muddatli to'lov bormi?"
+      - "Sinov haydovi mumkinmi?"
+    defaults:
+      radius_km: 15
+      age_min: 25
+      age_max: 55
+
+  - goal: calls
+    label: "Qo'ng'iroq olish"
+    objective: OUTCOME_TRAFFIC
+    optimization_goal: QUALITY_CALL
+    billing_event: IMPRESSIONS
+    sends_to: phone
+    call_to_action: CALL_NOW
+    destination_type: PHONE_CALL
+    defaults:
+      radius_km: 15
+      age_min: 25
+      age_max: 55
+
+  - goal: views
+    label: "Ko'proq ko'rilsin"
+    objective: OUTCOME_AWARENESS
+    optimization_goal: IMPRESSIONS
+    billing_event: IMPRESSIONS
+    sends_to: nothing
+    call_to_action: NO_BUTTON
+    defaults:
+      radius_km: 20
+      age_min: 22
+      age_max: 55
+
+  - goal: traffic
+    label: "Saytga tashrif"
+    objective: OUTCOME_TRAFFIC
+    optimization_goal: LANDING_PAGE_VIEWS
+    billing_event: IMPRESSIONS
+    sends_to: website
+    call_to_action: LEARN_MORE
+    defaults:
+      radius_km: 30
+      age_min: 25
+      age_max: 55
+
+  # The visit that stays inside Instagram: the tap opens the business's own
+  # profile. Built from the connected account - nothing is typed, and a
+  # page with no Instagram account behind it cannot choose this. The
+  # placement is Instagram only whatever the owner answers; see
+  # core/targeting/placements.py:INSTAGRAM_PLACEMENTS.
+  - goal: profile_visits
+    label: "Profilga o'tsin"
+    objective: OUTCOME_TRAFFIC
+    optimization_goal: PROFILE_VISIT
+    billing_event: IMPRESSIONS
+    sends_to: profile
+    call_to_action: VIEW_INSTAGRAM_PROFILE
+    destination_type: INSTAGRAM_PROFILE
+    defaults:
+      radius_km: 30
+      age_min: 25
+      age_max: 55
+
+  - goal: site_leads
+    label: "Saytda ariza"
+    objective: OUTCOME_LEADS
+    optimization_goal: OFFSITE_CONVERSIONS
+    billing_event: IMPRESSIONS
+    sends_to: website
+    call_to_action: SIGN_UP
+    # No destination_type: the website lead ad sets advertisers here run
+    # from Ads Manager carry none, and those are the ones that delivered.
+    # The request is left on the owner's own site, so Meta only hears of it
+    # through a pixel. The id is the one chosen on the connect screen; with
+    # none the builder leaves this empty and validate_launchable stops the
+    # launch.
+    promoted_object:
+      pixel_id: "{conversion.external_id}"
+      custom_event_type: LEAD
+    defaults:
+      radius_km: 30
+      age_min: 25
+      age_max: 55

@@ -1,0 +1,7 @@
+.w{position:absolute;left:64px;right:140px;top:10px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.n{font-size:150px;font-weight:800;line-height:1.05;letter-spacing:-3px;color:var(--ink);white-space:nowrap;text-shadow:0 6px 28px rgba(0,0,0,.55),0 2px 4px rgba(0,0,0,.4)}
+.pill{display:inline-block;padding:6px 34px 10px;border-radius:22px;background:var(--accent);color:var(--on-accent);font-size:104px;font-weight:800;line-height:1.05;white-space:nowrap;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.chip{display:inline-block;padding:16px 36px;border-radius:999px;background:var(--primary-deep);color:var(--on-deep);font-size:44px;font-weight:800;white-space:nowrap;border:2px solid rgba(255,255,255,.14);box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.s{position:absolute;display:block;width:60px;height:60px;color:var(--accent)}
+.s:nth-of-type(even){color:var(--ink)}
+.scrim{position:absolute;left:0;right:0;top:0;bottom:0;background:linear-gradient(180deg,rgba(0,0,0,.62) 0%,rgba(0,0,0,.45) 55%,rgba(0,0,0,0) 100%)}

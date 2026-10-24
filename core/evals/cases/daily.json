@@ -1,0 +1,34 @@
+[
+  {
+    "id": "daily-good-day",
+    "prompt": "daily_report",
+    "question": "",
+    "note": "A cheap day. The verdict must not be worse than the figures.",
+    "context": "## The day (22.09, finished)\n- The Facebook page this report is about: Osh markazi\n- Spend: 20 USD\n- The day's figures were read again after it ended\n- Campaigns that spent that day: 1\n\n## Campaigns\n1. Tushlik kampaniyasi - spend 20 USD, 6 murojaat, cost each 3 USD, odatda 5 USD",
+    "forbidden": ["adset", "objective", "lookalike"]
+  },
+  {
+    "id": "daily-spent-nothing-back",
+    "prompt": "daily_report",
+    "question": "",
+    "note": "Session 6: a campaign that spent and brought nothing cannot be called good.",
+    "context": "## The day (22.09, finished)\n- The Facebook page this report is about: Gul do'koni\n- Spend: 45 USD\n- The day's figures were read again after it ended\n- Campaigns that spent that day: 1\n\n## Campaigns\n1. Bahor kampaniyasi - spend 45 USD, 0 murojaat, odatda 7 USD",
+    "forbidden": ["adset", "objective", "lookalike"]
+  },
+  {
+    "id": "daily-still-learning",
+    "prompt": "daily_report",
+    "question": "",
+    "note": "A young group is at most 'watch it', never 'it is going badly'.",
+    "context": "## The day (22.09, finished)\n- The Facebook page this report is about: Barbershop Hunter\n- Spend: 8 USD\n- The day's figures were read again after it ended\n- Campaigns that spent that day: 1\n\n## Campaigns\n1. Sartaroshxona kampaniyasi - spend 8 USD, 0 murojaat, 2 kun ishlayapti, hali o'rganmoqda",
+    "forbidden": ["adset", "objective", "lookalike"]
+  },
+  {
+    "id": "daily-figures-not-final",
+    "prompt": "daily_report",
+    "question": "",
+    "note": "The re-read had not happened. The reading must not present the day as settled.",
+    "context": "## The day (22.09, finished)\n- The Facebook page this report is about: Osh markazi\n- Spend: 14 USD\n- The day's figures are NOT final: the nightly re-read had not happened when this was written, so they are what had arrived by the afternoon\n- Campaigns that spent that day: 1\n\n## Campaigns\n1. Tushlik kampaniyasi - spend 14 USD, 2 murojaat",
+    "forbidden": ["adset", "objective", "lookalike"]
+  }
+]

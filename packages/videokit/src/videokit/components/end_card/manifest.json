@@ -1,0 +1,46 @@
+{
+  "name": "end_card",
+  "description": "The closing screen on the brand's colour: the logo large (or the name, when there is no logo or its lettering would not read), the slogan under it; the closing button sits below. Placed by the code over the last seconds of every video.",
+  "props": {},
+  "required": [],
+  "zones": [
+    "FULL"
+  ],
+  "min_seconds": 2.5,
+  "max_seconds": 3.0,
+  "sfx": "ding",
+  "layout": null,
+  "placement": "auto",
+  "layer": "backdrop",
+  "shows_brand": [
+    "name",
+    "logo"
+  ],
+  "example": {},
+  "box": [
+    140,
+    280,
+    940,
+    980
+  ],
+  "texts": {
+    "card_name": {
+      "selector": ".n",
+      "px": 120,
+      "min_px": 72,
+      "width": 800,
+      "lines": 2,
+      "spacing": -1
+    },
+    "brand_tagline": {
+      "selector": ".s",
+      "px": 48,
+      "min_px": 36,
+      "width": 800,
+      "lines": 2
+    }
+  },
+  "sounds": {
+    "start": "pad"
+  }
+}

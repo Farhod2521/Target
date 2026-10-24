@@ -1,0 +1,23 @@
+[project]
+name = "videokit"
+version = "0.1.0"
+description = "Video montaj — Shotstack render va FFmpeg orqali kadr/ovoz olish"
+requires-python = ">=3.13,<3.14"
+# httpx and pydantic, like sitekit; Pillow and resvg-py for a brand's logo
+# (trim, colours, one-colour copies; resvg draws SVG with no system
+# library). FFmpeg is a program on the machine rather than a Python
+# dependency: it is called as a process, and its path arrives as an
+# argument like every other piece of config.
+# fonttools cuts the brand's font down to the letters each clip writes.
+dependencies = [
+    "fonttools[woff]>=4.66,<5",
+    "httpx>=0.28",
+    "opencv-python-headless>=4.13,<5",
+    "pillow>=12.1",
+    "pydantic>=2.10",
+    "resvg-py>=0.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

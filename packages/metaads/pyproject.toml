@@ -1,0 +1,17 @@
+[project]
+name = "metaads"
+version = "0.42.1"
+description = "Meta Marketing API klienti va adskit adapteri"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "httpx>=0.28",
+    "pydantic>=2.10",
+    "adskit",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+adskit = { workspace = true }

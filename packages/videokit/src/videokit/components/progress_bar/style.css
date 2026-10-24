@@ -1,0 +1,2 @@
+.t{position:absolute;left:0;right:0;bottom:0;height:10px;background:rgba(255,255,255,.2)}
+.f{height:100%;width:100%;background:var(--accent);transform-origin:0 50%;box-shadow:0 0 14px var(--accent)}

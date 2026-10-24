@@ -1,0 +1,17 @@
+[project]
+name = "googlekit"
+version = "0.3.0"
+description = "Google OAuth va Sheets klienti — jadval yaratish va qator qo'shish"
+requires-python = ">=3.13,<3.14"
+# httpx and pydantic, like telegramkit, and nothing else. No adskit: a
+# spreadsheet is where leads go after an ad has done its work, not an ad
+# platform, and depending on the contract package would tie this release
+# to the advertising one.
+dependencies = [
+    "httpx>=0.28",
+    "pydantic>=2.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

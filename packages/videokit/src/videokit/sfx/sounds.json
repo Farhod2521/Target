@@ -1,0 +1,56 @@
+{
+  "pop": {
+    "prompt": "A single soft bubbly pop, a clean user interface sound, very short, dry, no reverb, no music.",
+    "seconds": 1.0,
+    "length": 0.242
+  },
+  "whoosh": {
+    "prompt": "A quick airy whoosh passing by, smooth and modern, for a video transition, no music.",
+    "seconds": 1.0,
+    "length": 0.47
+  },
+  "swoosh": {
+    "prompt": "A short gentle swoosh, a subtle sliding user interface sound, soft, no music.",
+    "seconds": 1.0,
+    "length": 0.257
+  },
+  "click": {
+    "prompt": "A crisp single mouse click sound effect, clearly audible, close, dry, no music.",
+    "seconds": 1.0,
+    "length": 0.864
+  },
+  "ding": {
+    "prompt": "A bright pleasant single notification ding, one bell chime with a short tail, no music.",
+    "seconds": 1.5,
+    "length": 1.48
+  },
+  "snap": {
+    "prompt": "A quick camera shutter snap with a soft flash, very short, clean, no music.",
+    "seconds": 1.0,
+    "length": 0.231
+  },
+  "thud": {
+    "prompt": "A deep punchy impact thud, like a heavy rubber stamp hitting a wooden table, short, dry, no reverb, no music.",
+    "seconds": 1.0,
+    "length": 1.0,
+    "volume": 0.7
+  },
+  "sparkle": {
+    "prompt": "A short magical sparkle shimmer, tiny bright chimes twinkling quickly, light, no music.",
+    "seconds": 1.0,
+    "length": 1.0,
+    "volume": 0.45
+  },
+  "riser": {
+    "prompt": "A short airy whoosh riser that builds up in pitch and intensity and stops abruptly, for the start of a video, no music.",
+    "seconds": 1.5,
+    "length": 0.742,
+    "volume": 0.25
+  },
+  "pad": {
+    "prompt": "A soft warm ambient synth pad chord swelling in gently and fading out, calm and positive, no drums, no melody.",
+    "seconds": 3.0,
+    "length": 2.618,
+    "volume": 0.35
+  }
+}

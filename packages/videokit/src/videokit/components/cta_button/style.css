@@ -1,0 +1,5 @@
+.b{position:absolute;left:50%;top:10px;transform:translateX(-50%);max-width:800px;display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 72px;border-radius:48px;background:var(--accent);color:var(--on-accent);font-weight:800;box-shadow:0 14px 40px rgba(0,0,0,.35)}
+.l1,.l2{display:block;max-width:680px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
+.l1{font-size:52px}
+.l2{font-size:40px;opacity:.9}
+.tap{position:absolute;right:-42px;top:50%;margin-top:-42px;width:84px;height:84px;border-radius:50%;background:rgba(255,255,255,.85);opacity:0}

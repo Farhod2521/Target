@@ -1,0 +1,15 @@
+[project]
+name = "speechkit"
+version = "0.1.0"
+description = "Ovozni matnga aylantirish — ElevenLabs Scribe, har so'z vaqti bilan"
+requires-python = ">=3.13,<3.14"
+# httpx and pydantic, like sitekit. No adskit and no videokit: a transcript
+# is useful to anything that has a recording, not only to a montage.
+dependencies = [
+    "httpx>=0.28",
+    "pydantic>=2.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

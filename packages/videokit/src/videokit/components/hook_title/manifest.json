@@ -1,0 +1,44 @@
+{
+  "name": "hook_title",
+  "description": "A big headline over the first seconds that stops the scroll: the boldest claim, the result or the question, in a few words. Rises in word by word with a colour bar under it.",
+  "props": {
+    "text": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 42,
+      "description": "The headline, at most 42 characters, in the speaker's language. A punchy rewording, not the whole sentence."
+    }
+  },
+  "required": [
+    "text"
+  ],
+  "zones": [
+    "TOP_TITLE"
+  ],
+  "min_seconds": 1.5,
+  "max_seconds": 3.0,
+  "sfx": "whoosh",
+  "layout": null,
+  "placement": "planner",
+  "layer": "front",
+  "example": {
+    "text": "Narxlar 20% tushdi!"
+  },
+  "box": [
+    64,
+    20,
+    940,
+    500
+  ],
+  "texts": {
+    "text": {
+      "selector": ".t",
+      "px": 96,
+      "min_px": 64,
+      "width": 876,
+      "lines": 3,
+      "spacing": -1
+    }
+  },
+  "hook": true
+}

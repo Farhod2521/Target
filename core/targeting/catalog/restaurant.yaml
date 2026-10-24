@@ -1,0 +1,253 @@
+# Restoran / kafe.
+#
+# The vocabulary below is Meta's, on purpose: the targeting abstraction is
+# not built until there is a second provider to abstract over. Every file in
+# this directory declares which provider it speaks for.
+#
+# No interest ids anywhere. A name is searched for and confirmed against the
+# live account; an id written down here would be a promise the provider
+# never made, and it breaks on the day two interests are merged.
+#
+# Two fields on every preset look like one and are not:
+#
+#   sends_to         ours. Where the tap lands, in the domain's words, and
+#                    therefore which shape the launch sequence has to build.
+#                    See core/targeting/destinations.py
+#   destination_type Meta's, sent verbatim. Its allowed values depend on the
+#                    objective beside it - OUTCOME_SALES takes WEBSITE and
+#                    OUTCOME_TRAFFIC takes none at all - so it cannot answer
+#                    "does this goal go to a site", and is absent wherever
+#                    Meta wants nothing.
+#
+# Placements are not here at all, and the loader refuses them. Where the tap
+# *lands* and where the ad is *shown* are two questions; the second has one
+# home and two states - core/targeting/placements.py - and the owner picks
+# between them on the review screen.
+provider: meta
+category: restaurant
+label: "Restoran / kafe"
+version: 6
+
+interest_seeds:
+  - { label: "Restoranlar", query: "Restaurants" }
+  - { label: "Tez tayyorlanadigan taomlar", query: "Fast food" }
+  - { label: "Qahva", query: "Coffee" }
+  - { label: "Ovqat yetkazib berish", query: "Food delivery" }
+  - { label: "Pishiriq va oshpazlik", query: "Cooking" }
+  - { label: "Pitsa", query: "Pizza" }
+  - { label: "Kabob va grill", query: "Barbecue" }
+  - { label: "Shirinliklar", query: "Desserts" }
+
+
+# Behaviours and life events. **Not interests**, and not searched for: these
+# are closed lists Meta publishes, matched by name exactly, so a name that
+# is not on the list resolves to nothing rather than to something close.
+#
+# That is a safe failure and it is visible: an unmatched seed appears on the
+# review screen as a name the provider did not recognise, exactly as an
+# unmatched interest does, and the campaign is built without it. Which is
+# why these are written from the published class names and corrected
+# against the staff console rather than guessed at twice.
+#
+# Kept short on purpose. The value here is not coverage - it is the one or
+# two rows that describe a customer no interest could reach.
+trait_seeds:
+  - { label: "Tug'ilgan kuni yaqin", query: "Upcoming birthday", kind: life_event }
+  - { label: "Yaqinda turmush qurgan", query: "Newlywed (1 year)", kind: life_event }
+
+targeting_base:
+  geo_locations:
+    custom_locations:
+      - latitude: "{business.lat}"
+        longitude: "{business.lng}"
+        radius: "{answers.radius_km}"
+        distance_unit: kilometer
+  age_min: "{answers.age_min}"
+  age_max: "{answers.age_max}"
+  genders: "{answers.genders}"
+  locales: "{business.locales}"
+  # No placements here, and none in any preset below: where the ad appears
+  # is one answer with two states, in core/targeting/placements.py, and the
+  # loader refuses a placement key in this file.
+
+presets:
+  # Deliberately first, and first in all twelve files: the form sits on
+  # the ad itself, and it is the shape this product built before any
+  # other. Which of this file's goals the sequence can build is answered
+  # in ``core/targeting/destinations.py`` - ``store_visits`` is the one it
+  # cannot.
+  #
+  # "Ariza / lid" and not "Buyurtma / bron", though a cafe takes a booking
+  # rather than an application: the five goals are read as a list, and one
+  # of them changing its name with the trade is one a person has to read
+  # instead of recognise.
+  - goal: leads
+    label: "Ariza / lid"
+    objective: OUTCOME_LEADS
+    optimization_goal: LEAD_GENERATION
+    billing_event: IMPRESSIONS
+    sends_to: form
+    call_to_action: SIGN_UP
+    destination_type: ON_AD
+    defaults:
+      radius_km: 5
+      age_min: 20
+      age_max: 55
+
+  # No `call_to_action` and no `destination_type`, and their absence is
+  # the decision: Meta pairs each messaging surface with the button that
+  # opens it, and which surface a conversation opens on is answered by the
+  # owner one question later - Messenger, or Instagram Direct if the page
+  # has an account. A line here saying MESSENGER would look authoritative
+  # in twelve files and decide nothing. See
+  # core/targeting/destinations.py:CHANNELS.
+  #
+  # The conversation is the product, so what is already written in it when
+  # somebody arrives is part of the ad. Both texts are required together:
+  # the greeting is the business speaking first and carries its own name;
+  # the autofill line is what the customer's box opens pre-typed with, and
+  # it follows from the goal rather than from the business - which is why
+  # it is the same sentence in all twelve files. Leaving the greeting out
+  # is legal and means Meta greets them in English instead.
+  - goal: messages
+    label: "Xabar yozish"
+    objective: OUTCOME_ENGAGEMENT
+    optimization_goal: CONVERSATIONS
+    billing_event: IMPRESSIONS
+    sends_to: chat
+    welcome_message: "{business.name} — salom! Menyu, narxlar yoki bron bo'yicha shu yerda yozing, tez orada javob beramiz."
+    autofill_message: "Salom! Ushbu taklif haqida ma'lumot bering."
+    chat_questions:
+      - "Menyuni ko'rsam bo'ladimi?"
+      - "Stol bron qilsa bo'ladimi?"
+      - "Yetkazib berish bormi?"
+    defaults:
+      radius_km: 5
+      age_min: 20
+      age_max: 55
+
+  - goal: calls
+    label: "Qo'ng'iroq olish"
+    objective: OUTCOME_TRAFFIC
+    optimization_goal: QUALITY_CALL
+    billing_event: IMPRESSIONS
+    sends_to: phone
+    call_to_action: CALL_NOW
+    destination_type: PHONE_CALL
+    defaults:
+      radius_km: 5
+      age_min: 20
+      age_max: 55
+
+  # The goal with nowhere to send anybody: the post is put in front of more
+  # people and that is the whole of it.
+  #
+  # ``IMPRESSIONS`` rather than ``THRUPLAY``, and the difference is the
+  # picture. A ThruPlay is fifteen seconds of a video and cannot be counted
+  # on a photograph, so a goal optimising for one would work on half the
+  # posts an owner might boost and quietly under-deliver on the other half.
+  # Impressions are the count every creative has.
+  #
+  # ``NO_BUTTON`` is Meta's word for an ad with nothing to press, and the
+  # loader refuses anything else beside ``sends_to: nothing``: the creative
+  # falls back to this deployment's own front page when the goal names no
+  # address, so a button here would spend somebody's budget sending their
+  # customers to us.
+  - goal: views
+    label: "Ko'proq ko'rilsin"
+    objective: OUTCOME_AWARENESS
+    optimization_goal: IMPRESSIONS
+    billing_event: IMPRESSIONS
+    sends_to: nothing
+    call_to_action: NO_BUTTON
+    defaults:
+      radius_km: 7
+      age_min: 18
+      age_max: 55
+
+  - goal: traffic
+    label: "Saytga tashrif"
+    objective: OUTCOME_TRAFFIC
+    optimization_goal: LANDING_PAGE_VIEWS
+    billing_event: IMPRESSIONS
+    sends_to: website
+    call_to_action: LEARN_MORE
+    defaults:
+      radius_km: 10
+      age_min: 18
+      age_max: 55
+
+  # The visit that stays inside Instagram: the tap opens the business's own
+  # profile. Built from the connected account - nothing is typed, and a
+  # page with no Instagram account behind it cannot choose this. The
+  # placement is Instagram only whatever the owner answers; see
+  # core/targeting/placements.py:INSTAGRAM_PLACEMENTS.
+  - goal: profile_visits
+    label: "Profilga o'tsin"
+    objective: OUTCOME_TRAFFIC
+    optimization_goal: PROFILE_VISIT
+    billing_event: IMPRESSIONS
+    sends_to: profile
+    call_to_action: VIEW_INSTAGRAM_PROFILE
+    destination_type: INSTAGRAM_PROFILE
+    defaults:
+      radius_km: 10
+      age_min: 18
+      age_max: 55
+
+  - goal: site_leads
+    label: "Saytda ariza"
+    objective: OUTCOME_LEADS
+    optimization_goal: OFFSITE_CONVERSIONS
+    billing_event: IMPRESSIONS
+    sends_to: website
+    call_to_action: SIGN_UP
+    # No destination_type: the website lead ad sets advertisers here run
+    # from Ads Manager carry none, and those are the ones that delivered.
+    # The request is left on the owner's own site, so Meta only hears of it
+    # through a pixel. The id is the one chosen on the connect screen; with
+    # none the builder leaves this empty and validate_launchable stops the
+    # launch.
+    promoted_object:
+      pixel_id: "{conversion.external_id}"
+      custom_event_type: LEAD
+    defaults:
+      radius_km: 10
+      age_min: 18
+      age_max: 55
+
+  - goal: store_visits
+    label: "Do'konga tashrif"
+    objective: OUTCOME_AWARENESS
+    optimization_goal: REACH
+    billing_event: IMPRESSIONS
+    sends_to: store
+    call_to_action: GET_DIRECTIONS
+    defaults:
+      radius_km: 3
+      age_min: 20
+      age_max: 55
+
+  # Withdrawn, not deleted. "Ko'proq ko'rilsin" below asks for the same
+  # thing in words a business owner uses, and two awareness goals side by
+  # side asked somebody to tell brand recall from being seen - a question
+  # for a media buyer. Launches that already answered "awareness" still
+  # find their preset here; the wizard no longer offers it.
+  - goal: awareness
+    offered: false
+    label: "Tanilish"
+    objective: OUTCOME_AWARENESS
+    optimization_goal: AD_RECALL_LIFT
+    billing_event: IMPRESSIONS
+    sends_to: nothing
+    # The one preset in the catalogue whose ad has nowhere to send anybody,
+    # and therefore the one that names Meta's word for no button at all.
+    # The creative falls back to the deployment's own front page when the
+    # goal needs no address of its own, so any other button would carry an
+    # awareness ad bought on impressions to our site. The loader refuses
+    # anything else here.
+    call_to_action: NO_BUTTON
+    defaults:
+      radius_km: 7
+      age_min: 18
+      age_max: 55

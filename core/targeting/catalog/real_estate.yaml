@@ -1,0 +1,162 @@
+# Ko'chmas mulk. Meta vocabulary, no interest ids - see restaurant.yaml.
+#
+# A business that declares HOUSING has most of this stripped by the
+# validator: no gender, no age narrowing, and a radius floor the provider
+# sets. The seeds and defaults below are still written out, because the
+# category declaration lives on the business profile rather than here - an
+# agency that sells commercial property is not automatically HOUSING.
+provider: meta
+category: real_estate
+label: "Ko'chmas mulk"
+version: 6
+
+interest_seeds:
+  - { label: "Ko'chmas mulk", query: "Real estate" }
+  - { label: "Kvartiralar", query: "Apartment" }
+  - { label: "Uy sotib olish", query: "Real estate investing" }
+  - { label: "Ipoteka", query: "Mortgage loans" }
+  - { label: "Ijara", query: "Renting" }
+  - { label: "Uy ta'miri", query: "Home improvement" }
+  - { label: "Interyer dizayni", query: "Interior design" }
+  - { label: "Qurilish", query: "Construction" }
+
+
+# Behaviours and life events. **Not interests**, and not searched for: these
+# are closed lists Meta publishes, matched by name exactly, so a name that
+# is not on the list resolves to nothing rather than to something close.
+#
+# That is a safe failure and it is visible: an unmatched seed appears on the
+# review screen as a name the provider did not recognise, exactly as an
+# unmatched interest does, and the campaign is built without it. Which is
+# why these are written from the published class names and corrected
+# against the staff console rather than guessed at twice.
+#
+# Kept short on purpose. The value here is not coverage - it is the one or
+# two rows that describe a customer no interest could reach.
+trait_seeds:
+  - { label: "Yaqinda ko'chib kelgan", query: "Recently moved", kind: life_event }
+  - { label: "Yaqinda turmush qurgan", query: "Newlywed (1 year)", kind: life_event }
+  - { label: "Unashtirilgan", query: "Newly engaged (1 year)", kind: life_event }
+  - { label: "Yangi ishga kirgan", query: "New job", kind: life_event }
+
+targeting_base:
+  geo_locations:
+    custom_locations:
+      - latitude: "{business.lat}"
+        longitude: "{business.lng}"
+        radius: "{answers.radius_km}"
+        distance_unit: kilometer
+  age_min: "{answers.age_min}"
+  age_max: "{answers.age_max}"
+  genders: "{answers.genders}"
+  locales: "{business.locales}"
+  # No placements here, and none in any preset below: where the ad appears
+  # is one answer with two states, in core/targeting/placements.py, and the
+  # loader refuses a placement key in this file.
+
+presets:
+  - goal: leads
+    label: "Ariza / lid"
+    objective: OUTCOME_LEADS
+    optimization_goal: LEAD_GENERATION
+    billing_event: IMPRESSIONS
+    sends_to: form
+    call_to_action: SIGN_UP
+    destination_type: ON_AD
+    defaults:
+      radius_km: 25
+      age_min: 25
+      age_max: 60
+
+  - goal: messages
+    label: "Xabar yozish"
+    objective: OUTCOME_ENGAGEMENT
+    optimization_goal: CONVERSATIONS
+    billing_event: IMPRESSIONS
+    sends_to: chat
+    welcome_message: "{business.name} — salom! Obyektlar, narx va ko'rish vaqti bo'yicha shu yerda yozing, tez orada javob beramiz."
+    autofill_message: "Salom! Ushbu taklif haqida ma'lumot bering."
+    chat_questions:
+      - "Narxi qancha?"
+      - "Muddatli to'lov bormi?"
+      - "Qachon ko'rsa bo'ladi?"
+    defaults:
+      radius_km: 25
+      age_min: 25
+      age_max: 60
+
+  - goal: calls
+    label: "Qo'ng'iroq olish"
+    objective: OUTCOME_TRAFFIC
+    optimization_goal: QUALITY_CALL
+    billing_event: IMPRESSIONS
+    sends_to: phone
+    call_to_action: CALL_NOW
+    destination_type: PHONE_CALL
+    defaults:
+      radius_km: 25
+      age_min: 25
+      age_max: 60
+
+  - goal: views
+    label: "Ko'proq ko'rilsin"
+    objective: OUTCOME_AWARENESS
+    optimization_goal: IMPRESSIONS
+    billing_event: IMPRESSIONS
+    sends_to: nothing
+    call_to_action: NO_BUTTON
+    defaults:
+      radius_km: 30
+      age_min: 22
+      age_max: 60
+
+  - goal: traffic
+    label: "Saytga tashrif"
+    objective: OUTCOME_TRAFFIC
+    optimization_goal: LANDING_PAGE_VIEWS
+    billing_event: IMPRESSIONS
+    sends_to: website
+    call_to_action: LEARN_MORE
+    defaults:
+      radius_km: 40
+      age_min: 22
+      age_max: 60
+
+  # The visit that stays inside Instagram: the tap opens the business's own
+  # profile. Built from the connected account - nothing is typed, and a
+  # page with no Instagram account behind it cannot choose this. The
+  # placement is Instagram only whatever the owner answers; see
+  # core/targeting/placements.py:INSTAGRAM_PLACEMENTS.
+  - goal: profile_visits
+    label: "Profilga o'tsin"
+    objective: OUTCOME_TRAFFIC
+    optimization_goal: PROFILE_VISIT
+    billing_event: IMPRESSIONS
+    sends_to: profile
+    call_to_action: VIEW_INSTAGRAM_PROFILE
+    destination_type: INSTAGRAM_PROFILE
+    defaults:
+      radius_km: 40
+      age_min: 22
+      age_max: 60
+
+  - goal: site_leads
+    label: "Saytda ariza"
+    objective: OUTCOME_LEADS
+    optimization_goal: OFFSITE_CONVERSIONS
+    billing_event: IMPRESSIONS
+    sends_to: website
+    call_to_action: SIGN_UP
+    # No destination_type: the website lead ad sets advertisers here run
+    # from Ads Manager carry none, and those are the ones that delivered.
+    # The request is left on the owner's own site, so Meta only hears of it
+    # through a pixel. The id is the one chosen on the connect screen; with
+    # none the builder leaves this empty and validate_launchable stops the
+    # launch.
+    promoted_object:
+      pixel_id: "{conversion.external_id}"
+      custom_event_type: LEAD
+    defaults:
+      radius_km: 40
+      age_min: 22
+      age_max: 60

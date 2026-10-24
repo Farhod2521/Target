@@ -1,0 +1,27 @@
+{
+  "name": "sticker_fly",
+  "description": "A big sticker that flies across the top of the screen in about a second, leaving a trail - a rocket or an arrow shooting up, a heart, a star or a gift floating up. No words. For a burst of energy where the speaker talks about growth, a start, speed, launching or love; at most two in a video, never over other graphics.",
+  "props": {
+    "icon": {
+      "type": "icon",
+      "description": "The sticker: rocket or arrow fly across; anything else floats up."
+    }
+  },
+  "required": [
+    "icon"
+  ],
+  "zones": [
+    "TOP_TITLE"
+  ],
+  "min_seconds": 1.0,
+  "max_seconds": 1.6,
+  "sfx": "whoosh",
+  "layout": null,
+  "placement": "planner",
+  "layer": "decor",
+  "max_uses": 2,
+  "lettering": false,
+  "example": {
+    "icon": "rocket"
+  }
+}

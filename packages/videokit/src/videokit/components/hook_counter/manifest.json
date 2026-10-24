@@ -1,0 +1,90 @@
+{
+  "name": "hook_counter",
+  "description": "An opening that stops the scroll with a number: it counts up from zero to the figure, a bold label slams down under it, stars twinkle, and a short line may follow. For the first words when they carry a number - a result, a price, a count of customers, a percentage, a sum of money. Only a number that was said or is in the brief.",
+  "props": {
+    "value": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16,
+      "description": "The number with what goes before or after it, grouped with spaces, e.g. '$1 000 000', '50%', '+300', '1 200 soʻm'."
+    },
+    "pill": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 14,
+      "description": "Optional: one or two words that slam down under the number, e.g. 'MIJOZ', 'CHEGIRMA'. Written in capitals by the code."
+    },
+    "chip": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 30,
+      "description": "Optional: a short line that rises in last, e.g. 'Faqat shu hafta'."
+    }
+  },
+  "required": [
+    "value"
+  ],
+  "zones": [
+    "TOP_TITLE"
+  ],
+  "min_seconds": 2.0,
+  "max_seconds": 5.0,
+  "sfx": "pop",
+  "layout": null,
+  "placement": "planner",
+  "layer": "front",
+  "hook": true,
+  "caps": [
+    "pill"
+  ],
+  "glyphs": "0123456789",
+  "beats": {
+    "land": "The word on which the count reaches the number - usually the number itself.",
+    "slam": "The word the label slams down on.",
+    "rise": "The word the short line rises in on."
+  },
+  "example": {
+    "value": "$1 000 000",
+    "pill": "STARTAP",
+    "chip": "Siz ham bir qismi boʻling"
+  },
+  "box": [
+    64,
+    0,
+    940,
+    500
+  ],
+  "texts": {
+    "value": {
+      "selector": ".v",
+      "px": 150,
+      "min_px": 96,
+      "width": 876,
+      "lines": 1,
+      "spacing": -3
+    },
+    "pill": {
+      "selector": ".pill",
+      "px": 104,
+      "min_px": 64,
+      "width": 800,
+      "lines": 1
+    },
+    "chip": {
+      "selector": ".chip",
+      "px": 44,
+      "min_px": 32,
+      "width": 760,
+      "lines": 1
+    }
+  },
+  "sounds": {
+    "land": "sparkle",
+    "slam": "thud"
+  },
+  "beat_defaults": {
+    "land": 1.4,
+    "slam": 1.9,
+    "rise": 2.5
+  }
+}

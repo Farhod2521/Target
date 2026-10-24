@@ -1,0 +1,6 @@
+.box{position:absolute;left:64px;right:140px;top:20px}
+.t{font-size:96px;font-weight:800;line-height:1.04;color:var(--ink);letter-spacing:-1px;text-shadow:0 6px 28px rgba(0,0,0,.5)}
+.w{display:inline-block;white-space:pre}
+.m{display:inline-block;overflow:hidden;vertical-align:top;padding-bottom:6px}
+.bar{height:18px;width:58%;margin-top:22px;border-radius:9px;background:var(--accent)}
+.scrim{position:absolute;left:0;right:0;top:0;bottom:0;background:linear-gradient(180deg,rgba(0,0,0,.62) 0%,rgba(0,0,0,.45) 55%,rgba(0,0,0,0) 100%)}

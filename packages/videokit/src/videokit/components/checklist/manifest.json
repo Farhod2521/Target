@@ -1,0 +1,92 @@
+{
+  "name": "checklist",
+  "description": "A panel over the top half of the screen while the speaker moves to the bottom half: a title typed in letter by letter, then two to five rows that slide in one by one, each ticked as the speaker says it. For steps the viewer should take, what they get, or reasons in order - anything the speaker counts off.",
+  "props": {
+    "title": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 20,
+      "description": "The title, e.g. 'Sizdan nima'. Written in capitals by the code."
+    },
+    "pill": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 10,
+      "description": "Optional: the title's last word in a coloured label, e.g. 'kerak?'. Written in capitals by the code."
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 26
+      },
+      "minItems": 2,
+      "maxItems": 5,
+      "description": "Two to five rows, each at most 26 characters, in the order they are said."
+    }
+  },
+  "required": [
+    "title",
+    "items"
+  ],
+  "zones": [
+    "TOP_PANEL"
+  ],
+  "min_seconds": 3.0,
+  "max_seconds": 7.0,
+  "sfx": "",
+  "layout": "split_top",
+  "placement": "planner",
+  "layer": "front",
+  "caps": [
+    "title",
+    "pill"
+  ],
+  "beats": {
+    "items": "Each row slides in and is ticked on the word that says it, in order."
+  },
+  "example": {
+    "title": "Sizdan nima",
+    "pill": "kerak?",
+    "items": [
+      "Ko'rib chiqing",
+      "O'zingiz ishlating",
+      "Haqida gapiring",
+      "Yaqinlarga tavsiya qiling"
+    ]
+  },
+  "box": [
+    72,
+    240,
+    940,
+    930
+  ],
+  "texts": {
+    "title": {
+      "selector": ".tt",
+      "px": 72,
+      "min_px": 52,
+      "width": 560,
+      "lines": 2,
+      "spacing": -1
+    },
+    "pill": {
+      "selector": ".pl",
+      "px": 64,
+      "min_px": 44,
+      "width": 260,
+      "lines": 1
+    },
+    "items": {
+      "selector": ".it",
+      "px": 42,
+      "min_px": 30,
+      "width": 700,
+      "lines": 1
+    }
+  },
+  "sounds": {
+    "items": "pop"
+  }
+}

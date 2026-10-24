@@ -1,0 +1,27 @@
+[
+  {
+    "id": "weekly-cause-on-the-list",
+    "prompt": "weekly_report",
+    "question": "Write the one sentence.",
+    "note": "A change is listed and lines up with the movement. Naming it is the answer.",
+    "context": "## The week (15.09 - 21.09)\n- Page: Osh markazi\n- Spend: 140 USD\n- Results: 9 murojaat\n- Cost each: 15 USD\n- Last week: 120 USD, 14 murojaat, 8 USD each\n\n## What changed this week\n- 17.09: Tushlik - kun kun byudjeti 12 USD dan 20 USD ga oshirildi\n\n## Campaigns\n- Tushlik kampaniyasi - spend 140 USD, 9 murojaat",
+    "required": ["byudjet"],
+    "forbidden": ["adset", "objective", "lookalike", "mavsum", "raqobatchi"]
+  },
+  {
+    "id": "weekly-nothing-on-the-list",
+    "prompt": "weekly_report",
+    "question": "Write the one sentence.",
+    "note": "Nothing changed. The correct answer says the reason is not visible, and names no season, holiday or competitor.",
+    "context": "## The week (15.09 - 21.09)\n- Page: Gul do'koni\n- Spend: 80 USD\n- Results: 3 murojaat\n- Cost each: 26 USD\n- Last week: 82 USD, 11 murojaat, 7 USD each\n\n## What changed this week\n- Hech narsa o'zgarmadi\n\n## Campaigns\n- Bahor kampaniyasi - spend 80 USD, 3 murojaat",
+    "forbidden": ["adset", "objective", "mavsum", "bayram", "raqobatchi", "Navro'z"]
+  },
+  {
+    "id": "weekly-spent-for-nothing",
+    "prompt": "weekly_report",
+    "question": "Write the one sentence.",
+    "note": "The week most worth interrupting somebody about: money out, nothing back.",
+    "context": "## The week (15.09 - 21.09)\n- Page: Klinika Shifo\n- Spend: 210 USD\n- Results: 0\n- Last week: 190 USD, 6 murojaat\n\n## What changed this week\n- 16.09: Implant guruhiga yangi rasm qo'yildi\n\n## Campaigns\n- Implant kampaniyasi - spend 210 USD, 0 murojaat",
+    "forbidden": ["adset", "objective", "lookalike"]
+  }
+]

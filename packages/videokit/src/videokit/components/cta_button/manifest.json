@@ -1,0 +1,56 @@
+{
+  "name": "cta_button",
+  "description": "A button with what to do, and under it every way to get in touch (the business's handle and phone, added by the code), which rises in and is tapped. The code always puts one at the very end; place another only where the speaker says how to order.",
+  "props": {
+    "label": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 32,
+      "description": "Optional: what to do, at most 32 characters, e.g. 'Hoziroq yozing'. No handle or phone: those are added. Leave out to use the business's own call to action."
+    }
+  },
+  "required": [],
+  "zones": [
+    "LOWER_THIRD"
+  ],
+  "min_seconds": 1.5,
+  "max_seconds": 4.0,
+  "sfx": "click",
+  "layout": null,
+  "placement": "planner",
+  "layer": "front",
+  "example": {},
+  "box": [
+    140,
+    10,
+    940,
+    220
+  ],
+  "texts": {
+    "label": {
+      "selector": ".l1",
+      "px": 52,
+      "min_px": 40,
+      "width": 656,
+      "lines": 1
+    },
+    "cta_text": {
+      "selector": ".l1.own",
+      "px": 52,
+      "min_px": 40,
+      "width": 656,
+      "lines": 1
+    },
+    "cta_contact_lines": {
+      "selector": ".l2",
+      "px": 40,
+      "min_px": 32,
+      "width": 656,
+      "lines": 2
+    }
+  },
+  "tap": {
+    "radius": 42,
+    "text_inset": 72
+  }
+}

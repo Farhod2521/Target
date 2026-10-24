@@ -1,0 +1,54 @@
+[
+  {
+    "id": "chat-spend-last-month",
+    "prompt": "chat_answer",
+    "question": "O'tgan oyda qancha sarfladim?",
+    "note": "The figure is in the context. Anything else is invented.",
+    "context": "## Business\n- Name: Osh markazi\n- Category: Restoran\n- Sells: Chilonzorda kichik kafe. Ish tushligi 25 000 so'mdan.\n- Currency: USD\n- Account maturity: 4 oy\n\n## Last 30 days\n- Spend: 412 USD\n- Results: 38 murojaat\n\n## Ad groups\n- Tushlik - kun (Tushlik kampaniyasi) - ishlayapti, spend 260 USD, result 24 murojaat, cost per 1000 shown 3 USD, clicks per 1000 shown 9\n- Tushlik - kech (Tushlik kampaniyasi) - ishlayapti, spend 152 USD, result 14 murojaat, cost per 1000 shown 4 USD, clicks per 1000 shown 6",
+    "required": ["412"],
+    "forbidden": ["adset", "objective", "lookalike", "CBO"]
+  },
+  {
+    "id": "chat-why-no-clicks",
+    "prompt": "chat_answer",
+    "question": "Nega reklamamni bosishmayapti?",
+    "note": "Session 10: the answer is a new picture, never new words, and never a line the assistant writes itself.",
+    "context": "## Business\n- Name: Gul do'koni\n- Category: Savdo\n- Sells: Toy va bayram uchun gul guldastalari.\n- Currency: USD\n- Account maturity: 2 oy\n\n## Last 30 days\n- Spend: 90 USD\n- Results: 4 murojaat\n\n## Ad groups\n- Guldasta - mart (Bahor kampaniyasi) - ishlayapti, spend 90 USD, result 4 murojaat, clicks per 1000 shown 2, each person saw it (times) 4, cause: reklama e'tibor tortmayapti\n\n## Adverts\n- Guldasta 1 (group Guldasta - mart) - ishlayapti, spend 90 USD, provider rates it: below_average_20 for engagement, \"Bayramga guldasta kerakmi? Bizga yozing.\"",
+    "required": ["rasm", "video"],
+    "forbidden": ["adset", "objective", "lookalike"]
+  },
+  {
+    "id": "chat-asks-for-new-copy",
+    "prompt": "chat_answer",
+    "question": "Reklamamga yangi matn yozib ber.",
+    "note": "Session 10: refused outright. Nothing writes advert copy once a campaign is running.",
+    "context": "## Business\n- Name: Barbershop Hunter\n- Category: Xizmat\n- Sells: Erkaklar sartaroshxonasi, soch olish 50 000 so'm.\n- Currency: USD\n- Account maturity: 8 oy\n\n## Last 30 days\n- Spend: 120 USD\n- Results: 31 murojaat\n\n## Adverts\n- Soch olish (group Sartaroshxona - shahar) - ishlayapti, spend 120 USD, \"Yangi soch turmagi 50 000 so'mdan. Yoziling.\"",
+    "required": ["rasm", "kutubxona", "video"],
+    "forbidden": ["adset", "objective"]
+  },
+  {
+    "id": "chat-number-not-in-context",
+    "prompt": "chat_answer",
+    "question": "Bitta murojaat necha pulga tushyapti va keyingi oyda qancha bo'ladi?",
+    "note": "The first half is in the context; the second is a forecast nothing supplied. It must not become a number.",
+    "context": "## Business\n- Name: Klinika Shifo\n- Category: Tibbiyot\n- Sells: Stomatologiya, birinchi ko'rik bepul emas.\n- Currency: USD\n- Account maturity: 1 yil\n\n## Last 30 days\n- Spend: 600 USD\n- Results: 40 murojaat\n\n## Ad groups\n- Implant (Implant kampaniyasi) - ishlayapti, spend 600 USD, result 40 murojaat, cost each 15 USD",
+    "required": ["15"],
+    "forbidden": ["adset", "lookalike"]
+  },
+  {
+    "id": "chat-empty-account",
+    "prompt": "chat_answer",
+    "question": "Reklamalarim qanday ketyapti?",
+    "note": "Nothing has run. The honest answer says so rather than describing an account.",
+    "context": "## Business\n- Name: Yangi do'kon\n- Category: Savdo\n- Sells: Bolalar kiyimi.\n- Currency: USD\n- Account maturity: yangi\n\n## Last 30 days\n- Spend: 0 USD\n- Results: 0",
+    "forbidden": ["adset", "objective", "lookalike"]
+  },
+  {
+    "id": "chat-built-in-ads-manager",
+    "prompt": "chat_answer",
+    "question": "Yozgi savdo kampaniyasi qancha sarfladi?",
+    "note": "Session 7: it is on their campaigns screen with its own figures, and is not described here.",
+    "context": "## Business\n- Name: Osh markazi\n- Category: Restoran\n- Sells: Chilonzorda kichik kafe.\n- Currency: USD\n- Account maturity: 4 oy\n\n## Last 30 days\n- Spend: 120 USD\n- Results: 11 murojaat\n\n## Ad groups\n- Tushlik - kun (Tushlik kampaniyasi) - ishlayapti, spend 120 USD, result 11 murojaat",
+    "forbidden": ["adset", "objective", "lookalike"]
+  }
+]

@@ -1,0 +1,75 @@
+{
+  "name": "headline_slam",
+  "description": "A claim that lands hard: one line of words, then a bold label slams down under it from far too big and shakes, with an optional icon beating inside it and stars around. The opening, or the strongest claim in the middle of the video - something impossible, the best, the first, the one thing to remember.",
+  "props": {
+    "line": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 26,
+      "description": "Optional: the words before the label, e.g. 'Sizning yordamingizsiz'."
+    },
+    "pill": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 14,
+      "description": "The word or two that slam down, e.g. 'IMKONSIZ', 'DUNYODA!'. Written in capitals by the code."
+    },
+    "icon": {
+      "type": "icon",
+      "description": "Optional: a small drawing beating inside the label."
+    }
+  },
+  "required": [
+    "pill"
+  ],
+  "zones": [
+    "TOP_TITLE"
+  ],
+  "min_seconds": 2.0,
+  "max_seconds": 4.5,
+  "sfx": "pop",
+  "layout": null,
+  "placement": "planner",
+  "layer": "front",
+  "hook": true,
+  "caps": [
+    "pill"
+  ],
+  "beats": {
+    "slam": "The word the label slams down on - the word it says."
+  },
+  "example": {
+    "line": "Sizning yordamingizsiz",
+    "pill": "IMKONSIZ",
+    "icon": "heart"
+  },
+  "box": [
+    64,
+    20,
+    940,
+    420
+  ],
+  "texts": {
+    "line": {
+      "selector": ".l",
+      "px": 80,
+      "min_px": 56,
+      "width": 876,
+      "lines": 2,
+      "spacing": -1
+    },
+    "pill": {
+      "selector": ".pt",
+      "px": 104,
+      "min_px": 64,
+      "width": 680,
+      "lines": 1
+    }
+  },
+  "sounds": {
+    "slam": "thud"
+  },
+  "beat_defaults": {
+    "slam": 0.45
+  }
+}

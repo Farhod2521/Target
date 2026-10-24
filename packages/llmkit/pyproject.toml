@@ -1,0 +1,16 @@
+[project]
+name = "llmkit"
+version = "0.5.0"
+description = "Claude (Anthropic API) klienti — strukturaviy chiqish va xarajat nazorati"
+requires-python = ">=3.13,<3.14"
+# Claude only. A second LLM SDK here is a product decision, not a patch.
+# No adskit either: llmkit knows nothing about advertising.
+dependencies = [
+    # output_config.format - what structured() sends - is checked on 0.122.
+    "anthropic>=0.122",
+    "pydantic>=2.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

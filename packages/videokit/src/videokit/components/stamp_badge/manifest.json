@@ -1,0 +1,92 @@
+{
+  "name": "stamp_badge",
+  "description": "A seal stamped onto the screen: a small line over a big bordered stamp that hits from far too big, shakes and throws dust, then an optional short line with an icon rises under it. For trust: an official permit, a licence, a certificate, a guarantee, being the first or the only one.",
+  "props": {
+    "label": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 22,
+      "description": "Optional: the small line over the stamp, e.g. \"META'DAN\". Written in capitals by the code."
+    },
+    "stamp": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16,
+      "description": "The stamp's words, e.g. 'RASMIY RUXSAT', 'KAFOLAT 2 YIL'. Written in capitals by the code."
+    },
+    "sub": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 28,
+      "description": "Optional: the line that rises under it, e.g. \"O'zbekistonda birinchi\"."
+    },
+    "icon": {
+      "type": "icon",
+      "description": "Optional: the drawing before that line, e.g. medal."
+    }
+  },
+  "required": [
+    "stamp"
+  ],
+  "zones": [
+    "TOP_TITLE"
+  ],
+  "min_seconds": 2.0,
+  "max_seconds": 4.5,
+  "sfx": "pop",
+  "layout": null,
+  "placement": "planner",
+  "layer": "front",
+  "caps": [
+    "label",
+    "stamp"
+  ],
+  "beats": {
+    "hit": "The word the stamp hits on.",
+    "rise": "The word the line under it rises on."
+  },
+  "example": {
+    "label": "Meta'dan",
+    "stamp": "Rasmiy ruxsat",
+    "sub": "O'zbekistonda birinchi",
+    "icon": "medal"
+  },
+  "box": [
+    64,
+    20,
+    940,
+    420
+  ],
+  "texts": {
+    "label": {
+      "selector": ".lb",
+      "px": 36,
+      "min_px": 28,
+      "width": 640,
+      "lines": 1,
+      "spacing": 8
+    },
+    "stamp": {
+      "selector": ".sm",
+      "px": 84,
+      "min_px": 56,
+      "width": 680,
+      "lines": 1,
+      "spacing": -1
+    },
+    "sub": {
+      "selector": ".sb",
+      "px": 44,
+      "min_px": 32,
+      "width": 700,
+      "lines": 1
+    }
+  },
+  "sounds": {
+    "hit": "thud"
+  },
+  "beat_defaults": {
+    "hit": 0.1,
+    "rise": 1.0
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "end_cta",
+  "description": "The closing call to action over the end card: a large button with what to do, and under it the business's handle and phone, each on its own line; the button is tapped. Placed by the code; never by a planner.",
+  "props": {},
+  "required": [],
+  "zones": [
+    "FULL"
+  ],
+  "min_seconds": 1.5,
+  "max_seconds": 3.0,
+  "sfx": "click",
+  "layout": null,
+  "placement": "auto",
+  "layer": "front",
+  "box": [
+    140,
+    1000,
+    940,
+    1440
+  ],
+  "tap": {
+    "radius": 42,
+    "text_inset": 72
+  },
+  "texts": {
+    "cta_button_text": {
+      "selector": ".l1",
+      "px": 64,
+      "min_px": 44,
+      "width": 656,
+      "lines": 1
+    },
+    "end_contact_lines": {
+      "selector": ".l2",
+      "px": 46,
+      "min_px": 32,
+      "width": 800,
+      "lines": 3
+    }
+  },
+  "example": {}
+}

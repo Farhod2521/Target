@@ -1,0 +1,6 @@
+.w{position:absolute;left:140px;right:140px;top:1000px;display:flex;flex-direction:column;align-items:center;gap:18px}
+.b{position:relative;max-width:800px;padding:30px 72px;border-radius:64px;background:var(--accent);color:var(--on-accent);font-weight:800;box-shadow:0 14px 40px rgba(0,0,0,.35);margin-bottom:14px}
+.l1{display:block;font-size:64px;line-height:1.1;white-space:nowrap}
+.l2{font-size:46px;font-weight:800;color:var(--on-primary);line-height:1.2;white-space:nowrap}
+.tap{position:absolute;right:-42px;top:50%;width:84px;height:84px;margin-top:-42px;border-radius:50%;background:rgba(255,255,255,.85);opacity:0}
+.cur{position:absolute;right:-70px;top:62%;width:80px;height:80px;opacity:0}

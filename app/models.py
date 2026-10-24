@@ -1,0 +1,22 @@
+"""Every table, imported once for the mapper and Alembic."""
+
+from app.modules.accounts import models as accounts  # noqa: F401
+from app.modules.ads import models as ads  # noqa: F401
+from app.modules.agent import models as agent  # noqa: F401
+from app.modules.audit import models as audit  # noqa: F401
+from app.modules.backoffice import models as backoffice  # noqa: F401
+from app.modules.billing import models as billing  # noqa: F401
+from app.modules.businesses import models as businesses  # noqa: F401
+from app.modules.chat import models as chat  # noqa: F401
+from app.modules.content_studio import models as content_studio  # noqa: F401
+from app.modules.crm import models as crm  # noqa: F401
+from app.modules.destinations import models as destinations  # noqa: F401
+from app.modules.integrations import models as integrations  # noqa: F401
+from app.modules.leads import models as leads  # noqa: F401
+from app.modules.metrics import models as metrics  # noqa: F401
+from app.modules.notifications import models as notifications  # noqa: F401
+from app.modules.public import models as public  # noqa: F401
+from app.modules.referrals import models as referrals  # noqa: F401
+from app.modules.sales import models as sales  # noqa: F401
+from app.modules.supportchat import models as supportchat  # noqa: F401
+from app.modules.surveys import models as surveys  # noqa: F401

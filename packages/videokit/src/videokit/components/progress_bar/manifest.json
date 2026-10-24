@@ -1,0 +1,17 @@
+{
+  "name": "progress_bar",
+  "description": "A thin line in the brand's accent along the very bottom edge that fills from left to right until the closing screen. Placed by the code under every video; never by a planner.",
+  "props": {},
+  "required": [],
+  "zones": [
+    "EDGE"
+  ],
+  "min_seconds": 1.0,
+  "max_seconds": 600.0,
+  "sfx": "",
+  "layout": null,
+  "placement": "auto",
+  "layer": "decor",
+  "lettering": false,
+  "example": {}
+}

@@ -1,0 +1,69 @@
+{
+  "name": "chips_list",
+  "description": "A panel over the top half of the screen while the speaker moves to the bottom half: a short title and two to four chips, one under another, that pop in one by one. For a list the speaker is going through - benefits, what is included, reasons to choose them. The last chip is highlighted.",
+  "props": {
+    "title": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 28,
+      "description": "Panel title, at most 28 characters, e.g. 'Nega aynan biz?'."
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 22
+      },
+      "minItems": 2,
+      "maxItems": 4,
+      "description": "Two to four chips, each at most 22 characters, in the order they are said."
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "zones": [
+    "TOP_PANEL"
+  ],
+  "min_seconds": 2.5,
+  "max_seconds": 7.0,
+  "sfx": "pop",
+  "layout": "split_top",
+  "placement": "planner",
+  "layer": "front",
+  "example": {
+    "title": "Nega aynan biz?",
+    "items": [
+      "Tez yetkazish",
+      "Kafolat 1 yil",
+      "Toshkent boʻylab"
+    ]
+  },
+  "box": [
+    72,
+    240,
+    940,
+    960
+  ],
+  "texts": {
+    "title": {
+      "selector": ".h",
+      "px": 88,
+      "min_px": 64,
+      "width": 868,
+      "lines": 2,
+      "spacing": -1
+    },
+    "items": {
+      "selector": ".chip",
+      "px": 56,
+      "min_px": 36,
+      "width": 786,
+      "lines": 1
+    }
+  },
+  "beats": {
+    "items": "Each chip pops in on the word that names it, in order."
+  }
+}

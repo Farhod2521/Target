@@ -1,0 +1,100 @@
+{
+  "name": "price_tag",
+  "description": "An offer: the old price is struck through, the new price slams down big in the brand's colour, and a round badge with the discount pops beside it. Only when the price - and the old price, if shown - was said in the video or written in the brief, word for word; never a price you worked out or guessed.",
+  "props": {
+    "price": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 14,
+      "description": "The price now, as said, e.g. '99 000 soʻm', '$49'."
+    },
+    "old": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 14,
+      "description": "Optional: the price before, as said; it is struck through."
+    },
+    "badge": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 6,
+      "description": "Optional: the discount as said, e.g. '-20%'."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 22,
+      "description": "Optional: a short line over it, e.g. 'Faqat bugun'. Written in capitals by the code."
+    }
+  },
+  "required": [
+    "price"
+  ],
+  "zones": [
+    "TOP_TITLE"
+  ],
+  "min_seconds": 2.5,
+  "max_seconds": 5.0,
+  "sfx": "pop",
+  "layout": null,
+  "placement": "planner",
+  "layer": "front",
+  "caps": [
+    "label"
+  ],
+  "beats": {
+    "strike": "The word the old price is struck through on.",
+    "slam": "The word the new price slams down on - the price itself."
+  },
+  "example": {
+    "price": "99 000 soʻm",
+    "old": "129 000 soʻm",
+    "badge": "-23%",
+    "label": "Faqat bugun"
+  },
+  "box": [
+    64,
+    20,
+    940,
+    440
+  ],
+  "texts": {
+    "label": {
+      "selector": ".lb",
+      "px": 40,
+      "min_px": 30,
+      "width": 760,
+      "lines": 1,
+      "spacing": 4
+    },
+    "old": {
+      "selector": ".od",
+      "px": 64,
+      "min_px": 44,
+      "width": 700,
+      "lines": 1
+    },
+    "price": {
+      "selector": ".nw",
+      "px": 120,
+      "min_px": 72,
+      "width": 540,
+      "lines": 1,
+      "spacing": -2
+    },
+    "badge": {
+      "selector": ".bd",
+      "px": 44,
+      "min_px": 32,
+      "width": 130,
+      "lines": 1
+    }
+  },
+  "sounds": {
+    "slam": "thud"
+  },
+  "beat_defaults": {
+    "strike": 0.6,
+    "slam": 1.05
+  }
+}

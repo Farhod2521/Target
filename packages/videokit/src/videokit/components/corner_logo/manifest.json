@@ -1,0 +1,41 @@
+{
+  "name": "corner_logo",
+  "description": "The logo, small, in the top left-hand corner while nothing else is up there, with a soft shadow that keeps its edge over whatever the footage passes behind it (a logo of several colours brings its own plate). Placed by the code from the brand's own setting; never by a planner.",
+  "props": {
+    "on_dark": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1,
+      "description": "Set when the footage behind the corner is dark: the copy made for dark backgrounds is drawn."
+    },
+    "on_light": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1,
+      "description": "Set when the footage behind the corner is light."
+    }
+  },
+  "required": [],
+  "zones": [
+    "CORNER"
+  ],
+  "min_seconds": 1.0,
+  "max_seconds": 600.0,
+  "sfx": "",
+  "layout": null,
+  "placement": "auto",
+  "layer": "front",
+  "shows_brand": [
+    "logo"
+  ],
+  "lettering": false,
+  "example": {
+    "on_dark": "1"
+  },
+  "box": [
+    48,
+    15,
+    268,
+    125
+  ]
+}
