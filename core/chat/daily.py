@@ -25,6 +25,7 @@ CAUSE_EN: Final[dict[str, str]] = {
     "worn_out": "the same people have seen it too often and have stopped clicking",
     "weak_creative": "people are shown the advert and hardly any of them click it",
     "costly_audience": "reaching this audience costs more than the account's usual",
+    "not_delivering": "it spends well under its daily budget: it is hardly being shown",
     "promise_mismatch": (
         "people click it, and the platform rates the advert's quality low"
     ),
@@ -168,6 +169,7 @@ class DailyReport:
     final: bool = True
     page: str = ""
     page_id: str = ""
+    pair: str = ""
     campaigns: tuple[DayCampaign, ...] = ()
     spenders: int = 0
     rest: str = ""

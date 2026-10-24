@@ -9,6 +9,7 @@ from adskit import ProviderName
 from core.agent.ad_facts import AdFacts, LibraryImage
 from core.agent.contracts import Policy, ProviderAdvice
 from core.agent.funnel import Funnel, Landing
+from core.agent.usual import Usual
 from core.metrics import Outcome, SegmentComparison, SegmentFigures, Totals
 
 _ACTIVE = "active"
@@ -36,6 +37,19 @@ class Half:
     def link_ctr_bp(self) -> int | None:
         """This half's link click-through rate, in ten-thousandths."""
         return ctr_bp(clicks=self.link_clicks, impressions=self.impressions)
+
+
+@dataclass(frozen=True, slots=True)
+class Recent:
+    """A group's last few finished days, for the trends a week hides."""
+
+    days: int = 0
+    totals: Totals = field(default_factory=Totals)
+    link_clicks: int = 0
+
+    @property
+    def link_ctr_bp(self) -> int | None:
+        return ctr_bp(clicks=self.link_clicks, impressions=self.totals.impressions)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +82,9 @@ class AdSetFacts:
     funnel: Funnel = field(default_factory=Funnel)
     landing: Landing = field(default_factory=Landing)
     slices: Mapping[str, tuple[SegmentFigures, ...]] = field(default_factory=dict)
+    recent: Recent = field(default_factory=Recent)
+    launch_ctr_bp: int | None = None
+    junk_leads: int = 0
 
     @property
     def budgeted_minor(self) -> int:
@@ -96,6 +113,7 @@ class AccountFacts:
     adsets: tuple[AdSetFacts, ...] = ()
     lead_totals: Totals = field(default_factory=Totals)
     library: tuple[LibraryImage, ...] = ()
+    usual: Mapping[str, Usual] = field(default_factory=dict)
 
     def in_campaign(self, campaign_external_id: str) -> tuple[AdSetFacts, ...]:
         """Every ad set under one campaign, whatever its state."""
@@ -143,6 +161,7 @@ __all__ = [
     "AdSetFacts",
     "Half",
     "LibraryImage",
+    "Recent",
     "ctr_bp",
     "judgeable",
     "switched_off",

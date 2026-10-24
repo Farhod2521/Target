@@ -18,6 +18,7 @@ class EngagementFigures:
     inline_link_clicks: int = 0
     outbound_clicks: int = 0
     video_plays: int = 0
+    video_views_3s: int = 0
     video_thruplays: int = 0
     video_p100: int = 0
     spend_minor: MinorUnits = MinorUnits(0)  # noqa: RUF009 - NewType, not a call
@@ -45,13 +46,13 @@ def click_quality(figures: EngagementFigures) -> int:
 
 
 def hook_rate(figures: EngagementFigures) -> int:
-    """What share of the people shown the video started watching it."""
-    return share(part=figures.video_plays, whole=figures.impressions)
+    """What share of the people shown the video watched three seconds of it."""
+    return share(part=figures.video_views_3s, whole=figures.impressions)
 
 
 def hold_rate(figures: EngagementFigures) -> int:
-    """What share of the people who started the video stayed to the end."""
-    return share(part=figures.video_thruplays, whole=figures.video_plays)
+    """What share of the people past the first three seconds stayed to the end."""
+    return share(part=figures.video_thruplays, whole=figures.video_views_3s)
 
 
 def completion_rate(figures: EngagementFigures) -> int:

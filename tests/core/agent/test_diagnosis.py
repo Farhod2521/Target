@@ -9,9 +9,19 @@ from typing import Any
 
 from adskit import ProviderName
 
-from core.agent import AccountFacts, AdFacts, AdSetFacts, Funnel, Half, Landing, Policy
+from core.agent import (
+    AccountFacts,
+    AdFacts,
+    AdSetFacts,
+    Funnel,
+    Half,
+    Landing,
+    Policy,
+    Recent,
+)
 from core.agent.diagnosis import CAUSE_OF, CAUSES, Diagnosis, diagnose
 from core.agent.signals import SIGNALS
+from core.agent.usual import Usual
 from core.metrics import SegmentFigures, Totals
 
 META = ProviderName("meta")
@@ -124,9 +134,18 @@ def test_a_page_that_does_not_open_comes_before_the_advert() -> None:
 
 
 def test_a_learning_group_is_too_early_even_with_no_leads() -> None:
-    found = verdict(group(is_learning=True, leads=0))
+    found = verdict(group(is_learning=True, leads=0, days_with_spend=4))
 
     assert found.cause == "too_early"
+
+
+def test_a_week_of_learning_far_short_of_fifty_results_is_stuck() -> None:
+    """Waiting will not finish it: the advice is a wider audience, a bigger
+    budget or fewer groups, not patience."""
+    found = verdict(group(is_learning=True, leads=3, days_with_spend=7))
+
+    assert found.cause == "learning_limited"
+    assert "learning_stuck" in found.signals
 
 
 def test_under_the_providers_own_floor_is_too_early() -> None:
@@ -402,3 +421,79 @@ def test_showings_are_priced_by_the_thousand() -> None:
 def test_every_signal_points_at_a_cause_in_funnel_order() -> None:
     assert list(CAUSE_OF) == list(SIGNALS)
     assert {*CAUSE_OF.values(), "no_problem", "unclear"} == set(CAUSES)
+
+
+# --- delivery ---------------------------------------------------------------
+def test_a_group_that_cannot_spend_its_budget_is_not_being_shown() -> None:
+    """Checked before the advert: a group shown to a trickle has rates read
+    off a trickle. A third of a 100 000 budget over the week, and dear."""
+    found = verdict(group(daily_budget_minor=100_000, spend=230_000, leads=5))
+
+    assert found.cause == "not_delivering"
+    assert found.evidence["spend_share"] == 33
+
+
+def test_spending_most_of_the_budget_is_not_under_delivery() -> None:
+    found = verdict(group(daily_budget_minor=45_000, spend=300_000))
+
+    assert "underspending" not in found.signals
+
+
+# --- trends -----------------------------------------------------------------
+def test_an_advert_clicked_far_less_than_when_it_was_new_is_tired() -> None:
+    """Two percent in its first three days, under one in its last three."""
+    tired = group(
+        leads=10,
+        launch_ctr_bp=200,
+        recent=Recent(days=3, totals=Totals(impressions=20_000), link_clicks=150),
+    )
+
+    found = verdict(tired)
+
+    assert "fatigued" in found.signals
+    assert (found.evidence["launch_ctr_bp"], found.evidence["recent_ctr_bp"]) == (
+        200,
+        75,
+    )
+
+
+def test_a_price_twice_the_usual_these_three_days_is_a_problem_already() -> None:
+    """The week still reads like the account; the last three days do not."""
+    climbing = group(
+        recent=Recent(
+            days=3,
+            totals=Totals(spend_minor=120_000, impressions=30_000, leads=3),
+            link_clicks=300,
+        )
+    )
+    account = AccountFacts(
+        provider=META,
+        currency="USD",
+        window_days=7,
+        totals=Totals(),
+        adsets=(climbing, steady()),
+        usual={"lead": Usual(days=14, cost_minor=15_000)},
+    )
+
+    [found] = [
+        item
+        for item in diagnose(account=account, policy=POLICY)
+        if item.adset_id == climbing.external_id
+    ]
+
+    assert found.evidence["cost_trend_pct"] == 267
+    assert found.cause != "no_problem"
+
+
+# --- numbers nobody can call --------------------------------------------------
+def test_a_tenth_of_the_enquiries_with_bad_numbers_is_the_form() -> None:
+    """Cheap on paper: thirty enquiries at the usual price, but six of them
+    cannot be called back, so the price is not what it looks like."""
+    found = verdict(group(junk_leads=6))
+
+    assert found.cause == "landing_blocks"
+    assert "junk_numbers" in found.signals
+
+
+def test_a_few_bad_numbers_are_ordinary() -> None:
+    assert "junk_numbers" not in verdict(group(junk_leads=2)).signals

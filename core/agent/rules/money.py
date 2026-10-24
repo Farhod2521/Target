@@ -49,6 +49,8 @@ def _priced(item: AdSetFacts, *, account: AccountFacts) -> _Priced | None:
     else:
         usual = peers(account.adsets, item).cost_minor
         count = result_count(item)
+    if usual is None and (own := account.usual.get(family)) is not None:
+        usual = own.cost_minor
     if usual is None or count is None:
         return None
     return _Priced(family=family, count=count, usual=int(usual), per=per_of(family))

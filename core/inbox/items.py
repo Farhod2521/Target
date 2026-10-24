@@ -32,6 +32,7 @@ ItemKind = Literal[
     "unheard_page",
     "burn",
     "watch",
+    "frequency",
     "meta_hold",
     "account_blocked",
     "support",

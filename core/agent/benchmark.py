@@ -1,7 +1,7 @@
 """What an account's comparable groups do at every step, summed."""
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Final
 
 from adskit import MinorUnits
@@ -9,6 +9,7 @@ from adskit import MinorUnits
 from core.agent.contracts import Policy
 from core.agent.facts import AdSetFacts
 from core.agent.funnel import Funnel, per_ten_thousand
+from core.agent.usual import Usual
 from core.metrics import Outcome, Totals, cost_per
 
 PER: Final[Mapping[str, int]] = {"view": 1_000}
@@ -62,13 +63,19 @@ class Benchmark:
     funnel: Funnel = field(default_factory=Funnel)
     video_impressions: int = 0
     video_views_3s: int = 0
+    video_thruplays: int = 0
     leads: int = 0
     family: str = "lead"
     results: int = 0
+    usual_cost_minor: int | None = None
 
     @property
     def hook_bp(self) -> int | None:
         return per_ten_thousand(part=self.video_views_3s, whole=self.video_impressions)
+
+    @property
+    def hold_bp(self) -> int | None:
+        return per_ten_thousand(part=self.video_thruplays, whole=self.video_views_3s)
 
     @property
     def click_to_lead_bp(self) -> int | None:
@@ -84,10 +91,11 @@ class Benchmark:
     def cost_minor(self) -> int | None:
         """What one of the family's results usually costs on this account."""
         if self.funnel.spend_minor <= 0:
-            return None
-        return result_cost(
+            return self.usual_cost_minor
+        found = result_cost(
             spend_minor=self.funnel.spend_minor, count=self.results, family=self.family
         )
+        return found if found is not None else self.usual_cost_minor
 
 
 def lead_count(item: AdSetFacts) -> int:
@@ -116,9 +124,11 @@ def benchmark(adsets: Iterable[AdSetFacts], *, family: str = "lead") -> Benchmar
             landing_page_views=sum(item.funnel.landing_page_views for item in shown),
             video_plays=sum(item.funnel.video_plays for item in shown),
             video_views_3s=sum(item.funnel.video_views_3s for item in shown),
+            video_thruplays=sum(item.funnel.video_thruplays for item in shown),
         ),
         video_impressions=sum(item.funnel.impressions for item in videos),
         video_views_3s=sum(item.funnel.video_views_3s for item in videos),
+        video_thruplays=sum(item.funnel.video_thruplays for item in videos),
         leads=leads,
         family=family,
         results=(
@@ -140,13 +150,21 @@ def benchmarks(adsets: Iterable[AdSetFacts]) -> dict[str, Benchmark]:
     }
 
 
-def peers(adsets: Iterable[AdSetFacts], item: AdSetFacts) -> Benchmark:
+def peers(
+    adsets: Iterable[AdSetFacts],
+    item: AdSetFacts,
+    usual: Mapping[str, Usual] | None = None,
+) -> Benchmark:
     """The benchmark of this group's kind, without this group in it."""
     family = family_of(item)
-    return benchmark(
+    found = benchmark(
         (other for other in adsets if other is not item and family_of(other) == family),
         family=family,
     )
+    own = (usual or {}).get(family)
+    if own is None or own.cost_minor is None:
+        return found
+    return replace(found, usual_cost_minor=own.cost_minor)
 
 
 def peers_lead_cost(totals: Totals, item: AdSetFacts) -> MinorUnits | None:

@@ -72,6 +72,7 @@ class WeeklyReport:
     currency: str = ""
     page: str = ""
     page_id: str = ""
+    pair: str = ""
     headline: str = ""
     elsewhere: str = ""
     other_currency: tuple[str, ...] = ()

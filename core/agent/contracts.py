@@ -28,6 +28,7 @@ class Policy:
     """The thresholds one owner's decisions are made against."""
 
     window_days: int = 7
+    usual_days: int = 14
     min_days: int = 3
     cooldown_hours: int = 48
     test_hours: int = 72

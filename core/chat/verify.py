@@ -18,7 +18,7 @@ _APOSTROPHE: Final = "['\u02bb\u2019`]"
 _LETTER: Final = rf"(?:[^\W\d_]|{_APOSTROPHE})"
 
 _RUSSIAN: Final = (
-    "сум|сўм|руб|долл|евро|"  # noqa: RUF001 - Russian, not look-alikes
+    "сум|сўм|руб|долл|евро|"
     "заяв|лид|диалог|звон|клик|переход|показ|процент"
 )
 

@@ -1,4 +1,4 @@
-# ruff: noqa: RUF001 - place names in Cyrillic, spelt as people write them.
+
 """Which of Uzbekistan's fourteen regions a place name belongs to."""
 
 import re

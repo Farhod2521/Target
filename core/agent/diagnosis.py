@@ -6,9 +6,11 @@ from typing import Any, Final, Literal, get_args
 
 from core.agent.benchmark import (
     Benchmark,
+    count_in,
     family_of,
     lead_count,
     peers,
+    per_of,
     result_cost,
     result_count,
     results_are_poor,
@@ -23,6 +25,7 @@ from core.agent.signals import (
     leading_ads,
     signals,
 )
+from core.agent.usual import TREND_ACT_PCT, cost_trend
 
 Cause = Literal[
     "provider_stopped",
@@ -31,6 +34,7 @@ Cause = Literal[
     "worn_out",
     "weak_creative",
     "costly_audience",
+    "not_delivering",
     "promise_mismatch",
     "learning_limited",
     "no_problem",
@@ -41,18 +45,23 @@ CAUSES: Final[tuple[Cause, ...]] = get_args(Cause)
 CAUSE_OF: Final[Mapping[Signal, Cause]] = {
     "provider_issue": "provider_stopped",
     "site_down": "landing_blocks",
+    "learning_stuck": "learning_limited",
     "learning": "too_early",
     "few_days": "too_early",
     "few_impressions": "too_early",
+    "underspending": "not_delivering",
     "worn_out": "worn_out",
+    "fatigued": "worn_out",
     "low_ranking": "weak_creative",
     "low_ctr": "weak_creative",
     "weak_hook": "weak_creative",
+    "weak_hold": "weak_creative",
     "high_cpm": "costly_audience",
     "quality_below_engagement": "promise_mismatch",
     "low_click_to_lead": "landing_blocks",
     "low_arrival": "landing_blocks",
     "conversion_ranking_low": "landing_blocks",
+    "junk_numbers": "landing_blocks",
     "long_form": "landing_blocks",
     "learning_limited": "learning_limited",
 }
@@ -79,7 +88,7 @@ def diagnose(*, account: AccountFacts, policy: Policy) -> tuple[Diagnosis, ...]:
         _diagnosis(
             account=account,
             item=item,
-            bench=peers(account.adsets, item),
+            bench=peers(account.adsets, item, account.usual),
             policy=policy,
         )
         for item in account.adsets
@@ -91,13 +100,22 @@ def _diagnosis(
     *, account: AccountFacts, item: AdSetFacts, bench: Benchmark, policy: Policy
 ) -> Diagnosis:
     found = signals(item=item, bench=bench, policy=policy)
+    trend = _trend(item=item, account=account)
+    rising = trend.get("cost_trend_pct") or 0
     return Diagnosis(
         adset_id=item.external_id,
         name=item.name,
-        cause=_cause(item=item, found=found, bench=bench, policy=policy),
+        cause=_cause(
+            item=item,
+            found=found,
+            bench=bench,
+            policy=policy,
+            rising=rising >= TREND_ACT_PCT or "junk_numbers" in found,
+        ),
         signals=found,
         evidence={
             **_figures(item=item, bench=bench),
+            **trend,
             **_context(item=item, policy=policy),
             "currency": account.currency,
         },
@@ -105,14 +123,47 @@ def _diagnosis(
 
 
 def _cause(
-    *, item: AdSetFacts, found: tuple[Signal, ...], bench: Benchmark, policy: Policy
+    *,
+    item: AdSetFacts,
+    found: tuple[Signal, ...],
+    bench: Benchmark,
+    policy: Policy,
+    rising: bool,
 ) -> Cause:
+    """The first signal's cause, once the results say there is a problem."""
     pointed = CAUSE_OF[found[0]] if found else None
     if found and found[0] in FACTS:
         return CAUSE_OF[found[0]]
-    if not results_are_poor(item=item, bench=bench, policy=policy):
+    if not rising and not results_are_poor(item=item, bench=bench, policy=policy):
         return "no_problem"
     return pointed or "unclear"
+
+
+def _trend(*, item: AdSetFacts, account: AccountFacts) -> dict[str, Any]:
+    """The last three days' price against the pair's usual, and the click
+    rate's against the advert's first days."""
+    family = family_of(item)
+    usual = account.usual.get(family)
+    recent = item.recent
+    count = count_in(
+        totals=recent.totals, link_clicks=recent.link_clicks, family=family
+    )
+    per = per_of(family)
+    usual_cost = usual.cost_minor if usual is not None else None
+    return {
+        "usual_cost_minor": usual_cost,
+        "recent_cost_minor": result_cost(
+            spend_minor=recent.totals.spend_minor, count=count, family=family
+        ),
+        "cost_trend_pct": cost_trend(
+            spend_minor=recent.totals.spend_minor,
+            count=count,
+            usual_cost_minor=usual_cost,
+            per=per,
+        ),
+        "launch_ctr_bp": item.launch_ctr_bp,
+        "recent_ctr_bp": recent.link_ctr_bp,
+    }
 
 
 def _figures(*, item: AdSetFacts, bench: Benchmark) -> dict[str, Any]:
@@ -140,12 +191,16 @@ def _figures(*, item: AdSetFacts, bench: Benchmark) -> dict[str, Any]:
         "account_link_ctr_bp": bench.funnel.link_ctr_bp,
         "hook_bp": own.hook_bp,
         "account_hook_bp": bench.hook_bp,
+        "hold_bp": own.hold_bp,
+        "account_hold_bp": bench.hold_bp,
         "click_to_lead_bp": per_ten_thousand(part=leads, whole=own.link_clicks),
         "account_click_to_lead_bp": bench.click_to_lead_bp,
         "cpl_minor": round(own.spend_minor / leads) if leads else None,
         "account_cpl_minor": bench.cpl_minor,
         "early_ctr_bp": item.early.link_ctr_bp,
         "late_ctr_bp": item.late.link_ctr_bp,
+        "spend_share": item.spend_share if item.daily_budget_minor else None,
+        "junk_leads": item.junk_leads,
         "early_frequency": item.early.frequency,
         "late_frequency": item.late.frequency,
     }

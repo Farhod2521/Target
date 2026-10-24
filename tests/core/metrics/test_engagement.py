@@ -48,7 +48,11 @@ def test_the_video_ratios_read_the_shape_of_the_drop_off() -> None:
     """An ad that loses everybody at the start has a different problem from
     one that loses them at the end, and one ratio cannot say which."""
     figures = EngagementFigures(
-        impressions=10_000, video_plays=2_000, video_thruplays=500, video_p100=200
+        impressions=10_000,
+        video_plays=4_000,
+        video_views_3s=2_000,
+        video_thruplays=500,
+        video_p100=400,
     )
 
     assert hook_rate(figures) == 20

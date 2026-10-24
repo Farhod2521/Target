@@ -20,6 +20,7 @@ class Funnel:
     landing_page_views: int = 0
     video_plays: int = 0
     video_views_3s: int = 0
+    video_thruplays: int = 0
 
     @property
     def cpm_minor(self) -> int | None:
@@ -39,6 +40,13 @@ class Funnel:
         if self.video_plays <= 0:
             return None
         return per_ten_thousand(part=self.video_views_3s, whole=self.impressions)
+
+    @property
+    def hold_bp(self) -> int | None:
+        """ThruPlays per ten thousand three-second views, on a video only."""
+        if self.video_plays <= 0:
+            return None
+        return per_ten_thousand(part=self.video_thruplays, whole=self.video_views_3s)
 
     @property
     def arrival_bp(self) -> int | None:

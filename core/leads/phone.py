@@ -22,6 +22,19 @@ def to_e164(*, raw: str, region: str = "") -> str:
     return phonenumbers.format_number(parsed, _VALID[0])
 
 
+def is_home_number(*, e164: str, regions: frozenset[str]) -> bool:
+    """Whether a stored number belongs to one of the business's countries."""
+    if not e164:
+        return False
+    if not regions:
+        return True
+    try:
+        parsed = phonenumbers.parse(e164, None)
+    except phonenumbers.NumberParseException:
+        return False
+    return (phonenumbers.region_code_for_number(parsed) or "") in regions
+
+
 def for_display(e164: str) -> str:
     """``"+998712223344"`` as people write it: ``"+998 71 222 33 44"``."""
     try:
@@ -71,4 +84,10 @@ def example_international(region: str) -> str:
     )
 
 
-__all__ = ["dial_code", "example_international", "example_national", "to_e164"]
+__all__ = [
+    "dial_code",
+    "example_international",
+    "example_national",
+    "is_home_number",
+    "to_e164",
+]
