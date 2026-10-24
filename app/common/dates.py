@@ -120,3 +120,10 @@ def date_format(value: date | datetime, fmt: str = "j F Y") -> str:
         else:
             out.append(char)
     return "".join(out)
+
+
+def number_format(value, *, decimal_pos: int = 0) -> str:  # type: ignore[no-untyped-def]
+    """django.utils.formats.number_format, which ported code imports from here."""
+    from app.common.money import number_format as formatted
+
+    return formatted(value, decimal_pos=decimal_pos)

@@ -1,5 +1,6 @@
 """The cabinet's numbers: the dashboard figures, refreshing them, the cards."""
 
+import uuid
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -243,3 +244,169 @@ def cards_save(body: CardsIn, db: Db, user: CurrentUser) -> dict[str, Any]:
     chosen = save_cards(db, owner=user, keys=body.cards)
     db.commit()
     return {"message": "Saqlandi.", "chosen": list(chosen)}
+
+
+# -- one campaign's figures ----------------------------------------------------------
+
+
+def _campaign(db: Session, user: User, campaign_id: Any) -> Any:
+    from fastapi import HTTPException, status
+
+    from app.modules.ads.selectors import listed_campaign
+
+    campaign = listed_campaign(db, owner=user, campaign_id=campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return campaign
+
+
+def _range_of(
+    db: Session,
+    user: User,
+    *,
+    account: Any,
+    period: str | None,
+    start: date | None,
+    end: date | None,
+) -> Range:
+    from app.modules.metrics.selectors.dashboard import cabinet_today
+
+    today = cabinet_today(db, owner=user, account=account)
+    return resolve_range(period=period or "", start=start, end=end, today=today)
+
+
+@router.get("/campaigns/{campaign_id}/figures")
+def campaign_panel(campaign_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
+    from app.modules.metrics.selectors.campaign_panel import campaign_panel as panel
+
+    campaign = _campaign(db, user, campaign_id)
+    return {
+        "campaign": {"id": str(campaign.id), "name": campaign.name},
+        "panel": jsonable_encoder(panel(db, owner=user, campaign=campaign)),
+    }
+
+
+@router.get("/campaigns/{campaign_id}/creatives")
+def campaign_creatives(
+    campaign_id: uuid.UUID, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    from app.modules.metrics.selectors.creative_report import creative_report
+
+    campaign = _campaign(db, user, campaign_id)
+    report = creative_report(db, owner=user, campaign=campaign)
+    return {
+        "campaign": {"id": str(campaign.id), "name": campaign.name},
+        "report": jsonable_encoder(report),
+        "result_heading": report.result_heading,
+        "is_alone": report.is_alone,
+        "has_cards": report.has_cards,
+    }
+
+
+@router.get("/campaigns/figures")
+def campaign_chips(
+    db: Db,
+    user: CurrentUser,
+    period: str | None = None,
+    start: date | None = None,
+    end: date | None = None,
+    source: str = "",
+) -> dict[str, Any]:
+    from app.modules.ads.selectors import campaigns_for, page_advertising
+    from app.modules.metrics.constants import Source
+    from app.modules.metrics.selectors.panel import campaign_chips as chips
+    from app.modules.metrics.selectors.panel import spend_total
+
+    advertising = page_advertising(db, owner=user)
+    account = advertising.home
+    campaigns = campaigns_for(db, owner=user, external_ids=advertising.campaign_ids)
+    chosen = _range_of(db, user, account=account, period=period, start=start, end=end)
+    currency = account.currency if account is not None else ""
+    ours = [row for row in campaigns if row.external_id in advertising.here]
+    theirs = [row for row in campaigns if row.external_id not in advertising.here]
+    counted = (
+        ours
+        if source == Source.HERE
+        else theirs
+        if source == Source.ELSEWHERE
+        else campaigns
+    )
+    return {
+        "rows": jsonable_encoder(
+            chips(
+                db, owner=user, campaigns=campaigns, date_range=chosen, account=account
+            )
+        ),
+        "spend_total_minor": spend_total(
+            db, owner=user, campaigns=counted, date_range=chosen, currency=currency
+        ),
+        "spend_currency": currency,
+    }
+
+
+@router.get("/ads/figures")
+def ad_chips(
+    db: Db,
+    user: CurrentUser,
+    campaign: uuid.UUID,
+    period: str | None = None,
+    start: date | None = None,
+    end: date | None = None,
+) -> dict[str, Any]:
+    from app.modules.metrics.selectors.panel import ad_chips as chips
+    from app.modules.metrics.selectors.panel import group_chips
+
+    row = _campaign(db, user, campaign)
+    chosen = _range_of(
+        db, user, account=row.ad_account, period=period, start=start, end=end
+    )
+    return {
+        "rows": jsonable_encoder(
+            chips(db, owner=user, campaign=row, date_range=chosen)
+        ),
+        "groups": jsonable_encoder(
+            group_chips(
+                db,
+                owner=user,
+                adsets=list(row.adsets),
+                date_range=chosen,
+                tzinfo=row.ad_account.tzinfo(),
+            )
+        ),
+    }
+
+
+@router.post("/campaigns/{campaign_id}/today")
+def campaign_today_start(
+    campaign_id: uuid.UUID, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    from app.modules.metrics.services import refresh_account_on_open
+
+    campaign = _campaign(db, user, campaign_id)
+    account = campaign.ad_account
+    queued = account is not None and refresh_account_on_open(
+        db, user=user, account=account
+    )
+    db.commit()
+    return {
+        "tries": 1 if queued else None,
+        "poll_seconds": SYNC_POLL_SECONDS,
+        "landed": False,
+    }
+
+
+@router.get("/campaigns/{campaign_id}/today")
+def campaign_today_poll(
+    campaign_id: uuid.UUID, db: Db, user: CurrentUser, tries: int = Query(0, ge=0)
+) -> dict[str, Any]:
+    from app.modules.ads.selectors import today_in_flight
+
+    campaign = _campaign(db, user, campaign_id)
+    account = campaign.ad_account
+    if account is not None and today_in_flight(ad_account_ids=[str(account.id)]):
+        return {
+            "tries": tries + 1 if tries < MAX_SYNC_POLLS else None,
+            "poll_seconds": SYNC_POLL_SECONDS,
+            "landed": False,
+        }
+    return {"tries": None, "poll_seconds": SYNC_POLL_SECONDS, "landed": True}

@@ -143,3 +143,16 @@ def test_numbers_dashboard_with_figures(client, db: Session) -> None:  # type: i
     assert cards.status_code == 200 and cards.json()["groups"]
     saved = client.post("/api/v1/metrics/cards", headers=headers, json={"cards": ["cpl", "spend"]})
     assert saved.status_code == 200, saved.text
+
+    for path in (
+        "/api/v1/metrics/campaigns/figures?period=7",
+        f"/api/v1/metrics/campaigns/{campaign.id}/figures",
+        f"/api/v1/metrics/campaigns/{campaign.id}/creatives",
+        f"/api/v1/metrics/ads/figures?campaign={campaign.id}&period=30",
+        f"/api/v1/metrics/campaigns/{campaign.id}/today",
+    ):
+        answer = client.get(path, headers=headers)
+        assert answer.status_code == 200, (path, answer.text)
+    chips = client.get("/api/v1/metrics/campaigns/figures?period=7", headers=headers).json()
+    assert chips["spend_total_minor"] == 700
+    assert client.post(f"/api/v1/metrics/campaigns/{campaign.id}/today", headers=headers).status_code == 200
