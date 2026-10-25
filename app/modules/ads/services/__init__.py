@@ -121,6 +121,11 @@ from app.modules.ads.services.removal import (
     request_delete,
     request_lapse_removal,
 )
+from app.modules.ads.services.settings import (
+    SettingsOutcome,
+    change_settings,
+    fetch_preview,
+)
 from app.modules.ads.services.swap import apply_swap, request_swap
 
 __all__ = [
@@ -159,6 +164,7 @@ __all__ = [
     "WRITES",
     "Activation",
     "Origin",
+    "SettingsOutcome",
     "SyncSummary",
     "account_and_token",
     "account_for",
@@ -167,12 +173,14 @@ __all__ = [
     "apply_swap",
     "budget_gate",
     "by_agent",
+    "change_settings",
     "check_adset_allowance",
     "check_campaign_allowance",
     "close_log",
     "creatives_held",
     "drop_empty_campaign",
     "fail_log",
+    "fetch_preview",
     "follow_captions",
     "forms_still_known",
     "goal_lock",

@@ -225,3 +225,32 @@ def resume_after_payment_task(owner_id: str) -> str:
             return "nothing"
         started = resume_after_lapse(db, hold=hold, now=utcnow())
         return "later" if started is None else "resumed"
+
+
+@celery_app.task(queue="agent", ignore_result=True)
+def fetch_preview_task(user_id: str, external_id: str, ad_format: str) -> str:
+    """Ask the provider what one advert looks like and store the answer."""
+    import uuid
+
+    from app.modules.ads.exceptions import (
+        ConnectionUnusable,
+        PreviewUnavailable,
+        UnknownTarget,
+    )
+    from app.modules.ads.services.settings import fetch_preview
+
+    with task_session() as db:
+        try:
+            user = db.get(User, uuid.UUID(str(user_id)))
+        except ValueError:
+            user = None
+        if user is None:
+            return "gone"
+        try:
+            fetch_preview(db, user=user, external_id=external_id, ad_format=ad_format)
+        except ConnectionUnusable:
+            return "unusable"
+        except (PreviewUnavailable, UnknownTarget):
+            return "unavailable"
+        db.commit()
+        return "fetched"

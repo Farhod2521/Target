@@ -1,0 +1,418 @@
+"""Editing what already runs: one advert's words and picture, one campaign's settings, a preview.
+
+Registered on the campaigns router. A save opens changes through the same
+services the switches use, so every guardrail and audit row is the same.
+"""
+
+import uuid
+from dataclasses import asdict
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
+from typing import Any
+
+from fastapi import HTTPException, Query, status
+from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.api.deps import CurrentUser, Db
+from app.common.db import utcnow
+from app.common.money import format_minor, provider_money
+from app.modules.accounts.models import User
+from app.modules.ads import selectors, services
+from app.modules.ads.constants import ManagedLevel
+from app.modules.ads.routers import _target, router
+
+SENT_AD = "Yangi reklama yuborildi. Bir necha soniyada ko'rinadi."
+SENT_SETTINGS = "O'zgarish yuborildi. Bir necha soniyada ko'rinadi."
+HEADLINE_LIMIT = 255
+MESSAGE_LIMIT = 2000
+DEFAULT_ZONE = "Asia/Tashkent"
+
+
+def _ad_forms(db: Session, user: User, ad: Any) -> dict[str, Any] | None:
+    """The form this advert opens now and the page's others, or nothing."""
+    from app.modules.ads.services.swap import form_page
+    from app.modules.leads.selectors import forms_by_external_id, usable_forms
+
+    page = form_page(db, owner=user, ad=ad)
+    if page is None:
+        return None
+    current = forms_by_external_id(
+        db, owner=user, provider=ad.provider, external_ids=[ad.lead_form_external_id]
+    )[ad.lead_form_external_id]
+    choices = usable_forms(db, owner=user, page=page, limit=None)
+    return {
+        "current_id": ad.lead_form_external_id,
+        "current_name": current.name,
+        "options": [
+            {
+                "external_id": row.external_id,
+                "name": row.name,
+                "questions": list(row.questions),
+            }
+            for row in choices.options
+            if row.external_id != ad.lead_form_external_id
+        ],
+    }
+
+
+def _ad_library(db: Session, user: User, ad: Any) -> list[Any]:
+    from app.modules.ads.services.swap import SWAPPABLE_KINDS
+
+    return selectors.media_library(
+        db,
+        owner=user,
+        provider=ad.provider,
+        ad_account=selectors.account_of(target=ad, level=ManagedLevel.AD),
+        kinds=SWAPPABLE_KINDS,
+    )
+
+
+@router.get("/manage/ad/{external_id}/edit")
+def ad_edit(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
+    """What this advert says now, the pictures it may be given, and the forms it may open."""
+    ad = _target(db, user, ManagedLevel.AD, external_id)
+    content = selectors.creative_of(db, owner=user, ad=ad)
+    return jsonable_encoder(
+        {
+            "ad": {
+                "external_id": ad.external_id,
+                "name": ad.name,
+                "delivery": ad.delivery,
+            },
+            "initial": {
+                "message": getattr(content, "message", ""),
+                "headline": getattr(content, "headline", ""),
+                "description": getattr(content, "description", ""),
+            },
+            "thumbnail_url": getattr(content, "thumbnail_url", ""),
+            "can_swap": bool(getattr(content, "story_raw", None)),
+            "library": [selectors.asset_row(row) for row in _ad_library(db, user, ad)],
+            "ad_forms": _ad_forms(db, user, ad),
+            "limits": {"headline": HEADLINE_LIMIT, "message": MESSAGE_LIMIT},
+            "early_hours": selectors.hours_to_wait(
+                db,
+                owner=user,
+                level=ManagedLevel.AD,
+                external_id=ad.external_id,
+                now=utcnow(),
+            ),
+        }
+    )
+
+
+class AdEditIn(BaseModel):
+    message: str = Field(default="", max_length=MESSAGE_LIMIT)
+    headline: str = Field(default="", max_length=HEADLINE_LIMIT)
+    description: str = Field(default="", max_length=HEADLINE_LIMIT)
+    asset_id: str = Field(
+        default="", description="A library row id; empty keeps the picture"
+    )
+    lead_form_id: str = Field(
+        default="", description="A form id from ad_forms.options; empty keeps it"
+    )
+
+
+@router.post("/manage/ad/{external_id}/edit")
+def ad_edit_save(
+    external_id: str, body: AdEditIn, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    """Build the next advert from this one, and switch this one off."""
+    ad = _target(db, user, ManagedLevel.AD, external_id)
+    if not any(
+        word.strip() for word in (body.message, body.headline, body.description)
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Reklama hech bo'lmasa bitta jumla aytishi kerak.",
+        )
+    if body.asset_id and body.asset_id not in {
+        str(row.id) for row in _ad_library(db, user, ad)
+    }:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Bu rasm kutubxonada yo'q."
+        )
+    if body.lead_form_id:
+        offered = _ad_forms(db, user, ad)
+        if offered is None or body.lead_form_id not in {
+            row["external_id"] for row in offered["options"]
+        }:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Bu formani tanlab bo'lmaydi.",
+            )
+    services.request_swap(
+        db,
+        user=user,
+        external_id=ad.external_id,
+        message=body.message,
+        headline=body.headline,
+        description=body.description,
+        asset_id=body.asset_id,
+        lead_form_id=body.lead_form_id,
+    )
+    db.commit()
+    return {"message": SENT_AD, "campaign_id": str(ad.adset.campaign_id)}
+
+
+def _editable(db: Session, user: User, campaign_id: uuid.UUID, group: str) -> Any:
+    campaign = selectors.campaign_detail(db, owner=user, campaign_id=campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Kampaniya topilmadi.")
+    edit = selectors.editable(db, campaign=campaign, group=group)
+    if edit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Guruh topilmadi.")
+    return edit
+
+
+def _major(amount_minor: int | None, places: int) -> str | None:
+    return None if amount_minor is None else str(Decimal(amount_minor).scaleb(-places))
+
+
+def _zone(db: Session, user: User) -> str:
+    from app.modules.businesses.selectors import business_timezone
+
+    return business_timezone(db, owner=user) or DEFAULT_ZONE
+
+
+@router.get("/{campaign_id}/edit")
+def campaign_edit(
+    campaign_id: uuid.UUID, db: Db, user: CurrentUser, group: str = ""
+) -> dict[str, Any]:
+    """Every section this campaign has, and which of them may be changed right now."""
+    from zoneinfo import ZoneInfo
+
+    from core.targeting import MAX_AGE, MAX_RADIUS_KM, MIN_AGE
+    from core.targeting.geo import DISTANCE_UNIT
+
+    edit = _editable(db, user, campaign_id, group)
+    sections: dict[str, Any] = {}
+    if edit.budget is not None:
+        controls = edit.budget.controls
+        places = provider_money(provider=controls.provider).decimal_places(
+            controls.currency
+        )
+        sections["budget"] = {
+            "level": edit.budget.level,
+            "external_id": edit.budget.external_id,
+            "can_change": controls.can_budget,
+            "warns_learning": controls.warns_learning,
+            "currency": controls.currency,
+            "places": places,
+            "current": _major(controls.daily_budget_minor, places),
+            "current_minor": controls.daily_budget_minor,
+            "floor_minor": controls.floor_minor,
+        }
+    if edit.audience is not None:
+        sketch = edit.audience.sketch
+        sections["audience"] = {
+            "external_id": edit.audience.external_id,
+            "can_change": edit.audience.can_change,
+            "is_learning": edit.audience.is_learning,
+            "allows_gender": edit.audience.allows_gender,
+            "age_min": sketch.age_min or MIN_AGE,
+            "age_max": sketch.age_max or MAX_AGE,
+            "age_bounds": [MIN_AGE, MAX_AGE],
+            "genders": {"male": [1], "female": [2]}.get(sketch.genders, []),
+            "offers_radius": sketch.geo == "around"
+            and sketch.radius_unit in ("", DISTANCE_UNIT),
+            "radius_km": sketch.radius,
+            "radius_bounds": [edit.audience.min_radius_km, MAX_RADIUS_KM],
+            "has_interests": bool(sketch.interests),
+        }
+    if edit.limits is not None:
+        limits = edit.limits
+        places = provider_money(provider=str(edit.campaign.provider)).decimal_places(
+            limits.currency
+        )
+        zone = _zone(db, user)
+        today = utcnow().astimezone(ZoneInfo(zone)).date()
+        sections["limits"] = {
+            "can_change": limits.can_change,
+            "offers_end_time": limits.offers_end_time,
+            "offers_spend_cap": limits.offers_spend_cap,
+            "end_date": limits.end_time.date() if limits.end_time else None,
+            "earliest_end_date": today + timedelta(days=1),
+            "spend_cap": _major(limits.spend_cap_minor, places)
+            if limits.spend_cap_minor
+            else None,
+            "currency": limits.currency,
+            "timezone": zone,
+        }
+    target, level = (
+        (edit.group, ManagedLevel.ADSET)
+        if edit.group is not None
+        else (edit.campaign, ManagedLevel.CAMPAIGN)
+    )
+    return jsonable_encoder(
+        {
+            "campaign": {"id": str(edit.campaign.id), "name": edit.campaign.name},
+            "groups": edit.groups,
+            "sections": sections,
+            "early_hours": selectors.hours_to_wait(
+                db,
+                owner=user,
+                level=level,
+                external_id=str(target.external_id),
+                now=utcnow(),
+            ),
+        }
+    )
+
+
+class BudgetSectionIn(BaseModel):
+    daily_budget: Decimal = Field(gt=0)
+
+
+class AudienceSectionIn(BaseModel):
+    age_min: int = Field(ge=13, le=65)
+    age_max: int = Field(ge=13, le=65)
+    genders: list[int] | None = Field(
+        default=None, description="[] for everybody, [1] men, [2] women"
+    )
+    radius_km: int | None = None
+    keep_interests: bool = True
+
+
+class LimitsSectionIn(BaseModel):
+    end_date: date | None = None
+    spend_cap: Decimal | None = Field(default=None, ge=0)
+
+
+class CampaignEditIn(BaseModel):
+    budget: BudgetSectionIn | None = None
+    audience: AudienceSectionIn | None = None
+    limits: LimitsSectionIn | None = None
+
+
+@router.post("/{campaign_id}/edit")
+def campaign_edit_save(
+    campaign_id: uuid.UUID,
+    body: CampaignEditIn,
+    db: Db,
+    user: CurrentUser,
+    group: str = "",
+) -> dict[str, Any]:
+    """Every section checked together, then written one by one; what each became is said."""
+    from zoneinfo import ZoneInfo
+
+    from core.targeting import MAX_RADIUS_KM, AudienceEdit
+
+    edit = _editable(db, user, campaign_id, group)
+    errors: dict[str, str] = {}
+    budget_minor: int | None = None
+    cap_minor: int | None = None
+    end_time: datetime | None = None
+    audience = None
+    if (
+        body.budget is not None
+        and edit.budget is not None
+        and edit.budget.controls.can_budget
+    ):
+        controls = edit.budget.controls
+        money = provider_money(provider=controls.provider)
+        budget_minor = money.to_minor(
+            amount=body.budget.daily_budget, currency=controls.currency
+        )
+        if controls.floor_minor and budget_minor < controls.floor_minor:
+            errors["budget"] = "Kuniga eng kamida %s bo'lishi kerak." % format_minor(
+                amount_minor=controls.floor_minor,
+                currency=controls.currency,
+                places=money.decimal_places(controls.currency),
+            )
+    if (
+        body.audience is not None
+        and edit.audience is not None
+        and edit.audience.can_change
+    ):
+        wanted = body.audience
+        sketch = edit.audience.sketch
+        if wanted.age_min > wanted.age_max:
+            errors["audience"] = "Yosh oralig'i teskari kiritilgan."
+        radius = wanted.radius_km if sketch.geo == "around" else None
+        if radius is not None and not (
+            edit.audience.min_radius_km <= radius <= MAX_RADIUS_KM
+        ):
+            errors["audience"] = "Masofa %s-%s km oralig'ida bo'lishi kerak." % (
+                edit.audience.min_radius_km,
+                MAX_RADIUS_KM,
+            )
+        audience = AudienceEdit(
+            age_min=wanted.age_min,
+            age_max=wanted.age_max,
+            genders=tuple(wanted.genders)
+            if wanted.genders is not None and edit.audience.allows_gender
+            else None,
+            radius_km=radius,
+            keep_interests=wanted.keep_interests if sketch.interests else True,
+        )
+    if body.limits is not None and edit.limits is not None and edit.limits.can_change:
+        zone = ZoneInfo(_zone(db, user))
+        if body.limits.end_date is not None and edit.limits.offers_end_time:
+            if body.limits.end_date <= utcnow().astimezone(zone).date():
+                errors["limits"] = (
+                    "Ertangi kundan boshlab sana tanlang. "
+                    "To'xtatish uchun «To'xtatish» tugmasi bor."
+                )
+            end_time = datetime.combine(
+                body.limits.end_date, time(23, 59, 59), tzinfo=zone
+            )
+        if body.limits.spend_cap is not None and edit.limits.offers_spend_cap:
+            cap_minor = provider_money(provider=str(edit.campaign.provider)).to_minor(
+                amount=body.limits.spend_cap, currency=edit.limits.currency
+            )
+    if errors:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"errors": errors}
+        )
+    outcome = services.change_settings(
+        db,
+        user=user,
+        editable=edit,
+        daily_budget_minor=budget_minor,
+        audience=audience,
+        end_time=end_time,
+        spend_cap_minor=cap_minor,
+    )
+    db.commit()
+    return {
+        "queued": list(outcome.queued),
+        "refused": outcome.refused,
+        "message": SENT_SETTINGS if outcome.queued else "O'zgarish kiritilmadi.",
+    }
+
+
+@router.get("/manage/ad/{external_id}/preview")
+def preview(
+    external_id: str, db: Db, user: CurrentUser, tries: int = Query(0, ge=0)
+) -> dict[str, Any]:
+    """What this advert looks like: the mirror's own card always, Meta's frame once it arrives."""
+    from app.modules.ads.constants import (
+        MAX_PREVIEW_POLLS,
+        PREVIEW_AD_FORMAT,
+        PREVIEW_POLL_SECONDS,
+    )
+
+    ad = _target(db, user, ManagedLevel.AD, external_id)
+    found = selectors.fresh_preview(db, owner=user, external_id=external_id)
+    waiting = found is None and tries < MAX_PREVIEW_POLLS
+    if found is None and tries == 0:
+        from app.modules.ads.tasks import fetch_preview_task
+
+        fetch_preview_task.delay(str(user.id), external_id, PREVIEW_AD_FORMAT)
+    content = selectors.ad_content(db, owner=user, target=ad)
+    return jsonable_encoder(
+        {
+            "external_id": external_id,
+            "name": ad.name,
+            "content": asdict(content) if content is not None else None,
+            "preview": {"src": found.src, "width": found.width, "height": found.height}
+            if found is not None
+            else None,
+            "polling": waiting,
+            "tries": tries + 1,
+            "poll_seconds": PREVIEW_POLL_SECONDS,
+            "gave_up": found is None and not waiting,
+        }
+    )

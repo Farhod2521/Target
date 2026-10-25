@@ -690,3 +690,6 @@ def ad_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
         "message": "Reklamani o'chirish so'rovi yuborildi.",
         "campaign_id": str(ad.adset.campaign.id),
     }
+
+
+from app.modules.ads.routers import editing as _editing  # noqa: E402, F401
