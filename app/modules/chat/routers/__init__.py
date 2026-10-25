@@ -63,6 +63,7 @@ def _message_row(row: ChatMessage) -> dict[str, Any]:
         "masked_figures": row.masked_figures,
         "quote": row.quote or {},
         "offers": list(getattr(row, "offers", [])),
+        "changes": list(getattr(row, "changes", [])),
         "replies": list(getattr(row, "replies", [])),
         "created_at": row.created_at,
     }
@@ -391,6 +392,41 @@ def choice_state(pk: uuid.UUID, db: Db, user: CurrentUser) -> ChoiceOut:
     if card.landed is False:
         return ChoiceOut(state="done", text="O'zgarish Meta tomonida ko'rinmadi.")
     return ChoiceOut(state="done", text=str(card.expectation))
+
+
+
+@router.post("/changes/{message_id}/{key}", response_model=ChoiceOut)
+def confirm_change(message_id: uuid.UUID, key: str, db: Db, user: CurrentUser) -> ChoiceOut:
+    """The owner confirms a change the assistant prepared: the campaigns screen's own service."""
+    from app.modules.chat.services.changes import confirm_change as confirm
+    from app.modules.notifications.services.refusals import refusal_words
+
+    try:
+        found = confirm(db, owner=user, message_id=str(message_id), key=key)
+    except DomainError as exc:
+        db.rollback()
+        return ChoiceOut(state="refused", text=str(refusal_words(exc)))
+    db.commit()
+    return ChoiceOut(state=found.state, text=found.text)
+
+
+@router.post("/changes/{message_id}/{key}/dismiss", response_model=ChoiceOut)
+def dismiss_change(message_id: uuid.UUID, key: str, db: Db, user: CurrentUser) -> ChoiceOut:
+    """The owner says no: the button goes and nothing is sent."""
+    from app.modules.chat.services.changes import dismiss_change as dismiss
+
+    found = dismiss(db, owner=user, message_id=str(message_id), key=key)
+    db.commit()
+    return ChoiceOut(state=found.state, text=found.text)
+
+
+@router.get("/changes/{message_id}/{key}", response_model=ChoiceOut)
+def change_state(message_id: uuid.UUID, key: str, db: Db, user: CurrentUser) -> ChoiceOut:
+    """Where a confirmed change has got to. Asked until it says done or refused."""
+    from app.modules.chat.services.changes import change_state as state_of
+
+    found = state_of(db, owner=user, message_id=str(message_id), key=key)
+    return ChoiceOut(state=found.state, text=found.text)
 
 
 __all__ = ["router"]

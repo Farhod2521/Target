@@ -3,7 +3,7 @@
 import logging
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Final
 
@@ -32,12 +32,15 @@ from app.modules.chat.selectors.sessions import reply_items
 from app.modules.chat.services.frames import announcer, drain, publish
 from app.modules.chat.services.quota import public_chat_owner
 from core.chat.choices import ChoiceGate, vetted_replies
-from core.chat.lookups import MAX_LOOKUPS, MAX_ROUNDS, TOOLS
+from core.chat.lookups import CHANGE_TOOL, MAX_CHANGES, MAX_LOOKUPS, MAX_ROUNDS, TOOLS
 from core.chat.markdown import render
 from core.chat.numbers import figures_in
 from core.chat.verify import FigureGate
 
 logger = logging.getLogger(__name__)
+
+CHANGE_KEY: Final = "P"
+PREPARING: Final = "O'zgarishni tayyorlayapman…"
 
 SPENT: Final = (
     "This answer has used all of its look-ups. Answer with what you already have."
@@ -54,6 +57,7 @@ class LookupDesk:
     gate: FigureGate
     made: int = 0
     announce: Callable[[str], None] | None = None
+    changes: list[dict[str, Any]] = field(default_factory=list)
     _scope: PageScope | None = None
     _counted: PageScope | None = None
 
@@ -66,6 +70,8 @@ class LookupDesk:
             return ToolOutput(text=SPENT, is_error=True)
         if self._scope is None:
             self._scope, self._counted = asked_scopes(self.db, owner=self.owner)
+        if call.name == CHANGE_TOOL:
+            return self._prepare(call)
         with override(self.owner.language or ""):
             if self.announce is not None:
                 self.announce(str(LOOKING.get(call.name, LOOKING_DEFAULT)))
@@ -81,6 +87,31 @@ class LookupDesk:
         self.gate.allow(figures_in(text))
         logger.info("chat_lookup", extra={"lookup": call.name, "chars": len(text)})
         return ToolOutput(text=text)
+
+    def _prepare(self, call: ToolCall) -> ToolOutput:
+        """A change the owner asked for, checked and described; never carried out here."""
+        from app.modules.chat.services.changes import prepare_change
+
+        if len(self.changes) >= MAX_CHANGES:
+            return ToolOutput(
+                text="This answer already prepared as many changes as one answer may.",
+                is_error=True,
+            )
+        if self.announce is not None:
+            self.announce(PREPARING)
+        assert self._scope is not None
+        prepared = prepare_change(
+            self.db,
+            owner=self.owner,
+            arguments=call.arguments,  # type: ignore[arg-type]
+            scope=self._scope,
+            key=f"{CHANGE_KEY}{len(self.changes) + 1}",
+        )
+        if prepared.item is not None:
+            self.changes.append(prepared.item)
+        self.gate.allow(figures_in(prepared.text))
+        logger.info("chat_change", extra={"prepared": prepared.item is not None})
+        return ToolOutput(text=prepared.text, is_error=prepared.item is None)
 
 
 def answer_turn(
@@ -103,17 +134,10 @@ def answer_turn(
     announce = announcer(
         turn_id, gate=gate, payload=payload, safe=safe, working=working
     )
+    desk = LookupDesk(db=db, owner=owner, now=now, gate=gate, announce=announce)
     try:
         with claude() as client:
-            stream = _asked(
-                db,
-                client,
-                payload=payload,
-                owner=owner,
-                gate=gate,
-                now=now,
-                announce=announce,
-            )
+            stream = _asked(client, payload=payload, desk=desk)
             drain(
                 stream,
                 turn_id=turn_id,
@@ -138,6 +162,7 @@ def answer_turn(
         safe=safe,
         result=stream.result,
         now=now,
+        changes=desk.changes,
     )
 
 
@@ -152,12 +177,16 @@ def _finish(
     safe: list[str],
     result: Any,
     now: datetime,
+    changes: list[dict[str, Any]] = (),  # type: ignore[assignment]
 ) -> None:
     """The last frame, the ledger row, and the message on the thread."""
     from app.modules.audit.services import record_llm_result
 
     text = "".join(safe).rstrip()
-    offered = picked(keys=choices.keys, offers=payload.get("offers", []))
+    offered = [
+        *picked(keys=choices.keys, offers=payload.get("offers", [])),
+        *changes,
+    ]
     replies = list(
         vetted_replies(choices.replies, allowed=gate.allowed, quoted=gate.quoted)
     )
@@ -207,14 +236,7 @@ def _cut_short(
 
 
 def _asked(
-    db: Session,
-    client: ClaudeClient,
-    *,
-    payload: dict[str, Any],
-    owner: User,
-    gate: FigureGate,
-    now: datetime,
-    announce: Callable[[str], None] | None = None,
+    client: ClaudeClient, *, payload: dict[str, Any], desk: LookupDesk
 ) -> TextStream | ToolStream:
     """The question as Claude is asked it, with look-ups when the turn has them."""
     asked: dict[str, Any] = {
@@ -228,12 +250,7 @@ def _asked(
     }
     if not payload.get("lookups"):
         return client.stream(**asked)
-    return client.converse(
-        **asked,
-        tools=TOOLS,
-        run_tool=LookupDesk(db=db, owner=owner, now=now, gate=gate, announce=announce),
-        max_rounds=MAX_ROUNDS,
-    )
+    return client.converse(**asked, tools=TOOLS, run_tool=desk, max_rounds=MAX_ROUNDS)
 
 
 def _owner_for(db: Session, payload: dict[str, Any]) -> User:

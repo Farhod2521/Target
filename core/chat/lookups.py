@@ -11,6 +11,7 @@ from core.chat.lookup_arguments import (
     AdSetLookup,
     CampaignList,
     CampaignLookup,
+    ChangeProposal,
     DailyFigures,
     FormList,
     LeadCounts,
@@ -22,6 +23,8 @@ from core.chat.lookup_arguments import (
 
 MAX_LOOKUPS: Final = 8
 MAX_ROUNDS: Final = 5
+MAX_CHANGES: Final = 2
+CHANGE_TOOL: Final = "propose_change"
 
 OUTPUT_CHARS: Final = 8_000
 
@@ -142,6 +145,17 @@ TOOLS: Final[tuple[Tool, ...]] = (
         "Saved audiences - customer lists, lookalikes, retargeting - with",
         "their size and whether they are ready to use.",
     ),
+    _tool(
+        CHANGE_TOOL,
+        ChangeProposal,
+        "Prepare one change the owner asked for - a new daily budget, a pause",
+        "or switching something back on - so they can confirm it with a",
+        "button under your answer. It changes nothing: the product re-checks",
+        "it and carries it out only when the owner presses. Call it only once",
+        "you know exactly which object and, for a budget, the exact new",
+        "amount; ask first otherwise. The result says whether it can be",
+        "prepared and, if not, why.",
+    ),
 )
 
 
@@ -158,10 +172,12 @@ __all__ = [
     "AD_ROWS",
     "CAMPAIGN_ROWS",
     "CHANGE_ROWS",
+    "CHANGE_TOOL",
     "DEFAULT_DAYS",
     "FORM_ROWS",
     "FOUND_ROWS",
     "GROUP_ROWS",
+    "MAX_CHANGES",
     "MAX_DAYS",
     "MAX_LOOKUPS",
     "MAX_ROUNDS",

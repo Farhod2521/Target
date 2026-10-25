@@ -398,6 +398,36 @@ def request_budget(
     reverts: str = "",
     origin: Origin = BY_HAND,
 ) -> ActionLog:
+    target, account = budget_gate(
+        db,
+        user=user,
+        level=level,
+        external_id=external_id,
+        daily_budget_minor=daily_budget_minor,
+    )
+    current = getattr(target, "daily_budget_minor", None) or 0
+    return open_change(
+        db,
+        user=user,
+        target=target,
+        level=level,
+        external_id=external_id,
+        action=ActionType.BUDGET_UP
+        if daily_budget_minor > current
+        else ActionType.BUDGET_DOWN,
+        requested={
+            "daily_budget_minor": daily_budget_minor,
+            "currency": account.currency,
+            "reverts": reverts,
+        },
+        origin=origin,
+    )
+
+
+def budget_gate(
+    db: Session, *, user: User, level: str, external_id: str, daily_budget_minor: int
+) -> tuple[Any, Any]:
+    """Every check a budget change passes, without opening one. Raises the refusal."""
     _live(db, user)
     target = target_for(
         db, user=user, level=level, external_id=external_id, aspect=BUDGET
@@ -422,23 +452,7 @@ def request_budget(
                 ),
             )
         raise REFUSALS.get(verdict.reason, ChangeRefused)()
-    current = getattr(target, "daily_budget_minor", None) or 0
-    return open_change(
-        db,
-        user=user,
-        target=target,
-        level=level,
-        external_id=external_id,
-        action=ActionType.BUDGET_UP
-        if daily_budget_minor > current
-        else ActionType.BUDGET_DOWN,
-        requested={
-            "daily_budget_minor": daily_budget_minor,
-            "currency": account.currency,
-            "reverts": reverts,
-        },
-        origin=origin,
-    )
+    return target, account
 
 
 def request_status(
@@ -451,6 +465,25 @@ def request_status(
     reverts: str = "",
     origin: Origin = BY_HAND,
 ) -> ActionLog:
+    target = status_gate(
+        db, user=user, level=level, external_id=external_id, wanted=wanted
+    )
+    return open_change(
+        db,
+        user=user,
+        target=target,
+        level=level,
+        external_id=external_id,
+        action=ActionType.PAUSE if wanted == PAUSED else ActionType.RESUME,
+        requested={"status": wanted, "reverts": reverts},
+        origin=origin,
+    )
+
+
+def status_gate(
+    db: Session, *, user: User, level: str, external_id: str, wanted: str
+) -> Any:
+    """Every check a pause or a resume passes, without opening one. Raises the refusal."""
     if wanted == ACTIVE:
         _live(db, user)
     target = target_for(
@@ -474,16 +507,7 @@ def request_status(
         verdict = check_status_change(state=state, wanted=wanted)
         if not verdict.allowed:
             raise REFUSALS.get(verdict.reason, ChangeRefused)()
-    return open_change(
-        db,
-        user=user,
-        target=target,
-        level=level,
-        external_id=external_id,
-        action=ActionType.PAUSE if wanted == PAUSED else ActionType.RESUME,
-        requested={"status": wanted, "reverts": reverts},
-        origin=origin,
-    )
+    return target
 
 
 def request_end_time(

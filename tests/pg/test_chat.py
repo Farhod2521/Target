@@ -8,7 +8,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 from llmkit import LLMResult
 from metaads import PROVIDER
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
@@ -421,3 +421,119 @@ def test_a_refused_launch_is_explained_and_the_answer_kept(
     kept = db.scalar(select(RefusalAnswer))
     if kept is not None:
         assert kept.hits >= 1
+
+
+def _desk(db: Session, owner: User):  # type: ignore[no-untyped-def]
+    from app.modules.chat.services.answer import LookupDesk
+    from core.chat.verify import FigureGate
+
+    return LookupDesk(
+        db=db, owner=owner, now=utcnow(), gate=FigureGate(allowed=frozenset())
+    )
+
+
+def _call(name: str, **arguments: Any):  # type: ignore[no-untyped-def]
+    from llmkit import ToolCall
+
+    from core.chat.lookup_arguments import ChangeProposal
+
+    return ToolCall(id="t1", name=name, arguments=ChangeProposal(**arguments))
+
+
+def test_a_change_the_owner_asked_for_is_prepared_then_confirmed(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.audit.models import ActionLog
+    from app.modules.chat.services.answer import _store
+
+    headers = sign_up(client)
+    owner, account, page = _account(db)
+    _mirror(db, owner, account, page)
+
+    desk = _desk(db, owner)
+    refused = desk(
+        _call(
+            "propose_change",
+            action="budget",
+            level="campaign",
+            object_id="c_1",
+            daily_budget="15",
+        )
+    )
+    assert refused.is_error and "no daily budget of its own" in refused.text
+    unknown = desk(
+        _call("propose_change", action="pause", level="adset", object_id="nope")
+    )
+    assert unknown.is_error
+    already = desk(
+        _call("propose_change", action="resume", level="adset", object_id="s_1")
+    )
+    assert already.is_error and "refuses" in already.text
+
+    prepared = desk(
+        _call(
+            "propose_change",
+            action="budget",
+            level="adset",
+            object_id="s_1",
+            daily_budget="15",
+        )
+    )
+    assert not prepared.is_error, prepared.text
+    assert "%%CHOICE%% P1" in prepared.text
+    paused = desk(
+        _call("propose_change", action="pause", level="adset", object_id="s_1")
+    )
+    assert not paused.is_error, paused.text
+    spent = desk(
+        _call("propose_change", action="pause", level="campaign", object_id="c_1")
+    )
+    assert spent.is_error
+    assert [item["key"] for item in desk.changes] == ["P1", "P2"]
+    assert desk.changes[0]["daily_budget_minor"] == 1500
+    assert db.scalar(select(ActionLog.id)) is None
+
+    asked = client.post(
+        "/api/v1/chat/ask", json={"question": "Budjetni 15 qil"}, headers=headers
+    )
+    payload = services.turn_payload(turn_id=asked.json()["turn_id"])
+    assert payload is not None
+    _store(
+        db,
+        payload=payload,
+        text="Kunlik budjet 10 dan 15 ga o'zgaradi.",
+        gate=desk.gate,
+        choices=desk.changes,
+        now=utcnow(),
+    )
+    db.commit()
+    message_id = payload["message_id"]
+
+    thread = client.get(
+        f"/api/v1/chat/threads/{asked.json()['session_id']}", headers=headers
+    ).json()
+    assert [item["key"] for item in thread["messages"][-1]["changes"]] == ["P1", "P2"]
+
+    url = f"/api/v1/chat/changes/{message_id}"
+    assert client.get(f"{url}/P1", headers=headers).json()["state"] == "open"
+    confirmed = client.post(f"{url}/P1", headers=headers)
+    assert confirmed.json() == {"state": "working", "text": "Bajarilmoqda."}
+    assert queued[-1][0].endswith("apply_change_task")
+    log = db.scalar(select(ActionLog))
+    assert log is not None and log.action == "budget_up"
+    assert log.request_payload["daily_budget_minor"] == 1500
+    again = client.post(f"{url}/P1", headers=headers)
+    assert again.json()["state"] == "working"
+    assert db.scalar(select(func.count(ActionLog.id))) == 1
+
+    log.status = "applied"
+    db.commit()
+    assert client.get(f"{url}/P1", headers=headers).json() == {
+        "state": "done",
+        "text": "Bajarildi.",
+    }
+
+    dismissed = client.post(f"{url}/P2/dismiss", headers=headers)
+    assert dismissed.json()["state"] == "dismissed"
+    assert client.post(f"{url}/P2", headers=headers).json()["state"] == "dismissed"
+    assert client.get(f"{url}/P9", headers=headers).json()["state"] == "gone"

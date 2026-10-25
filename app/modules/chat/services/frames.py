@@ -38,6 +38,7 @@ class Frame:
     error: str
     masked: int
     owner_id: str
+    message_id: str
     choices: list[dict[str, str]]
     replies: list[str]
     status: str
@@ -65,6 +66,7 @@ def publish(
             "error": error,
             "masked": gate.masked,
             "owner_id": payload.get("owner_id", ""),
+            "message_id": payload.get("message_id", ""),
             "choices": choices or [],
             "replies": replies or [],
             "status": status,

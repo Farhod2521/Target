@@ -44,6 +44,7 @@ from app.modules.ads.services.manage import (
     Activation,
     Origin,
     apply_change,
+    budget_gate,
     by_agent,
     check_adset_allowance,
     check_campaign_allowance,
@@ -64,6 +65,7 @@ from app.modules.ads.services.manage import (
     start_delivery,
     state_of,
     state_payload,
+    status_gate,
     target_for,
 )
 from app.modules.ads.services.media import (
@@ -163,6 +165,7 @@ __all__ = [
     "apply_change",
     "apply_delete",
     "apply_swap",
+    "budget_gate",
     "by_agent",
     "check_adset_allowance",
     "check_campaign_allowance",
@@ -216,6 +219,7 @@ __all__ = [
     "start_delivery",
     "state_of",
     "state_payload",
+    "status_gate",
     "stop_running",
     "store_everything",
     "sync_ad_account",

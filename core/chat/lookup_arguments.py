@@ -10,6 +10,8 @@ DEFAULT_DAYS: Final = 30
 LeadGrouping = Literal["day", "campaign", "ad_group", "form", "page"]
 CampaignState = Literal["all", "running", "stopped"]
 ProposalState = Literal["open", "answered", "all"]
+ChangeAction = Literal["budget", "pause", "resume"]
+ChangeLevel = Literal["campaign", "adset", "ad"]
 
 
 class Arguments(BaseModel):
@@ -100,6 +102,40 @@ class Proposals(Arguments):
     )
 
 
+
+class ChangeProposal(Arguments):
+    """One change the owner asked for, prepared for them to confirm. Nothing is carried out."""
+
+    action: ChangeAction = Field(
+        description=(
+            "budget: set a new daily budget. pause: switch it off. "
+            "resume: switch it back on."
+        ),
+    )
+    level: ChangeLevel = Field(
+        description=(
+            "What the id is: a campaign, an ad group (adset) or an advert (ad). "
+            "A daily budget lives on the campaign or on its ad groups - "
+            "campaign_details says which carries it."
+        ),
+    )
+    object_id: str = Field(
+        min_length=1,
+        max_length=64,
+        description="The id from a look-up's result. Never a name.",
+    )
+    daily_budget: str = Field(
+        default="",
+        max_length=20,
+        pattern=r"^(\d{1,9}([.,]\d{1,2})?)?$",
+        description=(
+            "For a budget only: the new daily budget in the ad account's own "
+            "currency, a plain number such as 15 or 12.50. Never a percentage: "
+            "work the amount out and say it to the owner first."
+        ),
+    )
+
+
 __all__ = [
     "DEFAULT_DAYS",
     "MAX_DAYS",
@@ -108,6 +144,9 @@ __all__ = [
     "Arguments",
     "CampaignList",
     "CampaignLookup",
+    "ChangeAction",
+    "ChangeLevel",
+    "ChangeProposal",
     "DailyFigures",
     "FormList",
     "LeadCounts",

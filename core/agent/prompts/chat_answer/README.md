@@ -231,3 +231,10 @@ group and advert lines now carry ", switched off" in English for anything
 paused, paused above or finished, and the section says to propose no fix for
 those and to answer about the running ones first. A refused advert is not
 switched off and keeps its repair.
+
+`v26` lets the assistant prepare a change the owner asked for - a daily
+budget, a pause, switching something back on - through the `propose_change`
+look-up. Nothing is carried out by the model: the look-up runs the campaigns
+screen's own checks without opening a change, the prepared change is kept on
+the answer as a confirm button, and pressing it calls the campaigns screen's
+service, which checks everything again (`app/modules/chat/services/changes.py`).
