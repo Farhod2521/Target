@@ -32,10 +32,25 @@ from app.modules.ads.constants import (
     Shown,
 )
 from app.modules.ads.exceptions import NothingToRevert
+from app.modules.ads.schemas import (
+    BudgetFormOut,
+    CampaignAdsOut,
+    CampaignDetailOut,
+    CampaignHistoryOut,
+    CampaignListOut,
+    CampaignPollOut,
+    ControlStateOut,
+    DeletedOut,
+    MessageOut,
+    SyncOut,
+)
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 FILTERS_KEY = "ads:campaign_filters:{user}"
 FILTERS_SECONDS = 90 * 24 * 60 * 60
+
+WAITED_Q = Query(0, ge=0, description="The last answer's `waited`.")
+TRIES_Q = Query(0, ge=0, description="The last answer's `tries`.")
 
 
 # -- drawing rows --------------------------------------------------------------------
@@ -287,25 +302,37 @@ def campaigns_context(
     }
 
 
-@router.get("")
+@router.get("", responses={200: {"model": CampaignListOut}})
 def campaign_list(
     db: Db,
     user: CurrentUser,
-    show: str | None = None,
-    source: str | None = None,
-    waited: int = Query(0, ge=0),
+    show: str | None = Query(
+        None,
+        description="`running`, `stopped` or `all`. Remembered for 90 days; "
+        "omit to keep the last choice.",
+    ),
+    source: str | None = Query(
+        None,
+        description="`here` (launched from this cabinet), `elsewhere` (Ads Manager) "
+        "or `all`. Remembered like `show`.",
+    ),
+    waited: int = WAITED_Q,
 ) -> dict[str, Any]:
     return campaigns_context(db, user, show=show, source=source, waited=waited)
 
 
-@router.get("/poll")
+@router.get("/poll", responses={200: {"model": CampaignPollOut}})
 def campaign_poll(
     db: Db,
     user: CurrentUser,
-    since: str | None = None,
-    accounts: str = "",
-    tries: int = Query(0, ge=0),
-    waited: int = Query(0, ge=0),
+    since: str | None = Query(
+        None, description="The list's `since` from before the refresh."
+    ),
+    accounts: str = Query(
+        "", description="The list's `sync_account_ids`, joined with commas."
+    ),
+    tries: int = TRIES_Q,
+    waited: int = WAITED_Q,
 ) -> dict[str, Any]:
     """Asked after a refresh: ``waiting`` true until the mirror and today's figures land."""
     if (
@@ -339,8 +366,16 @@ def campaign_poll(
     return {"waiting": False, **context}
 
 
-@router.post("/sync")
-def campaign_sync(db: Db, user: CurrentUser, on_open: bool = False) -> dict[str, Any]:
+@router.post("/sync", responses={200: {"model": SyncOut}})
+def campaign_sync(
+    db: Db,
+    user: CurrentUser,
+    on_open: bool = Query(
+        False,
+        description="True when the list asked for it (`auto_refresh`): refreshes "
+        "only what has gone stale.",
+    ),
+) -> dict[str, Any]:
     from app.modules.metrics.services import refresh_on_open, request_refresh
 
     if on_open:
@@ -380,7 +415,7 @@ def _groups(db: Session, user: User, campaign: Any) -> list[Any]:
     return groups
 
 
-@router.get("/{campaign_id}")
+@router.get("/{campaign_id}", responses={200: {"model": CampaignDetailOut}})
 def campaign_detail(
     campaign_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -413,9 +448,9 @@ def campaign_detail(
     }
 
 
-@router.get("/{campaign_id}/ads")
+@router.get("/{campaign_id}/ads", responses={200: {"model": CampaignAdsOut}})
 def campaign_ads(
-    campaign_id: uuid.UUID, db: Db, user: CurrentUser, waited: int = Query(0, ge=0)
+    campaign_id: uuid.UUID, db: Db, user: CurrentUser, waited: int = WAITED_Q
 ) -> dict[str, Any]:
     campaign = _detail(db, user, campaign_id)
     selectors.with_controls(db, owner=user, campaign=campaign)
@@ -433,7 +468,7 @@ def campaign_ads(
     }
 
 
-@router.get("/{campaign_id}/history")
+@router.get("/{campaign_id}/history", responses={200: {"model": CampaignHistoryOut}})
 def campaign_history(
     campaign_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -452,7 +487,7 @@ def campaign_history(
     }
 
 
-@router.post("/{campaign_id}/delete")
+@router.post("/{campaign_id}/delete", responses={200: {"model": MessageOut}})
 def campaign_delete(
     campaign_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -537,14 +572,18 @@ def _changed(
     )
 
 
-@router.get("/manage/{level}/{external_id}/state")
+@router.get(
+    "/manage/{level}/{external_id}/state", responses={200: {"model": ControlStateOut}}
+)
 def action_state(
-    level: str, external_id: str, db: Db, user: CurrentUser, tries: int = Query(0, ge=0)
+    level: str, external_id: str, db: Db, user: CurrentUser, tries: int = TRIES_Q
 ) -> dict[str, Any]:
     return control_state(db, user, level=level, external_id=external_id, tries=tries)
 
 
-@router.post("/manage/{level}/{external_id}/pause")
+@router.post(
+    "/manage/{level}/{external_id}/pause", responses={200: {"model": ControlStateOut}}
+)
 def pause(level: str, external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     _target(db, user, level, external_id)
     return _changed(
@@ -559,7 +598,9 @@ def pause(level: str, external_id: str, db: Db, user: CurrentUser) -> dict[str, 
     )
 
 
-@router.post("/manage/{level}/{external_id}/resume")
+@router.post(
+    "/manage/{level}/{external_id}/resume", responses={200: {"model": ControlStateOut}}
+)
 def resume(level: str, external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     target = _target(db, user, level, external_id)
 
@@ -574,7 +615,9 @@ def resume(level: str, external_id: str, db: Db, user: CurrentUser) -> dict[str,
     return _changed(db, user, level, external_id, run)
 
 
-@router.get("/manage/{level}/{external_id}/budget")
+@router.get(
+    "/manage/{level}/{external_id}/budget", responses={200: {"model": BudgetFormOut}}
+)
 def budget_form(
     level: str, external_id: str, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -613,7 +656,9 @@ class BudgetIn(BaseModel):
     )
 
 
-@router.post("/manage/{level}/{external_id}/budget")
+@router.post(
+    "/manage/{level}/{external_id}/budget", responses={200: {"model": ControlStateOut}}
+)
 def budget(
     level: str, external_id: str, body: BudgetIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -654,7 +699,9 @@ class RevertIn(BaseModel):
     log: str
 
 
-@router.post("/manage/{level}/{external_id}/revert")
+@router.post(
+    "/manage/{level}/{external_id}/revert", responses={200: {"model": ControlStateOut}}
+)
 def revert(
     level: str, external_id: str, body: RevertIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -670,7 +717,9 @@ def revert(
     return _changed(db, user, level, external_id, run)
 
 
-@router.post("/manage/adset/{external_id}/delete")
+@router.post(
+    "/manage/adset/{external_id}/delete", responses={200: {"model": DeletedOut}}
+)
 def adset_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     adset = _target(db, user, ManagedLevel.ADSET, external_id)
     services.request_adset_delete(db, user=user, external_id=external_id)
@@ -681,7 +730,7 @@ def adset_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     }
 
 
-@router.post("/manage/ad/{external_id}/delete")
+@router.post("/manage/ad/{external_id}/delete", responses={200: {"model": DeletedOut}})
 def ad_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     ad = _target(db, user, ManagedLevel.AD, external_id)
     services.request_ad_delete(db, user=user, external_id=external_id)

@@ -22,12 +22,22 @@ from app.modules.accounts.models import User
 from app.modules.ads import selectors, services
 from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.routers import _target, router
+from app.modules.ads.schemas import (
+    AdEditOut,
+    CampaignEditOut,
+    CampaignEditSaveOut,
+    DeletedOut,
+    PreviewOut,
+)
 
 SENT_AD = "Yangi reklama yuborildi. Bir necha soniyada ko'rinadi."
 SENT_SETTINGS = "O'zgarish yuborildi. Bir necha soniyada ko'rinadi."
 HEADLINE_LIMIT = 255
 MESSAGE_LIMIT = 2000
 DEFAULT_ZONE = "Asia/Tashkent"
+GROUP_Q = Query(
+    "", description="An ad set's Meta id: edit that group only. Empty for the campaign."
+)
 
 
 def _ad_forms(db: Session, user: User, ad: Any) -> dict[str, Any] | None:
@@ -69,7 +79,7 @@ def _ad_library(db: Session, user: User, ad: Any) -> list[Any]:
     )
 
 
-@router.get("/manage/ad/{external_id}/edit")
+@router.get("/manage/ad/{external_id}/edit", responses={200: {"model": AdEditOut}})
 def ad_edit(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     """What this advert says now, the pictures it may be given, and the forms it may open."""
     ad = _target(db, user, ManagedLevel.AD, external_id)
@@ -114,7 +124,7 @@ class AdEditIn(BaseModel):
     )
 
 
-@router.post("/manage/ad/{external_id}/edit")
+@router.post("/manage/ad/{external_id}/edit", responses={200: {"model": DeletedOut}})
 def ad_edit_save(
     external_id: str, body: AdEditIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -176,9 +186,9 @@ def _zone(db: Session, user: User) -> str:
     return business_timezone(db, owner=user) or DEFAULT_ZONE
 
 
-@router.get("/{campaign_id}/edit")
+@router.get("/{campaign_id}/edit", responses={200: {"model": CampaignEditOut}})
 def campaign_edit(
-    campaign_id: uuid.UUID, db: Db, user: CurrentUser, group: str = ""
+    campaign_id: uuid.UUID, db: Db, user: CurrentUser, group: str = GROUP_Q
 ) -> dict[str, Any]:
     """Every section this campaign has, and which of them may be changed right now."""
     from zoneinfo import ZoneInfo
@@ -286,13 +296,13 @@ class CampaignEditIn(BaseModel):
     limits: LimitsSectionIn | None = None
 
 
-@router.post("/{campaign_id}/edit")
+@router.post("/{campaign_id}/edit", responses={200: {"model": CampaignEditSaveOut}})
 def campaign_edit_save(
     campaign_id: uuid.UUID,
     body: CampaignEditIn,
     db: Db,
     user: CurrentUser,
-    group: str = "",
+    group: str = GROUP_Q,
 ) -> dict[str, Any]:
     """Every section checked together, then written one by one; what each became is said."""
     from zoneinfo import ZoneInfo
@@ -383,9 +393,12 @@ def campaign_edit_save(
     }
 
 
-@router.get("/manage/ad/{external_id}/preview")
+@router.get("/manage/ad/{external_id}/preview", responses={200: {"model": PreviewOut}})
 def preview(
-    external_id: str, db: Db, user: CurrentUser, tries: int = Query(0, ge=0)
+    external_id: str,
+    db: Db,
+    user: CurrentUser,
+    tries: int = Query(0, ge=0, description="The last answer's `tries`."),
 ) -> dict[str, Any]:
     """What this advert looks like: the mirror's own card always, Meta's frame once it arrives."""
     from app.modules.ads.constants import (
