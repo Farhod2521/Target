@@ -21,10 +21,29 @@ from app.modules.metrics.constants import (
     Period,
 )
 from app.modules.metrics.ranges import CUSTOM, Range, preset_range
+from app.modules.metrics.schemas import (
+    AdChipsOut,
+    CampaignChipsOut,
+    CampaignPanelOut,
+    CardsOut,
+    CardsSavedOut,
+    CreativesOut,
+    NumbersOut,
+    TodayOut,
+)
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 FILTERS_KEY = "metrics:numbers_filters:{user}"
 FILTERS_SECONDS = 90 * 24 * 60 * 60
+
+PERIOD_Q = Query(
+    None,
+    description="`today`, `7`, `30` or `90` days. Ignored when `start` and `end` "
+    "are both given.",
+)
+START_Q = Query(None, description="First day of a custom range (at most 90 days back).")
+END_Q = Query(None, description="Last day of a custom range; not after today.")
+TRIES_Q = Query(0, ge=0, description="The last answer's `tries`.")
 
 
 def resolve_range(
@@ -152,23 +171,23 @@ def numbers_context(
     }
 
 
-@router.get("/numbers")
+@router.get("/numbers", responses={200: {"model": NumbersOut}})
 def numbers(
     db: Db,
     user: CurrentUser,
-    period: str | None = None,
-    start: date | None = None,
-    end: date | None = None,
+    period: str | None = PERIOD_Q,
+    start: date | None = START_Q,
+    end: date | None = END_Q,
 ) -> dict[str, Any]:
     return numbers_context(db, user, period=period, start=start, end=end)
 
 
-@router.get("/numbers/poll")
+@router.get("/numbers/poll", responses={200: {"model": NumbersOut}})
 def numbers_poll(
     db: Db,
     user: CurrentUser,
-    since: str | None = None,
-    tries: int = Query(0, ge=0),
+    since: str | None = Query(None, description="The `since` from before the refresh."),
+    tries: int = TRIES_Q,
 ) -> dict[str, Any]:
     """Asked every few seconds after a refresh, until today's figures land."""
     from app.modules.ads.selectors import today_in_flight
@@ -185,8 +204,16 @@ def numbers_poll(
     return context
 
 
-@router.post("/numbers/refresh")
-def numbers_refresh(db: Db, user: CurrentUser, on_open: bool = False) -> dict[str, Any]:
+@router.post("/numbers/refresh", responses={200: {"model": NumbersOut}})
+def numbers_refresh(
+    db: Db,
+    user: CurrentUser,
+    on_open: bool = Query(
+        False,
+        description="True when the screen asked for it (`auto_refresh`): refreshes "
+        "only what has gone stale.",
+    ),
+) -> dict[str, Any]:
     from app.modules.metrics.services import refresh_on_open, request_refresh
 
     if on_open:
@@ -201,7 +228,7 @@ def numbers_refresh(db: Db, user: CurrentUser, on_open: bool = False) -> dict[st
     }
 
 
-@router.get("/cards")
+@router.get("/cards", responses={200: {"model": CardsOut}})
 def cards(db: Db, user: CurrentUser) -> dict[str, Any]:
     from app.modules.metrics.selectors.card_kinds import RESULT_KEYS, text_of
     from app.modules.metrics.selectors.cards import GROUP_TEXT, chosen_for
@@ -237,7 +264,7 @@ class CardsIn(BaseModel):
     cards: list[str] = Field(default_factory=list)
 
 
-@router.post("/cards")
+@router.post("/cards", responses={200: {"model": CardsSavedOut}})
 def cards_save(body: CardsIn, db: Db, user: CurrentUser) -> dict[str, Any]:
     from app.modules.metrics.services import save_cards
 
@@ -275,7 +302,9 @@ def _range_of(
     return resolve_range(period=period or "", start=start, end=end, today=today)
 
 
-@router.get("/campaigns/{campaign_id}/figures")
+@router.get(
+    "/campaigns/{campaign_id}/figures", responses={200: {"model": CampaignPanelOut}}
+)
 def campaign_panel(campaign_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     from app.modules.metrics.selectors.campaign_panel import campaign_panel as panel
 
@@ -286,7 +315,9 @@ def campaign_panel(campaign_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[st
     }
 
 
-@router.get("/campaigns/{campaign_id}/creatives")
+@router.get(
+    "/campaigns/{campaign_id}/creatives", responses={200: {"model": CreativesOut}}
+)
 def campaign_creatives(
     campaign_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -303,14 +334,18 @@ def campaign_creatives(
     }
 
 
-@router.get("/campaigns/figures")
+@router.get("/campaigns/figures", responses={200: {"model": CampaignChipsOut}})
 def campaign_chips(
     db: Db,
     user: CurrentUser,
-    period: str | None = None,
-    start: date | None = None,
-    end: date | None = None,
-    source: str = "",
+    period: str | None = PERIOD_Q,
+    start: date | None = START_Q,
+    end: date | None = END_Q,
+    source: str = Query(
+        "",
+        description="Count `spend_total_minor` over `here` (launched from this "
+        "cabinet), `elsewhere` (Ads Manager), or everything when empty.",
+    ),
 ) -> dict[str, Any]:
     from app.modules.ads.selectors import campaigns_for, page_advertising
     from app.modules.metrics.constants import Source
@@ -344,14 +379,14 @@ def campaign_chips(
     }
 
 
-@router.get("/ads/figures")
+@router.get("/ads/figures", responses={200: {"model": AdChipsOut}})
 def ad_chips(
     db: Db,
     user: CurrentUser,
-    campaign: uuid.UUID,
-    period: str | None = None,
-    start: date | None = None,
-    end: date | None = None,
+    campaign: uuid.UUID = Query(description="The campaign whose adverts to show."),
+    period: str | None = PERIOD_Q,
+    start: date | None = START_Q,
+    end: date | None = END_Q,
 ) -> dict[str, Any]:
     from app.modules.metrics.selectors.panel import ad_chips as chips
     from app.modules.metrics.selectors.panel import group_chips
@@ -376,7 +411,7 @@ def ad_chips(
     }
 
 
-@router.post("/campaigns/{campaign_id}/today")
+@router.post("/campaigns/{campaign_id}/today", responses={200: {"model": TodayOut}})
 def campaign_today_start(
     campaign_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -395,9 +430,9 @@ def campaign_today_start(
     }
 
 
-@router.get("/campaigns/{campaign_id}/today")
+@router.get("/campaigns/{campaign_id}/today", responses={200: {"model": TodayOut}})
 def campaign_today_poll(
-    campaign_id: uuid.UUID, db: Db, user: CurrentUser, tries: int = Query(0, ge=0)
+    campaign_id: uuid.UUID, db: Db, user: CurrentUser, tries: int = TRIES_Q
 ) -> dict[str, Any]:
     from app.modules.ads.selectors import today_in_flight
 
