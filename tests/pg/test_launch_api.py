@@ -176,3 +176,24 @@ def test_someone_elses_launch_is_not_found(client: TestClient, db: Session) -> N
         "/api/v1/launch/00000000-0000-0000-0000-000000000000/review", headers=auth
     )
     assert missing.status_code == 404
+
+
+def test_google_screen_is_hidden_until_switched_on(
+    client: TestClient, db: Session, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    from app.common.config import settings
+
+    auth, _user = _ready(client, db)
+    monkeypatch.setattr(settings, "google_oauth_client_id", "")
+    assert client.get("/api/v1/google", headers=auth).status_code == 404
+    monkeypatch.setattr(settings, "google_oauth_client_id", "id")
+    monkeypatch.setattr(settings, "google_ads_enabled", True)
+    shown = client.get("/api/v1/google?period=30", headers=auth)
+    assert shown.status_code == 200, shown.text
+    assert shown.json()["period"] == "30" and shown.json()["screen"] is None
+    refused = client.post(
+        "/api/v1/google/budget",
+        json={"external_id": "1", "budget": "abc"},
+        headers=auth,
+    )
+    assert refused.status_code == 404
