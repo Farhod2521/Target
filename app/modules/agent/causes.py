@@ -1,12 +1,23 @@
+"""The cause on a proposal, as one sentence the owner reads.
+
+The diagnosis stores numbers - see ``core.agent.diagnosis``. This turns the
+number that decided the cause into a sentence. Written once, for the card
+and the Telegram message alike, for the reason ``apps.agent.figures`` gives:
+two phrasings of one number end up as two numbers. What a change promises
+and aims at is :mod:`apps.agent.aims`.
+"""
+
 from collections.abc import Callable, Mapping
 from typing import Any, Final
 
 from app.common.dates import number_format
 from app.common.money import format_minor
 from app.modules.agent.constants import DiagnosisCause
-from app.modules.agent.figures import bp_percent, decimal_of, whole
+from app.modules.agent.figures import bp_percent, decimal_of, hundredths, whole
 from app.modules.metrics.constants import Ranking
 from core.agent.diagnosis import CAUSE_OF
+from core.agent.signals import HOLD_FLOOR_BP, HOOK_FLOOR_BP, MIN_CLICKS
+from core.agent.sufficiency import MIN_IMPRESSIONS, MIN_LINK_CLICKS, SPEND_MULTIPLE
 
 _BOTTOM: Final = ("below_average_10", "below_average_20", "below_average_35")
 _NAME_CHARS: Final = 40
@@ -14,28 +25,79 @@ Line = Callable[[Mapping[str, Any], str], str]
 
 
 def _short(name: str) -> str:
+    """One advert's name, cut where a sentence can still carry it."""
     return name if len(name) <= _NAME_CHARS else f"{name[: _NAME_CHARS - 1].rstrip()}…"
 
 
 def cause_label(cause: str) -> Any:
+    """The cause's name, or nothing for a group with no problem to name."""
     if cause not in DiagnosisCause.values or cause == DiagnosisCause.NO_PROBLEM:
         return ""
     return DiagnosisCause(cause).label
 
 
 def cause_line(diagnosis: Mapping[str, Any], *, currency: str) -> str:
+    """The figure behind the cause, in one sentence. Empty when there is none.
+
+    The sentence belongs to the signal that decided the cause - the first
+    one pointing at it - rather than to the cause, because one cause has
+    several doors: a form in the way is a page that does not open, clicks
+    that bring nobody, or seven questions, and each is its own sentence.
+    """
     cause = str(diagnosis.get("cause", ""))
     if cause not in DiagnosisCause.values or cause == DiagnosisCause.NO_PROBLEM:
         return ""
-    if cause == DiagnosisCause.UNCLEAR:
-        return (
-            "Natija odatdagidan yomon, lekin raqamlar aniq bir sababni ko'rsatmayapti."
-        )
     evidence = diagnosis.get("evidence") or {}
+    if cause == DiagnosisCause.UNCLEAR:
+        return _unclear(evidence, currency)
     for signal in diagnosis.get("signals") or ():
         if CAUSE_OF.get(signal) == cause and signal in _LINES:
             return _LINES[signal](evidence, currency)
     return ""
+
+
+def _unclear(evidence: Mapping[str, Any], currency: str) -> str:
+    """What was checked, when nothing checked was wrong.
+
+    "No clear cause" on its own tells the owner nothing they can act on.
+    So it says which of three it is: too few clicks to judge the form yet,
+    nothing to compare with, or the advert itself looks normal - which puts
+    the loss after the click, in the form or in how the leads are answered.
+    """
+    clicks = _int(evidence, "link_clicks") or 0
+    if clicks < MIN_CLICKS:
+        return (
+            "Hali %(count)s ta bosish bor - sababni aytish uchun kam. Bir-ikki kun kuting."
+            % {"count": number_format(clicks)}
+        )
+    ctr = _int(evidence, "link_ctr_bp")
+    usual_ctr = _int(evidence, "account_link_ctr_bp")
+    cpm = _int(evidence, "cpm_minor")
+    usual_cpm = _int(evidence, "account_cpm_minor")
+    if usual_ctr is None and usual_cpm is None:
+        return "Taqqoslash uchun shu maqsaddagi boshqa reklama yo'q, shuning uchun faqat o'tgan 14 kun bilan solishtirildi. Reklama ko'rinishi va bosilishi o'zgarmagan - muammo bosishdan keyin bo'lishi mumkin."
+    parts = []
+    if ctr is not None and usual_ctr is not None:
+        parts.append(
+            "1000 ko'rishdan %(own)s tasi bosilyapti (odatda %(usual)s)"
+            % {"own": decimal_of(ctr, 10), "usual": decimal_of(usual_ctr, 10)}
+        )
+    if cpm is not None and usual_cpm is not None:
+        parts.append(
+            "1000 marta ko'rsatish %(own)s (odatda %(usual)s)"
+            % {
+                "own": format_minor(amount_minor=cpm, currency=currency),
+                "usual": format_minor(amount_minor=usual_cpm, currency=currency),
+            }
+        )
+    return (
+        "Reklamaning o'zi odatdagidek ishlayapti: %(checked)s. Muammo bosishdan keyin - formada yoki murojaatlarga javob berishda bo'lishi mumkin."
+        % {"checked": ", ".join(parts)}
+    )
+
+
+def _unpaid(evidence: Mapping[str, Any], currency: str) -> str:
+    return "Reklama akkauntida to'lanmagan qarz bor - to'lanmaguncha Meta hech bir reklamani ko'rsatmaydi."
 
 
 def _provider_issue(evidence: Mapping[str, Any], currency: str) -> str:
@@ -63,19 +125,53 @@ def _few_days(evidence: Mapping[str, Any], currency: str) -> str:
 def _few_impressions(evidence: Mapping[str, Any], currency: str) -> str:
     shown = _int(evidence, "impressions") or 0
     return "Reklama hali %(count)s marta ko'rsatildi - baho berishga kam." % {
-        "count": number_format(shown, force_grouping=True)
+        "count": number_format(shown)
     }
+
+
+def _thin_data(evidence: Mapping[str, Any], currency: str) -> str:
+    spent, usual = (_int(evidence, "spend_minor"), _int(evidence, "account_cost_minor"))
+    if not usual:
+        return _shown_too_little(evidence)
+    if spent is None or evidence.get("outcome") == "view":
+        return ""
+    return (
+        "Hozircha %(spent)s sarflandi - bu odatdagi 3 ta natija narxidan (%(enough)s) kam. Shuncha sarflanmaguncha xulosa qilinmaydi."
+        % {
+            "spent": format_minor(amount_minor=spent, currency=currency),
+            "enough": format_minor(
+                amount_minor=usual * SPEND_MULTIPLE, currency=currency
+            ),
+        }
+    )
+
+
+def _shown_too_little(evidence: Mapping[str, Any]) -> str:
+    """The showings and clicks the brief reads where no price exists yet."""
+    return (
+        "Hozircha %(shown)s ko'rsatish va %(clicks)s bosish bor. Odatdagi narx hali yo'q, shuning uchun kamida %(min_shown)s ko'rsatish va %(min_clicks)s bosish bo'lmaguncha xulosa qilinmaydi."
+        % {
+            "shown": _grouped(_int(evidence, "impressions") or 0),
+            "clicks": _grouped(_int(evidence, "link_clicks") or 0),
+            "min_shown": _grouped(MIN_IMPRESSIONS),
+            "min_clicks": _grouped(MIN_LINK_CLICKS),
+        }
+    )
+
+
+def _grouped(count: int) -> str:
+    return number_format(count)
 
 
 def _worn_out(evidence: Mapping[str, Any], currency: str) -> str:
     before, after = (_int(evidence, "early_ctr_bp"), _int(evidence, "late_ctr_bp"))
-    seen = _int(evidence, "late_frequency")
+    seen = _int(evidence, "frequency")
     if before is None or after is None or seen is None:
         return ""
     return (
-        "Bir odam kuniga %(times)s marta ko'ryapti, bosish ulushi %(before)s dan %(after)s ga tushdi."
+        "Oxirgi 7 kunda bir odam %(times)s marta ko'rdi, havolaga bosish ulushi %(before)s dan %(after)s ga tushdi."
         % {
-            "times": decimal_of(seen, 100),
+            "times": hundredths(seen),
             "before": bp_percent(before),
             "after": bp_percent(after),
         }
@@ -83,6 +179,14 @@ def _worn_out(evidence: Mapping[str, Any], currency: str) -> str:
 
 
 def _low_ranking(evidence: Mapping[str, Any], currency: str) -> str:
+    """Which advert the provider rates low, by name where it has one.
+
+    A group runs several adverts and the ranking belongs to one of them.
+    "This advert" left the owner with four to choose between and nothing
+    saying which - and the name is in the evidence the diagnosis stored.
+    A mirror that has not read the name yet falls back to the old sentence
+    rather than printing a provider id nobody recognises.
+    """
     for verdict in evidence.get("rankings") or []:
         for value in (verdict.get("engagement"), verdict.get("quality")):
             if value not in _BOTTOM:
@@ -105,7 +209,7 @@ def _low_ctr(evidence: Mapping[str, Any], currency: str) -> str:
     if own is None or usual is None:
         return ""
     return (
-        "1000 ko'rishdan %(own)s tasi bosilyapti, shu maqsaddagi boshqa reklamalaringizda o'rtacha %(usual)s tasi."
+        "1000 ko'rishdan %(own)s tasi havolani bosyapti, hisobingizda odatda %(usual)s tasi."
         % {"own": decimal_of(own, 10), "usual": decimal_of(usual, 10)}
     )
 
@@ -116,8 +220,8 @@ def _weak_hook(evidence: Mapping[str, Any], currency: str) -> str:
         return ""
     if usual is None:
         return (
-            "Videoni 3 soniyadan ko'proq ko'rganlar %(own)s - me'yor 20%% dan yuqori."
-            % {"own": bp_percent(own)}
+            "Videoni 3 soniyadan ko'proq ko'rganlar %(own)s - me'yor %(floor)s dan yuqori."
+            % {"own": bp_percent(own), "floor": bp_percent(HOOK_FLOOR_BP)}
         )
     return "Videoni 3 soniyadan ko'proq ko'rganlar %(own)s, hisobingizda %(usual)s." % {
         "own": bp_percent(own),
@@ -130,7 +234,7 @@ def _fatigued(evidence: Mapping[str, Any], currency: str) -> str:
     if then is None or now is None:
         return ""
     return (
-        "Reklama yangi paytida bosish ulushi %(then)s edi, oxirgi 3 kunda %(now)s."
+        "Reklama yangi paytida havolaga bosish ulushi %(then)s edi, oxirgi 3 kunda %(now)s."
         % {"then": bp_percent(then), "now": bp_percent(now)}
     )
 
@@ -141,8 +245,8 @@ def _weak_hold(evidence: Mapping[str, Any], currency: str) -> str:
         return ""
     if usual is None:
         return (
-            "3 soniyadan o'tganlarning %(own)s videoni oxirigacha ko'rdi - me'yor 10%% dan yuqori."
-            % {"own": bp_percent(own)}
+            "3 soniyadan o'tganlarning %(own)s videoni oxirigacha ko'rdi - me'yor %(floor)s dan yuqori."
+            % {"own": bp_percent(own), "floor": bp_percent(HOLD_FLOOR_BP)}
         )
     return (
         "3 soniyadan o'tganlarning %(own)s videoni oxirigacha ko'rdi, hisobingizda %(usual)s."
@@ -197,7 +301,7 @@ def _low_click_to_lead(evidence: Mapping[str, Any], currency: str) -> str:
     clicks = _int(evidence, "link_clicks") or 0
     leads = _int(evidence, "leads") or 0
     line = "%(clicks)s bosishdan %(leads)s ta murojaat keldi." % {
-        "clicks": number_format(clicks, force_grouping=True),
+        "clicks": number_format(clicks),
         "leads": leads,
     }
     usual = _int(evidence, "account_click_to_lead_bp")
@@ -238,12 +342,14 @@ def _learning_limited(evidence: Mapping[str, Any], currency: str) -> str:
 
 
 _LINES: Final[dict[str, Line]] = {
+    "unpaid": _unpaid,
     "provider_issue": _provider_issue,
     "site_down": _site_down,
     "learning_stuck": _learning_stuck,
     "learning": _learning,
     "few_days": _few_days,
     "few_impressions": _few_impressions,
+    "thin_data": _thin_data,
     "underspending": _underspending,
     "worn_out": _worn_out,
     "fatigued": _fatigued,

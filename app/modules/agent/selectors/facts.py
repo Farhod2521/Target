@@ -27,12 +27,14 @@ from app.modules.agent.selectors.account_reads import (
     usual_levels,
 )
 from app.modules.agent.selectors.pictures import own_pictures
+from app.modules.agent.selectors.week_frequency import week_readings
 from app.modules.agent.selectors.window import end_of, start_of, yesterday
 from app.modules.audit.constants import ActionStatus, ActionType, ActorType
 from app.modules.audit.models import ActionLog
 from app.modules.integrations.models import AdAccount
 from app.modules.metrics.constants import BreakdownKind
 from core.agent import AccountFacts, AdFacts, AdSetFacts, Landing, Policy, Recent
+from core.agent.frequency import Reading
 from core.metrics import (
     SegmentComparison,
     SegmentFigures,
@@ -89,6 +91,10 @@ def account_facts(
         db, owner=owner, account=account, adset_ids=ids, until=until
     )
     launch = launch_ctr_by_adset(db, owner=owner, account=account, adset_ids=ids)
+    week = week_readings(db, owner=owner, account=account, adset_ids=ids)
+    week_before = week_readings(
+        db, owner=owner, account=account, adset_ids=ids, before=True
+    )
     junk = junk_by_adset(
         db,
         owner=owner,
@@ -112,6 +118,8 @@ def account_facts(
             ),
             recent=recent.get(row.external_id) or Recent(),
             launch_ctr_bp=launch.get(row.external_id),
+            week_frequency=_frequency_of(week, row.external_id),
+            prior_week_frequency=_frequency_of(week_before, row.external_id),
             junk_leads=junk.get(row.external_id, 0),
         )
         for row in rows
@@ -132,7 +140,13 @@ def account_facts(
             until=until,
             days=policy.usual_days,
         ),
+        payment_due=bool(account.payment_due),
     )
+
+
+def _frequency_of(readings: dict[str, Reading], adset_id: str) -> int | None:
+    found = readings.get(adset_id)
+    return found.frequency if found is not None else None
 
 
 def _adset(
