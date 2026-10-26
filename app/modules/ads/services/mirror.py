@@ -537,10 +537,23 @@ def sync_ad_account(db: Session, *, ad_account: AdAccount) -> SyncSummary:
     if not cache.add(key, "1", SYNC_LOCK_SECONDS):
         raise SyncAlreadyRunning
     try:
+        from app.modules.ads.services.stops import (
+            note_stops,
+            our_rows,
+            read_account_state,
+            store_account_state,
+        )
+
         campaigns, adsets, ads = read_everything(db, ad_account)
-        return store_everything(
+        state = read_account_state(ad_account)
+        before = our_rows(db, ad_account=ad_account)
+        summary = store_everything(
             db, ad_account=ad_account, campaigns=campaigns, adsets=adsets, ads=ads
         )
+        if state is not None:
+            store_account_state(db, ad_account=ad_account, state=state)
+        note_stops(db, ad_account=ad_account, before=before, state=state, now=utcnow())
+        return summary
     finally:
         cache.delete(key)
 

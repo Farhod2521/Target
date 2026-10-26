@@ -15,7 +15,7 @@ from core.agent.copy_words import normalize
 
 HIKMAT_OFFER = (
     "Сентябрь ойи учун: 17, 19, 24 ва 26\n"
-    "ХИКМАТ УМРА ТРАВЕЛНИНГ ( 10 КУНДИЗ) (LUXE) ПАКЕТИ\n"
+    "ХИКМАТ УМРА ТРАВЕЛНИНГ ( 10 КУНДИЗ) (LUXE) ПАКЕТИ\n"  # noqa: RUF001
     "5 кун Мадинада 4 Ҳарамдан 2 дақиқалик масофада.\n"
     "5 кун Маккада 5 Ҳарамдан 5 дақиқалик масофада.\n"
     "Мурожаат учун 71 205 5050"
@@ -31,7 +31,7 @@ def codes(words: AdWords, *, facts: str, sends_to: str) -> set[str]:
 
 def test_cyrillic_and_latin_are_compared_in_one_spelling() -> None:
     assert normalize("Мадинада Ўзбекистон Ғалаба") == "madinada o'zbekiston g'alaba"
-    assert normalize("Oʻzbekiston  bo‘ylab") == "o'zbekiston bo'ylab"
+    assert normalize("Oʻzbekiston  bo‘ylab") == "o'zbekiston bo'ylab"  # noqa: RUF001
 
 
 def test_a_form_advert_that_tells_people_to_call_is_caught() -> None:

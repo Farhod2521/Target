@@ -1,12 +1,36 @@
-"""The one change the agent makes without asking: stopping money gone for nothing."""
+"""The one change the agent makes without asking: stopping money gone for nothing.
+
+Everything else it finds is a proposal with a button. This is not,
+because the loss is the whole of the case: a group that has spent more
+than half of its day's budget and brought not one result is paying for
+nothing while the proposal waits for somebody to read it.
+
+**One rule, and it is the owner's.** No result at all, and more than
+:data:`STOP_SHARE_PCT` percent of the day's budget gone. A small budget
+has its own bar instead, in the account's currency - half of a small day
+is a few cents, and a few cents is not yet a verdict on anything.
+
+**And only once there is enough to judge by** - the brief's rule every
+verdict shares, see :mod:`core.agent.sufficiency`: three times what one
+result usually costs here gone, or, where nothing has a usual price yet,
+enough showings and clicks to stand in for one.
+
+**Counted from the last stop.** A group switched back on after one is
+judged on what it spends and brings from then on, so switching it on is
+never undone at the next update by the money spent before.
+
+Stopping is never refused for learning - see :mod:`core.agent.guardrails` -
+and that is why this is allowed at all: it is the stop, not a budget or an
+audience, so the learning it ends is learning that was buying nothing.
+"""
 
 from dataclasses import dataclass
 from typing import Final
 
+from core.agent.sufficiency import enough_to_decide
+
+# How much of a day's budget may go with nothing back before it is stopped.
 STOP_SHARE_PCT: Final = 50
-MIN_IMPRESSIONS: Final = 1_000
-MIN_LINK_CLICKS: Final = 30
-USUAL_COST_MULTIPLE: Final = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,7 +43,10 @@ class SmallBudget:
 
 @dataclass(frozen=True, slots=True)
 class Fruitless:
-    """One delivering group's money and results since it was last started."""
+    """One delivering group's money and results since it was last started.
+
+    ``budget_minor`` is its day's budget, its own or its campaign's.
+    """
 
     adset_id: str
     spend_minor: int
@@ -27,15 +54,18 @@ class Fruitless:
     budget_minor: int
     impressions: int = 0
     link_clicks: int = 0
+    # What one of its results usually costs on the account, where known.
     usual_cost_minor: int | None = None
 
 
 def enough_to_judge(group: Fruitless) -> bool:
-    """Whether the group has been shown enough for nought to mean something."""
-    if group.impressions >= MIN_IMPRESSIONS and group.link_clicks >= MIN_LINK_CLICKS:
-        return True
-    usual = group.usual_cost_minor
-    return usual is not None and group.spend_minor >= usual * USUAL_COST_MULTIPLE
+    """Whether the group has said enough for nought to mean something."""
+    return enough_to_decide(
+        spend_minor=group.spend_minor,
+        usual_cost_minor=group.usual_cost_minor,
+        impressions=group.impressions,
+        link_clicks=group.link_clicks,
+    )
 
 
 def must_stop(group: Fruitless, *, small: SmallBudget | None) -> bool:
@@ -50,10 +80,7 @@ def must_stop(group: Fruitless, *, small: SmallBudget | None) -> bool:
 
 
 __all__ = [
-    "MIN_IMPRESSIONS",
-    "MIN_LINK_CLICKS",
     "STOP_SHARE_PCT",
-    "USUAL_COST_MULTIPLE",
     "Fruitless",
     "SmallBudget",
     "enough_to_judge",

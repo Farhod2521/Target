@@ -145,13 +145,10 @@ def _funnel(rows: list[Mapping[str, Any]]) -> Funnel:
 
 
 def _half(rows: list[Mapping[str, Any]]) -> Half:
-    delivering = [row for row in rows if (row["impressions"] or 0) > 0]
-    seen = [round(float(row["frequency"] or 0) * 100) for row in delivering]
     return Half(
         days=len({row["date"] for row in rows}),
         impressions=_sum(rows, "impressions"),
         link_clicks=_sum(rows, "inline_link_clicks"),
-        frequency=round(sum(seen) / len(seen)) if seen else 0,
     )
 
 
@@ -676,7 +673,6 @@ _USUAL_COLUMNS = (
     "profile_visits",
     "video_plays",
     "video_views_3s",
-    "frequency",
 )
 
 
@@ -747,21 +743,17 @@ def _usual_day(row: Mapping[str, Any], *, family: str, leads: int) -> DayFigures
         results=count_in(totals=totals, link_clicks=link_clicks, family=family) or 0,
         video_impressions=impressions if video else 0,
         video_views_3s=int(row["video_views_3s"] or 0) if video else 0,
-        frequency=round(float(row["frequency"] or 0) * 100),
     )
 
 
 def _summed(parts: list[DayFigures]) -> DayFigures:
-    impressions = sum(part.impressions for part in parts)
-    weighted = sum(part.frequency * part.impressions for part in parts)
     return DayFigures(
         spend_minor=sum(part.spend_minor for part in parts),
-        impressions=impressions,
+        impressions=sum(part.impressions for part in parts),
         link_clicks=sum(part.link_clicks for part in parts),
         results=sum(part.results for part in parts),
         video_impressions=sum(part.video_impressions for part in parts),
         video_views_3s=sum(part.video_views_3s for part in parts),
-        frequency=round(weighted / impressions) if impressions else 0,
     )
 
 

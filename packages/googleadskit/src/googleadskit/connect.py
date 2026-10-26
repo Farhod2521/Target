@@ -1,4 +1,18 @@
-"""Google as :class:`adskit.ConnectPort`: consent, code, refresh token."""
+"""Google as :class:`adskit.ConnectPort`: consent, code, refresh token.
+
+Google's sign-in is not Google Ads' own - it is the same OAuth every Google
+API uses - so the four calls live in ``googlekit`` and this class only
+decides what to ask for and what to keep.
+
+**What is stored is the refresh token.** An access token lives an hour, so
+keeping one would leave a connection that dies by lunchtime. The refresh
+token lasts until the person withdraws it, and :meth:`access_token` trades
+it for an hour's access before every piece of work.
+
+**The person is named by ``sub``**, Google's permanent id, not the email:
+an address can change, and the rule it serves - one Google account, one
+cabinet - must not be escaped by renaming one.
+"""
 
 from typing import Final
 
@@ -21,6 +35,8 @@ from googlekit import (
     refresh,
 )
 
+# Who the person is, and their Google Ads. Nothing about Drive: a grant
+# asks for what this connection uses and no more.
 SCOPES: Final = ("openid", "email", SCOPE_ADWORDS)
 
 
@@ -50,6 +66,8 @@ class GoogleConnect:
         except GoogleError as exc:
             raise _translate(exc) from exc
         if not grant.refresh_token:
+            # ``prompt=consent`` makes Google send one every time; without
+            # it there is nothing that outlives the hour.
             raise InvalidRequest("Google answered without a refresh token")
         return GrantDTO(
             token=grant.refresh_token,

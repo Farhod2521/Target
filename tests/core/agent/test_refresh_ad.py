@@ -131,17 +131,18 @@ def test_a_video_or_a_post_is_not_given_a_picture() -> None:
     assert refresh_ad(account=account(video), policy=POLICY) == []
 
 
-def test_a_tired_audience_gets_a_new_picture_too() -> None:
+def test_a_tired_audience_is_left_to_the_frequency_message() -> None:
+    """The morning's frequency levels say "a new advert" with their own two
+    buttons; a picture card beside them would be the same advice twice."""
     tired = ours(
         link_clicks=1_300,
         leads=0,
-        early=Half(days=3, impressions=40_000, link_clicks=800, frequency=150),
-        late=Half(days=4, impressions=60_000, link_clicks=500, frequency=220),
+        early=Half(days=3, impressions=40_000, link_clicks=800),
+        late=Half(days=4, impressions=60_000, link_clicks=500),
+        week_frequency=220,
     )
 
-    found = refresh_ad(account=account(tired), policy=POLICY)
-
-    assert [item.evidence["cause"] for item in found] == ["worn_out"]
+    assert refresh_ad(account=account(tired), policy=POLICY) == []
 
 
 def test_cheap_conversations_get_nothing_however_few_click() -> None:

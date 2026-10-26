@@ -40,12 +40,11 @@ def test_unstarted_at_a_day_under_review_is_still_waited_for() -> None:
     assert (found.stage, found.advised) == ("in_review", "wait")
 
 
-def test_approved_and_idle_at_a_day_is_offered_the_budget() -> None:
+def test_approved_and_idle_at_a_day_is_not_offered_the_budget() -> None:
+    """Nothing spent is nothing to judge by: the brief moves no budget."""
     found = watch(_group(hours=24))
     assert found is not None
-    assert found.stage == "idle"
-    assert found.moves == ("budget_up", "budget_down", "wait")
-    assert found.advised == "budget_up"
+    assert (found.stage, found.moves, found.advised) == ("idle", ("wait",), "wait")
 
 
 def test_a_shared_budget_is_not_offered_from_one_group() -> None:
@@ -78,12 +77,26 @@ def test_spend_before_a_day_says_nothing() -> None:
     assert watch(_group(hours=20, spend_minor=BUDGET)) is None
 
 
-def test_three_days_for_nothing_is_advised_deleted() -> None:
-    found = watch(_group(hours=72, spend_minor=BUDGET * 3 // 2))
+def test_enough_to_judge_is_left_to_the_agents_stop() -> None:
+    """Three results' usual price gone for nothing: the agent stops it, and
+    "wait" beside "stopped" would be two answers about one group."""
+    found = watch(
+        _group(hours=24, spend_minor=BUDGET // 2, usual_cost_minor=BUDGET // 6)
+    )
+    assert found is None
+
+
+def test_with_no_usual_price_the_showings_decide() -> None:
+    shown = _group(
+        hours=72, spend_minor=BUDGET * 3 // 2, impressions=1_000, link_clicks=30
+    )
+    assert watch(shown) is None
+    barely = _group(
+        hours=72, spend_minor=BUDGET * 3 // 2, impressions=1_000, link_clicks=29
+    )
+    found = watch(barely)
     assert found is not None
-    assert found.stage == "fruitless"
-    assert found.moves == ("delete", "pause", "wait")
-    assert found.advised == "delete"
+    assert (found.stage, found.advised) == ("quiet", "wait")
 
 
 def test_three_days_with_little_spent_stays_a_word() -> None:

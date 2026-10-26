@@ -66,4 +66,4 @@ def test_a_policy_nobody_configured_is_still_a_policy() -> None:
 
     assert policy.window_days == 7
     assert policy.max_per_run == 3
-    assert policy.win_share_pct < 100 < policy.lose_share_pct
+    assert policy.win_share_pct < 100

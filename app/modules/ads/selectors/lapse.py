@@ -177,3 +177,29 @@ def last_warning_due(*, hold: LapseHold, now: datetime) -> bool:
     return (
         hold.is_open and hold.started_at + LAPSE_LAST_WARNING <= now < hold.delete_after
     )
+
+
+def unwritable_account_ids(db: Session, *, owner: User) -> frozenset[uuid.UUID]:
+    """The accounts a stop sent now could only be refused on."""
+    from sqlalchemy import or_
+
+    from app.modules.ads.constants import BLOCKED_STANDINGS
+    from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
+    from app.modules.integrations.models import AdAccount, ProviderConnection
+
+    return frozenset(
+        db.scalars(
+            select(AdAccount.id)
+            .join(ProviderConnection, ProviderConnection.id == AdAccount.connection_id)
+            .where(
+                AdAccount.owner_id == owner.id,
+                or_(
+                    ProviderConnection.status.not_in(
+                        [str(s) for s in USABLE_CONNECTION_STATUSES]
+                    ),
+                    AdAccount.may_advertise.is_(False),
+                    AdAccount.standing.in_(list(BLOCKED_STANDINGS)),
+                ),
+            )
+        )
+    )

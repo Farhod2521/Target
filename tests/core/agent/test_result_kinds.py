@@ -17,6 +17,7 @@ from core.agent import (
     AdSetFacts,
     Aftermath,
     Policy,
+    Recent,
     assess,
     scan,
 )
@@ -24,6 +25,7 @@ from core.agent.benchmark import benchmark, benchmarks, lead_cost
 from core.agent.funnel import Funnel
 from core.agent.rules import EXPENSIVE, IDLE, STARVED, WASTING, WINNING
 from core.metrics import Totals
+from tests.core.agent.pace import at_week_pace
 
 META = ProviderName("meta")
 POLICY = Policy()
@@ -34,25 +36,27 @@ def group(
     *,
     spend: int,
     leads: int = 0,
-    reported: int = 0,
+    reported: int | None = None,
     results: int = 0,
     outcome: Any = "lead",
     **extra: Any,
 ) -> AdSetFacts:
     """A group bought for one kind of result, shown and spending."""
+    totals = Totals(
+        spend_minor=spend,
+        impressions=10_000,
+        leads=leads,
+        leads_reported=leads if reported is None else reported,
+        results=results,
+        qualified=extra.pop("qualified", 0),
+    )
+    extra.setdefault("recent", at_week_pace(totals))
     return AdSetFacts(
         external_id=external_id,
         campaign_external_id=extra.pop("campaign", f"camp-{external_id}"),
         name=external_id,
         delivery=extra.pop("delivery", "active"),
-        totals=Totals(
-            spend_minor=spend,
-            impressions=10_000,
-            leads=leads,
-            leads_reported=reported,
-            results=results,
-            qualified=extra.pop("qualified", 0),
-        ),
+        totals=totals,
         days_with_spend=7,
         counts_leads=outcome == "lead",
         outcome=outcome,
@@ -64,8 +68,7 @@ def group(
 
 def test_the_usual_lead_price_is_the_one_the_rules_measure_against() -> None:
     """Ours says 10 on one group, the provider's says 10 on the other. The
-    rules count the larger of the two sums; the card and the model's lines
-    used to count each group's larger count and quote a cheaper lead."""
+    rules count the provider's, the count Ads Manager prints."""
     ours = group("ours", spend=100_000, leads=10, reported=0)
     theirs = group("theirs", spend=100_000, leads=0, reported=10)
     lead_totals = Totals(
@@ -98,7 +101,7 @@ def stopped(external_id: str, **figures: Any) -> AdSetFacts:
 
 
 def account(*adsets: AdSetFacts) -> AccountFacts:
-    totals = Totals(spend_minor=1_000_000, leads=100)
+    totals = Totals(spend_minor=1_000_000, leads=100, leads_reported=100)
     return AccountFacts(
         provider=META,
         currency="USD",
@@ -158,7 +161,13 @@ def test_a_chat_group_burning_money_with_no_conversation_is_stopped() -> None:
 
 def test_a_dear_chat_group_gets_less_money_by_its_conversation_price() -> None:
     cheap = chat("cheap", spend=20_000, results=40, daily_budget_minor=5_000)
-    dear = chat("dear", spend=60_000, results=10, daily_budget_minor=10_000)
+    dear = chat(
+        "dear",
+        spend=60_000,
+        results=10,
+        daily_budget_minor=10_000,
+        recent=Recent(days=3, totals=Totals(spend_minor=18_000, results=3)),
+    )
 
     found = scan(account=account(cheap, dear), policy=POLICY)
 

@@ -9,6 +9,7 @@ class Delivery(Choices):
     PAUSED = "paused"
     PAUSED_ABOVE = "paused_above"
     PENDING = "pending"
+    BILLING = "billing"
     REJECTED = "rejected"
     FINISHED = "finished"
     UNKNOWN = "unknown"
@@ -19,6 +20,7 @@ DELIVERY_LABELS = {
     Delivery.PAUSED: "To'xtatilgan",
     Delivery.PAUSED_ABOVE: "Kampaniya to'xtatilgan",
     Delivery.PENDING: "Tekshiruvda",
+    Delivery.BILLING: "To'lov kutilmoqda",
     Delivery.REJECTED: "Muammo bor",
     Delivery.FINISHED: "Tugagan",
     Delivery.UNKNOWN: "Noma'lum",
@@ -810,3 +812,28 @@ GOOGLE_FAILURES: dict[str, Any] = {
 LAPSE_DELETE_AFTER: Final = timedelta(days=3)
 LAPSE_LAST_WARNING: Final = timedelta(hours=48)
 LAPSE_MARK: Final = "lapse_hold"
+
+
+class StopReason(Choices):
+    ADS_MANAGER = "ads_manager"
+    CARD_DECLINED = "card_declined"
+    BALANCE_USED_UP = "balance_used_up"
+    SPEND_CAP = "spend_cap"
+    PAYMENT_GRACE = "payment_grace"
+    PAYMENT_PENDING = "payment_pending"
+
+
+STOP_REASON_LABELS = {
+    StopReason.ADS_MANAGER: "Ads Manager'da o'chirildi",
+    StopReason.CARD_DECLINED: "Kartadan pul yechilmadi",
+    StopReason.BALANCE_USED_UP: "Balans tugadi",
+    StopReason.SPEND_CAP: "Xarajat chegarasiga yetdi",
+    StopReason.PAYMENT_GRACE: "To'lov o'tmadi, muhlat bor",
+    StopReason.PAYMENT_PENDING: "To'lov kutilmoqda",
+}
+BLOCKED_STANDINGS: frozenset[str] = frozenset(
+    {"payment_failed", "disabled_payment", "disabled", "closed"}
+)
+MONEY_STOPS: frozenset[str] = frozenset(
+    {StopReason.CARD_DECLINED, StopReason.BALANCE_USED_UP, StopReason.SPEND_CAP}
+)

@@ -170,7 +170,12 @@ def test_a_sale_carries_its_amount_in_whole_currency() -> None:
         dry_run=False,
     )
 
-    assert payload(seen[0])[0]["custom_data"] == {"value": "1234.56", "currency": "USD"}
+    assert payload(seen[0])[0]["custom_data"] == {
+        "event_source": "crm",
+        "lead_event_source": "TargetologAI",
+        "value": "1234.56",
+        "currency": "USD",
+    }
 
 
 def test_a_verdict_that_is_not_a_sale_carries_no_amount() -> None:
@@ -229,3 +234,45 @@ def test_a_long_list_is_split_here_rather_than_by_the_caller() -> None:
     assert len(payload(seen[1])) == 5
     # Summed across the requests rather than read off the last one.
     assert receipt.events_received == 2
+
+
+# --- What Meta's Conversion Leads integration requires --------------------
+def test_every_event_says_a_crm_sent_it() -> None:
+    """Without both fields Meta files the event as an ordinary server event
+    and no lead stage counts it."""
+    graph, seen = recording()
+
+    report_leads(
+        dataset_id="900", events=[a_verdict()], token="t", client=graph, dry_run=False
+    )
+
+    assert payload(seen[0])[0]["custom_data"] == {
+        "event_source": "crm",
+        "lead_event_source": "TargetologAI",
+    }
+
+
+def test_a_test_code_files_the_batch_under_test_events() -> None:
+    graph, seen = recording()
+
+    report_leads(
+        dataset_id="900",
+        events=[a_verdict()],
+        token="t",
+        client=graph,
+        dry_run=False,
+        test_event_code="TEST123",
+    )
+
+    body = parse_qs(seen[0].content.decode())
+    assert body["test_event_code"] == ["TEST123"]
+
+
+def test_no_test_code_is_sent_in_normal_running() -> None:
+    graph, seen = recording()
+
+    report_leads(
+        dataset_id="900", events=[a_verdict()], token="t", client=graph, dry_run=False
+    )
+
+    assert "test_event_code" not in parse_qs(seen[0].content.decode())

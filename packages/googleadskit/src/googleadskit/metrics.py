@@ -1,4 +1,22 @@
-"""Daily Google Ads figures as :class:`adskit.MetricsPort`."""
+"""Daily Google Ads figures as :class:`adskit.MetricsPort`.
+
+One GAQL read per level, segmented by date. ``segments.date`` is the
+account's own day, which is the boundary the port promises.
+
+**Removed objects are kept here**, unlike the campaign list: their spend
+happened, and a ninety-day report must still carry it - with the name the
+object had, which is why the name is read with the figures.
+
+**Conversions are a result, not leads.** Google counts every conversion
+action the account tracks - calls, site visits, form submissions - in one
+fractional figure. It goes to ``results_reported``, rounded, and never into
+the lead count: a lead here is a person with a name and a phone number,
+and Google's lead form submissions arrive through their own route.
+
+Money arrives in micros and leaves as the account currency's minor units.
+CTR arrives as a fraction and leaves as a percentage, the shape every
+other provider's ratio has in the metrics table.
+"""
 
 from collections.abc import Sequence
 from datetime import date
@@ -21,6 +39,7 @@ _FIGURES: Final = (
     "customer.currency_code"
 )
 
+# level: (GAQL resource, the fields that place a row, its JSON node)
 _LEVELS: Final[dict[str, tuple[str, str]]] = {
     "campaign": ("campaign", "campaign.resource_name, campaign.name"),
     "adset": (
@@ -41,6 +60,8 @@ class GoogleMetrics:
     """Daily figures per campaign, ad group or ad."""
 
     def __init__(self, *, http: httpx.Client | None = None) -> None:
+        # Lent, never closed here: a test's mock transport, or a pool a
+        # caller wants shared. ``None`` opens one per call.
         self._http = http
 
     def fetch_daily(
@@ -75,7 +96,14 @@ class GoogleMetrics:
         kind: BreakdownKind,
         token: str,
     ) -> list[SegmentMetricsDTO]:
-        """No cuts yet: Google's segments are not mapped to the domain's."""
+        """No cuts yet: Google's segments are not mapped to the domain's.
+
+        Empty rather than refused, and the reason is the caller. The nightly
+        sync asks for Meta's cuts of every account and records a refusal as
+        a night that did not finish - every night, for every Google account,
+        over a gap that is known. Nothing reads a Google cut until Google's
+        own screens are built, and those will say so when they do.
+        """
         return []
 
     def fetch_people(
@@ -86,7 +114,11 @@ class GoogleMetrics:
         level: Level,
         token: str,
     ) -> list[PeopleCountDTO]:
-        """No range counts yet, for the reason there are no cuts."""
+        """No range counts yet, for the reason there are no cuts.
+
+        Empty rather than refused: the sync asks every account, and the
+        screens fall back to what the daily rows say where nothing is here.
+        """
         return []
 
 

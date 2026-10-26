@@ -51,7 +51,8 @@ def test_a_day_with_nothing_spent_after_spending_is_said() -> None:
     found = running_watch(_group(), _facts(idle_days=1, idle_since=date(2026, 10, 13)))
     assert found is not None
     assert found.stage == "stalled"
-    assert (found.moves, found.advised) == (("budget_up", "wait"), "budget_up")
+    # Days with nothing spent are nothing to judge by: no budget button.
+    assert (found.moves, found.advised) == (("wait",), "wait")
     assert found.tag == "2026-10-13"
 
 
@@ -69,13 +70,6 @@ def test_a_week_with_nothing_spent_is_a_pause_not_a_stall() -> None:
 def test_a_limited_group_s_price_is_not_judged() -> None:
     facts = _facts(recent=Tally(spend_minor=7 * BUDGET, results=60))
     assert running_watch(_group(limited=True), facts) is None
-
-
-def test_dearer_on_a_shared_budget_is_watched_not_paused() -> None:
-    facts = _facts(recent=Tally(spend_minor=7 * BUDGET, results=20))
-    found = running_watch(_group(owns_budget=False), facts)
-    assert found is not None
-    assert (found.stage, found.advised) == ("dearer", "wait")
 
 
 def test_a_group_that_never_spent_is_not_stopped() -> None:
@@ -107,10 +101,12 @@ def test_three_dry_days_worth_three_results_are_advised_paused() -> None:
     assert found.advised == "pause"
 
 
-def test_a_week_dry_is_advised_paused_under_its_own_step() -> None:
+def test_a_long_spell_is_paused_only_on_three_results_worth() -> None:
+    """The brief decides nothing under three results' usual price, however
+    many days the spell has run."""
     found = running_watch(_group(), _facts(dry_days=9, dry_spend_minor=USUAL))
     assert found is not None
-    assert (found.advised, found.tag) == ("pause", "7:40")
+    assert (found.advised, found.tag) == ("wait", "7:40")
 
 
 def test_dry_days_too_cheap_to_have_bought_one_say_nothing() -> None:
@@ -141,24 +137,52 @@ def test_a_learning_group_three_days_dry_is_waited_for() -> None:
 # --- Price -------------------------------------------------------------------
 
 
-def test_half_as_dear_again_on_enough_results_is_said() -> None:
-    facts = _facts(recent=Tally(spend_minor=7 * BUDGET, results=20))
-    found = running_watch(_group(), facts)
+def _dear(spend: int, results: int) -> Running:
+    """The last three days at this price, against a fortnight's ``USUAL``."""
+    return _facts(
+        last=Tally(spend_minor=spend, results=results), usual_cost_minor=USUAL
+    )
+
+
+def test_past_twice_the_usual_on_a_shared_budget_is_advised_paused() -> None:
+    found = running_watch(_group(owns_budget=False), _dear(5 * USUAL, 2))
     assert found is not None
     assert found.stage == "dearer"
-    assert (found.advised, found.step_pct, found.tag) == ("budget_down", 20, "2026-W41")
+    assert (found.moves, found.advised, found.tag) == (
+        ("pause", "wait"),
+        "pause",
+        "2026-W41",
+    )
 
 
-def test_dearer_on_too_few_results_is_not_said() -> None:
-    facts = _facts(recent=Tally(spend_minor=4 * 2 * USUAL, results=4))
-    assert running_watch(_group(), facts) is None
+def test_a_budget_of_its_own_is_left_to_the_nights_card() -> None:
+    """The night's budget card reads the same price; a message beside it
+    would say it twice."""
+    assert running_watch(_group(), _dear(5 * USUAL, 2)) is None
 
 
-def test_three_times_dearer_is_said_on_one_result_and_paused() -> None:
-    facts = _facts(recent=Tally(spend_minor=3 * USUAL, results=1))
-    found = running_watch(_group(), facts)
+def test_under_twice_the_usual_is_the_reports_not_a_message() -> None:
+    assert running_watch(_group(owns_budget=False), _dear(4 * USUAL, 2)) is None
+
+
+def test_under_three_results_worth_spent_nothing_is_said() -> None:
+    facts = replace(
+        _dear(3 * USUAL - 1, 1), recent=Tally(spend_minor=3 * USUAL - 1, results=1)
+    )
+    assert running_watch(_group(owns_budget=False), facts) is None
+
+
+def test_a_small_budget_s_dear_days_are_judged_on_the_whole_week() -> None:
+    """Three days under three results' worth, a week past it: the brief asks
+    whether the group has said enough, not whether three days have."""
+    found = running_watch(_group(owns_budget=False), _dear(2 * USUAL + USUAL // 2, 1))
     assert found is not None
-    assert (found.stage, found.advised) == ("dearer", "pause")
+    assert found.stage == "dearer"
+
+
+def test_without_a_fortnights_median_the_price_is_not_judged() -> None:
+    facts = replace(_dear(5 * USUAL, 2), usual_cost_minor=None)
+    assert running_watch(_group(owns_budget=False), facts) is None
 
 
 def test_a_price_needs_the_weeks_before_to_have_been_a_price() -> None:
@@ -175,10 +199,21 @@ def test_a_learning_group_s_price_is_not_judged() -> None:
 
 
 def test_cheaper_with_the_budget_spent_up_is_offered_more() -> None:
-    facts = _facts(recent=Tally(spend_minor=7 * BUDGET, results=60))
+    facts = _facts(
+        recent=Tally(spend_minor=7 * BUDGET, results=60), usual_cost_minor=USUAL
+    )
     found = running_watch(_group(), facts)
     assert found is not None
     assert (found.stage, found.moves) == ("cheaper", ("budget_up", "wait"))
+
+
+def test_cheaper_under_three_results_worth_is_not_offered_more() -> None:
+    """A budget change, and the brief makes none before there is enough."""
+    facts = _facts(
+        recent=Tally(spend_minor=7 * BUDGET, results=60),
+        usual_cost_minor=7 * BUDGET // 3 + 1,
+    )
+    assert running_watch(_group(), facts) is None
 
 
 def test_cheaper_with_budget_left_over_says_nothing() -> None:

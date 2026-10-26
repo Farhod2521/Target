@@ -10,6 +10,8 @@ from dataclasses import replace
 from adskit import ProviderName
 
 from core.agent import AccountFacts, AdSetFacts, Policy, scan
+from core.agent.benchmark import Benchmark
+from core.agent.funnel import Funnel
 from core.agent.rules import WASTING
 from core.agent.usual import MIN_USUAL_DAYS, DayFigures, Usual, usual_level
 from core.metrics import Totals
@@ -57,7 +59,6 @@ def test_each_step_has_its_own_middle() -> None:
             results=4,
             video_impressions=10_000,
             video_views_3s=2_500,
-            frequency=130,
         )
     ] * MIN_USUAL_DAYS
 
@@ -65,7 +66,6 @@ def test_each_step_has_its_own_middle() -> None:
 
     assert usual.link_ctr_bp == 100
     assert usual.cpm_minor == 2_000
-    assert usual.frequency == 130
     assert usual.hook_bp == 2_500
 
 
@@ -103,3 +103,40 @@ def test_a_lone_group_burning_money_is_priced_by_its_own_fortnight() -> None:
     with_history = replace(burning, usual={"lead": Usual(days=14, cost_minor=10_000)})
 
     assert WASTING in [f.rule for f in scan(account=with_history, policy=POLICY)]
+
+
+# --- one "odatda" -----------------------------------------------------------
+def test_the_fortnight_is_the_usual_price_even_beside_other_groups() -> None:
+    """Every card, report and message quotes one "odatda": the pair's own
+    fortnight. The other groups' price only where it has no middle day."""
+    priced = Benchmark(
+        funnel=Funnel(spend_minor=100_000, impressions=10_000),
+        results=10,
+        usual_cost_minor=8_000,
+    )
+    assert priced.cost_minor == 8_000
+    assert replace(priced, usual_cost_minor=None).cost_minor == 10_000
+
+
+def test_no_fortnight_and_no_other_group_is_no_usual_price() -> None:
+    assert Benchmark().cost_minor is None
+
+
+def test_every_rate_is_read_against_the_fortnight_first() -> None:
+    """Clicks, a thousand showings and the opening are each read against the
+    pair's fourteen-day median, the same reference the price is."""
+    other = Benchmark(
+        funnel=Funnel(spend_minor=100_000, impressions=50_000, link_clicks=500),
+        video_impressions=10_000,
+        video_views_3s=3_000,
+    )
+    fortnight = replace(
+        other, usual_link_ctr_bp=80, usual_cpm_minor=1_500, usual_hook_bp=2_200
+    )
+
+    assert (other.link_ctr_bp, other.cpm_minor, other.hook_bp) == (100, 2_000, 3_000)
+    assert (fortnight.link_ctr_bp, fortnight.cpm_minor, fortnight.hook_bp) == (
+        80,
+        1_500,
+        2_200,
+    )

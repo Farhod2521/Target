@@ -1,4 +1,15 @@
-"""Which Google Ads accounts a person's grant reaches."""
+"""Which Google Ads accounts a person's grant reaches.
+
+Two calls, because Google answers the question in two halves.
+``listAccessibleCustomers`` names every account the person can open
+directly, and only by resource name; a GAQL query per account then says
+what each one is. Accounts under a manager the person can reach only
+through that manager are not in the first list - reaching them needs the
+manager's id in ``login-customer-id``, which is a later step.
+
+These functions raise :mod:`googleadskit.errors`; the adapter is what turns
+those into the domain's errors, as it does for every other call.
+"""
 
 from typing import Any, Final
 
@@ -14,6 +25,8 @@ _CUSTOMER_QUERY: Final = (
     "customer.status FROM customer LIMIT 1"
 )
 
+# What Google answers when the account is listed but can no longer be
+# queried: cancelled, closed, or never finished signing up.
 _UNQUERYABLE: Final = ("CUSTOMER_NOT_ENABLED", "INCOMPLETE_SIGNUP")
 
 
@@ -44,7 +57,14 @@ def describe_customer(client: AdsClient, customer_id: str) -> CustomerDTO:
 
 
 def list_accounts(client: AdsClient) -> list[CustomerDTO]:
-    """Every directly reachable account, described."""
+    """Every directly reachable account, described.
+
+    An account Google lists but will not describe - cancelled, closed, or
+    never set up - is left out rather than failing the whole list: one dead
+    account from years ago must not stop somebody connecting the live one.
+    Any other refusal still raises, because it says something about the
+    grant rather than about one account.
+    """
     accounts: list[CustomerDTO] = []
     for customer_id in list_customer_ids(client):
         try:

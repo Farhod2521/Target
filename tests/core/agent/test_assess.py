@@ -93,7 +93,7 @@ WINNING_BEFORE = {"leads": 2, "days": 7, "cpl_minor": 50_000}
 
 
 def test_a_raise_that_lifted_the_rate_at_a_held_price_worked() -> None:
-    after = Totals(spend_minor=30_000, leads=6)
+    after = Totals(spend_minor=30_000, leads=6, leads_reported=6)
 
     verdict = _assess(WINNING, WINNING_BEFORE, after, 3)
 
@@ -104,7 +104,7 @@ def test_a_raise_that_lifted_the_rate_at_a_held_price_worked() -> None:
 def test_a_raise_that_bought_dear_leads_did_not_work() -> None:
     """The count rose and the price broke its bound - money moved, not
     results."""
-    after = Totals(spend_minor=180_000, leads=3)
+    after = Totals(spend_minor=180_000, leads=3, leads_reported=3)
 
     verdict = _assess(WINNING, WINNING_BEFORE, after, 3)
 
@@ -113,7 +113,7 @@ def test_a_raise_that_bought_dear_leads_did_not_work() -> None:
 
 
 def test_a_raise_with_a_falling_rate_did_not_work() -> None:
-    after = Totals(spend_minor=10_000, leads=0)
+    after = Totals(spend_minor=10_000, leads=0, leads_reported=0)
 
     verdict = _assess(WINNING, WINNING_BEFORE, after, 3)
 
@@ -123,14 +123,14 @@ def test_a_raise_with_a_falling_rate_did_not_work() -> None:
 
 def test_too_few_days_is_not_a_verdict() -> None:
     """A verdict needs as many days as an opinion did."""
-    after = Totals(spend_minor=30_000, leads=6)
+    after = Totals(spend_minor=30_000, leads=6, leads_reported=6)
 
     assert _assess(WINNING, WINNING_BEFORE, after, MIN_DAYS - 1) is None
 
 
 def test_evidence_an_older_rule_wrote_reads_as_unclear() -> None:
     """A guessed nought would produce a confident verdict from no data."""
-    verdict = _assess(WINNING, {}, Totals(leads=5), 3)
+    verdict = _assess(WINNING, {}, Totals(leads=5, leads_reported=5), 3)
 
     assert verdict is not None
     assert verdict.outcome == UNCLEAR
@@ -138,7 +138,7 @@ def test_evidence_an_older_rule_wrote_reads_as_unclear() -> None:
 
 # --- less budget must mean cheaper leads, still arriving ------------------
 def test_a_cut_that_lowered_the_price_worked() -> None:
-    after = Totals(spend_minor=40_000, leads=2)
+    after = Totals(spend_minor=40_000, leads=2, leads_reported=2)
 
     verdict = _assess(EXPENSIVE, {"cpl_minor": 50_000}, after, 3)
 
@@ -148,7 +148,7 @@ def test_a_cut_that_lowered_the_price_worked() -> None:
 
 def test_a_cut_after_which_no_lead_arrived_did_not_work() -> None:
     """Not a cheaper campaign - a stopped one arrived at slowly."""
-    after = Totals(spend_minor=40_000, leads=0)
+    after = Totals(spend_minor=40_000, leads=0, leads_reported=0)
 
     verdict = _assess(EXPENSIVE, {"cpl_minor": 50_000}, after, 3)
 

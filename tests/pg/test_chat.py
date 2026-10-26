@@ -362,7 +362,9 @@ def test_a_paid_plan_asks_before_meta_is_connected(
     assert screen.json()["free_total"] == 5
 
     asked = client.post(
-        "/api/v1/chat/ask", json={"question": "Reklamani qanday boshlay?"}, headers=headers
+        "/api/v1/chat/ask",
+        json={"question": "Reklamani qanday boshlay?"},
+        headers=headers,
     )
     assert asked.status_code == 200, asked.text
     assert asked.json()["session_id"]

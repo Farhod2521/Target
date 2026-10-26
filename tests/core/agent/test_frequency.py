@@ -1,6 +1,6 @@
 """core/agent/frequency: three levels, each said once, only upwards."""
 
-from core.agent.frequency import Decision, Reading, decide, level_of
+from core.agent.frequency import Decision, Reading, decide, level_of, seen_too_often
 
 
 def reading(frequency_hundredths: int, *, spend: int = 1_000) -> Reading:
@@ -70,3 +70,11 @@ def test_a_group_that_hardly_spent_is_not_read() -> None:
         )
         == Decision()
     )
+
+
+def test_worn_out_starts_at_the_first_level() -> None:
+    """The diagnosis and the audience rule call a group worn out at the
+    frequency the morning's first level is sent at, and not below it."""
+    assert seen_too_often(170)
+    assert not seen_too_often(169)
+    assert not seen_too_often(None)

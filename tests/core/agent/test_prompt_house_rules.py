@@ -18,10 +18,10 @@ from core.chat.telegram import render_messages
 PROMPTS = Path(core.agent.__file__).parent / "prompts"
 VERSION = re.compile(r"^v(\d+)$")
 
-# The three prompts whose answers a customer reads as prose. The section
+# The two prompts whose answers a customer reads as prose. The section
 # prompts fill fields on a screen and the night's one writes a note under a
 # card, and neither quotes money back.
-SURFACES = ("chat_answer", "daily_report", "weekly_report")
+SURFACES = ("chat_answer", "weekly_report")
 
 
 def latest(name: str) -> str:

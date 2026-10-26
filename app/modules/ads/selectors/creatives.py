@@ -11,6 +11,7 @@ from app.modules.ads.models import Ad, AdCreative
 _STANDING: tuple[str, ...] = (
     Delivery.ACTIVE,
     Delivery.PENDING,
+    Delivery.BILLING,
     Delivery.REJECTED,
     Delivery.PAUSED_ABOVE,
     Delivery.PAUSED,

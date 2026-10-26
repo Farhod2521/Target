@@ -1,10 +1,19 @@
-"""The first step's table, written out for the model that reads the owner's words."""
+"""The first step's table, written out for the model that reads the owner's words.
+
+Every row the business may see goes in - the closed ones too, marked with
+their reason - so the model chooses from exactly what the screen shows and
+names a closed row when that is what the words ask for. Rendered from
+``core.targeting.compat``, so a row added there reaches the prompt without
+a second list to keep in step.
+"""
 
 from collections.abc import Mapping, Sequence
 from typing import Final
 
 from core.targeting.compat import OUTCOMES, Offer
 
+# What each outcome is, for the model. The owner's own labels are
+# translated text and live above this package.
 OUTCOME_NAMES: Final[dict[str, str]] = {
     "requests": "A request - the customer leaves a name and phone number",
     "calls": "A phone call",
@@ -22,7 +31,11 @@ def render_rows(
     defaults: frozenset[str],
     closed: Mapping[str, str],
 ) -> str:
-    """The rows as Markdown, grouped by outcome in the screen's order."""
+    """The rows as Markdown, grouped by outcome in the screen's order.
+
+    ``closed`` maps a row key to why it is closed for this account, in the
+    words the screen uses; a key absent from it is open.
+    """
     lines: list[str] = []
     for spec in OUTCOMES:
         rows = [row for row in offers if row.outcome == spec.key]

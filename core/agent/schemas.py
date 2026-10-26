@@ -1,9 +1,27 @@
-"""The shapes Claude is required to answer in."""
+"""The shapes Claude is required to answer in.
+
+Pydantic here, unlike the dataclasses next door. These are wire formats -
+they become a JSON Schema that the API enforces as a tool signature - and
+that is the one job pydantic does that a dataclass cannot. Domain values
+stay dataclasses; see ``contracts.py``.
+
+Every field carries a description, because the description is the only
+instruction the model sees at the moment it fills that field in. A prompt
+can ask for Uzbek labels; a field description is what makes the model
+remember on the fourteenth one.
+
+Lists are bounded on both ends. An unbounded list is how a well-behaved
+prompt returns forty interests one day and two the next.
+"""
 
 from typing import Final, Literal
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
+# The provider's own bounds, imported rather than restated. ``core.targeting``
+# clamps a spec to these before it is sent, so the numbers are its to know; a
+# second copy here is a second copy to change, and the half that gets missed
+# is the half nobody sees until Meta refuses a campaign.
 from core.targeting import (
     MAX_AGE,
     MAX_CHAT_QUESTIONS,
@@ -13,8 +31,14 @@ from core.targeting import (
     MIN_RADIUS_KM,
 )
 
+# How many life events and behaviours a draft may name. Past this the
+# audience is narrowed by too many conditions at once.
 MAX_TRAITS: Final = 4
 
+# What a lead form may ask. The first four are questions the provider fills
+# in from the person's own profile, which is why a form built from them
+# converts several times better than one asking them to type. ``custom`` is
+# the escape hatch and costs a keystroke every time it is used.
 QuestionKind = Literal["full_name", "phone", "email", "city", "custom"]
 
 
@@ -33,6 +57,10 @@ class InterestProposal(BaseModel):
         ),
         max_length=120,
     )
+    # Three or four words, not a sentence. This field is repeated once per
+    # interest and a sentence apiece makes it the largest single thing the
+    # model writes - two thirds of the answer, and the two thirds nobody
+    # reads twice. It sits under a checkbox; a phrase is what fits there.
     reason: str = Field(
         description=(
             "Nega mos - 3-5 so'z, o'zbekcha, 70 belgidan oshmasin. Jumla emas."
@@ -61,6 +89,12 @@ class AudienceProposal(BaseModel):
         le=MAX_AGE,
     )
 
+    # ``Literal`` rather than ``int``, because this schema is sent to the
+    # API as a tool definition and an enum in it is checked on their side,
+    # before a token of the answer is written. A bare int would let a stray
+    # 0 or 3 through here, past the builder - which only ever filters this
+    # list on the *edit* path - and all the way to Meta, where it surfaces
+    # as a refused campaign at the one moment nothing can be done about it.
     genders: list[Literal[1, 2]] = Field(
         description=(
             "Bo'sh ro'yxat - hamma. [1] - erkaklar, [2] - ayollar. "
@@ -87,7 +121,34 @@ class AudienceProposal(BaseModel):
     @classmethod
     def _within_what_meta_allows(cls, value: object, info: ValidationInfo) -> object:
         """Pull a provider bound back inside itself instead of refusing the
-        answer that carried it."""
+        answer that carried it.
+
+        A model that proposes sixteen for a moped shop is not making an
+        argument the product could honour by asking again - Meta refuses to
+        deliver below eighteen, so the nearest legal reading of "as young
+        as possible" *is* eighteen. Refusing instead throws away the whole
+        answer: the audience, the interests, the advert copy and the form
+        questions, every one of them fine, over a field with one legal
+        value in the direction the model was pointing.
+
+        The cost of that refusal is what makes this worth doing rather than
+        arguing about in the prompt. The constraint speaks only after a
+        whole answer has been written, so the price of a single number is
+        another call, another half-minute of somebody watching a spinner,
+        and no guarantee the second answer keeps inside a bound the first
+        one did not.
+
+        The radius is here for the same reason. Leaving it out would be an
+        asymmetry inside one model, where an age eight years low is
+        repaired and a radius twenty kilometres wide is fatal. Both bounds
+        belong to the provider, both are already clamped by
+        ``core.targeting`` further down, and neither has a second reading.
+
+        Only out-of-range numbers move. Anything else - a string, a null,
+        a missing field - is handed on untouched, so the field constraints
+        and pydantic's own message stay in charge of what is genuinely a
+        malformed answer rather than an out-of-bounds one.
+        """
         if not isinstance(value, int) or isinstance(value, bool):
             return value
         low, high = (
@@ -99,7 +160,26 @@ class AudienceProposal(BaseModel):
 
     @model_validator(mode="after")
     def _the_range_runs_upwards(self) -> "AudienceProposal":
-        """Refused rather than repaired, unlike the clamp above."""
+        """Refused rather than repaired, unlike the clamp above.
+
+        The two look like one rule and are not. An age outside the
+        platform's bounds has exactly one legal reading in the direction
+        the model was pointing, so it can be moved. A range that runs
+        downwards has two - swap them, or one of the numbers is the typo -
+        and guessing which produces an audience nobody asked for.
+
+        ``core.targeting`` decides the same thing: ``_clamp_age`` raises on
+        an inverted range instead of sorting it. The problem is where it
+        raises. Nothing in ``apps/`` catches ``InvalidTargeting``, so a
+        proposal that got past validation here would be stored and blow up
+        while the spec was being built - inside the guard that turns
+        anything unlisted into "Xatolik yuz berdi", with no code the screen
+        could translate and nothing for anybody to retry.
+
+        Said here, it is a re-ask instead: the client hands the model this
+        sentence and its own answer, and the fields that were right are
+        kept.
+        """
         if self.age_min > self.age_max:
             raise ValueError(f"age_min {self.age_min} is above age_max {self.age_max}")
         return self
@@ -118,6 +198,18 @@ class CreativeProposal(BaseModel):
     schema cannot tell two paraphrases apart.
     """
 
+    # Meta cuts the primary text off at about 125 characters on a phone
+    # and hides the rest behind "See more". The limit is in the
+    # description as well as in the field, and that
+    # repetition is the point: ``max_length`` is a validator, and a
+    # validator only speaks after the answer is written. The description is
+    # the sentence the model reads *while* writing it - so a cap named only
+    # in the field is a cap discovered by failing, which costs a whole
+    # second attempt at a whole answer's latency.
+    #
+    # Three Uzbek sentences land within a few characters of three hundred,
+    # which is exactly the shape of an intermittent refusal: most answers
+    # fit and some do not.
     primary_text: str = Field(
         description=(
             "Reklamaning asosiy matni, o'zbekcha. 2-3 qisqa jumla, "
@@ -126,6 +218,10 @@ class CreativeProposal(BaseModel):
         ),
         max_length=300,
     )
+    # The one field whose description is *stricter* than its validator, and
+    # deliberately: forty is what fits on a phone, sixty is what would
+    # actually be refused. Aiming at the first leaves room for the model to
+    # miss by a word without costing a second attempt.
     headline: str = Field(
         description="Sarlavha, o'zbekcha, 40 belgidan oshmasin.",
         max_length=60,
@@ -272,6 +368,9 @@ class GoalChoice(BaseModel):
 
 class LaunchDraft(
     BaseModel,
+    # What the model is told this object is. Without it the docstring below
+    # would be sent in its place - and that is written for whoever edits
+    # this file rather than for the model deciding which keys to write.
     json_schema_extra={
         "description": (
             "One campaign proposal: the audience, the interests, the life "
@@ -294,9 +393,21 @@ class LaunchDraft(
             "8-10 ta qiziqish. Keng va tor aralash: keng bo'lsa yetkazish "
             "oson, tor bo'lsa mos odam ko'proq."
         ),
+        # Six rather than eight at the bottom. The lower bound is not a
+        # product rule - the screen is usable with six - it is a validation
+        # failure waiting to happen, and a failure here costs a second full
+        # call at twice the latency to produce the same answer again.
         min_length=6,
         max_length=12,
     )
+    # Names copied from the category's closed list of life events and
+    # behaviours, which the prompt carries - never a name of the model's
+    # own. The draft is matched against that list when it is stored, so a
+    # made-up name ticks nothing.
+    #
+    # Required rather than defaulted to empty. A key the schema lets the
+    # model skip is a key it skips, and "skipped" and "none fits" would then
+    # look the same.
     traits: list[str] = Field(
         description=(
             "Promptdagi hayot voqealari va odatlar ro'yxatidan faqat shu "
@@ -309,9 +420,32 @@ class LaunchDraft(
     @field_validator("traits", mode="before")
     @classmethod
     def _first_traits(cls, value: object) -> object:
-        """The first few, rather than the whole draft refused for a fifth."""
+        """The first few, rather than the whole draft refused for a fifth.
+
+        A fifth trait that fits is not a wrong answer, and refusing it asked
+        for the whole draft again - a second call for one extra name.
+        """
         return value[:MAX_TRAITS] if isinstance(value, list) else value
 
+    # **For the pictures that have no words of their own.** A file
+    # uploaded to the library or picked from it is a picture and a file
+    # name; nothing on it is something a customer has read. So the model
+    # writes one advert per such picture, from what the owner said it is
+    # about. A post still goes with its own caption and gets nothing here,
+    # which is why the list may be empty.
+    #
+    # **No ceiling on the list, and that is deliberate.** How many pictures
+    # a launch may hold is the account's setting, not the product's - this
+    # layer cannot read it and must not carry a copy of it. A number
+    # written here would be a second ceiling that the first one silently
+    # outgrows, and the failure it would cause is the worst kind: a whole
+    # proposal refused by validation, several seconds and a bill after it
+    # was written, because the owner raised a limit in an .env file.
+    #
+    # What holds the count to the pictures is the prompt, which names the
+    # exact number - ``build_draft.ad_copy_variables`` counts it - and the
+    # pairing afterwards, which walks the variants and takes the advert
+    # sitting at each one's index.
     creatives: list[CreativeProposal] = Field(
         default_factory=list,
         description=(
@@ -320,6 +454,13 @@ class LaunchDraft(
             "natijadan yoki takliftan boshlanadi. Ro'yxat bo'sh bo'lsa - bo'sh."
         ),
     )
+    # The fewest questions that let somebody follow up - name and phone are
+    # almost always enough, and every extra question costs leads. The
+    # schema description is what the model reads while filling the field
+    # in, so it has to say the same thing the prompt does.
+    #
+    # Only for an advert that opens a form. Every other goal is asked with
+    # ``LaunchDraftWithoutForm`` below.
     form_questions: list[FormQuestion] = Field(
         description="2-3 savol, kamida ism va telefon.",
         min_length=2,
@@ -382,6 +523,10 @@ class InterestSection(BaseModel):
             "8-10 ta qiziqish. Keng va tor aralash: keng bo'lsa yetkazish "
             "oson, tor bo'lsa mos odam ko'proq."
         ),
+        # The same eight-to-ten asked for above, accepted from six to
+        # twelve for the same reason: the lower bound is not a product
+        # rule, it is a validation failure waiting to happen, and one here
+        # costs a second full call to produce the same answer again.
         min_length=6,
         max_length=12,
     )
@@ -434,7 +579,12 @@ class TranslatedTerms(BaseModel):
     )
 
 
+# How many entries one review call answers. The shortlist is sent in parts of
+# this size: the faults the provider reports are proposed however many there
+# are, and a list longer than the answer may be was a night lost whole.
 MAX_NOTES: Final = 10
+# How long one sentence beside a button may be - roughly three lines on a
+# phone, which is as much as anybody reads there.
 REASON_CHARS: Final = 220
 
 
@@ -462,6 +612,8 @@ class DecisionNote(BaseModel):
             "qarorni foydalanuvchi qabul qiladi."
         )
     )
+    # Shown to the advertiser verbatim, so it is written as a sentence and
+    # not as a label.
     reason: str = Field(
         description=(
             "Nega - 1-2 jumla, 220 belgidan oshmasin, oddiy til bilan. Aniq "
@@ -474,7 +626,12 @@ class DecisionNote(BaseModel):
     @field_validator("reason")
     @classmethod
     def _short(cls, value: str) -> str:
-        """Trimmed to a phone's three lines rather than refused."""
+        """Trimmed to a phone's three lines rather than refused.
+
+        A sentence a few words too long was a whole answer thrown away - and
+        with it the night's proposals, every one of them, over one clause.
+        Cut at the last word that fits, and said to be cut.
+        """
         text = " ".join(value.split())
         if len(text) <= REASON_CHARS:
             return text

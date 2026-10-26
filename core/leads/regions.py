@@ -1,4 +1,3 @@
-
 """Which of Uzbekistan's fourteen regions a place name belongs to."""
 
 import re

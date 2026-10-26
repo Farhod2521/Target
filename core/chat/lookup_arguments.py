@@ -102,7 +102,6 @@ class Proposals(Arguments):
     )
 
 
-
 class ChangeProposal(Arguments):
     """One change the owner asked for, prepared for them to confirm. Nothing is carried out."""
 

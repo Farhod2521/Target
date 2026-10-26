@@ -1,4 +1,13 @@
-"""The shape of Claude's second read of advert copy."""
+"""The shape of Claude's second read of advert copy.
+
+Its own module rather than a few more classes in ``schemas.py``: this is the
+one answer here that is not a proposal. It judges one - problem by problem,
+with the words that show each - and hands back the advert with them fixed.
+
+Problems first in each item, and that order is the instruction. The model
+fills the fields in the order the schema lists them, so a list of what is
+wrong is written before the corrected text rather than justified after it.
+"""
 
 from typing import Literal
 
@@ -39,19 +48,27 @@ class ReviewedAdvert(BaseModel):
         description="Topilgan muammolar. Reklama to'g'ri bo'lsa - bo'sh ro'yxat.",
         max_length=8,
     )
+    # Empty when nothing was wrong. The words are kept from the advert
+    # itself, and an echo of every right advert was the bulk of the answer:
+    # paid for at the output price and thrown away by the caller.
     primary_text: str = Field(
+        default="",
         description=(
-            "Asosiy matn. Muammo bo'lmasa - aynan o'zi, harfma-harf. Bo'lsa - "
-            "faqat muammo tuzatilgan holda. 300 belgidan oshmasin."
+            "Asosiy matn. Muammo bo'lmasa - bo'sh qoldiring. Bo'lsa - faqat "
+            "muammo tuzatilgan holda. 300 belgidan oshmasin."
         ),
         max_length=300,
     )
     headline: str = Field(
-        description="Sarlavha, 40 belgidan oshmasin. Muammo bo'lmasa - o'zi.",
+        default="",
+        description="Sarlavha, 40 belgidan oshmasin. Muammo bo'lmasa - bo'sh.",
         max_length=60,
     )
     description: str = Field(
-        description="Qo'shimcha qator, 120 belgidan oshmasin. Muammo bo'lmasa - o'zi.",
+        default="",
+        description=(
+            "Qo'shimcha qator, 120 belgidan oshmasin. Muammo bo'lmasa - bo'sh."
+        ),
         max_length=120,
     )
 

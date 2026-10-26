@@ -1,4 +1,7 @@
-"""The campaign and the ad set, with Meta's own commentary on them."""
+"""The campaign and the ad set, with Meta's own commentary on them.
+
+The creative and the ad are next door in ``creative_rows``.
+"""
 
 from datetime import datetime
 from typing import Any
@@ -56,6 +59,9 @@ class ReviewFeedbackRow(MetaDTO):
     an advertising rule was added.
     """
 
+    # Both spellings accepted: Meta sends ``global`` and everything on this
+    # side of the boundary writes ``overall``. Without this the field could
+    # only ever be filled from a payload, and never in a test.
     model_config = ConfigDict(frozen=True, extra="ignore", populate_by_name=True)
 
     overall: dict[str, str] = Field(default_factory=dict, alias="global")
@@ -82,6 +88,9 @@ class CampaignRow(MetaDTO):
     status: str = ""
     effective_status: str = ""
     daily_budget: str = ""
+    # The most this campaign may spend in its whole life, in minor units.
+    # Absent on almost every campaign - it is opt-in - and quoted when it
+    # is there, which is Meta's usual shape for money.
     spend_cap: str = ""
     special_ad_categories: tuple[str, ...] = ()
     created_time: datetime | None = None
@@ -91,7 +100,13 @@ class CampaignRow(MetaDTO):
     @field_validator("daily_budget", "spend_cap", mode="before")
     @classmethod
     def _as_text(cls, value: object) -> object:
-        """Money arrives quoted on some edges and bare on others."""
+        """Money arrives quoted on some edges and bare on others.
+
+        The same bridge ``AccountRow`` builds for the same reason: Meta is
+        inconsistent about quoting its own numbers, pydantic does not
+        bridge it, and refusing a bare integer would fail the parse for the
+        whole campaign list rather than for the one field.
+        """
         if value is None:
             return ""
         if isinstance(value, bool):
@@ -104,7 +119,12 @@ class CampaignRow(MetaDTO):
 
     @property
     def spend_cap_minor(self) -> int | None:
-        """``None`` where Meta named no cap, which is the ordinary answer."""
+        """``None`` where Meta named no cap, which is the ordinary answer.
+
+        Never zero for "uncapped". A campaign whose cap is genuinely zero
+        cannot spend at all, and a screen that printed one for the absent
+        case would say exactly that about a campaign spending money.
+        """
         return _minor_units(self.spend_cap)
 
 
@@ -128,6 +148,9 @@ class AdSetRow(MetaDTO):
     daily_budget: str = ""
     targeting: dict[str, Any] = Field(default_factory=dict)
     promoted_object: dict[str, Any] = Field(default_factory=dict)
+    # Meta nests this one level down and only sends it for ad sets that
+    # have started. Flattened on the way in so the guardrail reads a
+    # string rather than walking a dict that may not be there.
     learning_stage_info: dict[str, Any] = Field(default_factory=dict)
     start_time: datetime | None = None
     end_time: datetime | None = None
@@ -140,6 +163,11 @@ class AdSetRow(MetaDTO):
 
     @property
     def learning_status(self) -> str:
-        """``LEARNING``, ``SUCCESS``, ``LEARNING_LIMITED``, or empty."""
+        """``LEARNING``, ``SUCCESS``, ``LEARNING_LIMITED``, or empty.
+
+        Empty means Meta did not say, which is not the same as "finished
+        learning". The guardrail treats only a known non-learning value as
+        permission to act.
+        """
         status = self.learning_stage_info.get("status", "")
         return status if isinstance(status, str) else ""

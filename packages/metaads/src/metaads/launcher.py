@@ -1,4 +1,26 @@
-"""Meta's creation sequence, expressed in the domain's own types."""
+"""Meta's creation sequence, expressed in the domain's own types.
+
+Not a port, and deliberately so. CLAUDE.md defers ``CreativePort`` and
+``BudgetPort``, and the reason applies here too: creating a campaign is one
+*intent* but six provider-shaped steps, and an interface invented from a
+single provider would be shaped exactly like that provider. So the launch
+service reaches into this package through the escape hatch the same
+document allows for platform-specific screens.
+
+What this class buys, given that, is the boundary. The service names
+:class:`MetaLauncher` once and then deals in ``ExternalRef``,
+``ActionResult`` and ``adskit`` exceptions - so the day a second provider
+arrives, the sequence is what gets rewritten and not everything that reads
+its result. Meta's error codes stop here, in :func:`metaads.adapter.session`.
+
+Every method defaults to ``dry_run=True``. That default is repeated rather
+than centralised on purpose: the safe value has to be what somebody gets
+for forgetting, at every single call site.
+
+Uploading the owner's picture is next door, in :class:`metaads.assets
+.MetaAssets`, because an upload is the one thing in the sequence that is
+never rolled back.
+"""
 
 from typing import Any
 
@@ -27,8 +49,15 @@ from metaads.writes import (
 
 
 class MetaLauncher:
-    """The six writes that turn a proposal into a paused campaign."""
+    """The six writes that turn a proposal into a paused campaign.
 
+    Stateless, like every adapter here: the token arrives per call and one
+    connection is opened and closed per call. A worker killed mid-sequence
+    leaks nothing - what it leaves behind is objects at Meta, which is what
+    the caller's ``created_refs`` is for.
+    """
+
+    # --- The objects -----------------------------------------------------
     def create_form(
         self,
         *,
@@ -37,7 +66,12 @@ class MetaLauncher:
         page_token: str,
         dry_run: bool = True,
     ) -> ActionResult:
-        """The lead form, on the page, with the page's own token."""
+        """The lead form, on the page, with the page's own token.
+
+        First of the sequence because it is the only step that can fail for
+        a reason the owner can fix - a missing privacy policy - and failing
+        first means failing before anything exists to roll back.
+        """
         with session(page_token) as graph:
             created = create_lead_form(
                 page_id=page.id,
@@ -92,7 +126,12 @@ class MetaLauncher:
         token: str,
         dry_run: bool = True,
     ) -> ActionResult:
-        """The audience and the budget, with what Meta declined to keep."""
+        """The audience and the budget, with what Meta declined to keep.
+
+        The only step whose ``dropped`` is ever non-empty, and the reason
+        that field exists at all: Meta removes interests and placements it
+        no longer supports, answers 200, and says nothing.
+        """
         with session(token) as graph:
             created = create_adset(
                 account_id=account.id,
@@ -113,6 +152,8 @@ class MetaLauncher:
                 "status": spec.status,
             },
             dropped=created.dropped,
+            # The targeting as Meta holds it, so a caller can see what was
+            # added as well as what was lost - see ``writes.changed_from``.
             raw_response={"targeting": created.returned},
         )
 
@@ -148,7 +189,17 @@ class MetaLauncher:
         token: str,
         dry_run: bool = True,
     ) -> ActionResult:
-        """The same step as :meth:`create_creative`, from a post that exists."""
+        """The same step as :meth:`create_creative`, from a post that exists.
+
+        A second method rather than a branch inside the first, because the
+        two take different objects and mean different things. One publishes
+        a post while it makes the ad; this one points at a post somebody
+        published weeks ago, which keeps the likes, the comments and the
+        place it already has in a profile.
+
+        Everything after it is identical - the ad names a creative and an
+        ad set and does not care which of the two made it.
+        """
         with session(token) as graph:
             created = create_boost_creative(
                 account_id=account.id,
@@ -171,7 +222,14 @@ class MetaLauncher:
         )
 
     def promoted_media(self, *, creative: ExternalRef, token: str) -> tuple[str, ...]:
-        """Which Instagram posts a boosted creative actually advertises."""
+        """Which Instagram posts a boosted creative actually advertises.
+
+        Read after the creative exists, because Meta accepting a creative
+        is not Meta keeping the post in it: the ``effective_`` field is what
+        the ad will show, and a creative that fell back to a new post
+        answers with a different id there - or with none. Both ids are
+        returned, empties dropped, for the caller to compare.
+        """
         with session(token) as graph:
             row = read_creative(
                 creative_id=creative.id,
@@ -194,7 +252,18 @@ class MetaLauncher:
         token: str,
         dry_run: bool = True,
     ) -> ActionResult:
-        """A creative from a story spec that came back from Meta and was edited."""
+        """A creative from a story spec that came back from Meta and was edited.
+
+        The third way to make one, beside :meth:`create_creative` and
+        :meth:`boost_creative`, and the only one that starts from something
+        that already exists. It is what "change what this advert says"
+        turns into: Meta does not allow a creative to be edited, so the old
+        block is copied, two fields are written over it, and the result is
+        a new object - see :mod:`metaads.restage`.
+
+        Everything after it is the same as after the other two. The ad step
+        names a creative and does not care which of the three made it.
+        """
         with session(token) as graph:
             created = create_from_story(
                 account_id=account.id,
@@ -223,7 +292,14 @@ class MetaLauncher:
         dry_run: bool = True,
         status: str = STATUS_PAUSED,
     ) -> ActionResult:
-        """One advert under a group, switched off unless told otherwise."""
+        """One advert under a group, switched off unless told otherwise.
+
+        Off is right for a launch, which switches the whole tree on at the
+        end. It is wrong for an advert made to *replace* one that is
+        running: the old one is switched off next, and a new one made off
+        leaves the group delivering nothing - so that caller passes
+        ``STATUS_ACTIVE``.
+        """
         with session(token) as graph:
             created = create_ad(
                 account_id=account.id,
@@ -244,12 +320,18 @@ class MetaLauncher:
         )
 
     def remove(self, *, ref: ExternalRef, token: str, dry_run: bool = True) -> bool:
-        """Delete one object, for a rollback walking its refs backwards."""
+        """Delete one object, for a rollback walking its refs backwards.
+
+        A dry-run id answers true without a call, which is checked inside
+        the package rather than here: a rollback must not be the place where
+        a synthetic id first reaches Meta.
+        """
         with session(token) as graph:
             return delete_object(
                 object_id=ref.id, token=token, client=graph, dry_run=dry_run
             )
 
+    # --- Translation -----------------------------------------------------
     @staticmethod
     def _done(
         *,

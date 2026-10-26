@@ -72,3 +72,11 @@ def test_three_usual_results_spent_is_enough_without_the_clicks() -> None:
     assert must_stop(
         _group(spend=1_500, impressions=400, link_clicks=5, usual=500), small=SMALL
     )
+
+
+def test_with_a_usual_price_only_three_results_worth_is_enough() -> None:
+    """The brief's rule: where a result has a usual price, the showings do not
+    stand in for it - under three of them spent, nothing is decided."""
+    assert not must_stop(
+        _group(spend=1_400, impressions=5_000, link_clicks=80, usual=500), small=SMALL
+    )

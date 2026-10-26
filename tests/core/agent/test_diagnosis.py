@@ -23,6 +23,7 @@ from core.agent.diagnosis import CAUSE_OF, CAUSES, Diagnosis, diagnose
 from core.agent.signals import SIGNALS
 from core.agent.usual import Usual
 from core.metrics import SegmentFigures, Totals
+from tests.core.agent.pace import at_week_pace
 
 META = ProviderName("meta")
 POLICY = Policy()
@@ -36,19 +37,21 @@ def group(**overrides: Any) -> AdSetFacts:
     leads = overrides.pop("leads", 30)
     reported = overrides.pop("reported", leads)
     results = overrides.pop("results", 0)
+    totals = Totals(
+        spend_minor=spend,
+        impressions=impressions,
+        clicks=clicks,
+        leads=leads,
+        leads_reported=reported,
+        results=results,
+    )
+    overrides.setdefault("recent", at_week_pace(totals))
     return AdSetFacts(
         external_id=overrides.pop("external_id", "judged"),
         campaign_external_id="camp-1",
         name=overrides.pop("name", "Qish aksiyasi"),
         delivery=overrides.pop("delivery", "active"),
-        totals=Totals(
-            spend_minor=spend,
-            impressions=impressions,
-            clicks=clicks,
-            leads=leads,
-            leads_reported=reported,
-            results=results,
-        ),
+        totals=totals,
         days_with_spend=overrides.pop("days_with_spend", 7),
         counts_leads=overrides.pop("counts_leads", True),
         funnel=Funnel(
@@ -98,13 +101,13 @@ def test_a_group_like_the_rest_of_the_account_has_no_problem() -> None:
     assert (found.cause, found.signals) == ("no_problem", ())
 
 
-def test_a_weak_advert_on_a_cheap_group_is_recorded_and_not_blamed() -> None:
-    """Leads cost what they cost everywhere here. The low rate is kept for
-    whoever reads the row, and nothing is called wrong."""
+def test_a_weak_advert_on_a_cheap_group_is_still_named() -> None:
+    """Leads cost what they cost everywhere here, and the advert is clicked
+    a third as often. The brief reads top down and the first step that
+    failed is the cause, whatever the price."""
     found = verdict(group(link_clicks=500, leads=30))
 
-    assert found.cause == "no_problem"
-    assert "low_ctr" in found.signals
+    assert (found.cause, found.signals[0]) == ("weak_creative", "low_ctr")
 
 
 def test_a_lost_webhook_does_not_read_as_a_stalled_form() -> None:
@@ -183,13 +186,13 @@ def test_nobody_clicking_is_the_advert() -> None:
     )
 
 
-def test_a_dear_advert_nobody_clicks_is_still_the_advert() -> None:
-    """The auction charges more for an advert people ignore, so the price
-    of a thousand impressions is the advert's doing."""
+def test_dear_to_show_comes_before_the_advert() -> None:
+    """The brief reads the price of a thousand showings in its third step,
+    whether the group is shown, and the advert in its fourth."""
     found = verdict(group(impressions=40_000, link_clicks=100, leads=0))
 
     assert {"low_ctr", "high_cpm"} <= set(found.signals)
-    assert found.cause == "weak_creative"
+    assert found.cause == "costly_audience"
 
 
 def test_dear_to_show_with_ordinary_clicks_is_the_audience() -> None:
@@ -225,22 +228,26 @@ def test_the_same_people_seeing_it_again_is_worn_out_not_weak() -> None:
         group(
             link_clicks=1_300,
             leads=0,
-            early=Half(days=3, impressions=40_000, link_clicks=800, frequency=150),
-            late=Half(days=4, impressions=60_000, link_clicks=500, frequency=220),
+            early=Half(days=3, impressions=40_000, link_clicks=800),
+            late=Half(days=4, impressions=60_000, link_clicks=500),
+            week_frequency=220,
         )
     )
 
     assert found.cause == "worn_out"
 
 
-def test_a_rise_in_a_frequency_still_low_is_not_wear() -> None:
-    """From 1,1 to 1,25 a day is a rise, and nobody is tired of anything."""
+def test_a_frequency_under_the_first_bar_is_not_wear() -> None:
+    """1,25 times a week is under the 1,70 the morning's levels start at, and
+    nobody is tired of anything - the diagnosis and the levels read one bar."""
     found = verdict(
         group(
             link_clicks=1_300,
             leads=0,
-            early=Half(days=3, impressions=40_000, link_clicks=800, frequency=110),
-            late=Half(days=4, impressions=60_000, link_clicks=500, frequency=125),
+            early=Half(days=3, impressions=40_000, link_clicks=800),
+            late=Half(days=4, impressions=60_000, link_clicks=500),
+            week_frequency=125,
+            prior_week_frequency=110,
         )
     )
 
@@ -315,8 +322,60 @@ def test_a_limited_group_says_the_provider_cannot_learn_on_it() -> None:
     assert (found.cause, found.signals) == ("learning_limited", ("learning_limited",))
 
 
-def test_a_limited_group_doing_well_is_left_alone() -> None:
-    assert verdict(group(learning_limited=True)).cause == "no_problem"
+def test_a_limited_group_doing_well_is_still_told_it_cannot_learn() -> None:
+    assert verdict(group(learning_limited=True)).cause == "learning_limited"
+
+
+def test_an_unpaid_account_comes_before_everything() -> None:
+    account = AccountFacts(
+        provider=META,
+        currency="USD",
+        window_days=7,
+        totals=Totals(),
+        adsets=(group(link_clicks=500, leads=0), steady()),
+        payment_due=True,
+    )
+
+    found = {item.adset_id: item for item in diagnose(account=account, policy=POLICY)}
+
+    assert found["judged"].cause == "unpaid"
+    assert found["judged"].signals[0] == "unpaid"
+    assert found["steady"].cause == "unpaid"
+
+
+def test_a_group_waiting_on_an_unpaid_bill_is_diagnosed() -> None:
+    """The provider calls the wait "pending"; on an account that owes money
+    the bill is what it waits on."""
+    waiting = group(delivery="pending")
+    owed = AccountFacts(
+        provider=META,
+        currency="USD",
+        window_days=7,
+        totals=Totals(),
+        adsets=(waiting, steady()),
+        payment_due=True,
+    )
+    paid = AccountFacts(
+        provider=META,
+        currency="USD",
+        window_days=7,
+        totals=Totals(),
+        adsets=(waiting, steady()),
+    )
+
+    assert "judged" in {item.adset_id for item in diagnose(account=owed, policy=POLICY)}
+    assert "judged" not in {
+        item.adset_id for item in diagnose(account=paid, policy=POLICY)
+    }
+
+
+def test_without_a_usual_price_too_few_clicks_is_too_early() -> None:
+    """The brief's other bar, where nothing says what a result costs: a
+    thousand showings and thirty clicks."""
+    found = verdict(group(link_clicks=20, leads=0), group(external_id="other", leads=0))
+
+    assert found.cause == "too_early"
+    assert "thin_data" in found.signals
 
 
 def test_a_long_form_explains_what_was_otherwise_unclear() -> None:
@@ -332,10 +391,9 @@ def chat(**overrides: Any) -> AdSetFacts:
     return group(counts_leads=False, outcome="chat", leads=0, **overrides)
 
 
-def test_cheap_conversations_are_no_problem_however_few_click() -> None:
-    """The advert that was nearly replaced: 35 conversations at the usual
-    price, and a click rate well under the account's. The click rate is
-    recorded, and it is not a verdict."""
+def test_cheap_conversations_with_few_clicks_name_the_advert() -> None:
+    """35 conversations at the usual price, and a click rate well under the
+    account's: the advert is the first step that failed."""
     judged = chat(link_clicks=1_120, results=35, spend=875)
     neighbour = chat(
         external_id="steady", name="Bahor", link_clicks=2_500, results=35, spend=875
@@ -343,8 +401,7 @@ def test_cheap_conversations_are_no_problem_however_few_click() -> None:
 
     found = verdict(judged, neighbour)
 
-    assert found.cause == "no_problem"
-    assert "low_ctr" in found.signals
+    assert (found.cause, found.signals[0]) == ("weak_creative", "low_ctr")
     assert found.evidence["outcome"] == "chat"
     assert (found.evidence["results"], found.evidence["cost_minor"]) == (35, 25)
 
@@ -361,26 +418,28 @@ def test_dear_conversations_are_explained_by_the_advert() -> None:
     assert found.evidence["cost_minor"] == 90
 
 
-def test_a_provider_verdict_on_a_working_group_is_not_a_cause() -> None:
-    """Meta calling the advert weak is a figure like any other: it explains
-    a poor price and is not one."""
+def test_a_provider_verdict_on_a_working_group_is_a_cause() -> None:
+    """Meta's ranking is one of the brief's advert figures, read in its
+    fourth step whatever the price."""
     found = verdict(
         chat(results=40, spend=900, ads=(advert(engagement="below_average_20"),)),
         chat(external_id="steady", name="Bahor", results=40, spend=900),
     )
 
-    assert (found.cause, found.signals) == ("no_problem", ("low_ranking",))
+    assert (found.cause, found.signals) == ("weak_creative", ("low_ranking",))
 
 
-def test_a_group_whose_result_nothing_counts_gets_no_opinion() -> None:
-    """A sale on somebody else's website has no price here, and judging it
-    by its clicks instead is the mistake this whole module refuses."""
+def test_a_group_whose_result_nothing_counts_is_read_by_its_steps() -> None:
+    """A sale on somebody else's website has no price here, so it is never
+    called dear - but its advert is still read."""
     weak = verdict(
         group(counts_leads=False, leads=0, ads=(advert(engagement="below_average_20"),))
     )
+    fine = verdict(group(counts_leads=False, leads=0))
 
-    assert weak.cause == "no_problem"
+    assert weak.cause == "weak_creative"
     assert weak.evidence["results"] is None
+    assert fine.cause == "no_problem"
 
 
 def test_a_group_is_only_compared_with_groups_of_its_own_kind() -> None:
@@ -462,7 +521,9 @@ def test_a_price_twice_the_usual_these_three_days_is_a_problem_already() -> None
     climbing = group(
         recent=Recent(
             days=3,
-            totals=Totals(spend_minor=120_000, impressions=30_000, leads=3),
+            totals=Totals(
+                spend_minor=120_000, impressions=30_000, leads=3, leads_reported=3
+            ),
             link_clicks=300,
         )
     )

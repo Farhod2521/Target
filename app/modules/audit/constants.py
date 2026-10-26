@@ -225,6 +225,7 @@ class EventName(Choices):
     FREQUENCY_ANSWERED = "agent.frequency_answered"
     MEDIA_UPLOADED = "media.uploaded"
     MEDIA_DELETED = "media.deleted"
+    DELIVERY_STOPPED = "delivery.stopped"
     SUPPORT_CONVERSATION_OPENED = "support.conversation_opened"
     SUPPORT_MESSAGE_POSTED = "support.message_posted"
     SUPPORT_CONVERSATION_SETTLED = "support.conversation_settled"
@@ -341,6 +342,7 @@ EVENT_NAME_LABELS = {
     EventName.FREQUENCY_ANSWERED: "Chastotaga javob",
     EventName.MEDIA_UPLOADED: "Fayl kutubxonaga yuklandi",
     EventName.MEDIA_DELETED: "Fayl kutubxonadan o'chirildi",
+    EventName.DELIVERY_STOPPED: "Reklama to'xtadi",
     EventName.SUPPORT_CONVERSATION_OPENED: "Yordam suhbati ochildi",
     EventName.SUPPORT_MESSAGE_POSTED: "Yordam xabari yuborildi",
     EventName.SUPPORT_CONVERSATION_SETTLED: "Yordam suhbati: javob shart emas",

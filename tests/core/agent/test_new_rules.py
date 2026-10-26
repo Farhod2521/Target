@@ -11,9 +11,10 @@ from typing import Any
 from adskit import MinorUnits, ProviderName
 
 from core.agent import AccountFacts, AdSetFacts, Funnel, Half, Policy, scan
-from core.agent.rules import JUNK, NARROW_AUDIENCE, SATURATED, junk
+from core.agent.rules import JUNK, NARROW_AUDIENCE, SATURATED, junk, saturated
 from core.agent.rules.audience import MIN_HALF_IMPRESSIONS
 from core.metrics import SegmentFigures, Totals, compare_segments
+from tests.core.agent.pace import at_week_pace
 
 META = ProviderName("meta")
 POLICY = Policy()
@@ -34,7 +35,6 @@ def _adset(**overrides: Any) -> AdSetFacts:
         "clicks": 900,
         "leads": 0,
         "qualified": 0,
-        "leads_reported": 0,
     }
     figures.update(overrides.pop("totals", {}))
     # The funnel the diagnosis and the price benchmark read, from the same
@@ -47,12 +47,14 @@ def _adset(**overrides: Any) -> AdSetFacts:
             link_clicks=figures["clicks"],
         ),
     )
+    totals = Totals(**{"leads_reported": figures.get("leads", 0), **figures})
+    overrides.setdefault("recent", at_week_pace(totals))
     return AdSetFacts(
         external_id=overrides.pop("external_id", "adset-1"),
         campaign_external_id="camp-1",
         name="Yosh onalar",
         delivery=overrides.pop("delivery", "active"),
-        totals=Totals(**figures),
+        totals=totals,
         days_with_spend=overrides.pop("days_with_spend", 7),
         daily_budget_minor=overrides.pop("daily_budget_minor", 15_000),
         counts_leads=overrides.pop("counts_leads", True),
@@ -67,7 +69,8 @@ def _adset(**overrides: Any) -> AdSetFacts:
 
 def _account(*adsets: AdSetFacts, **overrides: Any) -> AccountFacts:
     totals = overrides.pop(
-        "totals", Totals(spend_minor=1_000_000, leads=100, qualified=40)
+        "totals",
+        Totals(spend_minor=1_000_000, leads=100, leads_reported=100, qualified=40),
     )
     return AccountFacts(
         provider=META,
@@ -127,7 +130,7 @@ def test_one_good_lead_is_enough_to_leave_it_alone() -> None:
 def test_an_account_that_marks_nothing_gets_no_verdict_from_this_rule() -> None:
     """An owner's silence is a fact about their habits, not about a
     campaign - and this is the one rule that could mistake the two."""
-    unmarked = Totals(spend_minor=1_000_000, leads=100, qualified=0)
+    unmarked = Totals(spend_minor=1_000_000, leads=100, leads_reported=100, qualified=0)
 
     assert junk(account=_account(_junking(), lead_totals=unmarked), policy=POLICY) == []
 
@@ -135,8 +138,9 @@ def test_an_account_that_marks_nothing_gets_no_verdict_from_this_rule() -> None:
 # --- saturated: the same people, more often, clicking less ----------------
 def _worn(**overrides: Any) -> AdSetFacts:
     figures: dict[str, Any] = {
-        "early": Half(days=3, impressions=30_000, link_clicks=300, frequency=120),
-        "late": Half(days=4, impressions=30_000, link_clicks=120, frequency=180),
+        "early": Half(days=3, impressions=30_000, link_clicks=300),
+        "late": Half(days=4, impressions=30_000, link_clicks=120),
+        "week_frequency": 180,
         "targeting": {"age_min": 25, "age_max": 45},
         "totals": {"leads": 4, "qualified": 2},
     }
@@ -151,8 +155,17 @@ def _neighbour() -> AdSetFacts:
 
 
 def _saturated(*adsets: AdSetFacts) -> list[Any]:
-    found = scan(account=_account(*adsets, _neighbour()), policy=POLICY)
-    return [item for item in found if item.rule == SATURATED]
+    """The rule asked directly: the night never runs it - see below."""
+    return saturated(account=_account(*adsets, _neighbour()), policy=POLICY)
+
+
+def test_the_night_never_widens_a_worn_audience() -> None:
+    """The brief's one remedy for a tired audience is a new advert, said by
+    the morning's frequency message. A wider audience beside it would be a
+    second answer to the same group."""
+    found = scan(account=_account(_worn(), _neighbour()), policy=POLICY)
+
+    assert SATURATED not in [item.rule for item in found]
 
 
 def test_a_falling_click_rate_beside_a_climbing_frequency_is_fatigue() -> None:
@@ -163,6 +176,15 @@ def test_a_falling_click_rate_beside_a_climbing_frequency_is_fatigue() -> None:
     assert found[0].evidence["late_ctr_bp"] == 40
     assert (found[0].evidence["outcome"], found[0].evidence["results"]) == ("lead", 4)
     assert found[0].evidence["cost_minor"] == 75_000
+
+
+def test_the_usual_price_is_the_other_groups_not_one_including_itself() -> None:
+    """The card prints this beside the group's own price and aims the
+    promise at the diagnosis's - both must be the same figure, the price of
+    the account's other groups."""
+    found = _saturated(_worn())
+
+    assert found[0].evidence["account_cost_minor"] == 5_000
 
 
 def test_fatigue_on_a_group_whose_leads_are_still_cheap_is_left_alone() -> None:
@@ -178,19 +200,15 @@ def test_fatigue_on_a_campaign_built_elsewhere_is_left_alone() -> None:
 
 
 def test_a_falling_click_rate_alone_is_just_a_bad_week() -> None:
-    """Without the frequency climbing, this is a dip - a competitor
+    """With the frequency under the first bar, this is a dip - a competitor
     outbidding us, a season, a holiday - and widening answers none of it."""
-    dipping = _worn(
-        late=Half(days=4, impressions=30_000, link_clicks=120, frequency=118)
-    )
+    dipping = _worn(week_frequency=118)
 
     assert _saturated(dipping) == []
 
 
 def test_a_climbing_frequency_that_still_converts_is_left_alone() -> None:
-    steady = _worn(
-        late=Half(days=4, impressions=30_000, link_clicks=290, frequency=180)
-    )
+    steady = _worn(late=Half(days=4, impressions=30_000, link_clicks=290))
 
     assert _saturated(steady) == []
 
@@ -199,18 +217,14 @@ def test_a_half_too_thin_to_measure_says_nothing() -> None:
     """A rate over a few hundred impressions moves by a third on one or two
     clicks, which is the whole trap - the drop is a percentage of noise."""
     sparse = _worn(
-        early=Half(
-            days=3, impressions=MIN_HALF_IMPRESSIONS - 1, link_clicks=10, frequency=120
-        ),
+        early=Half(days=3, impressions=MIN_HALF_IMPRESSIONS - 1, link_clicks=10),
     )
 
     assert _saturated(sparse) == []
 
 
 def test_one_day_a_side_is_not_a_direction() -> None:
-    quick = _worn(
-        early=Half(days=1, impressions=30_000, link_clicks=300, frequency=120)
-    )
+    quick = _worn(early=Half(days=1, impressions=30_000, link_clicks=300))
 
     assert _saturated(quick) == []
 

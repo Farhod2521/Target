@@ -1,7 +1,17 @@
-"""Contracts every ad provider is expressed through."""
+"""Contracts every ad provider is expressed through.
+
+The smallest and most important package: changing it changes everything
+downstream. It is deliberately designed away from Meta. Each port answers
+one question first - "how would Google do this?" - and a port whose answer
+is unclear is not built yet.
+
+Nothing here imports httpx, anthropic, Django, or a sibling package. The
+dependency arrow points at adskit and never out of it.
+"""
 
 from adskit.dto import (
     DIGEST_LENGTH,
+    AccountStateDTO,
     ActionResult,
     AdDTO,
     AdPreviewDTO,
@@ -76,6 +86,7 @@ from adskit.ports import (
 )
 from adskit.refs import (
     BROWSED_TRAITS,
+    AccountStanding,
     AudienceAction,
     AudienceBreadth,
     AudienceSource,
@@ -100,6 +111,8 @@ __all__ = [
     "ISO_MONEY",
     "ZERO_DECIMAL_CURRENCIES",
     "AccountActionRequired",
+    "AccountStanding",
+    "AccountStateDTO",
     "ActionResult",
     "AdDTO",
     "AdPreviewDTO",

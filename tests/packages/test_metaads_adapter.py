@@ -85,7 +85,7 @@ def answering(payload: dict) -> GraphClient:
         pytest.param("CAMPAIGN_PAUSED", "paused_above", id="parent-paused"),
         pytest.param("ADSET_PAUSED", "paused_above", id="grandparent-paused"),
         pytest.param("PENDING_REVIEW", "pending", id="under-review"),
-        pytest.param("PENDING_BILLING_INFO", "pending", id="no-card"),
+        pytest.param("PENDING_BILLING_INFO", "billing", id="no-card"),
         pytest.param("DISAPPROVED", "rejected", id="refused"),
         pytest.param("WITH_ISSUES", "rejected", id="needs-attention"),
         pytest.param("COMPLETED", "finished", id="ran-its-course"),

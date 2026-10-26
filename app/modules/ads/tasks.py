@@ -6,7 +6,15 @@ from celery import Task
 
 from app.common.db import utcnow
 from app.modules.accounts.models import User
-from app.modules.ads.constants import MIRROR_SWEEP, REFRESH_QUEUE, SYNC_STARTED
+from app.modules.ads.constants import (
+    MIRROR_SWEEP,
+    REFRESH_QUEUE,
+    STILL_POLL_SECONDS,
+    STILL_TRIES,
+    SYNC_STARTED,
+    UPLOAD_RETRIES,
+    UPLOAD_RETRY_SECONDS,
+)
 from app.modules.ads.exceptions import (
     ConnectionUnusable,
     SyncAlreadyRunning,
@@ -254,3 +262,255 @@ def fetch_preview_task(user_id: str, external_id: str, ad_format: str) -> str:
             return "unavailable"
         db.commit()
         return "fetched"
+
+
+# -- the launch ------------------------------------------------------------------------
+
+
+@celery_app.task(queue="agent")
+def build_draft_task(launch_id: str, run: str = "") -> str:
+    """Ask Claude to prepare one campaign. No retry: every failure is on the row."""
+    from app.modules.ads.services.proposal import build_draft
+
+    with task_session() as db:
+        return build_draft(db, launch_id=launch_id, run=run)
+
+
+@celery_app.task(queue="agent")
+def regenerate_section_task(launch_id: str, section: str) -> str:
+    from app.modules.ads.services.sections import regenerate_section
+
+    with task_session() as db:
+        return regenerate_section(db, launch_id=launch_id, section=section)
+
+
+@celery_app.task(queue="agent")
+def rewrite_form_task(launch_id: str, depth: str) -> str:
+    from app.modules.ads.services.forms import rewrite_form
+
+    with task_session() as db:
+        return rewrite_form(db, launch_id=launch_id, depth=depth)
+
+
+@celery_app.task(queue="agent")
+def suggest_options_task(launch_id: str, kind: str) -> str:
+    from app.modules.ads.services.sections import suggest_options
+
+    with task_session() as db:
+        return suggest_options(db, launch_id=launch_id, kind=kind)
+
+
+@celery_app.task(queue="agent")
+def suggest_chat_questions_task(launch_id: str, token: str) -> str:
+    from app.modules.ads.services.readings import suggest_chat_questions
+
+    with task_session() as db:
+        return suggest_chat_questions(db, launch_id=launch_id, token=token)
+
+
+@celery_app.task(queue="agent")
+def detect_goal_task(launch_id: str, token: str) -> str:
+    from app.modules.ads.services.readings import detect_goal
+
+    with task_session() as db:
+        return detect_goal(db, launch_id=launch_id, token=token)
+
+
+@celery_app.task(queue="agent")
+def confirm_interests_task(launch_id: str) -> str:
+    from app.modules.ads.services.interests import confirm_interests
+
+    with task_session() as db:
+        return confirm_interests(db, launch_id=launch_id)
+
+
+@celery_app.task(queue="agent")
+def resolve_locations_task(launch_id: str) -> str:
+    from app.modules.ads.services.locations import resolve_locations
+
+    with task_session() as db:
+        return resolve_locations(db, launch_id=launch_id)
+
+
+@celery_app.task(queue="agent")
+def estimate_audience_task(launch_id: str) -> str:
+    from app.modules.ads.services.interests import estimate_audience
+
+    with task_session() as db:
+        return estimate_audience(db, launch_id=launch_id)
+
+
+@celery_app.task(queue="agent")
+def create_campaign_task(launch_id: str) -> str:
+    """Create one campaign at the provider, paused. No retry: see the service."""
+    from app.modules.ads.services.creation import create_campaign
+
+    with task_session() as db:
+        return create_campaign(db, launch_id=launch_id)
+
+
+@celery_app.task(queue=REFRESH_QUEUE, ignore_result=True)
+def mirror_launch_task(launch_id: str) -> str:
+    from app.modules.ads.services.creation import mirror_launch
+
+    with task_session() as db:
+        return mirror_launch(db, launch_id=launch_id)
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def auto_start_delivery_task(launch_id: str, tries: int = 0) -> str:
+    """Switch on what the launch just created; re-queues itself while waiting."""
+    from app.modules.ads.constants import AUTO_START_WAIT_SECONDS
+    from app.modules.ads.services.creation import WAITING, auto_start_delivery
+
+    with task_session() as db:
+        outcome = auto_start_delivery(db, launch_id=launch_id, tries=tries)
+    if outcome == WAITING:
+        auto_start_delivery_task.apply_async(
+            args=[launch_id, tries + 1], countdown=AUTO_START_WAIT_SECONDS
+        )
+    return outcome
+
+
+@celery_app.task(queue="agent", ignore_result=True)
+def clean_up_launch_task(launch_id: str) -> str:
+    from app.modules.ads.services.launch import clean_up_launch
+
+    with task_session() as db:
+        return clean_up_launch(db, launch_id=launch_id)
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def sweep_stranded_launches_task() -> int:
+    from app.modules.ads.services.rollback import sweep_stranded_launches
+
+    with task_session() as db:
+        return sweep_stranded_launches(db, now=utcnow())
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def rollback_stranded_launch_task(launch_id: str) -> str:
+    from app.modules.ads.services.rollback import rollback_stranded_launch
+
+    with task_session() as db:
+        return rollback_stranded_launch(db, launch_id=launch_id)
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def release_stalled_launches_task() -> int:
+    from app.modules.ads.services.rollback import release_stalled_launches
+
+    with task_session() as db:
+        return release_stalled_launches(db)
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def check_owner_sites_task(owner_id: str) -> int:
+    from app.modules.ads.services.preflight import check_sites
+
+    with task_session() as db:
+        return check_sites(db, owner_id=owner_id, now=utcnow())
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def check_all_sites_task() -> int:
+    """Fan the nightly look out over everybody with a page to look at."""
+    from app.modules.ads.selectors.actions import owners_to_check
+
+    with task_session() as db:
+        owners = owners_to_check(db)
+    for owner_id in owners:
+        check_owner_sites_task.delay(str(owner_id))
+    return len(owners)
+
+
+# -- the media library -----------------------------------------------------------------
+
+
+@celery_app.task(
+    bind=True, queue=REFRESH_QUEUE, ignore_result=True, max_retries=STILL_TRIES
+)
+def fetch_video_still_task(self: Task, asset_id: str, launch_id: str) -> str:
+    """Ask Meta for a new video's first frame until it has one."""
+    from app.modules.ads.exceptions import StillNotReady
+    from app.modules.ads.services.library import (
+        fetch_video_still,
+        read_library_for_still,
+    )
+
+    with task_session() as db:
+        try:
+            return fetch_video_still(db, asset_id=asset_id, launch_id=launch_id)
+        except StillNotReady as exc:
+            if self.request.retries >= STILL_TRIES:
+                return read_library_for_still(db, asset_id=asset_id)
+            raise self.retry(exc=exc, countdown=STILL_POLL_SECONDS) from exc
+
+
+@celery_app.task(
+    bind=True, queue="upload", ignore_result=True, max_retries=UPLOAD_RETRIES
+)
+def upload_to_library_task(self: Task, creative_id: str, log_id: str) -> str:
+    """Put one file in the library; an interrupted upload is carried on, not resent."""
+    from app.modules.ads.exceptions import UploadInterrupted
+    from app.modules.ads.services.library import give_up_on_upload, upload_to_library
+
+    with task_session() as db:
+        try:
+            return upload_to_library(db, creative_id=creative_id, log_id=log_id)
+        except UploadInterrupted as exc:
+            if self.request.retries >= UPLOAD_RETRIES:
+                return give_up_on_upload(
+                    db, creative_id=creative_id, log_id=log_id, reason=str(exc)
+                )
+            raise self.retry(
+                exc=exc, countdown=UPLOAD_RETRY_SECONDS * (self.request.retries + 1)
+            ) from exc
+
+
+@celery_app.task(queue="agent", ignore_result=True)
+def delete_library_media_task(log_id: str) -> str:
+    from app.modules.ads.services.library import delete_library_media
+
+    with task_session() as db:
+        return delete_library_media(db, log_id=log_id)
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def sweep_abandoned_uploads_task() -> int:
+    from app.modules.ads.services.library import (
+        drop_stale_partials,
+        sweep_abandoned_uploads,
+    )
+
+    now = utcnow()
+    drop_stale_partials(now=now)
+    with task_session() as db:
+        return sweep_abandoned_uploads(db, now=now)
+
+
+# -- Google ----------------------------------------------------------------------------
+
+
+@celery_app.task(queue="agent")
+def prepare_google_launch_task(launch_id: str, run: str) -> str:
+    from app.modules.ads.services.google import prepare_google_launch
+
+    with task_session() as db:
+        return prepare_google_launch(db, launch_id=launch_id, run=run)
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def refresh_google_volumes_task(launch_id: str) -> str:
+    from app.modules.ads.services.google import refresh_google_volumes
+
+    with task_session() as db:
+        return refresh_google_volumes(db, launch_id=launch_id)
+
+
+@celery_app.task(queue="agent")
+def create_google_campaign_task(launch_id: str, run: str) -> str:
+    from app.modules.ads.services.google import create_google_campaign
+
+    with task_session() as db:
+        return create_google_campaign(db, launch_id=launch_id, run=run)

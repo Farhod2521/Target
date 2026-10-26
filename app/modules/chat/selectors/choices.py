@@ -158,7 +158,9 @@ def with_choices(db: Session, *, owner: User, messages: Iterable[Any]) -> list[A
             if str(choice.get("pk", "")) in live
         ]
         message.changes = [
-            choice for choice in (message.choices or ()) if choice.get("kind") == "change"
+            choice
+            for choice in (message.choices or ())
+            if choice.get("kind") == "change"
         ]
     return drawn
 

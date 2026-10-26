@@ -10,9 +10,10 @@ from typing import Any
 
 from adskit import ProviderName
 
-from core.agent import AccountFacts, AdSetFacts, Policy, find, holds, scan
+from core.agent import AccountFacts, AdSetFacts, Policy, Recent, find, holds, scan
 from core.agent.rules import EXPENSIVE, IDLE, STARVED, WASTING, WINNING
 from core.metrics import Totals
+from tests.core.agent.pace import at_week_pace
 
 META = ProviderName("meta")
 POLICY = Policy()
@@ -27,12 +28,14 @@ def _adset(**overrides: Any) -> AdSetFacts:
         "qualified": 4,
     }
     figures.update(overrides.pop("totals", {}))
+    totals = Totals(**{"leads_reported": figures.get("leads", 0), **figures})
+    overrides.setdefault("recent", at_week_pace(totals))
     return AdSetFacts(
         external_id=overrides.pop("external_id", "adset-1"),
         campaign_external_id=overrides.pop("campaign_external_id", "camp-1"),
         name=overrides.pop("name", "Yosh onalar"),
         delivery=overrides.pop("delivery", "active"),
-        totals=Totals(**figures),
+        totals=totals,
         days_with_spend=overrides.pop("days_with_spend", 7),
         daily_budget_minor=overrides.pop("daily_budget_minor", 15_000),
         # A lead ad set unless a test says otherwise, which is what almost
@@ -63,7 +66,7 @@ def _with(totals: Totals, adsets: tuple[AdSetFacts, ...]) -> Totals:
 def _account(*adsets: AdSetFacts, **overrides: Any) -> AccountFacts:
     totals = overrides.pop(
         "totals",
-        Totals(spend_minor=1_000_000, leads=100, qualified=40),
+        Totals(spend_minor=1_000_000, leads=100, leads_reported=100, qualified=40),
     )
     return AccountFacts(
         provider=META,
@@ -109,7 +112,9 @@ def test_an_account_that_has_never_had_a_lead_gets_no_stop_proposed() -> None:
     damaging and least justified.
     """
     burning = _adset(totals={"leads": 0, "qualified": 0, "spend_minor": 900_000})
-    account = _account(burning, totals=Totals(spend_minor=900_000, leads=0))
+    account = _account(
+        burning, totals=Totals(spend_minor=900_000, leads=0, leads_reported=0)
+    )
 
     assert scan(account=account, policy=POLICY) == []
 
@@ -169,7 +174,9 @@ def test_cheap_leads_nobody_marked_still_earn_more_money() -> None:
     )
 
     found = scan(
-        account=_account(star, totals=Totals(spend_minor=1_000_000, leads=100)),
+        account=_account(
+            star, totals=Totals(spend_minor=1_000_000, leads=100, leads_reported=100)
+        ),
         policy=POLICY,
     )
 
@@ -199,6 +206,19 @@ def test_four_cheap_leads_are_not_yet_a_price_to_raise_on() -> None:
     ]
 
 
+def test_cheap_leads_under_three_results_worth_are_not_raised_on() -> None:
+    """Six leads at 4 000 against the usual 10 000, on 24 000 spent: under
+    the 30 000 the brief asks before any budget is changed."""
+    early = _adset(
+        totals={"leads": 6, "qualified": 0, "spend_minor": 24_000},
+        daily_budget_minor=3_500,
+    )
+
+    assert WINNING not in [
+        item.rule for item in scan(account=_account(early), policy=POLICY)
+    ]
+
+
 def test_a_limited_group_is_not_raised_on_its_price() -> None:
     star = _adset(
         totals={"leads": 30, "qualified": 20, "spend_minor": 105_000},
@@ -212,12 +232,22 @@ def test_a_limited_group_is_not_raised_on_its_price() -> None:
 
 
 # --- expensive -----------------------------------------------------------
+def _lately(*, spend: int, leads: int) -> Recent:
+    """The last three finished days - the days the brief prices by."""
+    return Recent(
+        days=3,
+        totals=Totals(spend_minor=spend, leads=leads, leads_reported=leads),
+    )
+
+
 def test_working_but_dearer_than_the_account_gets_less_money() -> None:
     """Not a stop: it does produce leads, and switching it off would lose
-    them. 21 000 a lead against the account's 10 000 is past 1.8 times."""
+    them. 21 000 a lead over the last three days against the usual 10 000
+    is past twice it - the brief's line for acting."""
     pricey = _adset(
         totals={"leads": 5, "qualified": 0, "spend_minor": 105_000},
         daily_budget_minor=15_000,
+        recent=_lately(spend=63_000, leads=3),
     )
 
     found = scan(account=_account(pricey), policy=POLICY)
@@ -226,16 +256,61 @@ def test_working_but_dearer_than_the_account_gets_less_money() -> None:
     assert found[0].payload["daily_budget_minor"] == 12_000
     assert found[0].evidence["cpl_minor"] == 21_000
     assert found[0].evidence["account_cpl_minor"] == 10_000
+    assert (found[0].evidence["days"], found[0].evidence["leads"]) == (3, 3)
 
 
 def test_dearer_but_short_of_the_line_is_left_alone() -> None:
-    """17 500 a lead is dearer than 10 000, and still under 1.8 times it."""
+    """Twice the usual exactly is the morning report's warning, not a card."""
     close = _adset(
         totals={"leads": 6, "qualified": 0, "spend_minor": 105_000},
         daily_budget_minor=15_000,
+        recent=_lately(spend=60_000, leads=3),
     )
 
     found = scan(account=_account(close), policy=POLICY)
+
+    assert EXPENSIVE not in [item.rule for item in found]
+
+
+def test_dear_lately_on_too_little_money_is_left_alone() -> None:
+    """Two and a half times the usual, on a group that spent less than
+    three results' usual price: the brief decides nothing on it."""
+    thin = _adset(
+        totals={"leads": 1, "qualified": 0, "spend_minor": 25_000},
+        daily_budget_minor=15_000,
+        recent=_lately(spend=25_000, leads=1),
+    )
+
+    found = scan(account=_account(thin), policy=POLICY)
+
+    assert EXPENSIVE not in [item.rule for item in found]
+
+
+def test_a_small_budget_s_dear_days_are_judged_on_the_whole_window() -> None:
+    """25 000 for one lead these three days, under three results' worth on
+    its own - but the group spent 105 000, and the brief asks whether the
+    group has said enough."""
+    dear = _adset(
+        totals={"leads": 5, "qualified": 0, "spend_minor": 105_000},
+        daily_budget_minor=15_000,
+        recent=_lately(spend=25_000, leads=1),
+    )
+
+    found = scan(account=_account(dear), policy=POLICY)
+
+    assert EXPENSIVE in [item.rule for item in found]
+
+
+def test_a_dear_week_with_ordinary_last_days_is_left_alone() -> None:
+    """The week's price is dear, the last three days' is not: the price has
+    already come back, and cutting the budget now cuts a group that works."""
+    recovered = _adset(
+        totals={"leads": 5, "qualified": 0, "spend_minor": 105_000},
+        daily_budget_minor=15_000,
+        recent=_lately(spend=40_000, leads=4),
+    )
+
+    found = scan(account=_account(recovered), policy=POLICY)
 
     assert EXPENSIVE not in [item.rule for item in found]
 
@@ -510,6 +585,7 @@ def test_three_times_the_usual_price_is_said_on_two_leads() -> None:
     far = _adset(
         totals={"leads": 2, "qualified": 0, "spend_minor": 60_000},
         daily_budget_minor=15_000,
+        recent=_lately(spend=60_000, leads=2),
     )
 
     assert EXPENSIVE in [

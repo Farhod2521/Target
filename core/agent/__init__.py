@@ -1,4 +1,22 @@
-"""The decision layer."""
+"""The decision layer.
+
+Reads metrics, proposes changes, and refuses the ones that would hurt: a
+suggestion is only ever applied after ``guardrails`` allows it *and* after
+the owner has said yes. Nothing here reaches a provider on its own.
+
+Two halves that are easy to confuse. ``rules`` decides - arithmetic over
+figures, deterministic, replayable from the numbers stored beside each
+suggestion. Claude reviews and explains: it may drop an entry the numbers
+do not support and it writes the sentence the owner reads, but it cannot
+add a change or invent an ad set. A fluent recommendation about an object
+that does not exist is the one failure a prompt cannot be written out of.
+
+Prompts live here too, as files under ``prompts/``, one directory per name
+and one file per version. They are versioned because a prompt is the part of
+this system most likely to be edited and least likely to be tested: when
+answers get worse the only answerable question is "which prompt, and since
+when", and a string in a Python file cannot answer it.
+"""
 
 from pathlib import Path
 
@@ -81,6 +99,8 @@ from core.agent.schemas import (
 )
 from core.agent.widen import Widening, WideningStep, widen
 
+# Where ``llmkit.PromptLibrary`` is pointed. A path, not configuration:
+# these files ship with the code and change with it.
 PROMPT_DIR = Path(__file__).parent / "prompts"
 
 __all__ = [

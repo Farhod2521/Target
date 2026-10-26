@@ -41,7 +41,7 @@ def _adset(**overrides: Any) -> AdSetFacts:
         campaign_external_id="camp-1",
         name="Toshkent 25-45",
         delivery=overrides.pop("delivery", "rejected"),
-        totals=Totals(**figures),
+        totals=Totals(**{"leads_reported": figures.get("leads", 0), **figures}),
         days_with_spend=overrides.pop("days_with_spend", 7),
         daily_budget_minor=overrides.pop("daily_budget_minor", 15_000),
         targeting=overrides.pop("targeting", AIMED),
@@ -56,12 +56,14 @@ def _adset(**overrides: Any) -> AdSetFacts:
 
 
 def _account(*adsets: AdSetFacts) -> AccountFacts:
-    totals = Totals(spend_minor=1_000_000, leads=100, qualified=40)
+    totals = Totals(spend_minor=1_000_000, leads=100, leads_reported=100, qualified=40)
     # The other groups at 10 000 a lead, the groups handed in on top: a
     # group is measured against the rest of the account.
     lead_totals = Totals(
         spend_minor=totals.spend_minor + sum(a.totals.spend_minor for a in adsets),
         leads=totals.leads + sum(a.totals.leads for a in adsets),
+        leads_reported=totals.leads_reported
+        + sum(a.totals.leads_reported for a in adsets),
         qualified=totals.qualified,
     )
     return AccountFacts(
@@ -345,11 +347,9 @@ def test_the_provider_s_advice_stops_at_our_own_campaigns_too() -> None:
     assert [item.rule for item in found if item.rule == PROVIDER_ADVICE] == []
 
 
-def test_a_campaign_built_elsewhere_can_still_be_stopped() -> None:
-    """The other half of the same rule, and the reason the restriction
-    is per rule rather than per account: money leaving a stranger's
-    campaign is money leaving, and stopping it is not a change to what
-    anybody chose."""
+def test_a_campaign_built_elsewhere_gets_nothing_at_all() -> None:
+    """Not even a stop over money leaving it: a campaign made in Ads
+    Manager is its owner's to run there."""
     burning = _adset(
         delivery="active",
         is_ours=False,
@@ -359,4 +359,4 @@ def test_a_campaign_built_elsewhere_can_still_be_stopped() -> None:
 
     found = scan(account=_account(burning), policy=POLICY)
 
-    assert [item.kind for item in found] == ["pause"]
+    assert found == []

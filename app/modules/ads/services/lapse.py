@@ -107,10 +107,13 @@ def open_lapse_hold(db: Session, *, owner: User, now: datetime) -> LapseHold | N
 def stop_running(
     db: Session, *, hold: LapseHold, targets: list[LapseTarget] | None = None
 ) -> int:
+    from app.modules.ads.selectors.lapse import unwritable_account_ids
+
     owner = hold.owner
     stopped = 0
+    unwritable = unwritable_account_ids(db, owner=owner)
     for target in targets if targets is not None else lapse_targets(db, owner=owner):
-        if not target.running:
+        if not target.running or target.ad_account_id in unwritable:
             continue
         try:
             log = request_pause(

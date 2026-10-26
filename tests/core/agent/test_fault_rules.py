@@ -233,14 +233,49 @@ def test_a_group_sending_people_to_a_dead_page_is_proposed_a_stop() -> None:
     assert found.evidence["down_url"] == "https://shop.uz"
 
 
-def test_a_campaign_built_elsewhere_can_be_stopped_too() -> None:
-    """A stop is the owner's own protection, never a rewrite."""
+def test_a_campaign_built_elsewhere_gets_no_stop() -> None:
+    """Nothing about a campaign made in Ads Manager is proposed, a stop
+    included: it is its owner's to run there."""
     down = group(landing=Landing(down_urls=("https://shop.uz",)), is_ours=False)
 
-    assert len(stops(account(down, library=()))) == 1
+    assert stops(account(down, library=())) == []
 
 
 def test_a_group_already_stopped_is_not_proposed_a_stop() -> None:
     down = group(landing=Landing(down_urls=("https://shop.uz",)), delivery="paused")
 
     assert stops(account(down, library=())) == []
+
+
+def test_a_refusal_about_the_picture_gets_a_picture_not_words() -> None:
+    """New words for a refused picture change the advert and leave it refused."""
+    refused = advert(
+        "ad-1",
+        issue_codes=(),
+        issue_summary="",
+        image_hash="menu",
+        refusal="Personal attributes: The image implies the viewer's weight.",
+    )
+    facts = account(group(refused), library=(MENU, HALL))
+
+    assert refusals(facts) == []
+    (found,) = proposals(facts)
+    assert found.kind == "new_picture"
+    assert found.payload["image_hash"] == "hall"
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        "Landing Page Functionality: The destination does not load.",
+        "Prohibited Content: Tobacco products are not allowed.",
+        "Circumventing Systems: the ad tries to evade review.",
+        "ADVERTISING_POLICIES: Your ad was rejected.",
+    ],
+)
+def test_a_refusal_new_words_cannot_fix_gets_no_new_words(refusal: str) -> None:
+    refused = advert(
+        "ad-1", issue_codes=(), issue_summary="", image_hash="menu", refusal=refusal
+    )
+
+    assert refusals(account(group(refused), library=(MENU, HALL))) == []

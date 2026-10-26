@@ -1,4 +1,22 @@
-"""Changing what already runs: a switch, a budget, a removal."""
+"""Changing what already runs: a switch, a budget, a removal.
+
+Each is one ``:mutate`` on the object's own collection, with Google's
+``validateOnly`` as the rehearsal - the request is checked in full and
+nothing changes. :class:`~googleadskit.campaigns.GoogleCampaigns` holds the
+port's signatures and the deployment's rehearsal switch; the requests are
+built here.
+
+**The budget is changed where it is, never swapped.** Google keeps it on a
+budget object of its own, which a campaign points at. Moving the campaign to
+a new budget would forget what the old one had already spent that day, and
+the day could end at nearly twice the figure asked for - so the amount on
+the existing budget is what changes, as Google advises. A budget shared with
+other campaigns changes for all of them; the caller is told beforehand
+through ``CampaignDTO.shared_budget_id``.
+
+**A removal is final.** Google keeps a removed object's history and never
+lets it run again.
+"""
 
 from typing import Any, Final
 
@@ -9,6 +27,7 @@ from adskit.refs import ExternalRef, MinorUnits
 from googleadskit.client import AdsClient
 from googleadskit.resources import collection_of, customer_of, quoted
 
+# The two states an advertiser can ask for, in Google's spelling.
 SETTABLE: Final[dict[str, str]] = {"active": "ENABLED", "paused": "PAUSED"}
 
 _MICROS_PLACES: Final = 6

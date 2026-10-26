@@ -66,3 +66,10 @@ def test_the_pairs_other_videos_are_the_bar_when_there_are_any() -> None:
     )
 
     assert "weak_hook" in noticed(video(views_3s=3_000, thruplays=600), strong)
+
+
+def test_the_middle_is_weak_under_fifteen_in_a_hundred() -> None:
+    """The brief's bar: of the people past three seconds, under 15% staying
+    to the end is a weak middle; 15% is not."""
+    assert "weak_hold" in noticed(video(views_3s=3_000, thruplays=420))
+    assert "weak_hold" not in noticed(video(views_3s=3_000, thruplays=450))

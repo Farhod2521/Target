@@ -44,3 +44,16 @@ def test_without_a_budget_three_usual_results_are_the_bar() -> None:
 
 def test_with_nothing_to_measure_against_nothing_is_said() -> None:
     assert not burning(a_day(daily_budget_minor=None, usual_cost_minor=None))
+
+
+def test_under_three_usual_results_spent_nothing_is_decided() -> None:
+    """The brief's rule: a quarter of the budget gone, but less than three
+    results' usual price - not enough to call it money for nothing."""
+    assert not burning(a_day(usual_cost_minor=200))
+    assert burning(a_day(usual_cost_minor=128))
+
+
+def test_with_no_usual_price_the_showings_stand_in() -> None:
+    """Shown nine thousand times and tapped by nobody: no price says what
+    three results cost, and a bar on clicks would never reach this group."""
+    assert burning(a_day(usual_cost_minor=None))

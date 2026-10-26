@@ -1,4 +1,24 @@
-"""Reading named campaigns, ad sets and ads, rather than the whole account."""
+"""Reading named campaigns, ad sets and ads, rather than the whole account.
+
+Apart from :mod:`metaads.campaigns` because the two answer different
+questions. The account lists say what an account holds, and a row missing
+from them means the object is gone; this says what a handful of known ids
+look like now, and says nothing about anything else.
+
+**Why it exists.** The ``/act_<id>/ads`` read is all or nothing: one advert
+Meta will not describe fails the whole list. An Advantage+ creative whose
+asset feed disagrees with its story spec does exactly that (``100/2446211``),
+and it can be an advert nobody in this product ever touched. A read by id
+reaches only the objects asked for, so a stranger's broken advert cannot
+stand between a launch and its own three objects.
+
+**One request per id.** Graph v26.0 refuses the ``?ids=`` read outright
+(code 100, "The ids query parameter is deprecated"), so each object is read
+at its own path. A launch names three objects, so that is three requests.
+
+Same fields as the lists, so the rows parse into the same DTOs and the
+mirror cannot tell which read wrote them.
+"""
 
 from collections.abc import Sequence
 from typing import Any, Final
@@ -15,6 +35,10 @@ from metaads.dto import AdRow, AdSetRow, CampaignRow
 from metaads.errors import MetaAPIError
 from metaads.parsing import parsed_all
 
+# "Object does not exist or you cannot see it". A deleted object is left out
+# of the answer, the way the account lists leave it out. Read at its own
+# path, a missing id comes back as 100/33 ("Unsupported get request") rather
+# than 803 - the subcode, because a bare 100 is also a refused field.
 _GONE_CODE: Final = 803
 _MISSING_AT_PATH: Final = (100, 33)
 
@@ -38,7 +62,13 @@ def read_adsets(
 def read_ads(
     *, ids: Sequence[str], token: str, client: GraphClient | None = None
 ) -> list[AdRow]:
-    """These ads, with their creative's content wherever Meta will give it."""
+    """These ads, with their creative's content wherever Meta will give it.
+
+    An ad whose content Meta refuses to describe comes back with the
+    creative's id alone. Its words and picture are missing from the mirror
+    until a later read gets them; its status is not, and the status is what
+    switching it on needs.
+    """
     rows = _read(
         ids=ids,
         fields=AD_FIELDS,

@@ -64,12 +64,15 @@ def _adset(*ads: AdFacts, **overrides: Any) -> AdSetFacts:
         daily_budget_minor=25_000,
         counts_leads=True,
         ads=ads,
+        # Built here: nothing is proposed about a campaign made in Ads
+        # Manager - see ``core.agent.rules.scan``.
+        is_ours=overrides.pop("is_ours", True),
         **overrides,
     )
 
 
 def _account(*adsets: AdSetFacts) -> AccountFacts:
-    totals = Totals(spend_minor=1_000_000, leads=100, qualified=40)
+    totals = Totals(spend_minor=1_000_000, leads=100, leads_reported=100, qualified=40)
     return AccountFacts(
         provider=META,
         currency="USD",
@@ -178,7 +181,7 @@ def test_stopping_the_group_withdraws_the_proposal_about_its_advert() -> None:
     the only order in which both answers make sense."""
     burning = replace(
         _adset(_ad(EARNING), _ad(BARREN)),
-        totals=Totals(spend_minor=900_000, leads=0, qualified=0),
+        totals=Totals(spend_minor=900_000, leads=0, leads_reported=0, qualified=0),
     )
 
     codes = [item.rule for item in scan(account=_account(burning), policy=POLICY)]

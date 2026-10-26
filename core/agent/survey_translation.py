@@ -1,4 +1,12 @@
-"""A survey's wording translated into the other languages, and its check."""
+"""A survey's wording translated into the other languages, and its check.
+
+The model is asked for every target language in one call and answers in
+the shape below. The answer is used only if it is the same survey: each
+language once, the same number of questions in the same order, and each
+choice with the same number of options. A translation that dropped an
+option would make the customer's pick mean a different answer in another
+language, so it is refused whole rather than patched.
+"""
 
 from collections.abc import Sequence
 
@@ -41,7 +49,11 @@ def checked(
     option_counts: Sequence[int],
     has_intro: bool,
 ) -> dict[str, SurveyLanguage]:
-    """Each target language's wording, or ``TranslationMismatchError``."""
+    """Each target language's wording, or ``TranslationMismatchError``.
+
+    ``option_counts`` is the source's questions in order, each with how
+    many options it has (zero for a question without any).
+    """
     found: dict[str, SurveyLanguage] = {}
     for item in answer.languages:
         if item.language in found or item.language not in languages:

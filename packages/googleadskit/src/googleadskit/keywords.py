@@ -1,4 +1,20 @@
-"""How often a keyword is searched, from Google's keyword planner."""
+"""How often a keyword is searched, from Google's keyword planner.
+
+Two questions, both under ``KeywordPlanIdeaService`` and both open to an
+account at Basic access:
+
+- :func:`keyword_volumes` - the figures for keywords already chosen, so a
+  screen can put "1 300 a month" beside each one the AI wrote.
+- :func:`keyword_ideas` - more keywords like the ones given, for the person
+  who wants to widen the list.
+
+No language is sent. Uzbek is not one of Google's languages, so narrowing
+to Russian or English would hide exactly the searches an Uzbek shop wants;
+left out, Google counts every language.
+
+Google asks for one request a second per customer and refreshes the figures
+monthly: callers should not ask twice for the same list.
+"""
 
 from typing import Any, Final, Literal
 
@@ -14,6 +30,7 @@ _COMPETITION: Final[dict[str, Competition]] = {
     "HIGH": "high",
 }
 _NETWORK: Final = "GOOGLE_SEARCH"
+# Ideas beyond this are a list nobody reads; the request is paged by Google.
 _IDEAS_PAGE: Final = 50
 
 
@@ -23,6 +40,8 @@ class KeywordVolumeDTO(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     text: str
+    # Average over the last twelve months. Nought is a real answer - too
+    # few searches to report - not a missing one.
     monthly_searches: int = 0
     competition: Competition = "unknown"
 

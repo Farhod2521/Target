@@ -50,6 +50,7 @@ from core.agent.rules import (
     WINNING,
 )
 from core.metrics import LEAD_GOALS, Totals, counts_leads
+from tests.core.agent.pace import at_week_pace
 
 META = ProviderName("meta")
 POLICY = Policy()
@@ -63,7 +64,6 @@ PRICED = {WASTING, EXPENSIVE, WINNING}
 # show an advert to has nothing to do with what a lead costs.
 ANY_GOAL = {
     STARVED,
-    SATURATED,
     NARROW_AUDIENCE,
     WEAK_AD,
     # New words for an ignored advert: attention, which every goal has.
@@ -90,12 +90,14 @@ def _adset(**overrides: Any) -> AdSetFacts:
         "qualified": 4,
     }
     figures.update(overrides.pop("totals", {}))
+    totals = Totals(**{"leads_reported": figures.get("leads", 0), **figures})
+    overrides.setdefault("recent", at_week_pace(totals))
     return AdSetFacts(
         external_id=overrides.pop("external_id", "adset-1"),
         campaign_external_id=overrides.pop("campaign_external_id", "camp-1"),
         name=overrides.pop("name", "Qo'ng'iroq"),
         delivery=overrides.pop("delivery", "active"),
-        totals=Totals(**figures),
+        totals=totals,
         days_with_spend=overrides.pop("days_with_spend", 7),
         daily_budget_minor=overrides.pop("daily_budget_minor", 15_000),
         counts_leads=overrides.pop("counts_leads", False),
@@ -121,10 +123,12 @@ def _account(*adsets: AdSetFacts, **overrides: Any) -> AccountFacts:
         currency="USD",
         window_days=7,
         totals=overrides.pop(
-            "totals", Totals(spend_minor=2_000_000, leads=100, qualified=40)
+            "totals",
+            Totals(spend_minor=2_000_000, leads=100, leads_reported=100, qualified=40),
         ),
         lead_totals=overrides.pop(
-            "lead_totals", Totals(spend_minor=1_000_000, leads=100, qualified=40)
+            "lead_totals",
+            Totals(spend_minor=1_000_000, leads=100, leads_reported=100, qualified=40),
         ),
         adsets=adsets,
     )
@@ -175,9 +179,11 @@ def test_the_codes_are_derived_from_the_table_and_not_written_twice() -> None:
 
 def test_the_quality_rule_is_asleep_while_the_mark_is_off() -> None:
     """It divides by the owner's quality mark, which is switched off. Its
-    code stays known - older rows carry it - and nothing new is found by it."""
-    assert DORMANT == (JUNK,)
-    assert JUNK not in {rule.code for rule in RULES}
+    code stays known - older rows carry it - and nothing new is found by it.
+    So does the wider audience for a tired one: the frequency message is
+    that group's one answer."""
+    assert DORMANT == (JUNK, SATURATED)
+    assert not {JUNK, SATURATED} & {rule.code for rule in RULES}
 
 
 def test_no_price_rule_fires_on_a_result_nothing_counts() -> None:
@@ -248,14 +254,18 @@ def test_a_campaign_that_cannot_bring_a_lead_does_not_price_one() -> None:
     honest = scan(
         account=_account(
             burning,
-            lead_totals=Totals(spend_minor=1_040_000, leads=100, qualified=40),
+            lead_totals=Totals(
+                spend_minor=1_040_000, leads=100, leads_reported=100, qualified=40
+            ),
         ),
         policy=POLICY,
     )
     polluted = scan(
         account=_account(
             burning,
-            lead_totals=Totals(spend_minor=2_040_000, leads=100, qualified=40),
+            lead_totals=Totals(
+                spend_minor=2_040_000, leads=100, leads_reported=100, qualified=40
+            ),
         ),
         policy=POLICY,
     )
@@ -277,7 +287,10 @@ def test_the_benchmark_is_what_the_evidence_quotes() -> None:
     # The group's own six leads on top: it is measured against the others.
     found = scan(
         account=_account(
-            dear, lead_totals=Totals(spend_minor=1_120_000, leads=106, qualified=40)
+            dear,
+            lead_totals=Totals(
+                spend_minor=1_120_000, leads=106, leads_reported=106, qualified=40
+            ),
         ),
         policy=POLICY,
     )

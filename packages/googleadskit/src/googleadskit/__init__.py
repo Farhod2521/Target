@@ -1,4 +1,14 @@
-"""The only place that talks to Google Ads."""
+"""The only place that talks to Google Ads.
+
+Every Google Ads API call goes through here, over REST, so the API version,
+the timeouts and the reading of Google's failures have exactly one
+implementation.
+
+The package knows nothing about this project. Tokens arrive as plain
+strings and configuration through constructors. The stored credential is a
+refresh token; :class:`~googleadskit.connect.GoogleConnect` trades it for
+an access token through ``googlekit``, Google's one OAuth implementation.
+"""
 
 from typing import Final
 
@@ -24,6 +34,8 @@ from googleadskit.locations import country_target
 from googleadskit.rows import BUDGET_CONSTRAINED
 from googleadskit.translate import translate_error
 
+# The registry key this package answers to, written once so that
+# ``registry.get(PROVIDER)`` and ``ProviderConnection.provider`` cannot drift.
 PROVIDER: Final = ProviderName("google")
 
 __all__ = [
