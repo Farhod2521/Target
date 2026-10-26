@@ -29,6 +29,7 @@ from app.modules.ads.constants import (
     LAUNCH_RELATED_TYPE,
     MAX_AUTO_START_TRIES,
     ROLLBACK_ORDER,
+    STARTABLE,
     SYNC_LOCK_SECONDS,
     DraftSection,
     LaunchStatus,
@@ -123,11 +124,7 @@ from core.targeting.exceptions import PhoneNumberMissing as PhoneMissing
 from core.targeting.gate import validate_launchable
 
 logger = logging.getLogger(__name__)
-STARTABLE = (
-    str(LaunchStatus.READY),
-    str(LaunchStatus.ROLLED_BACK),
-    str(LaunchStatus.FAILED),
-)
+
 QUIET_RESULTS = frozenset({"created", "gone", "not_creating"})
 RUN_LOCK_PREFIX: Final = "launch-run:"
 RUN_LOCK_SECONDS: Final = 30 * 60

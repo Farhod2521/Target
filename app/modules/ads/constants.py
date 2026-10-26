@@ -837,3 +837,11 @@ BLOCKED_STANDINGS: frozenset[str] = frozenset(
 MONEY_STOPS: frozenset[str] = frozenset(
     {StopReason.CARD_DECLINED, StopReason.BALANCE_USED_UP, StopReason.SPEND_CAP}
 )
+
+
+# A launch these statuses hold may be sent to the provider.
+STARTABLE: Final[tuple[str, ...]] = (
+    str(LaunchStatus.READY),
+    str(LaunchStatus.ROLLED_BACK),
+    str(LaunchStatus.FAILED),
+)

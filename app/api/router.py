@@ -2,6 +2,10 @@ from fastapi import APIRouter
 
 from app.modules.accounts.routers import router as accounts
 from app.modules.ads.routers import router as campaigns
+from app.modules.ads.routers.launch import router as launch
+from app.modules.ads.routers.launch_forms import router as launch_forms
+from app.modules.ads.routers.launch_media import router as launch_media
+from app.modules.ads.routers.launch_review import router as launch_review
 from app.modules.billing.routers import router as billing
 from app.modules.billing.routers import webhooks as billing_webhooks
 from app.modules.businesses.routers import router as businesses
@@ -33,6 +37,10 @@ api_router.include_router(notifications)
 api_router.include_router(miniapp)
 api_router.include_router(metrics)
 api_router.include_router(campaigns)
+api_router.include_router(launch)
+api_router.include_router(launch_review)
+api_router.include_router(launch_media)
+api_router.include_router(launch_forms)
 api_router.include_router(chat)
 
 public_router = APIRouter()

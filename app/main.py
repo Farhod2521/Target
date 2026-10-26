@@ -25,7 +25,12 @@ def create_app() -> FastAPI:
     async def domain_error(_: Request, exc: DomainError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
-            content={"detail": exc.message, "code": exc.code},
+            content={"detail": exc.message, "code": exc.code}
+            | (
+                {"problems": problems}
+                if (problems := getattr(exc, "problems", None))
+                else {}
+            ),
         )
 
     @app.get("/health", tags=["health"])

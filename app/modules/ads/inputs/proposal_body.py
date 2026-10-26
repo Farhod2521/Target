@@ -1,0 +1,76 @@
+"""What the review screen's save takes, section by section."""
+
+from datetime import date
+from decimal import Decimal
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from app.modules.ads.constants import LAUNCH_NAME_MAX
+from app.modules.ads.inputs.ending import EndingIn
+from app.modules.ads.inputs.questions import QuestionRow
+from core.targeting import MAX_AGE, MAX_RADIUS_KM, MIN_AGE, MIN_RADIUS_KM
+
+Role = Literal["include", "exclude"]
+
+
+class AudienceIn(BaseModel):
+    targeting_mode: str = ""
+    placement_mode: str = ""
+    lead_buying: str = ""
+    age_min: int = Field(ge=MIN_AGE, le=MAX_AGE)
+    age_max: int = Field(ge=MIN_AGE, le=MAX_AGE)
+    genders: list[Literal[1, 2]] = Field(
+        default_factory=list, description="Empty: everyone."
+    )
+    geo_mode: str
+    places: list[str] = Field(default_factory=list)
+    added: list[str] = Field(default_factory=list, description="Place names typed in.")
+    areas: list[str] = Field(default_factory=list)
+    radius_km: int | None = Field(None, ge=MIN_RADIUS_KM, le=MAX_RADIUS_KM)
+    lat: Decimal | None = Field(None, ge=-90, le=90)
+    lng: Decimal | None = Field(None, ge=-180, le=180)
+    audiences: dict[str, Role] = Field(default_factory=dict)
+
+
+class InterestsIn(BaseModel):
+    queries: list[str] = Field(default_factory=list)
+    added: list[str] = Field(default_factory=list)
+
+
+class CreativeIn(BaseModel):
+    position: int = Field(ge=0)
+    primary_text: str = ""
+    headline: str = Field("", max_length=60)
+    description: str = Field("", max_length=120)
+    ad_name: str = Field("", max_length=LAUNCH_NAME_MAX)
+
+
+class FormSectionIn(BaseModel):
+    lead_form: str = Field("", max_length=128)
+    rows: list[QuestionRow] | None = None
+    ending: EndingIn | None = None
+    form_depth: str = ""
+    higher_intent: bool | None = None
+
+
+class AdvancedIn(BaseModel):
+    campaign_type: str = ""
+    conversion_event: str = ""
+    pixel_id: str = ""
+    call_to_action: str = ""
+    url_tags: str = ""
+    end_date: date | None = None
+    attribution: str = ""
+    cap_times: int | None = Field(None, ge=1, le=50)
+    cap_days: int | None = Field(None, ge=1, le=90)
+    max_result_cost: Decimal | None = Field(None, ge=0)
+
+
+class ProposalIn(BaseModel):
+    audience: AudienceIn | None = None
+    interests: InterestsIn | None = None
+    traits: list[str] | None = Field(None, description="The trait queries kept.")
+    creatives: list[CreativeIn] | None = None
+    form: FormSectionIn | None = None
+    advanced: AdvancedIn | None = None
