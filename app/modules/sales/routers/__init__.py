@@ -40,6 +40,23 @@ from app.modules.sales.models import (
     SalesClaim,
     SalesSegment,
 )
+from app.modules.sales.schemas import (
+    BoardOut,
+    DialogOut,
+    HoldsOut,
+    MessageOut,
+    MineOut,
+    MovedOut,
+    PlacementOut,
+    PoolOut,
+    PulseOut,
+    ReasonSavedOut,
+    ReportOut,
+    RuleSavedOut,
+    SegmentSavedOut,
+    SettingsOut,
+    TeamOut,
+)
 from app.modules.sales.selectors import (
     ALL,
     POOL,
@@ -110,9 +127,13 @@ def _uuid(value: str) -> uuid.UUID | None:
 def viewer(
     user: Seller,
     db: Session = Depends(get_db),
-    g: str = Query(ALL),
-    m: str = Query(""),
-    q: str = Query(""),
+    g: str = Query(
+        ALL,
+        description="Pool chip: `all`, `ariza`, `problem`, `new`, `back`, `ending`, "
+        "or a segment's `key`.",
+    ),
+    m: str = Query("", description="Leads only: one manager's cards (user id)."),
+    q: str = Query("", description="Search name, phone or email."),
 ) -> Viewer:
     held = roles_of(db, user)
     now = utcnow()
@@ -404,7 +425,7 @@ def _pool(db: Session, who: Viewer, *, offset: int = 0) -> dict[str, Any]:
     }
 
 
-@router.get("")
+@router.get("", responses={200: {"model": BoardOut}})
 def board(db: Db, who: Who) -> dict[str, Any]:
     drawn = arrange(who.user, selectors.columns(db, scope=who.scope, now=who.now))
     queued = _pool(db, who)
@@ -428,8 +449,12 @@ def board(db: Db, who: Who) -> dict[str, Any]:
     }
 
 
-@router.get("/pool")
-def pool(db: Db, who: Who, offset: int = Query(0, ge=0)) -> dict[str, Any]:
+@router.get("/pool", responses={200: {"model": PoolOut}})
+def pool(
+    db: Db,
+    who: Who,
+    offset: int = Query(0, ge=0, description="The last answer's `pool_next`."),
+) -> dict[str, Any]:
     return {"who": who_out(who), **_pool(db, who, offset=offset)}
 
 
@@ -473,13 +498,24 @@ def placement_context(
     }
 
 
-@router.get("/cards/{client_id}")
+@router.get("/cards/{client_id}", responses={200: {"model": PlacementOut}})
 def placement(client_id: uuid.UUID, db: Db, who: Who) -> dict[str, Any]:
     return placement_context(db, who, client_id=client_id)
 
 
-@router.get("/pulse", response_model=None)
-def pulse(db: Db, who: Who, cursor: str = Query("")) -> Response | dict[str, Any]:
+@router.get(
+    "/pulse",
+    response_model=None,
+    responses={
+        200: {"model": PulseOut, "description": "The board changed."},
+        204: {"description": "Nothing changed since `cursor`."},
+    },
+)
+def pulse(
+    db: Db,
+    who: Who,
+    cursor: str = Query("", description="The `cursor` from the last answer."),
+) -> Response | dict[str, Any]:
     current = selectors.board_cursor(db, scope=who.scope)
     if cursor == current:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -589,7 +625,7 @@ def _dialog(
     return result
 
 
-@router.get("/clients/{client_id}")
+@router.get("/clients/{client_id}", responses={200: {"model": DialogOut}})
 def dialog(client_id: uuid.UUID, db: Db, who: Who) -> dict[str, Any]:
     return _dialog(db, who, client_id)
 
@@ -601,7 +637,7 @@ def _refused(
     return _dialog(db, who, client_id, refusal=exc.message, with_placement=True)
 
 
-@router.post("/clients/{client_id}/take")
+@router.post("/clients/{client_id}/take", responses={200: {"model": DialogOut}})
 def take(client_id: uuid.UUID, db: Db, who: Who) -> dict[str, Any]:
     try:
         services.claim_client(db, manager=who.user, client_id=client_id, now=who.now)
@@ -674,7 +710,7 @@ def moved(db: Session, who: Viewer, client_id: uuid.UUID) -> dict[str, Any]:
     return {"message": "Saqlandi.", **placement_context(db, who, client_id=client_id)}
 
 
-@router.post("/clients/{client_id}/outcome")
+@router.post("/clients/{client_id}/outcome", responses={200: {"model": MovedOut}})
 def outcome(client_id: uuid.UUID, body: OutcomeIn, db: Db, who: Who) -> dict[str, Any]:
     if body.outcome not in OUTCOMES:
         return _dialog(db, who, client_id, refusal="Natijani tanlang.")
@@ -690,7 +726,7 @@ class NoteIn(BaseModel):
     body: str = Field(default="", max_length=2000)
 
 
-@router.post("/clients/{client_id}/note")
+@router.post("/clients/{client_id}/note", responses={200: {"model": DialogOut}})
 def note(client_id: uuid.UUID, body: NoteIn, db: Db, who: Who) -> dict[str, Any]:
     try:
         services.add_note(
@@ -702,7 +738,7 @@ def note(client_id: uuid.UUID, body: NoteIn, db: Db, who: Who) -> dict[str, Any]
     return _dialog(db, who, client_id, with_placement=True)
 
 
-@router.post("/clients/{client_id}/give-back")
+@router.post("/clients/{client_id}/give-back", responses={200: {"model": MovedOut}})
 def give_back(client_id: uuid.UUID, db: Db, who: Who) -> dict[str, Any]:
     try:
         services.return_to_pool(
@@ -720,7 +756,7 @@ class DropIn(OutcomeIn):
     outcome: str = ""
 
 
-@router.post("/clients/{client_id}/drop")
+@router.post("/clients/{client_id}/drop", responses={200: {"model": MovedOut}})
 def drop(client_id: uuid.UUID, body: DropIn, db: Db, who: Who) -> dict[str, Any]:
     """A card dragged to another column: the move, and any question it asks."""
     to, origin = body.to, body.origin
@@ -758,7 +794,7 @@ def drop(client_id: uuid.UUID, body: DropIn, db: Db, who: Who) -> dict[str, Any]
 # -- a seller's own month, and the team's -------------------------------------------
 
 
-@router.get("/mine")
+@router.get("/mine", responses={200: {"model": MineOut}})
 def mine(db: Db, who: Who) -> dict[str, Any]:
     from app.modules.referrals.selectors import available_minor
 
@@ -810,7 +846,7 @@ def _share(row: Any) -> dict[str, Any]:
     }
 
 
-@router.get("/team")
+@router.get("/team", responses={200: {"model": TeamOut}})
 def team(db: Db, who: Who) -> dict[str, Any]:
     span = selectors.current_span(now=who.now)
     ranked = selectors.standing(db, span=span, reader=who.user)
@@ -851,9 +887,12 @@ def _month(raw: str, *, default: Span) -> Span:
         return default
 
 
-@router.get("/report")
+@router.get("/report", responses={200: {"model": ReportOut}})
 def report(
-    db: Db, lead: Lead, oy: str = Query(""), m: str = Query("")
+    db: Db,
+    lead: Lead,
+    oy: str = Query("", description="Month as `YYYY-MM`; default this month."),
+    m: str = Query("", description="A manager's id: list their sales."),
 ) -> dict[str, Any]:
     now = utcnow()
     current = selectors.current_span(now=now)
@@ -906,8 +945,10 @@ def vars_of(share: Any) -> dict[str, Any]:
     return {"label": share.label, "count": share.count, "width": share.width}
 
 
-@router.get("/holds")
-def holds(db: Db, lead: Lead, page: int = Query(1, ge=1)) -> dict[str, Any]:
+@router.get("/holds", responses={200: {"model": HoldsOut}})
+def holds(
+    db: Db, lead: Lead, page: int = Query(1, ge=1, description="Page number.")
+) -> dict[str, Any]:
     query = selectors.active_holds(now=utcnow())
     total = selectors.count_of(db, query)
     size = selectors.HOLDS_PAGE
@@ -920,14 +961,14 @@ def holds(db: Db, lead: Lead, page: int = Query(1, ge=1)) -> dict[str, Any]:
     }
 
 
-@router.post("/holds/{hold_id}/lift")
+@router.post("/holds/{hold_id}/lift", responses={200: {"model": MessageOut}})
 def lift(hold_id: uuid.UUID, db: Db, lead: Lead) -> dict[str, Any]:
     services.lift_hold(db, hold_id=hold_id, actor=lead, now=utcnow())
     db.commit()
     return {"message": "Mijoz navbatga qaytdi."}
 
 
-@router.get("/settings")
+@router.get("/settings", responses={200: {"model": SettingsOut}})
 def settings_screen(db: Db, who: Who, lead: Lead) -> dict[str, Any]:
     return {
         "who": who_out(who),
@@ -952,7 +993,7 @@ class RuleIn(BaseModel):
     ending_days: int = Field(ge=1, le=60)
 
 
-@router.post("/settings")
+@router.post("/settings", responses={200: {"model": RuleSavedOut}})
 def save_rule(body: RuleIn, db: Db, who: Who, lead: Lead) -> dict[str, Any]:
     if who.is_owner and body.percent is not None:
         changed = services.set_rule(
@@ -976,7 +1017,11 @@ class ReasonIn(BaseModel):
     label: str = Field(min_length=1, max_length=120)
 
 
-@router.post("/settings/reasons", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/settings/reasons",
+    status_code=status.HTTP_201_CREATED,
+    responses={200: {"model": ReasonSavedOut}},
+)
 def reason_add(body: ReasonIn, db: Db, lead: Lead) -> dict[str, Any]:
     row = services.add_reason(db, actor=lead, label=body.label, now=utcnow())
     db.commit()
@@ -988,7 +1033,9 @@ class ReasonChangeIn(BaseModel):
     label: str = Field(default="", max_length=120)
 
 
-@router.post("/settings/reasons/{reason_id}")
+@router.post(
+    "/settings/reasons/{reason_id}", responses={200: {"model": ReasonSavedOut}}
+)
 def reason_change(
     reason_id: uuid.UUID, body: ReasonChangeIn, db: Db, lead: Lead
 ) -> dict[str, Any]:
@@ -1015,7 +1062,11 @@ class SegmentIn(BaseModel):
     days: int = Field(ge=1, le=365)
 
 
-@router.post("/settings/segments", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/settings/segments",
+    status_code=status.HTTP_201_CREATED,
+    responses={200: {"model": SegmentSavedOut}},
+)
 def segment_add(body: SegmentIn, db: Db, lead: Lead) -> dict[str, Any]:
     from app.modules.billing.models import Plan
 
@@ -1030,7 +1081,9 @@ def segment_add(body: SegmentIn, db: Db, lead: Lead) -> dict[str, Any]:
     return {"message": "Filtr qo'shildi.", "segment": segment_out(row)}
 
 
-@router.delete("/settings/segments/{segment_id}")
+@router.delete(
+    "/settings/segments/{segment_id}", responses={200: {"model": MessageOut}}
+)
 def segment_remove(segment_id: uuid.UUID, db: Db, lead: Lead) -> dict[str, Any]:
     segment = selectors.segment_by_id(db, segment_id=segment_id)
     if segment is None:
