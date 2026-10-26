@@ -7,6 +7,7 @@ from app.modules.ads.routers.launch import router as launch
 from app.modules.ads.routers.launch_forms import router as launch_forms
 from app.modules.ads.routers.launch_media import router as launch_media
 from app.modules.ads.routers.launch_review import router as launch_review
+from app.modules.agent.routers import router as agent
 from app.modules.billing.routers import router as billing
 from app.modules.billing.routers import webhooks as billing_webhooks
 from app.modules.businesses.routers import router as businesses
@@ -44,6 +45,7 @@ api_router.include_router(launch_media)
 api_router.include_router(launch_forms)
 api_router.include_router(google_ads)
 api_router.include_router(chat)
+api_router.include_router(agent)
 
 public_router = APIRouter()
 public_router.include_router(billing_webhooks)

@@ -85,3 +85,37 @@ def sign_up(client: TestClient, **extra: str) -> dict[str, str]:
 
 def an_hour_ago():  # type: ignore[no-untyped-def]
     return utcnow() - timedelta(hours=1)
+
+
+@pytest.fixture(autouse=True)
+def ad_providers() -> None:
+    """The ad adapters, put back if a package test cleared the registry.
+
+    ``app.bootstrap`` registers them once per process; ``adskit``'s own
+    tests clear the registry to test it, and a later flow here would find
+    it empty.
+    """
+    from adskit import registry
+    from adskit.errors import ProviderNotRegistered
+    from googleadskit import PROVIDER as GOOGLE
+    from googleadskit.adapter import bundle as google_bundle
+    from metaads import PROVIDER as META
+    from metaads.adapter import bundle as meta_bundle
+
+    from app.common.config import settings
+
+    wanted = {
+        META: lambda: meta_bundle(
+            app_id=settings.meta_app_id, app_secret=settings.meta_app_secret
+        ),
+        GOOGLE: lambda: google_bundle(
+            client_id=settings.google_oauth_client_id,
+            client_secret=settings.google_oauth_client_secret,
+            rehearse_writes=settings.google_ads_dry_run,
+        ),
+    }
+    for name, build in wanted.items():
+        try:
+            registry.get(name)
+        except ProviderNotRegistered:
+            registry.register(name, build())

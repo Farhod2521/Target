@@ -330,11 +330,11 @@ def scan(
             if current is None or finding.weight > current.weight:
                 best[finding.ref.id] = finding
 
-    ours = _our_ids(account)
+    built = _our_ids(account)
     kept = [
         item
         for item in _without_parts(best)
-        if item.ref.id in ours or item.parent_id in ours
+        if item.ref.id in built or item.parent_id in built
     ]
     return sorted(kept, key=lambda item: (-item.weight, item.ref.id))
 

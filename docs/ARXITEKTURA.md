@@ -51,11 +51,11 @@ Modullar bir-birini import qilmasdan ham ta'sir qila oladi:
 | integrations | Meta ulash (OAuth), reklama akkauntlari, sahifalar | 16.9k | 7 | ✅ selectors, services, tasks, router `/connections` (DRF staff konsoli qolgan) |
 | businesses | Biznes profili, kategoriya | 2.0k | 3 | ✅ selectors, services, router `/business` |
 | billing | Tarif, obuna, to'lov (Payme/Click/Paynet) | 12.1k | 7 | ✅ selectors, services, tasks, router `/billing`, webhook `/webhooks/pay/{provider}` |
-| ads | Kampaniya yaratish (launch), boshqaruv, kreativ, geo | 62.1k | 14 | 🟡 selectors, mirror/media sinxron, boshqaruv, o'chirish, lapse, tasks, router `/campaigns` (ro'yxat, tafsilot, sinxron, pauza/yoqish/budjet/qaytarish/o'chirish); launch (reklama yaratish), Google, provider notes ⏳ |
+| ads | Kampaniya yaratish (launch), boshqaruv, kreativ, geo | 62.1k | 15 | ✅ selectors, mirror/media sinxron, boshqaruv, o'chirish, lapse, yetkazib berish to'xtashlari (`DeliveryStop`), tasks; router `/campaigns` (ro'yxat, tafsilot, sinxron, pauza/yoqish/budjet/qaytarish/o'chirish), `/launch` (yangi reklama ustasi: reja, rasmlar, taklif, yaratish, lid forma), `/google` (Google Ads ekrani va Search ustasi); Django admin va boshqaruv buyruqlari ⏳ |
 | leads | Lidlar, Meta webhook, formalar, eksport | 9.5k | 4 | ✅ selectors, services, tasks, router `/leads`, webhook `/webhooks/meta/leads/` |
 | destinations | Lidlarni Google Sheets'ga yozish | 3.8k | 3 | ⏳ |
 | metrics | Dashboard raqamlari, CRM paneli | 16.0k | 4 | ✅ sinxron (tungi/bugungi/kuzatilgan), saqlash, segmentlar, lid tafovuti, dashboard, kampaniya paneli, kreativ hisobot, tasks, router `/metrics` (asosiy dashboard sahifasidagi onboarding/promo bloklari ⏳) |
-| agent | AI agent: tahlil va takliflar | 11.9k | 5 | 🟡 selectors (takliflar, kartalar, tashxis eslatmalari, maslahatlar, tungi dalillar `account_facts`), `approve_suggestion`; tungi ishga tushirish, baholash, kuzatuv, chastota, router ⏳ |
+| agent | AI agent: tahlil va takliflar | 11.9k | 5 | ✅ selectors (takliflar, kartalar, tungi dalillar, haftalik chastota, kuzatuv, o'zi to'xtatish nomzodlari, strategiya, baholar), services (tungi o'tish `run_agent`, Claude ko'rigi, rad etilgan reklamaga yangi matn, takliflarni saqlash/eskirtirish, o'zi tuzatish, natijani baholash, tashxis, nosozlikka taklif, natijasiz guruhni to'xtatish, chastota darajalari, kuzatuv tugmalari), tasks, router `/agent` |
 | chat | AI yordamchi chat | 11.4k | 3 | ✅ selectors (kontekst, 14 ta lookup, kunlik/haftalik hisobot), services (savol, javob oqimi, rad etish izohi, hisobot izohi), tasks, router `/chat` (ekran, `/ask`, SSE `/stream/{turn_id}`, `/report`, `/choices/{pk}`); kutish ro'yxati (inbox) notifications bilan ⏳ |
 | notifications | Telegram bot, xabarlar, hisobotlar | 13.6k | 4 | 🟡 bot ulash, sozlamalar, referal/pul yechish/fikr xabarlari; bot dialogi, hisobotlar, inbox ⏳ |
 | miniapp | Telegram Mini App kirishi | 0.8k | 0 | ✅ router `/miniapp` |
@@ -70,6 +70,37 @@ Modullar bir-birini import qilmasdan ham ta'sir qila oladi:
 
 Barcha 89 model allaqachon SQLAlchemy'da (`app/modules/*/models/`), ya'ni
 baza qatlami to'liq. ⏳ — servis va endpointlari hali ko'chirilmagan.
+
+## Yangi reklama, Google Ads va agent API
+
+Hammasi `/api/v1` ostida; provayder va Claude faqat worker'da chaqiriladi,
+endpoint navbatga qo'yadi va javob beradi, natijani so'rov (poll) o'qiydi.
+Maydon bo'yicha rad etish — `422`, `{"detail", "code": "invalid_input",
+"problems": {"maydon": "sabab"}}`.
+
+| Yo'l | Vazifasi |
+|---|---|
+| `POST /launch` | Tayyorlashni ochish (ochiq bo'lsa — o'shani qaytaradi) |
+| `GET/POST /launch/{id}/plan` | 1-qadam: maqsad, kunlik byudjet, manzil, boshlanish kuni |
+| `GET/POST /launch/{id}/plan/goal`, `/plan/chat-questions` | Maqsadni so'z bilan o'qish, chat savollari (poll `tries`) |
+| `GET/POST /launch/{id}/media`, `/media/upload`, `/media/upload/chunk`, `/media/upload/finish`, `/media/status`, `/media/text` | 2-qadam: rasm/video, kutubxona, matnlar |
+| `GET /launch/{id}/review`, `/review/state` | Taklif ekrani va uning holati (poll) |
+| `POST /launch/{id}/edit` | Taklifni tahrirlash — hamma bo'lim bir yo'la yoki hech biri |
+| `POST /launch/{id}/create`, `/start`, `/retry`, `/discard`, `/clean-up` | Yaratish (pul sarflaydi), yoqish, qayta urinish, bekor qilish, tozalash |
+| `GET/POST /launch/{id}/form`, `/form/auto`, `/form/new`, `/form/refresh`, `/form-depth/{depth}` | Lid forma tanlash va savollar chuqurligi |
+| `GET /google`, `POST /google/switch`, `/budget`, `/delete`, `/refresh` | Google Ads ekrani va bosishlar |
+| `POST /google/launch`, `GET/POST /google/launch/{id}/answers`, `/words`, `GET /review`, `POST /create` | Google Search ustasi |
+| `GET /agent` | Kutilayotgan takliflar, kuzatuv qatorlari, chastota, bugun pul kuydirayotgan guruhlar |
+| `POST /agent/{id}/approve`, `/reject`, `GET/POST /agent/{id}/new-ad` | Taklifga javob, rad etilgan reklamaning yangi matni |
+| `GET /agent/history`, `GET/PUT /agent/settings`, `GET /agent/verdicts` | Tarix, sozlamalar, kampaniya ro'yxatidagi baholar |
+| `POST /agent/watch/{adset_id}/{move}`, `/agent/frequency/{id}/fine`, `GET /agent/frequency/{id}/creative` | Kuzatuv va chastota tugmalari |
+
+Davriy vazifalar (`run_all_agents`, `diagnose_all_accounts_task`,
+`propose_all_fixes`, `assess_all_outcomes`, `stop_all_fruitless`,
+`check_all_frequency`, `release_stalled_runs_task`, ads'dagi
+`sweep_stranded_launches_task`, `release_stalled_launches_task`,
+`sweep_abandoned_uploads_task`, `check_all_sites_task`) beat jadvaliga
+qo'shiladi — Django'da `django-celery-beat` admin orqali turardi.
 
 ## Ko'chirish tartibi
 
