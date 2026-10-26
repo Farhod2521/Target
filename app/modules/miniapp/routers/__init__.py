@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from app.api.deps import Db
@@ -12,6 +12,7 @@ from app.common.db import utcnow
 from app.common.routes import reverse
 from app.modules.miniapp.constants import BRIDGE_SCRIPT, NEXT_FIELD
 from app.modules.miniapp.exceptions import MiniAppRefused
+from app.modules.miniapp.schemas import AuthOut, EntryOut
 from app.modules.miniapp.services import authenticate
 
 logger = logging.getLogger(__name__)
@@ -32,8 +33,10 @@ def safe_next(asked: str) -> str:
     return asked
 
 
-@router.get("/entry")
-def entry(next: str = "") -> dict[str, Any]:
+@router.get("/entry", responses={200: {"model": EntryOut}})
+def entry(
+    next: str = Query("", description="The cabinet path asked for; checked."),
+) -> dict[str, Any]:
     return {
         "next_url": safe_next(next),
         "bridge_script": BRIDGE_SCRIPT,
@@ -45,7 +48,7 @@ class AuthIn(BaseModel):
     init_data: str = ""
 
 
-@router.post("/auth")
+@router.post("/auth", responses={200: {"model": AuthOut}})
 def auth(body: AuthIn, db: Db) -> dict[str, Any]:
     now = utcnow()
     try:

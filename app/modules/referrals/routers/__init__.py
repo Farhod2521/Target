@@ -19,6 +19,16 @@ from app.modules.referrals.constants import (
     FeedbackKind,
     FeedbackPromptAnswer,
 )
+from app.modules.referrals.schemas import (
+    BonusOut,
+    CodeOut,
+    FeedbackOfferOut,
+    FeedbackSentOut,
+    IdOut,
+    InviteOut,
+    PromptAnswerOut,
+    WalletOut,
+)
 from app.modules.referrals.selectors import FeedbackOffer, WalletBalance
 
 router = APIRouter(prefix="/referrals", tags=["referrals"])
@@ -69,13 +79,13 @@ def _bonus(db: Db, *, friends: int) -> dict[str, Any]:
     }
 
 
-@router.get("")
+@router.get("", responses={200: {"model": WalletOut}})
 def wallet(
     db: Db,
     user: CurrentUser,
-    page_i: int = Query(1, ge=1),
-    page_p: int = Query(1, ge=1),
-    page_f: int = Query(1, ge=1),
+    page_i: int = Query(1, ge=1, description="Page of `invited`, 20 a page."),
+    page_p: int = Query(1, ge=1, description="Page of `withdrawals`, 20 a page."),
+    page_f: int = Query(1, ge=1, description="Page of `feedback_rows`, 20 a page."),
 ) -> dict[str, Any]:
     eligible = selectors.may_invite(db, owner_id=user.id)
     code = selectors.code_of(db, owner=user) if eligible else None
@@ -162,8 +172,12 @@ def wallet(
     }
 
 
-@router.get("/bonus")
-def bonus(db: Db, user: CurrentUser, friends: int = 1) -> dict[str, Any]:
+@router.get("/bonus", responses={200: {"model": BonusOut}})
+def bonus(
+    db: Db,
+    user: CurrentUser,
+    friends: int = Query(1, description="How many friends to price; 1 to 20."),
+) -> dict[str, Any]:
     from fastapi import HTTPException
 
     if not selectors.may_invite(db, owner_id=user.id):
@@ -171,7 +185,7 @@ def bonus(db: Db, user: CurrentUser, friends: int = 1) -> dict[str, Any]:
     return _bonus(db, friends=friends)
 
 
-@router.post("/code")
+@router.post("/code", responses={200: {"model": CodeOut}})
 def mint_code(db: Db, user: CurrentUser) -> dict[str, str]:
     code = services.ensure_referral_code(db, owner=user)
     db.commit()
@@ -183,7 +197,7 @@ def mint_code(db: Db, user: CurrentUser) -> dict[str, str]:
     }
 
 
-@router.get("/invite")
+@router.get("/invite", responses={200: {"model": InviteOut | None}})
 def invite(db: Db, user: CurrentUser) -> dict[str, Any] | None:
     offer = selectors.invite_offer(db, owner=user)
     if offer is None:
@@ -211,7 +225,7 @@ class WithdrawalIn(BaseModel):
         return raw
 
 
-@router.post("/withdraw", status_code=201)
+@router.post("/withdraw", status_code=201, responses={201: {"model": IdOut}})
 def withdraw(body: WithdrawalIn, db: Db, user: CurrentUser) -> dict[str, str]:
     currency = body.currency.upper()
     ask = services.request_withdrawal(
@@ -227,7 +241,7 @@ def withdraw(body: WithdrawalIn, db: Db, user: CurrentUser) -> dict[str, str]:
     return {"id": str(ask.id)}
 
 
-@router.post("/feedback", status_code=201)
+@router.post("/feedback", status_code=201, responses={201: {"model": FeedbackSentOut}})
 def submit_feedback(
     db: Db,
     user: CurrentUser,
@@ -254,7 +268,7 @@ def submit_feedback(
     }
 
 
-@router.get("/feedback/prompt")
+@router.get("/feedback/prompt", responses={200: {"model": FeedbackOfferOut | None}})
 def feedback_prompt(db: Db, user: CurrentUser) -> dict[str, Any] | None:
     return _offer(selectors.feedback_prompt_due(db, owner=user, now=utcnow()))
 
@@ -263,7 +277,7 @@ class PromptIn(BaseModel):
     answer: str = ""
 
 
-@router.post("/feedback/prompt")
+@router.post("/feedback/prompt", responses={200: {"model": PromptAnswerOut}})
 def answer_feedback_prompt(body: PromptIn, db: Db, user: CurrentUser) -> dict[str, str]:
     values = {item.value for item in FeedbackPromptAnswer}
     answer = (

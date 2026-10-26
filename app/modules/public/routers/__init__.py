@@ -38,6 +38,16 @@ from app.modules.public.constants import (
 )
 from app.modules.public.exceptions import DeletionRequestNotFound, InvalidSignedRequest
 from app.modules.public.models import Testimonial
+from app.modules.public.schemas import (
+    BusinessPrivacyOut,
+    ConsultOut,
+    DeletionCreatedOut,
+    DeletionPageOut,
+    DeletionStatusOut,
+    HomeOut,
+    PrivacyOut,
+    TermsOut,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/public", tags=["public"])
@@ -61,7 +71,7 @@ def testimonial_out(row: Testimonial) -> dict[str, Any]:
     }
 
 
-@router.get("/home")
+@router.get("/home", responses={200: {"model": HomeOut}})
 def home(db: Db, reader: OptionalUser) -> dict[str, Any]:
     from app.modules.billing.routers import plan_out
     from app.modules.billing.selectors import (
@@ -111,7 +121,11 @@ class ConsultIn(BaseModel):
         return " ".join(value.split())
 
 
-@router.post("/consult", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/consult",
+    status_code=status.HTTP_201_CREATED,
+    responses={200: {"model": ConsultOut}},
+)
 def consult(body: ConsultIn, request: Request, db: Db) -> dict[str, Any]:
     from core.leads.phone import to_e164
 
@@ -143,12 +157,16 @@ def _status_url(code: str) -> str:
     return f"{settings.site_url}/data-deletion/status/{code}/"
 
 
-@router.get("/data-deletion")
+@router.get("/data-deletion", responses={200: {"model": DeletionPageOut}})
 def deletion_page() -> dict[str, Any]:
     return {"deletion_sla_days": DELETION_SLA_DAYS}
 
 
-@router.post("/data-deletion", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/data-deletion",
+    status_code=status.HTTP_201_CREATED,
+    responses={200: {"model": DeletionCreatedOut}},
+)
 def data_deletion(body: DeletionIn, db: Db) -> dict[str, Any]:
     row = services.create_deletion_request(
         db,
@@ -163,7 +181,9 @@ def data_deletion(body: DeletionIn, db: Db) -> dict[str, Any]:
     }
 
 
-@router.get("/data-deletion/status/{code}")
+@router.get(
+    "/data-deletion/status/{code}", responses={200: {"model": DeletionStatusOut}}
+)
 def deletion_status(code: str, db: Db) -> dict[str, Any]:
     try:
         row = selectors.get_by_confirmation_code(db, code)
@@ -179,17 +199,17 @@ def deletion_status(code: str, db: Db) -> dict[str, Any]:
     }
 
 
-@router.get("/privacy")
+@router.get("/privacy", responses={200: {"model": PrivacyOut}})
 def privacy() -> dict[str, Any]:
     return {"deletion_sla_days": DELETION_SLA_DAYS, "updated_at": LEGAL_UPDATED_AT}
 
 
-@router.get("/terms")
+@router.get("/terms", responses={200: {"model": TermsOut}})
 def terms() -> dict[str, Any]:
     return {"updated_at": LEGAL_UPDATED_AT}
 
 
-@router.get("/privacy/{business_id}")
+@router.get("/privacy/{business_id}", responses={200: {"model": BusinessPrivacyOut}})
 def business_privacy(business_id: uuid.UUID, db: Db) -> dict[str, Any]:
     from app.modules.businesses.selectors import public_business
 
@@ -203,7 +223,7 @@ def business_privacy(business_id: uuid.UUID, db: Db) -> dict[str, Any]:
     }
 
 
-@callbacks.post("/data-deletion/callback/")
+@callbacks.post("/data-deletion/callback/", include_in_schema=False)
 def meta_deletion_callback(db: Db, signed_request: str = Form("")) -> JSONResponse:
     try:
         row = services.process_meta_deletion_callback(db, signed_request=signed_request)

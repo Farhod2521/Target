@@ -10,6 +10,12 @@ from app.common.db import utcnow
 from app.modules.notifications import selectors, services
 from app.modules.notifications.bot import bot_home, deep_link, is_configured
 from app.modules.notifications.models import TelegramChat
+from app.modules.notifications.schemas import (
+    ConnectOut,
+    MessageOut,
+    PreferencesOut,
+    SettingsOut,
+)
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 PREFERENCE_LABELS = {
@@ -34,7 +40,7 @@ def chat_out(chat: TelegramChat | None) -> dict[str, Any] | None:
     }
 
 
-@router.get("")
+@router.get("", responses={200: {"model": SettingsOut}})
 def settings_screen(db: Db, user: CurrentUser) -> dict[str, Any]:
     chat = selectors.last_chat_for(db, owner=user)
     return {
@@ -47,13 +53,13 @@ def settings_screen(db: Db, user: CurrentUser) -> dict[str, Any]:
     }
 
 
-@router.post("/connect")
+@router.post("/connect", responses={200: {"model": ConnectOut}})
 def connect(user: CurrentUser) -> dict[str, str]:
     token = services.issue_link_token(owner=user)
     return {"url": deep_link(payload=token)}
 
 
-@router.post("/disconnect")
+@router.post("/disconnect", responses={200: {"model": MessageOut}})
 def disconnect(db: Db, user: CurrentUser) -> dict[str, str]:
     services.unlink_chat(db, owner=user)
     db.commit()
@@ -68,7 +74,7 @@ class PreferencesIn(BaseModel):
     notify_rejections: bool = False
 
 
-@router.post("/preferences")
+@router.post("/preferences", responses={200: {"model": PreferencesOut}})
 def preferences(body: PreferencesIn, db: Db, user: CurrentUser) -> dict[str, Any]:
     chat = services.save_preferences(db, user=user, **body.model_dump())
     db.commit()
