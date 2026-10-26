@@ -38,6 +38,16 @@ from app.modules.billing.exceptions import (
     PromoUsedUp,
 )
 from app.modules.billing.models import Invoice, Plan, PromoRedemption, Subscription
+from app.modules.billing.schemas import (
+    DetailOut,
+    HistoryOut,
+    InvoiceStatusOut,
+    OkOut,
+    PaywallOut,
+    PlansOut,
+    PromoOut,
+    StatusOut,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -46,6 +56,9 @@ PROMO_MAX_CHARS = 32
 RECENT_BILLS = 5
 HISTORY_PER_PAGE = 20
 PROMO_REFUSALS = (PromoNotFound, PromoNotApplicable, PromoAlreadyUsed, PromoUsedUp)
+
+PLAN_Q = Query("", description="A plan `code`: price it in `chosen`.")
+PROMO_Q = Query("", description="A typed promo code to price `plan` with.")
 
 
 def plan_out(plan: Plan | None) -> dict[str, Any] | None:
@@ -232,9 +245,15 @@ def priced_choice(
     )
 
 
-@router.get("/status")
+@router.get("/status", responses={200: {"model": StatusOut}})
 def subscription_status(
-    db: Db, user: CurrentUser, seen_days: int | None = None
+    db: Db,
+    user: CurrentUser,
+    seen_days: int | None = Query(
+        None,
+        description="The `days_left` the reminder was last shown at; it is not "
+        "shown again for the same day.",
+    ),
 ) -> dict[str, Any]:
     live = selectors.live_subscription(db, owner=user)
     left = selectors.days_left(subscription=live, now=utcnow())
@@ -260,13 +279,16 @@ def subscription_status(
     }
 
 
-@router.get("")
+@router.get("", responses={200: {"model": PlansOut}})
 def plans(
     db: Db,
     user: CurrentUser,
-    plan: str = "",
-    promo: str = "",
-    pages: PagesChoice = PagesChoice.KEEP,
+    plan: str = PLAN_Q,
+    promo: str = PROMO_Q,
+    pages: PagesChoice = Query(
+        PagesChoice.KEEP,
+        description="`keep` extra pages on a plan switch, or `drop` them.",
+    ),
 ) -> dict[str, Any]:
     from app.modules.ads.selectors import adsets_here, trial_campaigns_left
     from app.modules.integrations.selectors import page_slots
@@ -340,9 +362,9 @@ def plans(
     }
 
 
-@router.get("/paywall")
+@router.get("/paywall", responses={200: {"model": PaywallOut}})
 def paywall(
-    db: Db, user: CurrentUser, plan: str = "", promo: str = ""
+    db: Db, user: CurrentUser, plan: str = PLAN_Q, promo: str = PROMO_Q
 ) -> dict[str, Any]:
     if selectors.has_ever_subscribed(db, owner=user):
         return {"already_open": True}
@@ -497,9 +519,12 @@ def buy_pages(body: PagesCheckoutIn, db: Db, user: CurrentUser) -> CheckoutOut:
     )
 
 
-@router.get("/history")
+@router.get("/history", responses={200: {"model": HistoryOut}})
 def history(
-    db: Db, user: CurrentUser, page: int = Query(1, ge=1), bills: int = Query(1, ge=1)
+    db: Db,
+    user: CurrentUser,
+    page: int = Query(1, ge=1, description="Page of `lines`, 20 a page."),
+    bills: int = Query(1, ge=1, description="Page of `invoices`, 20 a page."),
 ) -> dict[str, Any]:
     lines = selectors.subscription_history(db, owner=user)
     invoices = selectors.invoice_history(db, owner=user)
@@ -541,7 +566,7 @@ class PromoIn(BaseModel):
     code: str = Field(min_length=1, max_length=32)
 
 
-@router.post("/promo")
+@router.post("/promo", responses={200: {"model": PromoOut}})
 def promo(body: PromoIn, db: Db, user: CurrentUser) -> dict[str, Any]:
     now = utcnow()
     discount = selectors.discount_code(db, code=body.code, now=now)
@@ -572,7 +597,7 @@ class RedemptionIn(BaseModel):
     external_ids: list[str] = []
 
 
-@router.post("/promo/seen")
+@router.post("/promo/seen", responses={200: {"model": OkOut}})
 def promo_seen(body: RedemptionIn, db: Db, user: CurrentUser) -> dict[str, bool]:
     done = services.acknowledge_promo(
         db, owner=user, redemption_id=body.redemption, now=utcnow()
@@ -581,7 +606,7 @@ def promo_seen(body: RedemptionIn, db: Db, user: CurrentUser) -> dict[str, bool]
     return {"ok": done is not None}
 
 
-@router.post("/promo/page")
+@router.post("/promo/page", responses={200: {"model": DetailOut}})
 def promo_page(body: RedemptionIn, db: Db, user: CurrentUser) -> dict[str, str]:
     from app.modules.integrations.services import take_promo_pages
 
@@ -606,15 +631,17 @@ def promo_page(body: RedemptionIn, db: Db, user: CurrentUser) -> dict[str, str]:
     return {"detail": text}
 
 
-@router.get("/invoice/{number}")
+@router.get("/invoice/{number}", responses={200: {"model": InvoiceStatusOut}})
 def invoice_status(
     number: str,
     db: Db,
     user: CurrentUser,
-    tries: int = Query(0, ge=0),
-    via: str = "",
-    add_page: str = "",
-    pay_from: str = "",
+    tries: int = Query(0, ge=0, description="The last answer's `tries`."),
+    via: str = Query("", description="The provider paid with; echoed back."),
+    add_page: str = Query(
+        "", description="The page being added after a pages bill; sets `back_url`."
+    ),
+    pay_from: str = Query("", description="Where the pages purchase was started."),
 ) -> dict[str, Any]:
     invoice = selectors.invoice_for(db, owner=user, number=number)
     if invoice is None:
