@@ -34,8 +34,14 @@ from app.modules.chat.constants import (
     STREAM_TIMEOUT_SECONDS,
 )
 from app.modules.chat.models import ChatMessage, ChatSession
+from app.modules.chat.schemas import ChatScreenOut, ReportOut
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+SUGGESTION_Q = Query("", description="A proposal id: focus the screen on it.")
+ITEM_Q = Query("", description="A waiting item's key: focus the screen on it.")
+LAUNCH_Q = Query("", description="A refused launch id: offer to explain it.")
+ASK_Q = Query("", description="A question to put in the box ready to send.")
 
 
 def _entitled(db: Session, owner: User) -> bool:
@@ -144,14 +150,14 @@ def _screen(
     )
 
 
-@router.get("")
+@router.get("", responses={200: {"model": ChatScreenOut}})
 def chat_screen(
     db: Db,
     user: CurrentUser,
-    suggestion: str = "",
-    item: str = "",
-    launch: str = "",
-    ask: str = "",
+    suggestion: str = SUGGESTION_Q,
+    item: str = ITEM_Q,
+    launch: str = LAUNCH_Q,
+    ask: str = ASK_Q,
 ) -> dict[str, Any]:
     """The rail of threads and an empty box, focused on what this visit came from."""
     return _screen(
@@ -165,15 +171,15 @@ def chat_screen(
     )
 
 
-@router.get("/threads/{pk}")
+@router.get("/threads/{pk}", responses={200: {"model": ChatScreenOut}})
 def chat_thread(
     pk: uuid.UUID,
     db: Db,
     user: CurrentUser,
-    suggestion: str = "",
-    item: str = "",
-    launch: str = "",
-    ask: str = "",
+    suggestion: str = SUGGESTION_Q,
+    item: str = ITEM_Q,
+    launch: str = LAUNCH_Q,
+    ask: str = ASK_Q,
 ) -> dict[str, Any]:
     """One thread, every answer carrying whichever of its buttons can still be pressed."""
     from app.modules.chat.selectors import session_for
@@ -318,9 +324,13 @@ def _event(state: dict[str, Any]) -> str:
     return f"data: {json.dumps(state, ensure_ascii=False)}\n\n"
 
 
-@router.get("/report")
+@router.get("/report", responses={200: {"model": ReportOut}})
 def report(
-    db: Db, user: CurrentUser, attempt: int = Query(default=0, alias="try", ge=0)
+    db: Db,
+    user: CurrentUser,
+    attempt: int = Query(
+        default=0, alias="try", ge=0, description="The last answer's `next_try`."
+    ),
 ) -> dict[str, Any]:
     """One completed week, and the one sentence under it once a worker has written it."""
     from app.modules.chat.copy import HEADLINE_COPY, SILENCE_COPY
@@ -394,9 +404,10 @@ def choice_state(pk: uuid.UUID, db: Db, user: CurrentUser) -> ChoiceOut:
     return ChoiceOut(state="done", text=str(card.expectation))
 
 
-
 @router.post("/changes/{message_id}/{key}", response_model=ChoiceOut)
-def confirm_change(message_id: uuid.UUID, key: str, db: Db, user: CurrentUser) -> ChoiceOut:
+def confirm_change(
+    message_id: uuid.UUID, key: str, db: Db, user: CurrentUser
+) -> ChoiceOut:
     """The owner confirms a change the assistant prepared: the campaigns screen's own service."""
     from app.modules.chat.services.changes import confirm_change as confirm
     from app.modules.notifications.services.refusals import refusal_words
@@ -411,7 +422,9 @@ def confirm_change(message_id: uuid.UUID, key: str, db: Db, user: CurrentUser) -
 
 
 @router.post("/changes/{message_id}/{key}/dismiss", response_model=ChoiceOut)
-def dismiss_change(message_id: uuid.UUID, key: str, db: Db, user: CurrentUser) -> ChoiceOut:
+def dismiss_change(
+    message_id: uuid.UUID, key: str, db: Db, user: CurrentUser
+) -> ChoiceOut:
     """The owner says no: the button goes and nothing is sent."""
     from app.modules.chat.services.changes import dismiss_change as dismiss
 
@@ -421,7 +434,9 @@ def dismiss_change(message_id: uuid.UUID, key: str, db: Db, user: CurrentUser) -
 
 
 @router.get("/changes/{message_id}/{key}", response_model=ChoiceOut)
-def change_state(message_id: uuid.UUID, key: str, db: Db, user: CurrentUser) -> ChoiceOut:
+def change_state(
+    message_id: uuid.UUID, key: str, db: Db, user: CurrentUser
+) -> ChoiceOut:
     """Where a confirmed change has got to. Asked until it says done or refused."""
     from app.modules.chat.services.changes import change_state as state_of
 

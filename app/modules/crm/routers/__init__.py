@@ -23,10 +23,35 @@ from app.modules.crm.constants import (
     Since,
 )
 from app.modules.crm.models import CrmCard, CrmMember, CrmStage
+from app.modules.crm.schemas import (
+    BoardOut,
+    CardOut,
+    CardsMovedOut,
+    CardsReleasedOut,
+    CardViewOut,
+    ColumnOut,
+    DetailOut,
+    MemberOut,
+    NavOut,
+    OkOut,
+    PlacedOut,
+    PulseOut,
+    ReasonOut,
+    SettingsOut,
+    SetupStepOut,
+    StageOut,
+)
 from app.modules.crm.selectors import Viewer
 
 router = APIRouter(prefix="/crm", tags=["crm"])
 STEPS = (1, 2, 3, 4)
+
+SEARCH_Q = Query("", description="Search name or phone; first 80 characters are used.")
+MEMBER_Q = Query("", description="Only cards of this member (user id).")
+AD_Q = Query("", description="Only cards from this advert (Meta ad id).")
+FLAG_Q = Query(
+    "", description="`late` (due time passed) or `today` (due today); empty for all."
+)
 
 
 class Closed(HTTPException):
@@ -132,7 +157,7 @@ def column_out(column: selectors.Column, ads: dict[str, str]) -> dict[str, Any]:
     }
 
 
-@router.get("/nav")
+@router.get("/nav", responses={200: {"model": NavOut}})
 def nav(db: Db, user: CurrentUser) -> dict[str, Any]:
     if user.crm_owner_id is not None or not selectors.crm_open(owner=user):
         return {"url": "/app/leads/", "attention": 0}
@@ -144,14 +169,14 @@ def nav(db: Db, user: CurrentUser) -> dict[str, Any]:
     return {"url": "/app/crm/", "attention": count}
 
 
-@router.get("")
+@router.get("", responses={200: {"model": BoardOut}})
 def board(
     db: Db,
     viewer: Viewer = Depends(crm_viewer),
-    q: str = "",
-    m: str = "",
-    ad: str = "",
-    f: str = "",
+    q: str = SEARCH_Q,
+    m: str = MEMBER_Q,
+    ad: str = AD_Q,
+    f: str = FLAG_Q,
 ) -> dict[str, Any]:
     setup = selectors.setup_of(db, owner=viewer.owner)
     if viewer.is_owner and (setup is None or setup.state == SetupState.DRAFT):
@@ -175,9 +200,18 @@ def board(
     }
 
 
-@router.get("/pulse", response_model=None)
+@router.get(
+    "/pulse",
+    response_model=None,
+    responses={
+        200: {"model": PulseOut, "description": "The board changed."},
+        204: {"description": "Nothing changed since `cursor`."},
+    },
+)
 def pulse(
-    db: Db, viewer: Viewer = Depends(crm_viewer), cursor: str = ""
+    db: Db,
+    viewer: Viewer = Depends(crm_viewer),
+    cursor: str = Query("", description="The `cursor` from the last answer."),
 ) -> dict[str, Any] | Response:
     now = selectors.cursor_of(db, viewer=viewer)
     if now == cursor:
@@ -188,16 +222,18 @@ def pulse(
     }
 
 
-@router.get("/columns/{pk}")
+@router.get("/columns/{pk}", responses={200: {"model": ColumnOut}})
 def column(
     pk: uuid.UUID,
     db: Db,
     viewer: Viewer = Depends(crm_viewer),
-    start: int = Query(0, ge=0),
-    q: str = "",
-    m: str = "",
-    ad: str = "",
-    f: str = "",
+    start: int = Query(
+        0, ge=0, description="Skip this many cards; use the column's `next_start`."
+    ),
+    q: str = SEARCH_Q,
+    m: str = MEMBER_Q,
+    ad: str = AD_Q,
+    f: str = FLAG_Q,
 ) -> dict[str, Any]:
     found = selectors.column_page(
         db,
@@ -214,7 +250,7 @@ def column(
     return column_out(found, ad_names_for(db, owner=viewer.owner, cards=found.cards))
 
 
-@router.get("/cards/{pk}")
+@router.get("/cards/{pk}", responses={200: {"model": CardViewOut}})
 def card(pk: uuid.UUID, db: Db, viewer: Viewer = Depends(crm_viewer)) -> dict[str, Any]:
     view = selectors.card_view(db, viewer=viewer, card_id=str(pk))
     if view is None:
@@ -273,12 +309,12 @@ class AssignIn(BaseModel):
     assignee: str = ""
 
 
-@router.post("/cards/{pk}/take")
+@router.post("/cards/{pk}/take", responses={200: {"model": CardOut}})
 def take(pk: uuid.UUID, db: Db, viewer: Viewer = Depends(crm_viewer)) -> dict[str, Any]:
     return _done(db, services.take_card(db, viewer=viewer, card_id=str(pk)))
 
 
-@router.post("/cards/{pk}/move")
+@router.post("/cards/{pk}/move", responses={200: {"model": CardOut}})
 def move(
     pk: uuid.UUID, body: MoveIn, db: Db, viewer: Viewer = Depends(crm_viewer)
 ) -> dict[str, Any]:
@@ -287,7 +323,7 @@ def move(
     )
 
 
-@router.post("/cards/{pk}/note")
+@router.post("/cards/{pk}/note", responses={200: {"model": CardOut}})
 def note(
     pk: uuid.UUID, body: TextIn, db: Db, viewer: Viewer = Depends(crm_viewer)
 ) -> dict[str, Any]:
@@ -296,14 +332,14 @@ def note(
     )
 
 
-@router.post("/cards/{pk}/no-answer")
+@router.post("/cards/{pk}/no-answer", responses={200: {"model": CardOut}})
 def no_answer(
     pk: uuid.UUID, db: Db, viewer: Viewer = Depends(crm_viewer)
 ) -> dict[str, Any]:
     return _done(db, services.mark_no_answer(db, viewer=viewer, card_id=str(pk)))
 
 
-@router.post("/cards/{pk}/due")
+@router.post("/cards/{pk}/due", responses={200: {"model": CardOut}})
 def due(
     pk: uuid.UUID, body: DueIn, db: Db, viewer: Viewer = Depends(crm_viewer)
 ) -> dict[str, Any]:
@@ -315,14 +351,14 @@ def due(
     )
 
 
-@router.post("/cards/{pk}/due/done")
+@router.post("/cards/{pk}/due/done", responses={200: {"model": CardOut}})
 def due_done(
     pk: uuid.UUID, db: Db, viewer: Viewer = Depends(crm_viewer)
 ) -> dict[str, Any]:
     return _done(db, services.finish_due(db, viewer=viewer, card_id=str(pk)))
 
 
-@router.post("/cards/{pk}/win")
+@router.post("/cards/{pk}/win", responses={200: {"model": CardOut}})
 def win(
     pk: uuid.UUID, body: WinIn, db: Db, viewer: Viewer = Depends(crm_viewer)
 ) -> dict[str, Any]:
@@ -334,7 +370,7 @@ def win(
     )
 
 
-@router.post("/cards/{pk}/lose")
+@router.post("/cards/{pk}/lose", responses={200: {"model": CardOut}})
 def lose(
     pk: uuid.UUID, body: LoseIn, db: Db, viewer: Viewer = Depends(crm_viewer)
 ) -> dict[str, Any]:
@@ -346,7 +382,7 @@ def lose(
     )
 
 
-@router.post("/cards/{pk}/assign")
+@router.post("/cards/{pk}/assign", responses={200: {"model": CardOut}})
 def assign(
     pk: uuid.UUID, body: AssignIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
@@ -356,7 +392,7 @@ def assign(
     )
 
 
-@router.post("/leads/{pk}/add")
+@router.post("/leads/{pk}/add", responses={200: {"model": CardOut}})
 def add_lead(
     pk: uuid.UUID, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
@@ -368,7 +404,7 @@ class PasswordIn(BaseModel):
     again: str
 
 
-@router.post("/password")
+@router.post("/password", responses={200: {"model": OkOut}})
 def first_password(body: PasswordIn, db: Db, user: CurrentUser) -> dict[str, bool]:
     services.change_first_password(
         db, user=user, password=body.password, again=body.again
@@ -430,7 +466,7 @@ def _settings(db: Session, viewer: Viewer) -> dict[str, Any]:
     }
 
 
-@router.get("/settings")
+@router.get("/settings", responses={200: {"model": SettingsOut}})
 def settings_view(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, Any]:
     return _settings(db, viewer)
 
@@ -449,7 +485,7 @@ class SetupStepIn(BaseModel):
     quality: list[str] = []
 
 
-@router.post("/setup/{step}")
+@router.post("/setup/{step}", responses={200: {"model": SetupStepOut}})
 def setup_step(
     step: int, body: SetupStepIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
@@ -496,7 +532,7 @@ def setup_step(
     return {"next": min(step + 1, 5), "placed": placed} | _settings(db, viewer)
 
 
-@router.post("/setup/skip-members")
+@router.post("/setup/skip-members", responses={200: {"model": DetailOut}})
 def skip_members(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, Any]:
     services.save_distribution(
         db, viewer=viewer, distribution=Distribution.MANUAL, advance_to=3
@@ -511,7 +547,7 @@ class StateIn(BaseModel):
     state: str
 
 
-@router.post("/settings/state")
+@router.post("/settings/state", responses={200: {"model": PlacedOut}})
 def state(
     body: StateIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
@@ -529,7 +565,7 @@ class StageIn(BaseModel):
     color: str = ""
 
 
-@router.post("/settings/stages")
+@router.post("/settings/stages", responses={200: {"model": StageOut}})
 def stage_add(
     body: StageIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
@@ -538,7 +574,7 @@ def stage_add(
     return stage_out(stage)
 
 
-@router.put("/settings/stages/{pk}")
+@router.put("/settings/stages/{pk}", responses={200: {"model": StageOut}})
 def stage_update(
     pk: uuid.UUID, body: StageIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
@@ -553,7 +589,7 @@ class StepIn(BaseModel):
     way: str = "right"
 
 
-@router.post("/settings/stages/{pk}/move")
+@router.post("/settings/stages/{pk}/move", responses={200: {"model": list[StageOut]}})
 def stage_move(
     pk: uuid.UUID, body: StepIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> list[dict[str, Any]]:
@@ -564,7 +600,7 @@ def stage_move(
     return [stage_out(s) for s in stages]
 
 
-@router.delete("/settings/stages/{pk}")
+@router.delete("/settings/stages/{pk}", responses={200: {"model": CardsMovedOut}})
 def stage_delete(
     pk: uuid.UUID, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, int]:
@@ -582,7 +618,9 @@ class MemberIn(BaseModel):
     kpi_percent: str = ""
 
 
-@router.post("/settings/members", status_code=201)
+@router.post(
+    "/settings/members", status_code=201, responses={201: {"model": MemberOut}}
+)
 def member_add(
     body: MemberIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
@@ -599,7 +637,7 @@ def member_add(
     return member_out(member)
 
 
-@router.put("/settings/members/{pk}")
+@router.put("/settings/members/{pk}", responses={200: {"model": MemberOut}})
 def member_update(
     pk: uuid.UUID, body: MemberIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
@@ -620,7 +658,7 @@ class MemberPasswordIn(BaseModel):
     password: str
 
 
-@router.post("/settings/members/{pk}/password")
+@router.post("/settings/members/{pk}/password", responses={200: {"model": MemberOut}})
 def member_password(
     pk: uuid.UUID,
     body: MemberPasswordIn,
@@ -634,7 +672,7 @@ def member_password(
     return member_out(member)
 
 
-@router.delete("/settings/members/{pk}")
+@router.delete("/settings/members/{pk}", responses={200: {"model": CardsReleasedOut}})
 def member_remove(
     pk: uuid.UUID, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, int]:
@@ -647,7 +685,7 @@ class DistributionIn(BaseModel):
     distribution: str
 
 
-@router.post("/settings/distribution")
+@router.post("/settings/distribution", responses={200: {"model": SettingsOut}})
 def distribution(
     body: DistributionIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
@@ -656,7 +694,7 @@ def distribution(
     return _settings(db, viewer)
 
 
-@router.post("/settings/flow")
+@router.post("/settings/flow", responses={200: {"model": SettingsOut}})
 def flow(
     body: SetupStepIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
@@ -674,7 +712,7 @@ def flow(
     return _settings(db, viewer)
 
 
-@router.post("/settings/quality")
+@router.post("/settings/quality", responses={200: {"model": SettingsOut}})
 def quality(
     body: SetupStepIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
@@ -687,7 +725,9 @@ class ReasonIn(BaseModel):
     name: str = Field(max_length=64)
 
 
-@router.post("/settings/reasons", status_code=201)
+@router.post(
+    "/settings/reasons", status_code=201, responses={201: {"model": ReasonOut}}
+)
 def reason_add(
     body: ReasonIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, str]:
@@ -696,7 +736,7 @@ def reason_add(
     return {"id": str(reason.id), "name": reason.name}
 
 
-@router.delete("/settings/reasons/{pk}")
+@router.delete("/settings/reasons/{pk}", responses={200: {"model": OkOut}})
 def reason_delete(
     pk: uuid.UUID, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, bool]:

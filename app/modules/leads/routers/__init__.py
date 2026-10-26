@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from metaads import PROVIDER
 from metaads.webhooks import leadgen_notices, verification_challenge, verify_signature
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
@@ -30,6 +30,13 @@ from app.modules.leads.constants import (
 )
 from app.modules.leads.exceptions import NothingToRecover
 from app.modules.leads.models import Lead
+from app.modules.leads.schemas import (
+    LeadDetailOut,
+    LeadListOut,
+    LeadOut,
+    LeadSourcesOut,
+    RecoverOut,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/leads", tags=["leads"])
@@ -39,6 +46,18 @@ SIGNATURE_HEADER = "X-Hub-Signature-256"
 FORGERY_BUCKET = "webhook:leads:unsigned"
 SEARCH_LIMIT = 80
 AD_ID_LIMIT = 128
+
+VERDICT_Q = Query(
+    "",
+    description="`qualified`, `unqualified`, `unmarked`, or empty for all. "
+    "Anything else is ignored.",
+)
+AD_Q = Query("", description="Only leads from this advert (Meta ad id).")
+ADSET_Q = Query("", description="Only leads from this ad set (Meta ad set id).")
+SEARCH_Q = Query(
+    "", description="Search name, phone or email; first 80 characters are used."
+)
+PAGE_Q = Query(1, ge=1, description="Page number, newest leads first.")
 
 
 def read_filters(*, verdict: str, ad: str, adset: str, q: str) -> selectors.LeadFilters:
@@ -171,15 +190,15 @@ def _live(
     }
 
 
-@router.get("")
+@router.get("", responses={200: {"model": LeadListOut}})
 def lead_list(
     db: Db,
     user: CurrentUser,
-    verdict: str = "",
-    ad: str = "",
-    adset: str = "",
-    q: str = "",
-    page: int = Query(1, ge=1),
+    verdict: str = VERDICT_Q,
+    ad: str = AD_Q,
+    adset: str = ADSET_Q,
+    q: str = SEARCH_Q,
+    page: int = PAGE_Q,
 ) -> dict[str, Any]:
     filters = read_filters(verdict=verdict, ad=ad, adset=adset, q=q)
     shown, pulse = _pulse(db, user, filters)
@@ -190,17 +209,26 @@ def lead_list(
     return body
 
 
-@router.get("/stream", response_model=None)
+@router.get(
+    "/stream",
+    response_model=None,
+    responses={
+        200: {"model": LeadListOut, "description": "Something changed."},
+        204: {"description": "Nothing changed since `since`."},
+    },
+)
 def lead_stream(
     db: Db,
     user: CurrentUser,
-    since: str = "",
-    after: str = "",
-    verdict: str = "",
-    ad: str = "",
-    adset: str = "",
-    q: str = "",
-    page: int = Query(1, ge=1),
+    since: str = Query("", description="The `cursor` from the last answer."),
+    after: str = Query(
+        "", description="The `after` from `GET /leads`; newer rows get `is_new`."
+    ),
+    verdict: str = VERDICT_Q,
+    ad: str = AD_Q,
+    adset: str = ADSET_Q,
+    q: str = SEARCH_Q,
+    page: int = PAGE_Q,
 ) -> dict[str, Any] | Response:
     filters = read_filters(verdict=verdict, ad=ad, adset=adset, q=q)
     shown, pulse = _pulse(db, user, filters)
@@ -211,8 +239,14 @@ def lead_stream(
     )
 
 
-@router.get("/sources")
-def lead_sources(db: Db, user: CurrentUser, days: int | None = None) -> dict[str, Any]:
+@router.get("/sources", responses={200: {"model": LeadSourcesOut}})
+def lead_sources(
+    db: Db,
+    user: CurrentUser,
+    days: int | None = Query(
+        None, description="7, 30 or 90 days, or 0 for all time. Default 30."
+    ),
+) -> dict[str, Any]:
     from app.modules.metrics.selectors import ALL_TIME, DEFAULT_PERIOD, SOURCE_PERIODS
     from app.modules.metrics.selectors import lead_sources as report
 
@@ -225,14 +259,25 @@ def lead_sources(db: Db, user: CurrentUser, days: int | None = None) -> dict[str
     }
 
 
-@router.get("/export", response_model=None)
+@router.get(
+    "/export",
+    response_model=None,
+    responses={
+        200: {
+            "content": {XLSX_TYPE: {}},
+            "description": "An .xlsx of the filtered leads. `X-Truncated` is set "
+            "when the sheet was cut short.",
+        },
+        404: {"description": "No leads match."},
+    },
+)
 def lead_export(
     db: Db,
     user: CurrentUser,
-    verdict: str = "",
-    ad: str = "",
-    adset: str = "",
-    q: str = "",
+    verdict: str = VERDICT_Q,
+    ad: str = AD_Q,
+    adset: str = ADSET_Q,
+    q: str = SEARCH_Q,
 ) -> Response:
     from app.modules.ads.selectors import ad_labels, campaign_names
 
@@ -265,7 +310,7 @@ def lead_export(
     return Response(content, media_type=XLSX_TYPE, headers=headers)
 
 
-@router.post("/recover")
+@router.post("/recover", responses={200: {"model": RecoverOut}})
 def recover(db: Db, user: CurrentUser) -> dict[str, Any]:
     try:
         queued = services.recover_leads(db, user=user, now=utcnow())
@@ -279,7 +324,7 @@ def recover(db: Db, user: CurrentUser) -> dict[str, Any]:
     }
 
 
-@router.get("/{pk}")
+@router.get("/{pk}", responses={200: {"model": LeadDetailOut}})
 def lead_detail(pk: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     from app.modules.ads.selectors import ad_labels
 
@@ -303,11 +348,15 @@ def lead_detail(pk: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
 
 
 class VerdictIn(BaseModel):
-    status: str = ""
-    current: str = ""
+    status: str = Field(
+        "", description="`qualified` or `unqualified`; empty clears the mark."
+    )
+    current: str = Field(
+        "", description="The lead's verdict now; sending the same one clears it."
+    )
 
 
-@router.post("/{pk}/verdict")
+@router.post("/{pk}/verdict", responses={200: {"model": LeadOut}})
 def verdict(
     pk: uuid.UUID, body: VerdictIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
