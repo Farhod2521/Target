@@ -333,6 +333,42 @@ def test_a_question_answered_and_streamed(
     assert report.status_code == 200 and report.json()["entitled"] is True
 
 
+def test_a_paid_plan_asks_before_meta_is_connected(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.billing.models import Plan
+    from app.modules.billing.services.entitlement import open_entitlement
+
+    headers = sign_up(client)
+    owner = db.scalar(select(User).order_by(User.date_joined.desc()))
+    assert owner is not None
+    plan = Plan(
+        code="pro",
+        name="Pro",
+        price=30,
+        currency="USD",
+        max_adsets=10,
+        daily_chat_requests=5,
+        llm_cost_limit_minor=1000,
+    )
+    db.add(plan)
+    db.flush()
+    open_entitlement(db, owner=owner, plan=plan, days=30, now=utcnow())
+    db.commit()
+
+    screen = client.get("/api/v1/chat", headers=headers)
+    assert screen.status_code == 200, screen.text
+    assert screen.json()["entitled"] is True
+    assert screen.json()["free_total"] == 5
+
+    asked = client.post(
+        "/api/v1/chat/ask", json={"question": "Reklamani qanday boshlay?"}, headers=headers
+    )
+    assert asked.status_code == 200, asked.text
+    assert asked.json()["session_id"]
+    assert queued[-1][0].endswith("answer_chat_turn")
+
+
 def test_a_visitor_spends_the_free_allowance(
     client: TestClient, db: Session, queued: list
 ) -> None:
