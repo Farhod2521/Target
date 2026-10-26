@@ -31,7 +31,7 @@ def _ready(client: TestClient, db: Session) -> tuple[dict[str, str], User]:
         )
     )
     db.commit()
-    account, page = _cabinet(db, user)
+    account, _page = _cabinet(db, user)
     account.is_active = account.is_current = True
     db.commit()
     chosen = client.post(
