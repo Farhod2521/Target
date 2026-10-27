@@ -62,6 +62,7 @@ class CrmCard(_Tenant, Base):
     lost_reason_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     taken_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    quality_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lead: Mapped["Lead"] = relationship(foreign_keys=[lead_id], lazy="select")  # noqa: F821
     stage: Mapped["CrmStage"] = relationship(foreign_keys=[stage_id], lazy="select")
     assignee: Mapped["User | None"] = relationship(foreign_keys=[assignee_id], lazy="select")  # noqa: F821

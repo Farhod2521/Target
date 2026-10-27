@@ -15,6 +15,7 @@ class Invoice(Base):
         Index("invoices_owner_i_8b688b_idx", 'owner_id', text("created_at DESC")),
         Index("invoices_status_4792b1_idx", 'status', 'expires_at'),
         Index("invoices_owner_i_793e56_idx", 'owner_id', 'pages_until'),
+        Index("invoices_owner_i_60d826_idx", 'owner_id', 'seats_until'),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -40,6 +41,11 @@ class Invoice(Base):
     pages_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     pages_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pages_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    seats: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    seats_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    seats_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    seats_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    seats_days: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     manual_method: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     pay_reference: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     recorded_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)

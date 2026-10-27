@@ -38,6 +38,7 @@ class HistoryKind(Choices):
     PROMO = "promo"
     REFUNDED = "refunded"
     PAGES = "pages"
+    SEATS = "seats"
 
 
 HISTORY_KIND_LABELS = {
@@ -47,6 +48,7 @@ HISTORY_KIND_LABELS = {
     HistoryKind.PROMO: "Promo kod",
     HistoryKind.REFUNDED: "Pul qaytarildi",
     HistoryKind.PAGES: "Qo'shimcha sahifa",
+    HistoryKind.SEATS: "CRM menejeri",
 }
 
 
@@ -64,11 +66,13 @@ WALLET_CHOICE_LABELS = {
 class InvoiceKind(Choices):
     PLAN = "plan"
     PAGES = "pages"
+    SEATS = "seats"
 
 
 INVOICE_KIND_LABELS = {
     InvoiceKind.PLAN: "Tarif",
     InvoiceKind.PAGES: "Qo'shimcha sahifa",
+    InvoiceKind.SEATS: "CRM menejeri",
 }
 
 
@@ -80,6 +84,21 @@ class PagesChoice(Choices):
 PAGES_CHOICE_LABELS = {
     PagesChoice.KEEP: "Sahifalarni qoldirish",
     PagesChoice.DROP: "Sahifalarsiz",
+}
+
+
+class PlanFeatureKind(Choices):
+    INCLUDED = "included"
+    UNLIMITED = "unlimited"
+    LIMITED = "limited"
+    HEADING = "heading"
+
+
+PLAN_FEATURE_KIND_LABELS = {
+    PlanFeatureKind.INCLUDED: "Bor",
+    PlanFeatureKind.UNLIMITED: "Cheksiz",
+    PlanFeatureKind.LIMITED: "Limitli",
+    PlanFeatureKind.HEADING: "Sarlavha",
 }
 PAGE_PRICE_DAYS: Final = 30
 MAX_PAGES_PER_PURCHASE: Final = 10

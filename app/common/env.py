@@ -43,6 +43,9 @@ class Env(BaseSettings):
     csrf_trusted_origins: CommaList = Field(
         default=["http://localhost:8000"], alias="DJANGO_CSRF_TRUSTED_ORIGINS"
     )
+    cors_allowed_origins: CommaList = Field(
+        default=["https://new.targetolog.ai"], alias="CORS_ALLOWED_ORIGINS"
+    )
     auth_throttle: bool = Field(default=True, alias="AUTH_THROTTLE")
     purge_test_emails: CommaList = Field(default=[], alias="PURGE_TEST_EMAILS")
     database_url: str = Field(
@@ -240,6 +243,7 @@ class Env(BaseSettings):
     _split = field_validator(
         "allowed_hosts",
         "csrf_trusted_origins",
+        "cors_allowed_origins",
         "purge_test_emails",
         "encryption_key_fallbacks",
         "launch_goal_picker_v2_users",

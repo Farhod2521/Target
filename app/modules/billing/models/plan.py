@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import BigInteger, Boolean, DateTime, SmallInteger, String, Text, Uuid
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.common.db import Base, utcnow
 
@@ -28,6 +28,15 @@ class Plan(Base):
     included_pages: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
     included_google_accounts: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     extra_page_price: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    crm_seat_price: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    crm_free_seats: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
     is_one_time: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    feature_rows: Mapped[list["PlanFeature"]] = relationship(  # noqa: F821
+        back_populates="plan",
+        order_by="(PlanFeature.sort_order, PlanFeature.id)",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="select",
+    )

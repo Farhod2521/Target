@@ -86,6 +86,7 @@ class ActivityKind(Choices):
     WON = "won"
     LOST = "lost"
     REOPENED = "reopened"
+    SENT_TO_META = "sent_to_meta"
 
 
 ACTIVITY_KIND_LABELS = {
@@ -102,6 +103,7 @@ ACTIVITY_KIND_LABELS = {
     ActivityKind.WON: "Sotildi",
     ActivityKind.LOST: "Rad etildi",
     ActivityKind.REOPENED: "Qayta ochildi",
+    ActivityKind.SENT_TO_META: "Meta'ga sifatli deb yuborildi",
 }
 
 

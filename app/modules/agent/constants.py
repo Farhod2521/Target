@@ -136,6 +136,7 @@ SUGGESTION_KIND_LABELS = {
 
 
 class DiagnosisCause(Choices):
+    UNPAID = "unpaid"
     PROVIDER_STOPPED = "provider_stopped"
     LANDING_BLOCKS = "landing_blocks"
     TOO_EARLY = "too_early"
@@ -150,6 +151,7 @@ class DiagnosisCause(Choices):
 
 
 DIAGNOSIS_CAUSE_LABELS = {
+    DiagnosisCause.UNPAID: "To'lov qilinmagan",
     DiagnosisCause.PROVIDER_STOPPED: "Reklama ko'rsatilmayapti",
     DiagnosisCause.LANDING_BLOCKS: "Forma yoki sayt to'sadi",
     DiagnosisCause.TOO_EARLY: "Hali erta",

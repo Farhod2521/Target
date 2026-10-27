@@ -15,7 +15,10 @@ def create_app() -> FastAPI:
     app = FastAPI(title="TargetologAI API", version="0.1.0")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.csrf_trusted_origins,
+        allow_origins=[
+            *settings.csrf_trusted_origins,
+            *settings.cors_allowed_origins,
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

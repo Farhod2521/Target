@@ -20,6 +20,7 @@ class NoticeKind(Choices):
     FEEDBACK = "feedback"
     SURVEY = "survey"
     FREQUENCY = "frequency"
+    STOP = "stop"
 
 
 NOTICE_KIND_LABELS = {
@@ -39,6 +40,7 @@ NOTICE_KIND_LABELS = {
     NoticeKind.FEEDBACK: "Fikrga javob",
     NoticeKind.SURVEY: "So'rovnoma",
     NoticeKind.FREQUENCY: "Chastota ogohlantirishi",
+    NoticeKind.STOP: "Reklama to'xtadi",
 }
 NOTICES_WITHOUT_SUBSCRIPTION: Final = frozenset(
     {
