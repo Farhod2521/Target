@@ -283,3 +283,36 @@ def test_the_card_says_everything_and_no_secret(
     assert manager_login is not None
     assert client.get(f"{URL}/{manager_login.id}", headers=headers).status_code == 404
     assert client.get(f"{URL}/{support.id}", headers=headers).status_code == 404
+
+
+def test_the_ads_tab_reads_only_what_this_product_launched(
+    client: TestClient, db: Session
+) -> None:
+    from tests.pg.conftest import sign_up
+    from tests.pg.test_chat import _account
+    from tests.pg.test_chat import _mirror as _campaigns
+
+    sign_up(client)
+    owner, account, page = _account(db)
+    _campaigns(db, owner, account, page)
+    db.commit()
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+
+    month = client.get(f"{URL}/{owner.id}/ads?period=30", headers=support)
+    assert month.status_code == 200, month.text
+    body = month.json()
+    assert body["period"] == "30" and body["running"] == 1
+    [row] = body["rows"]
+    assert row["campaign_external_id"] == "c_1"
+    assert row["is_running"] is True
+    assert row["spend_minor"] == 3500
+    assert row["page"] == page.name
+
+    today = client.get(f"{URL}/{owner.id}/ads?period=today", headers=support).json()
+    assert [r["spend_minor"] for r in today["rows"]] == [0]
+    assert (
+        client.get(f"{URL}/{owner.id}/ads?period=nope", headers=support).json()[
+            "period"
+        ]
+        == "month"
+    )

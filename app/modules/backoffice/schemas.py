@@ -423,3 +423,29 @@ class MessageOut(BaseModel):
 class DeletedOut(MessageOut):
     rows: int
     receipts_kept: int
+
+
+class AdRowOut(BaseModel):
+    launch_id: str
+    campaign_external_id: str
+    started_at: datetime | None
+    goal: str
+    page: str
+    delivery_label: str
+    is_running: bool
+    spend_minor: int
+    currency: str
+    results: int = Field(description="What it was bought for: leads, calls, chats...")
+    result_word: str
+    result_cost_minor: int | None
+    result_cost_label: str
+    note: str = Field(description="Instead of a figure this screen cannot count.")
+
+
+class CustomerAdsOut(BaseModel):
+    period: str
+    periods: list[ChoiceOut]
+    running: int = Field(description="Delivering now, whatever the window.")
+    totals: list[AmountOut] = Field(description="Spend per currency, never summed.")
+    hidden: int = Field(description="Adverts left out: quiet over this window.")
+    rows: list[AdRowOut]
