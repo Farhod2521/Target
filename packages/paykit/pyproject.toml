@@ -3,16 +3,16 @@ name = "paykit"
 version = "0.2.0"
 description = "To'lov provayderlari — port, DTO va Payme/Click/Paynet adapterlari"
 requires-python = ">=3.13,<3.14"
-# pydantic and the standard library, and nothing else. Not httpx: every
-# provider here is one this system *answers* rather than calls - the payer
-# is sent to a page we build locally, and what comes back is an HTTP
-# request to us. A client would be a dependency bought for nothing.
+# pydantic and httpx. httpx for Multicard alone: its checkout page exists
+# only once an invoice has been created through its API. Every other
+# provider here is answered rather than called.
 #
 # No adskit either. A subscription payment has nothing to do with
 # advertising, and depending on the ad contract package would tie a
 # payment release to an ad platform's.
 dependencies = [
     "pydantic>=2.10",
+    "httpx>=0.28",
 ]
 
 [build-system]

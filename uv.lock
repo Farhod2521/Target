@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.13.*"
 
 [manifest]
@@ -872,11 +872,15 @@ name = "paykit"
 version = "0.2.0"
 source = { editable = "packages/paykit" }
 dependencies = [
+    { name = "httpx" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.10" }]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "pydantic", specifier = ">=2.10" },
+]
 
 [[package]]
 name = "phonenumbers"

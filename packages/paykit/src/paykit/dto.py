@@ -43,6 +43,9 @@ class CheckoutRequest(Frozen):
     decimal_places: int = Field(ge=0, le=4)
     return_url: str = ""
     language: str = ""
+    currency: str = ""
+    description: str = ""
+    ttl_seconds: int | None = Field(default=None, ge=1)
 
 
 class Checkout(Frozen):

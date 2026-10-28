@@ -99,8 +99,14 @@ class PaymentChoice:
     label: str
 
 
+PROVIDER_LABELS: dict[str, str] = {"multicard": "Rahmat (Uzcard, Humo, Visa)"}
+
+
 def payment_providers() -> list[dict[str, str]]:
-    return [{"name": name, "label": name.title()} for name in registry.available()]
+    return [
+        {"name": name, "label": PROVIDER_LABELS.get(name, name.title())}
+        for name in registry.available()
+    ]
 
 
 def payments_configured() -> bool:

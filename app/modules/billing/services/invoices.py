@@ -19,7 +19,7 @@ from paykit import (
     Refused,
     registry,
 )
-from paykit.errors import ProviderNotRegistered
+from paykit.errors import PaymentError, ProviderNotRegistered
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
@@ -131,15 +131,33 @@ def checkout_for(
         adapter = registry.get(provider)
     except ProviderNotRegistered as exc:
         raise PaymentUnavailable from exc
-    return adapter.checkout(
-        request=CheckoutRequest(
-            number=InvoiceNumber(invoice.number),
-            amount_minor=MinorUnits(invoice.amount_minor),
-            decimal_places=decimal_places(invoice.currency),
-            return_url=return_url,
-            language=language,
+    try:
+        return adapter.checkout(
+            request=CheckoutRequest(
+                number=InvoiceNumber(invoice.number),
+                amount_minor=MinorUnits(invoice.amount_minor),
+                decimal_places=decimal_places(invoice.currency),
+                return_url=return_url,
+                language=language,
+                currency=invoice.currency,
+                description=_receipt_line(invoice),
+                ttl_seconds=max(60, int((invoice.expires_at - now).total_seconds())),
+            )
         )
-    )
+    except PaymentError as exc:
+        logger.warning(
+            "checkout could not be opened",
+            extra={"provider": provider, "invoice": invoice.number, "reason": str(exc)},
+        )
+        raise PaymentUnavailable from exc
+
+
+def _receipt_line(invoice: Invoice) -> str:
+    """What the fiscal receipt names the purchase as."""
+    plan = invoice.plan.name if invoice.plan is not None else ""
+    if invoice.kind == InvoiceKind.PAGES:
+        return f"TargetologAI: qo'shimcha sahifa ({invoice.pages})"
+    return f"TargetologAI obunasi: {plan}, {invoice.period_days} kun" if plan else ""
 
 
 def create_invoice(db: Session, *, owner: User, plan: Plan, now: datetime) -> Invoice:

@@ -18,6 +18,7 @@ from paykit.errors import (
     PaymentError,
     ProviderMisconfigured,
     ProviderNotRegistered,
+    ProviderUnavailable,
 )
 from paykit.ports import PaymentPort
 from paykit.refs import (
@@ -90,6 +91,7 @@ __all__ = [
     "ProviderName",
     "ProviderNotRegistered",
     "ProviderResponse",
+    "ProviderUnavailable",
     "RawRequest",
     "Refusal",
     "Refused",

@@ -20,6 +20,12 @@ def _strip_site_url(value: Any) -> Any:
     return value
 
 
+def _blank_as_none(value: Any) -> Any:
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
+
 def _bare_username(value: Any) -> Any:
     if isinstance(value, str):
         return value.strip().lstrip("@")
@@ -212,6 +218,23 @@ class Env(BaseSettings):
     paynet_username: str = Field(default="", alias="PAYNET_USERNAME")
     paynet_password: str = Field(default="", alias="PAYNET_PASSWORD")
     paynet_service_id: str = Field(default="", alias="PAYNET_SERVICE_ID")
+    multicard_application_id: str = Field(default="", alias="MULTICARD_APPLICATION_ID")
+    multicard_secret: str = Field(default="", alias="MULTICARD_SECRET")
+    multicard_store_id: str = Field(default="", alias="MULTICARD_STORE_ID")
+    multicard_api_url: str = Field(
+        default="https://mesh.multicard.uz", alias="MULTICARD_API_URL"
+    )
+    multicard_callback_url: str = Field(default="", alias="MULTICARD_CALLBACK_URL")
+    multicard_ofd_mxik: str = Field(default="", alias="MULTICARD_OFD_MXIK")
+    multicard_ofd_package_code: str = Field(
+        default="", alias="MULTICARD_OFD_PACKAGE_CODE"
+    )
+    multicard_ofd_name: str = Field(
+        default="TargetologAI obunasi", alias="MULTICARD_OFD_NAME"
+    )
+    multicard_ofd_vat: int | None = Field(default=None, alias="MULTICARD_OFD_VAT")
+    multicard_ofd_tin: str = Field(default="", alias="MULTICARD_OFD_TIN")
+    multicard_allowed_ips: str = Field(default="", alias="MULTICARD_ALLOWED_IPS")
     sentry_dsn: str = Field(default="", alias="SENTRY_DSN")
     sentry_traces_sample_rate: float = Field(
         default=0.1, alias="SENTRY_TRACES_SAMPLE_RATE"
@@ -251,6 +274,7 @@ class Env(BaseSettings):
         mode="before",
     )(_split_csv)
     _normalise_site_url = field_validator("site_url", mode="before")(_strip_site_url)
+    _blank_vat = field_validator("multicard_ofd_vat", mode="before")(_blank_as_none)
     _normalise_handle = field_validator("support_telegram", mode="before")(
         _bare_username
     )
