@@ -81,10 +81,16 @@ from app.modules.billing.selectors import (
     prorate,
     running_subscription,
 )
+from app.modules.billing.selectors.seats import (
+    carried_seats,
+    plan_seats_minor,
+    seat_remainder,
+)
 from app.modules.billing.services.entitlement import (
     insert_invoice,
     land_pages,
     land_plan,
+    land_seats,
     lift_wallet,
     locked_entitlement,
     open_entitlement,
@@ -93,6 +99,7 @@ from app.modules.billing.services.entitlement import (
     release_discount,
     resume_lapsed,
     run_plan_pages,
+    run_plan_seats,
 )
 
 logger = logging.getLogger(__name__)
@@ -157,6 +164,8 @@ def _receipt_line(invoice: Invoice) -> str:
     plan = invoice.plan.name if invoice.plan is not None else ""
     if invoice.kind == InvoiceKind.PAGES:
         return f"TargetologAI: qo'shimcha sahifa ({invoice.pages})"
+    if invoice.kind == InvoiceKind.SEATS:
+        return f"TargetologAI: CRM menejeri o'rni ({invoice.seats})"
     return f"TargetologAI obunasi: {plan}, {invoice.period_days} kun" if plan else ""
 
 
@@ -357,8 +366,9 @@ def price_invoice(
     owner = payer(locked)
     lift_wallet(db, owner=owner, now=now)
     db.refresh(locked, ["amount_minor", "wallet_minor"])
-    locked.amount_minor += locked.credit_minor - locked.pages_minor
+    locked.amount_minor += locked.credit_minor - locked.pages_minor - locked.seats_minor
     locked.credit_minor = locked.pages = locked.pages_minor = 0
+    locked.seats = locked.seats_minor = 0
     db.flush()
     if promo_code:
         apply_discount(db, invoice=locked, code=promo_code, now=now)
@@ -380,6 +390,7 @@ def price_invoice(
             locked.pages = count
             locked.pages_minor = minor
             locked.amount_minor += minor
+    _add_seats(db, invoice=locked, owner=owner, now=now)
     credit = _credit(db, invoice=locked, switch=switch, now=now)
     wanted = locked.amount_minor - credit if wallet == WalletChoice.USE else 0
     spent = hold_wallet(db, invoice=locked, amount_minor=wanted, now=now)
@@ -400,6 +411,8 @@ def price_invoice(
             "wallet_minor": locked.wallet_minor,
             "pages": locked.pages,
             "pages_minor": locked.pages_minor,
+            "seats": locked.seats,
+            "seats_minor": locked.seats_minor,
             "currency": locked.currency,
         },
         occurred_at=now,
@@ -407,12 +420,30 @@ def price_invoice(
     return locked
 
 
+def _add_seats(db: Session, *, invoice: Invoice, owner: User, now: datetime) -> None:
+    """Renew the seats somebody sits in on this bill. Always, unlike the pages:
+    taking a manager off the team is how one stops paying for a seat."""
+    current = running_subscription(db, owner=owner, now=now)
+    count = carried_seats(
+        db, owner=owner, subscription=current or latest_subscription(db, owner=owner)
+    )
+    minor = plan_seats_minor(plan=invoice.plan, count=count)
+    if minor <= 0:
+        return
+    invoice.seats = count
+    invoice.seats_minor = minor
+    invoice.amount_minor += minor
+
+
 def _credit(db: Session, *, invoice: Invoice, switch: PlanSwitch, now: datetime) -> int:
     credit = min(switch.credit_minor, invoice.amount_minor)
     if switch.move != PlanMove.RESTART:
         return credit
-    pages = page_remainder(db, owner=payer(invoice), currency=invoice.currency, now=now)
-    return credit + min(pages, invoice.amount_minor - credit)
+    owner = payer(invoice)
+    pages = page_remainder(db, owner=owner, currency=invoice.currency, now=now)
+    credit += min(pages, invoice.amount_minor - credit)
+    seats = seat_remainder(db, owner=owner, currency=invoice.currency, now=now)
+    return credit + min(seats, invoice.amount_minor - credit)
 
 
 def apply_payment(
@@ -423,6 +454,8 @@ def apply_payment(
 
     if invoice.kind == InvoiceKind.PAGES:
         return land_pages(db, invoice=invoice, now=now)
+    if invoice.kind == InvoiceKind.SEATS:
+        return land_seats(db, invoice=invoice, now=now)
     owner = payer(invoice)
     subscription = locked_entitlement(db, owner=owner)
     days = invoice.period_days
@@ -438,6 +471,14 @@ def apply_payment(
             db, subscription=subscription, plan=invoice.plan, days=days, now=now
         )
     run_plan_pages(
+        db,
+        invoice=invoice,
+        subscription=subscription,
+        move=move,
+        before=before,
+        now=now,
+    )
+    run_plan_seats(
         db,
         invoice=invoice,
         subscription=subscription,
@@ -479,6 +520,7 @@ def apply_payment(
             "credit_minor": invoice.credit_minor,
             "wallet_minor": invoice.wallet_minor,
             "pages": invoice.pages,
+            "seats": invoice.seats,
             "currency": invoice.currency,
             "days": days,
         },

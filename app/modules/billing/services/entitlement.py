@@ -43,6 +43,7 @@ from app.modules.billing.selectors import (
     prepared_account,
     running_page_bills,
 )
+from app.modules.billing.selectors.seats import running_seat_bills_query
 
 logger = logging.getLogger(__name__)
 TRIAL_PLAN_DEFAULTS: dict[str, Any] = {
@@ -396,6 +397,107 @@ def run_plan_pages(
     stacked = move == PlanMove.STACK and was_running and before is not None
     invoice.pages_from = before if stacked else now
     invoice.pages_until = subscription.expires_at
+
+
+def land_seats(db: Session, *, invoice: Invoice, now: datetime) -> Subscription:
+    """Mark a seat bill paid and start its seats. Moves no date."""
+    from app.modules.referrals.services import accrue_reward
+    from app.modules.sales.services import credit_sale
+
+    owner = payer(invoice)
+    subscription = locked_entitlement(db, owner=owner) or bound_subscription(
+        db, owner=owner
+    )
+    if subscription is None:
+        raise ConfigurationError("seat bill paid for an account with no subscription")
+    if subscription.expires_at <= now:
+        logger.warning("seat bill %s paid after the period ended", invoice.number)
+    invoice.status = InvoiceStatus.PAID
+    invoice.paid_at = now
+    invoice.subscription_id = subscription.id
+    invoice.applied_days = 0
+    invoice.seats_from = now
+    invoice.seats_until = max(now, subscription.expires_at)
+    if invoice.seats_days:
+        invoice.seats_until = min(
+            invoice.seats_until, now + timedelta(days=invoice.seats_days)
+        )
+    db.flush()
+    record_change(
+        db,
+        subscription=subscription,
+        kind=HistoryKind.SEATS,
+        from_plan=subscription.plan,
+        move=None,
+        days=0,
+        expires_before=subscription.expires_at,
+        now=now,
+        invoice=invoice,
+        actor=db.get(User, invoice.recorded_by_id) if invoice.recorded_by_id else None,
+    )
+    accrue_reward(db, invoice=invoice, now=now)
+    credit_sale(db, invoice=invoice, now=now)
+    emit(
+        db,
+        owner_id=owner.id,
+        name=EventName.PAYMENT_RECEIVED,
+        aggregate_type="invoice",
+        aggregate_id=invoice.id,
+        payload={
+            "number": invoice.number,
+            "kind": invoice.kind,
+            "plan": invoice.plan.code,
+            "amount_minor": invoice.amount_minor,
+            "wallet_minor": invoice.wallet_minor,
+            "currency": invoice.currency,
+            "seats": invoice.seats,
+        },
+        occurred_at=now,
+    )
+    emit(
+        db,
+        owner_id=owner.id,
+        name=EventName.SEATS_ADDED,
+        aggregate_type="subscription",
+        aggregate_id=subscription.id,
+        payload={
+            "seats": invoice.seats,
+            "until": invoice.seats_until.isoformat() if invoice.seats_until else None,
+            "invoice": invoice.number,
+        },
+        occurred_at=now,
+    )
+    return subscription
+
+
+def run_plan_seats(
+    db: Session,
+    *,
+    invoice: Invoice,
+    subscription: Subscription,
+    move: PlanMove,
+    before: datetime | None,
+    now: datetime,
+) -> None:
+    """The stretch of the seats a plan bill renewed; a restart ends credited ones."""
+    was_running = before is not None and before > now
+    if move == PlanMove.RESTART and was_running:
+        ids = [
+            bill.id
+            for bill in db.scalars(
+                running_seat_bills_query(owner=payer(invoice), at=now)
+            )
+            if bill.currency == invoice.currency and bill.id != invoice.id
+        ]
+        if ids:
+            db.execute(
+                update(Invoice).where(Invoice.id.in_(ids)).values(seats_until=now)
+            )
+    if invoice.seats <= 0:
+        return
+    stacked = move == PlanMove.STACK and was_running and before is not None
+    invoice.seats_from = before if stacked else now
+    invoice.seats_until = subscription.expires_at
 
 
 def resume_lapsed(db: Session, *, owner_id: str) -> None:

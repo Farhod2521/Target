@@ -132,6 +132,7 @@ class EventName(Choices):
     PAYMENT_REFUNDED = "payment.refunded"
     SUBSCRIPTION_ACTIVATED = "subscription.activated"
     PAGES_ADDED = "subscription.pages_added"
+    SEATS_ADDED = "subscription.seats_added"
     SUBSCRIPTION_SHORTENED = "subscription.shortened"
     SUBSCRIPTION_EXTENDED = "subscription.extended"
     SUBSCRIPTION_PLAN_CHANGED = "subscription.plan_changed"
@@ -249,6 +250,7 @@ EVENT_NAME_LABELS = {
     EventName.PAYMENT_REFUNDED: "To'lov qaytarildi",
     EventName.SUBSCRIPTION_ACTIVATED: "Obuna faollashtirildi",
     EventName.PAGES_ADDED: "Qo'shimcha sahifa qo'shildi",
+    EventName.SEATS_ADDED: "CRM menejeri o'rni qo'shildi",
     EventName.SUBSCRIPTION_SHORTENED: "Obuna muddati qisqardi",
     EventName.SUBSCRIPTION_EXTENDED: "Muddat qo'lda uzaytirildi",
     EventName.SUBSCRIPTION_PLAN_CHANGED: "Tarif almashtirildi",

@@ -679,7 +679,9 @@ def invoice_status(
     exhausted = tries >= MAX_POLL_TRIES
     paid = invoice.status == InvoiceStatus.PAID
     back_url = ""
-    if invoice.kind != InvoiceKind.PAGES:
+    if invoice.kind == InvoiceKind.SEATS:
+        back_url = "/app/crm/sozlamalar/#menejerlar"
+    elif invoice.kind != InvoiceKind.PAGES:
         if selectors.setup_pending(db, owner=user):
             back_url = "/app/start"
     elif add_page:

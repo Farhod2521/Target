@@ -185,9 +185,27 @@ def seated_ids(db: Session, *, owner: User, at: datetime) -> frozenset[uuid.UUID
     seat share the seats bought, in the order they were added; the rest
     wait, locked out and handed no leads.
     """
-    from app.modules.billing.constants import InvoiceStatus, SubscriptionStatus
-    from app.modules.billing.models import Invoice
     from app.modules.billing.selectors import live_subscription
+    from app.modules.billing.selectors.seats import paid_seats
+
+    seated, waiting = _free_seating(
+        db, owner=owner, subscription=live_subscription(db, owner=owner)
+    )
+    if not waiting:
+        return frozenset(seated)
+    return frozenset(seated | set(waiting[: paid_seats(db, owner=owner, at=at)]))
+
+
+def unseated_count(db: Session, *, owner: User, subscription: Any) -> int:
+    """Active managers the plan's free page seats leave waiting for a bought one."""
+    return len(_free_seating(db, owner=owner, subscription=subscription)[1])
+
+
+def _free_seating(
+    db: Session, *, owner: User, subscription: Any
+) -> tuple[set[uuid.UUID], list[uuid.UUID]]:
+    """Who a free page seat holds, and who waits beyond them, oldest first."""
+    from app.modules.billing.constants import SubscriptionStatus
     from app.modules.integrations.selectors import enabled_pages
 
     members = list(
@@ -198,24 +216,11 @@ def seated_ids(db: Session, *, owner: User, at: datetime) -> frozenset[uuid.UUID
         )
     )
     if not members:
-        return frozenset()
-    subscription = live_subscription(db, owner=owner)
+        return set(), []
     free_pages: set[uuid.UUID] = (
         set()
         if subscription is None or subscription.status == SubscriptionStatus.TRIAL
         else {page.id for page in enabled_pages(db, owner=owner)}
-    )
-    paid = int(
-        db.scalar(
-            select(func.sum(Invoice.seats)).where(
-                Invoice.owner_id == owner.id,
-                Invoice.status == InvoiceStatus.PAID,
-                Invoice.seats > 0,
-                Invoice.seats_from <= at,
-                Invoice.seats_until > at,
-            )
-        )
-        or 0
     )
     seated: set[uuid.UUID] = set()
     used: set[uuid.UUID] = set()
@@ -226,8 +231,7 @@ def seated_ids(db: Session, *, owner: User, at: datetime) -> frozenset[uuid.UUID
             seated.add(member.id)
         else:
             waiting.append(member.id)
-    seated.update(waiting[:paid])
-    return frozenset(seated)
+    return seated, waiting
 
 
 def crm_open(db: Session | None = None, *, owner: User) -> bool:

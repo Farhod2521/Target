@@ -50,7 +50,7 @@ Modullar bir-birini import qilmasdan ham ta'sir qila oladi:
 | referrals | Taklif kodi, mukofot, hamyon, pul yechish, fikr | 4.0k | 8 | ✅ selectors, services, router `/referrals`, `/r/{code}/` |
 | integrations | Meta ulash (OAuth), reklama akkauntlari, sahifalar | 16.9k | 7 | ✅ selectors, services, tasks, router `/connections` (DRF staff konsoli qolgan) |
 | businesses | Biznes profili, kategoriya | 2.0k | 3 | ✅ selectors, services, router `/business` |
-| billing | Tarif, obuna, to'lov (Payme/Click/Paynet) | 12.1k | 7 | ✅ selectors, services, tasks, router `/billing`, webhook `/webhooks/pay/{provider}` |
+| billing | Tarif, obuna, to'lov (Payme/Click/Paynet) | 12.1k | 7 | ✅ selectors, services, tasks, router `/billing`, webhook `/webhooks/pay/{provider}`; CRM o'rni hisoblari (`SEATS`) to'lansa o'rinlar ishga tushadi, obuna muddati o'zgarmaydi, sotuv hisoblanadi; tarif yangilanganda band o'rinlar yangi hisobga qo'shiladi (`selectors/seats.py`). O'rin sotib olish ekrani (`create_seat_invoice`) ⏳ |
 | ads | Kampaniya yaratish (launch), boshqaruv, kreativ, geo | 62.1k | 15 | ✅ selectors, mirror/media sinxron, boshqaruv, o'chirish, lapse, yetkazib berish to'xtashlari (`DeliveryStop`), tasks; router `/campaigns` (ro'yxat, tafsilot, sinxron, pauza/yoqish/budjet/qaytarish/o'chirish), `/launch` (yangi reklama ustasi: reja, rasmlar, taklif, yaratish, lid forma), `/google` (Google Ads ekrani va Search ustasi); Django admin va boshqaruv buyruqlari ⏳ |
 | leads | Lidlar, Meta webhook, formalar, eksport | 9.5k | 4 | ✅ selectors, services, tasks, router `/leads`, webhook `/webhooks/meta/leads/` |
 | destinations | Lidlarni Google Sheets'ga yozish | 3.8k | 3 | ✅ selectors, services, tasks (6), `schedule.py` (har daqiqa yozish, 04:35 tekshirish), router `/destinations` (panel, Google OAuth, rejim, picker, uzish, qayta yaratish) |
@@ -63,9 +63,9 @@ Modullar bir-birini import qilmasdan ham ta'sir qila oladi:
 | public | Bosh sahifa: maslahat arizasi, o'chirish so'rovi, sharhlar | 2.1k | 3 | ✅ selectors, services, router `/public`, `/data-deletion/callback/` |
 | surveys | Haftalik/oylik so'rovnomalar | 1.7k | 3 | 🟡 mijoz tomoni: router `/surveys` (`/due`, `/answer`, `/later`); ofis tomoni (yaratish, tarjima) va Telegram orqali yuborish ⏳ |
 | supportchat | Mijoz va ofis o'rtasidagi chat | 3.5k | 4 | 🟡 mijoz tomoni: router `/support` (ekran, xabar/fayl, tahrir, o'chirish, poll), WebSocket `/support/ws` (Redis pub/sub); ofis servislari bor, ofis endpointlari va Telegram xabarlari ⏳ |
-| backoffice | Ofis (xodimlar paneli) | 10.8k | 1 | 🟡 permissions, journal (record/seen); qolgan ekranlar ⏳ |
+| backoffice | Ofis (xodimlar paneli) | 10.8k | 1 | 🟡 permissions, journal (record/seen), router `/office` (`/me` — rollar, ruxsatlar, kutayotganlar soni; `/journal` — xodim amallari, faqat Owner), `traces` (kartochka uchun); qolgan ekranlar ⏳ |
 | crm | Mijozning o'z CRM doskasi (menejerlar, ustunlar) | 4.6k | 6 | ✅ selectors, services, tasks, router `/crm`; har bir sahifa + reklama akkaunti juftligi alohida CRM (`?pair=`), menejer bitta juftlikda, har sahifaga 1 bepul o'rin; Django'dagi bitta CRM 0006 migratsiyasida juftliklarga taqsimlanadi (`app/modules/crm/backfill.py`). O'rin sotib olish, sifatli lidlarni Meta'ga yuborish, jamoa statistikasi ⏳ |
-| sales | Sotuv doskasi (xodimlar) | 5.4k | 9 | ✅ selectors, services, tasks, router `/office/sales` |
+| sales | Sotuv doskasi (xodimlar) | 5.4k | 9 | ✅ selectors, services, tasks, router `/office/sales`; doska jonli yangilanishi `/pulse` orqali (xodimlar websocket'i yo'q) |
 | content_studio | Video montaj (`D:\TARGET\FASTAPI\Content_Studio` dan qo'shiladi) | 7.1k | 2 | ⏳ |
 
 Barcha 89 model allaqachon SQLAlchemy'da (`app/modules/*/models/`), ya'ni
