@@ -788,6 +788,11 @@ def apply_change(db: Session, *, log_id: str) -> str:
         logger.exception("change %s failed unexpectedly", log.id)
         fail_log(db, log=log, code="unknown", message=str(exc))
         return "failed"
+    if not result.ok:
+        # Meta's ``{"success": false}``: answered, said no, raised nothing.
+        # Nothing changed, so the row must not say it did.
+        fail_log(db, log=log, code="not_applied", message=str(result.raw_response))
+        return "failed"
     after = _read_back(port=port, ref=ref, token=token, dry_run=result.dry_run)
     record(
         db,

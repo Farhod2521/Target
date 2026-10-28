@@ -12,7 +12,7 @@ from adskit.dto import ActionResult
 from adskit.errors import NotFound, ProviderError, RateLimited, TemporaryFailure
 from adskit.refs import ProviderName
 from metaads.writing import is_dry_run_id
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.cache import cache
@@ -36,6 +36,7 @@ from app.modules.ads.services.manage import (
     state_payload,
     target_for,
 )
+from app.modules.ads.services.mirror import drop_campaigns, forget_object
 from app.modules.audit.constants import ActionStatus, ActionType, EventName
 from app.modules.audit.models import ActionLog
 from app.modules.audit.services import emit
@@ -234,12 +235,23 @@ def apply_delete(db: Session, *, log_id: str) -> str:
     except ProviderError as exc:
         fail_log(db, log=log, code=exc.code or "write", message=str(exc))
         return "failed"
+    except Exception as exc:
+        # A row left PENDING locks every switch on this object behind a
+        # delete nobody can see, until the stale window passes.
+        logger.exception("delete %s failed unexpectedly", log.id)
+        fail_log(db, log=log, code="unknown", message=str(exc))
+        return "failed"
+    if not result.ok:
+        # Answered and refused without raising: the object is still there,
+        # so the mirror keeps its row.
+        fail_log(db, log=log, code="not_applied", message=str(result.raw_response))
+        return "failed"
     previous = state_payload(target) | {"name": target.name}
     if log.action == ActionType.DELETE_ADSET:
         previous["campaign_id"] = target.campaign.external_id
     close_log(db, log=log, result=result, previous=previous)
     if not result.dry_run:
-        db.delete(target)
+        forget_object(db, target)
         if log.action == ActionType.DELETE_ADSET:
             from app.modules.ads.tasks import drop_empty_campaign_task
 
@@ -373,6 +385,9 @@ def _drop_if_empty(
     except ProviderError as exc:
         fail_log(db, log=log, code=exc.code or "write", message=str(exc))
         return "failed"
+    if not result.ok:
+        fail_log(db, log=log, code="not_applied", message=str(result.raw_response))
+        return "failed"
     close_log(db, log=log, result=result, previous=log.previous_state)
     if not result.dry_run:
         _forget(db, owner=owner, campaign_id=log.target_external_id, row=row)
@@ -387,8 +402,6 @@ def _forget(
 ) -> None:
     if row is not None:
         row.retired_at = utcnow()
-    db.execute(
-        delete(Campaign)
-        .where(Campaign.owner_id == owner.id, Campaign.external_id == campaign_id)
-        .execution_options(synchronize_session=False)
+    drop_campaigns(
+        db, Campaign.owner_id == owner.id, Campaign.external_id == campaign_id
     )

@@ -38,6 +38,30 @@ def budget_minor(
     return given
 
 
+def cap_minor(
+    amount: Decimal,
+    *,
+    currency: str,
+    money: MoneyRules,
+    problems: Problems,
+    field: str = "spend_cap",
+) -> int:
+    """A spend cap in minor units, or ``0`` after adding a problem.
+
+    Zero is allowed - it is the absence of a cap, as Django's
+    ``min_value=0`` had it - but not a figure finer than the currency's
+    smallest unit, which would otherwise be rounded into something else.
+    """
+    step = Decimal(1).scaleb(-money.decimal_places(currency))
+    try:
+        if amount < 0 or amount != amount.quantize(step):
+            raise InvalidOperation
+    except InvalidOperation:
+        problems.add(field, "Summani to'g'ri yozing.")
+        return 0
+    return int(money.to_minor(amount=amount, currency=currency))
+
+
 def budget_presets(*, min_daily_minor: int, places: int) -> list[str]:
     """Four round amounts in whole currency, read off the floor."""
     if min_daily_minor <= 0:
@@ -54,4 +78,4 @@ def budget_presets(*, min_daily_minor: int, places: int) -> list[str]:
     return [f"{amount.quantize(Decimal(1).scaleb(-places)):f}" for amount in amounts]
 
 
-__all__ = ["budget_minor", "budget_presets"]
+__all__ = ["budget_minor", "budget_presets", "cap_minor"]

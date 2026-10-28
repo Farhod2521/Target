@@ -165,14 +165,59 @@ def _upsert(
     return row
 
 
+def _bulk_delete(db: Session, model: Any, *where: Any) -> int:
+    return int(
+        db.execute(
+            delete(model).where(*where).execution_options(synchronize_session=False)
+        ).rowcount
+    )
+
+
+def drop_ads(db: Session, *where: Any) -> int:
+    """Forget the mirrored ads matching ``where``. Returns how many went."""
+    return _bulk_delete(db, Ad, *where)
+
+
+def drop_adsets(db: Session, *where: Any) -> int:
+    """Forget the mirrored ad sets matching ``where``, and their ads first.
+
+    Children first, by hand, because the database does not cascade. Its
+    foreign keys were made by Django, whose ``CASCADE`` lived in the ORM;
+    the constraints themselves are NO ACTION, so a group deleted before its
+    adverts fails the whole commit.
+    """
+    drop_ads(db, Ad.adset_id.in_(select(AdSet.id).where(*where)))
+    return _bulk_delete(db, AdSet, *where)
+
+
+def drop_campaigns(db: Session, *where: Any) -> int:
+    """Forget the mirrored campaigns matching ``where``, with everything under them."""
+    drop_adsets(db, AdSet.campaign_id.in_(select(Campaign.id).where(*where)))
+    return _bulk_delete(db, Campaign, *where)
+
+
+def forget_object(db: Session, target: Ad | AdSet | Campaign) -> None:
+    """Forget one mirrored object and what hangs beneath it."""
+    if isinstance(target, Campaign):
+        drop_campaigns(db, Campaign.id == target.id)
+    elif isinstance(target, AdSet):
+        drop_adsets(db, AdSet.id == target.id)
+    else:
+        drop_ads(db, Ad.id == target.id)
+
+
+_DROPS: dict[Any, Any] = {
+    Campaign: drop_campaigns,
+    AdSet: drop_adsets,
+    Ad: drop_ads,
+    AdCreative: lambda db, *where: _bulk_delete(db, AdCreative, *where),
+}
+
+
 def _remove_missing(
     db: Session, model: Any, *where: Any, keep: set[str], label: str
 ) -> None:
-    removed = db.execute(
-        delete(model)
-        .where(*where, model.external_id.not_in(keep))
-        .execution_options(synchronize_session=False)
-    ).rowcount
+    removed = _DROPS[model](db, *where, model.external_id.not_in(keep))
     if removed:
         logger.info("sync removed %s stale %s rows", removed, label)
 

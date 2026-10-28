@@ -259,6 +259,7 @@ def apply_swap(db: Session, *, log_id: str) -> str:
         return "failed"
     after = None if dry_run else _read_back(port=port, ref=ref, token=token)
     record(db, log=log, target=target, result=result, before=before, after=after)
+    db.commit()
     return "applied"
 
 

@@ -662,21 +662,20 @@ class BudgetIn(BaseModel):
 def budget(
     level: str, external_id: str, body: BudgetIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
+    from app.modules.ads.inputs import Problems
+    from app.modules.ads.inputs.budget import budget_minor
+
     target = _target(db, user, level, external_id)
     controls = selectors.controls_for(target=target, level=level)
-    money = provider_money(provider=controls.provider)
-    places = money.decimal_places(controls.currency)
-    asked = money.to_minor(amount=body.daily_budget, currency=controls.currency)
-    if controls.floor_minor and asked < controls.floor_minor:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Kuniga eng kamida %s bo'lishi kerak."
-            % format_minor(
-                amount_minor=controls.floor_minor,
-                currency=controls.currency,
-                places=places,
-            ),
-        )
+    problems = Problems()
+    asked = budget_minor(
+        body.daily_budget,
+        currency=controls.currency,
+        money=provider_money(provider=controls.provider),
+        floor_minor=controls.floor_minor,
+        problems=problems,
+    )
+    problems.refuse()
     return _changed(
         db,
         user,

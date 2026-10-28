@@ -17,10 +17,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
 from app.common.db import utcnow
-from app.common.money import format_minor, provider_money
+from app.common.money import provider_money
 from app.modules.accounts.models import User
 from app.modules.ads import selectors, services
 from app.modules.ads.constants import ManagedLevel
+from app.modules.ads.inputs import Problems
+from app.modules.ads.inputs.budget import budget_minor as checked_budget
+from app.modules.ads.inputs.budget import cap_minor as checked_cap
 from app.modules.ads.routers import _target, router
 from app.modules.ads.schemas import (
     AdEditOut,
@@ -29,6 +32,7 @@ from app.modules.ads.schemas import (
     DeletedOut,
     PreviewOut,
 )
+from core.targeting import MAX_AGE, MIN_AGE
 
 SENT_AD = "Yangi reklama yuborildi. Bir necha soniyada ko'rinadi."
 SENT_SETTINGS = "O'zgarish yuborildi. Bir necha soniyada ko'rinadi."
@@ -276,8 +280,8 @@ class BudgetSectionIn(BaseModel):
 
 
 class AudienceSectionIn(BaseModel):
-    age_min: int = Field(ge=13, le=65)
-    age_max: int = Field(ge=13, le=65)
+    age_min: int = Field(ge=MIN_AGE, le=MAX_AGE)
+    age_max: int = Field(ge=MIN_AGE, le=MAX_AGE)
     genders: list[int] | None = Field(
         default=None, description="[] for everybody, [1] men, [2] women"
     )
@@ -311,6 +315,7 @@ def campaign_edit_save(
 
     edit = _editable(db, user, campaign_id, group)
     errors: dict[str, str] = {}
+    problems = Problems()
     budget_minor: int | None = None
     cap_minor: int | None = None
     end_time: datetime | None = None
@@ -321,16 +326,14 @@ def campaign_edit_save(
         and edit.budget.controls.can_budget
     ):
         controls = edit.budget.controls
-        money = provider_money(provider=controls.provider)
-        budget_minor = money.to_minor(
-            amount=body.budget.daily_budget, currency=controls.currency
+        budget_minor = checked_budget(
+            body.budget.daily_budget,
+            currency=controls.currency,
+            money=provider_money(provider=controls.provider),
+            floor_minor=controls.floor_minor,
+            problems=problems,
+            field="budget",
         )
-        if controls.floor_minor and budget_minor < controls.floor_minor:
-            errors["budget"] = "Kuniga eng kamida %s bo'lishi kerak." % format_minor(
-                amount_minor=controls.floor_minor,
-                currency=controls.currency,
-                places=money.decimal_places(controls.currency),
-            )
     if (
         body.audience is not None
         and edit.audience is not None
@@ -369,9 +372,14 @@ def campaign_edit_save(
                 body.limits.end_date, time(23, 59, 59), tzinfo=zone
             )
         if body.limits.spend_cap is not None and edit.limits.offers_spend_cap:
-            cap_minor = provider_money(provider=str(edit.campaign.provider)).to_minor(
-                amount=body.limits.spend_cap, currency=edit.limits.currency
+            cap_minor = checked_cap(
+                body.limits.spend_cap,
+                currency=edit.limits.currency,
+                money=provider_money(provider=str(edit.campaign.provider)),
+                problems=problems,
+                field="limits",
             )
+    errors = problems.found | errors
     if errors:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"errors": errors}

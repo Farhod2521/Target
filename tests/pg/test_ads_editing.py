@@ -175,3 +175,42 @@ def test_edit_a_campaigns_settings_and_an_adverts_words(
     )
     assert len([name for name, _ in queued if name.endswith("fetch_preview_task")]) == 1
     assert again.json()["tries"] == 4
+
+
+def test_money_finer_than_a_cent_and_an_under_age_audience_are_refused(
+    client, db: Session, queued: list
+) -> None:  # type: ignore[no-untyped-def]
+    headers = sign_up(client)
+    owner = db.scalar(select(User).order_by(User.date_joined.desc()))
+    assert owner is not None
+    account, page = _cabinet(db, owner)
+    page.is_current = page.is_active = True
+    account.is_active = account.is_current = True
+    db.commit()
+    start_trial(db, user=owner, now=utcnow())
+    db.commit()
+    campaign = _running(db, owner, account)
+    edit = f"/api/v1/campaigns/{campaign.id}/edit"
+
+    for amount in ("0.004", "12.345"):
+        switch = client.post(
+            "/api/v1/campaigns/manage/adset/s_1/budget",
+            json={"daily_budget": amount},
+            headers=headers,
+        )
+        assert switch.status_code == 422, switch.text
+        assert "daily_budget" in switch.json()["problems"]
+        dialog = client.post(
+            edit, json={"budget": {"daily_budget": amount}}, headers=headers
+        )
+        assert dialog.status_code == 422, dialog.text
+        assert "budget" in dialog.json()["detail"]["errors"]
+
+    cap = client.post(edit, json={"limits": {"spend_cap": "100.001"}}, headers=headers)
+    assert cap.status_code == 422 and "limits" in cap.json()["detail"]["errors"]
+
+    young = client.post(
+        edit, json={"audience": {"age_min": 13, "age_max": 30}}, headers=headers
+    )
+    assert young.status_code == 422, young.text
+    assert db.scalar(select(ActionLog.id)) is None
