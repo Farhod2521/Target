@@ -136,11 +136,11 @@ def create_lead_form(
 def questions_for(specs: tuple[LeadQuestionSpec, ...]) -> list[dict[str, Any]]:
     """Meta's question list, with keys it can refer to answers by.
 
-    The keys are generated here and are positional - ``q1``, ``q2`` - which
-    is deliberate. They come back on every lead as the name of the field
-    that was answered, so they have to be stable for the life of the form,
-    and a key derived from Uzbek label text would change the moment somebody
-    fixed a typo in the question.
+    The keys are generated here and are positional - ``q1``, ``q2`` - unless
+    the question names its own, which is deliberate. They come back on
+    every lead as the name of the field that was answered, so they have to
+    be stable for the life of the form, and a key derived from Uzbek label
+    text would change the moment somebody fixed a typo in the question.
     """
     built: list[dict[str, Any]] = []
 
@@ -149,14 +149,15 @@ def questions_for(specs: tuple[LeadQuestionSpec, ...]) -> list[dict[str, Any]]:
             built.append({"type": question.kind.upper()})
             continue
 
+        key = question.key or f"q{index}"
         row: dict[str, Any] = {
             "type": QUESTION_CUSTOM,
-            "key": f"q{index}",
+            "key": key,
             "label": question.label,
         }
         if question.options:
             row["options"] = [
-                {"key": f"q{index}_o{choice}", "value": value}
+                {"key": f"{key}_o{choice}", "value": value}
                 for choice, value in enumerate(question.options, start=1)
             ]
         built.append(row)

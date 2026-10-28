@@ -144,6 +144,11 @@ QUESTION_TYPES: Final[dict[str, str]] = {
 }
 CUSTOM: Final = "CUSTOM"
 PHONE_QUESTION_LABEL = "Telefon raqamingiz"
+# The words an AI form asks a name and a number in, typed by hand rather
+# than prefilled: the form's own, so Uzbek like every question the model writes.
+TYPED_NAME_LABEL: Final = "Ism familiyangiz"
+TYPED_FIRST_NAME_LABEL: Final = "Ismingiz"
+TYPED_PHONE_LABEL: Final = "Telefon raqamingiz"
 
 
 class DraftSection(Choices):

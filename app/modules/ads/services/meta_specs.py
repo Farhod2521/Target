@@ -1,7 +1,7 @@
 """The proposal, translated into the objects Meta wants: the campaign, the ad set,
 the creative, the lead form and the button."""
 
-from typing import Final
+from typing import Any, Final
 
 from metaads.boosts import BoostSpec
 from metaads.specs import (
@@ -34,6 +34,7 @@ from app.modules.ads.models import CampaignLaunch, LaunchCreative
 from app.modules.ads.selectors.lead_form import default_title, effective_ending
 from app.modules.ads.selectors.schedule import effective_campaign_name
 from app.modules.businesses.models import Business
+from core.leads import TYPED_KEYS
 from core.leads.ending import (
     ENDING_CALL,
     ENDING_TELEGRAM,
@@ -321,19 +322,35 @@ def form_spec(
 
 def _questions(launch: CampaignLaunch) -> tuple[LeadQuestionSpec, ...]:
     chosen = draft_field.with_phone(
-        draft_field.standard_contacts(
-            draft_field.chosen(launch.draft, DraftSection.FORM) or []
-        )
+        draft_field.chosen(launch.draft, DraftSection.FORM) or []
     )
+    keys = _contact_keys(chosen)
     return tuple(
         LeadQuestionSpec(
             kind=QUESTION_TYPES.get(str(item.get("kind", "")), CUSTOM),
             label=str(item.get("label", "")),
             options=tuple(str(option) for option in item.get("options") or ()),
+            key=keys.get(index, ""),
         )
-        for item in chosen
-        if isinstance(item, dict)
+        for index, item in enumerate(chosen)
     )
+
+
+def _contact_keys(questions: list[dict[str, Any]]) -> dict[int, str]:
+    """The key each typed name, phone or email question is sent under.
+
+    Its answer then lands in the lead's own column instead of arriving as
+    ``q1``. The first question of each kind only: a key appears once on a
+    form, and a second one is another answer to keep, not the column.
+    """
+    keys: dict[int, str] = {}
+    taken: set[str] = set()
+    for index, item in enumerate(questions):
+        kind = draft_field.typed_contact(item)
+        if kind and kind not in taken:
+            taken.add(kind)
+            keys[index] = TYPED_KEYS[kind]
+    return keys
 
 
 def _button(ending: FormEnding, *, business: Business) -> dict[str, str]:

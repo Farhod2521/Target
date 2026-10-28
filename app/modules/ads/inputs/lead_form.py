@@ -11,7 +11,6 @@ from app.modules.ads.inputs.questions import (
     MAX_QUESTIONS,
     TypedQuestion,
     new_form_questions,
-    typed_contact_error,
 )
 from core.leads.ending import FormEnding
 
@@ -50,8 +49,6 @@ def check_pick(
         problems.add("", "Kamida bitta savol tanlang.")
     elif len(questions) > MAX_QUESTIONS:
         problems.add("", f"Bitta formada {MAX_QUESTIONS} tadan ortiq savol bo'lmaydi.")
-    elif error := typed_contact_error(questions):
-        problems.add("", error)
     elif FULL_NAME in kinds and kinds & NAME_PARTS:
         problems.add(
             "",

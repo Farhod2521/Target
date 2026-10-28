@@ -12,7 +12,6 @@ from app.modules.ads.constants import (
     NEW_ROW_PREFIX,
     QUESTION_TYPES,
 )
-from app.modules.ads.draft import typed_contact
 from app.modules.leads.constants import QUESTION_LABELS
 
 MAX_LABEL = 200
@@ -59,21 +58,6 @@ class QuestionEdit:
         }
 
 
-def typed_contact_error(questions: list[dict[str, Any]]) -> str:
-    """The refusal for the first typed name, phone or email, or ``""``."""
-    for question in questions:
-        kind = typed_contact(question)
-        if kind:
-            label = str(question.get("label", "")).strip()
-            wanted = QUESTION_LABELS[QUESTION_TYPES[kind]]
-            return (
-                f"«{label}» savolini o'zingiz yozmang — Meta bunday formadagi "
-                f"reklamani rad etadi. Uning o'rniga Meta o'zi to'ldiradigan "
-                f"«{wanted}» savolini belgilang."
-            )
-    return ""
-
-
 def _options(raw: list[str]) -> list[str]:
     return [item.strip() for item in raw if item.strip()][:MAX_OPTIONS]
 
@@ -111,16 +95,7 @@ def rows_error(edit: QuestionEdit) -> str:
     custom = [kind for kind in edit.order if kind not in QUESTION_TYPES]
     if len(custom) > MAX_CUSTOM_QUESTIONS:
         return f"Formada {MAX_CUSTOM_QUESTIONS} tadan ortiq o'z savolingiz bo'lmaydi."
-    typed = [
-        *((f"{NEW_ROW_PREFIX}{index}", text) for index, text in enumerate(edit.added)),
-        *edit.labels.items(),
-    ]
-    return typed_contact_error(
-        [
-            {"kind": "", "label": label, "options": edit.options.get(key, [])}
-            for key, label in typed
-        ]
-    )
+    return ""
 
 
 def new_form_questions(
@@ -155,5 +130,4 @@ __all__ = [
     "new_form_questions",
     "read_rows",
     "rows_error",
-    "typed_contact_error",
 ]

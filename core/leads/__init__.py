@@ -9,7 +9,7 @@ from core.leads.mapping import (
     empty_columns,
     landings,
 )
-from core.leads.normalise import NormalisedLead, normalise
+from core.leads.normalise import TYPED_KEYS, NormalisedLead, normalise
 from core.leads.phone import to_e164
 from core.leads.questions import Answer, form_signature, label_answers
 from core.leads.reporting import (
@@ -27,6 +27,7 @@ __all__ = [
     "DESTINATIONS",
     "SETTLE_MINUTES",
     "STANDARD_COLUMNS",
+    "TYPED_KEYS",
     "Answer",
     "ContactKind",
     "Landing",

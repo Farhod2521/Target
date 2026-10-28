@@ -497,6 +497,10 @@ class LeadQuestionSpec(MetaDTO):
     kind: str
     label: str = ""
     options: tuple[str, ...] = ()
+    # The key a custom question's answers come back under. Empty means the
+    # positional one; a caller sets it when it must find the answer again
+    # by name, whatever position the question ended up in.
+    key: str = ""
 
     @property
     def is_custom(self) -> bool:

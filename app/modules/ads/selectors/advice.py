@@ -60,7 +60,6 @@ def form_recommendation(
                     leads_count=option.leads_count,
                 )
                 for option in options
-                if not option.typed_contacts
             ),
         )
     )

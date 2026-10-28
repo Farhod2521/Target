@@ -6,10 +6,19 @@ from typing import Any, Final
 
 from core.leads.phone import to_e164
 
+# The keys a custom question is sent under when it asks for a name, a phone
+# or an email to be typed rather than prefilled, so its answer lands in its
+# column like a standard one.
+TYPED_KEYS: Final[dict[str, str]] = {
+    "full_name": "typed_full_name",
+    "phone": "typed_phone",
+    "email": "typed_email",
+}
+
 ANSWER_KEYS: Final[dict[str, tuple[str, ...]]] = {
-    "full_name": ("full_name", "name"),
-    "phone": ("phone_number", "phone"),
-    "email": ("email", "email_address"),
+    "full_name": ("full_name", "name", TYPED_KEYS["full_name"]),
+    "phone": ("phone_number", "phone", TYPED_KEYS["phone"]),
+    "email": ("email", "email_address", TYPED_KEYS["email"]),
     "city": ("city", "town"),
 }
 
@@ -84,4 +93,4 @@ def _answer(rows: list[Mapping[str, Any]], keys: tuple[str, ...]) -> str:
     return ""
 
 
-__all__ = ["ANSWER_KEYS", "NormalisedLead", "normalise"]
+__all__ = ["ANSWER_KEYS", "TYPED_KEYS", "NormalisedLead", "normalise"]

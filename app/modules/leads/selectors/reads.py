@@ -72,7 +72,6 @@ from core.leads import (
     DESTINATIONS,
     Answer,
     Verdict,
-    contact_kind,
     form_signature,
     label_answers,
 )
@@ -649,7 +648,6 @@ class FormOption:
     created_time: datetime | None
     signature: tuple[str, ...]
     ending: EndingLine | None = None
-    typed_contacts: tuple[str, ...] = ()
     custom_questions: tuple[dict[str, Any], ...] = ()
 
 
@@ -743,7 +741,6 @@ def form_card(row: LeadForm) -> FormOption:
             row.questions_raw if isinstance(row.questions_raw, list) else []
         ),
         ending=ending,
-        typed_contacts=typed_contacts(row.questions_raw),
         custom_questions=custom_questions(row.questions_raw),
     )
 
@@ -763,24 +760,9 @@ def custom_questions(questions: object) -> tuple[dict[str, Any], ...]:
             for option in question.get("options") or []
         ]
         options = [option for option in options if option]
-        if not label or (not options and contact_kind(label)):
+        if not label:
             continue
         found.append({"label": label, "options": options})
-    return tuple(found)
-
-
-def typed_contacts(questions: object) -> tuple[str, ...]:
-    if not isinstance(questions, list):
-        return ()
-    found: list[str] = []
-    for question in questions:
-        if not isinstance(question, dict) or question.get("options"):
-            continue
-        if str(question.get("type", "")).strip().upper() != CUSTOM_TYPE:
-            continue
-        label = str(question.get("label", "")).strip()
-        if contact_kind(label):
-            found.append(label)
     return tuple(found)
 
 

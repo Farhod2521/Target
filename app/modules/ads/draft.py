@@ -4,6 +4,9 @@ from app.modules.ads.constants import (
     CUSTOM_QUESTION_PREFIX,
     PHONE_QUESTION_LABEL,
     QUESTION_TYPES,
+    TYPED_FIRST_NAME_LABEL,
+    TYPED_NAME_LABEL,
+    TYPED_PHONE_LABEL,
     DraftSection,
 )
 from app.modules.leads.constants import QUESTION_LABELS
@@ -75,13 +78,17 @@ NAME_KINDS: Final = frozenset({"full_name", "first_name", "last_name"})
 
 def with_phone(questions: list[Any]) -> list[Any]:
     rows = [item for item in questions if isinstance(item, dict)]
-    if not rows or any(str(item.get("kind", "")) == PHONE for item in rows):
+    if not rows or any(
+        str(item.get("kind", "")) == PHONE or typed_contact(item) == PHONE
+        for item in rows
+    ):
         return rows
     after = max(
         (
             index + 1
             for index, item in enumerate(rows)
             if str(item.get("kind", "")) in NAME_KINDS
+            or typed_contact(item) == "full_name"
         ),
         default=0,
     )
@@ -135,6 +142,7 @@ def model_questions(questions: list[Any], *, limit: int) -> list[dict[str, Any]]
             (index for index, item in enumerate(rows) if item.get("kind") != PHONE)
         )
         rows = rows[:last] + rows[last + 1 :]
+    rows = typed_by_hand(rows)
     built: list[dict[str, Any]] = []
     number = 0
     for item in rows:
@@ -144,6 +152,33 @@ def model_questions(questions: list[Any], *, limit: int) -> list[dict[str, Any]]
         number += 1
         built.append({**item, "kind": f"{CUSTOM_QUESTION_PREFIX}{number}"})
     return built
+
+
+def typed_by_hand(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The name and the telephone asked as typed questions, not prefilled.
+
+    The name parts become one question where the first of them stood: a
+    first name alone is asked as one, anything else as a whole name.
+    """
+    names = {str(item.get("kind", "")) for item in questions} & NAME_KINDS
+    name_label = TYPED_FIRST_NAME_LABEL if names == {"first_name"} else TYPED_NAME_LABEL
+    built: list[dict[str, Any]] = []
+    named = False
+    for item in questions:
+        kind = str(item.get("kind", ""))
+        if kind in NAME_KINDS:
+            if not named:
+                named = True
+                built.append(_typed(name_label))
+        elif kind == PHONE:
+            built.append(_typed(TYPED_PHONE_LABEL))
+        else:
+            built.append(item)
+    return built
+
+
+def _typed(label: str) -> dict[str, Any]:
+    return {"kind": "custom", "label": label, "options": []}
 
 
 def _standard_label(kind: str) -> str:
