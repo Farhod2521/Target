@@ -261,6 +261,7 @@ class Env(BaseSettings):
     )
     media_root: Path = Field(default=BASE_DIR / "media", alias="MEDIA_ROOT")
     geoip_db_path: str = Field(default="", alias="GEOIP_DB_PATH")
+    usd_uzs_rate: str = Field(default="", alias="USD_UZS_RATE")
     media_url: str = Field(default="/media/", alias="MEDIA_URL")
     agent_small_budgets: dict[str, tuple[int, int]] = {"USD": (1_000, 500)}
     frequency_min_spend: dict[str, int] = {"USD": 300}

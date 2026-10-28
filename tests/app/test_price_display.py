@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -143,3 +144,30 @@ def test_the_route_needs_no_sign_in(client: TestClient, bank: list[int]) -> None
     }
     home = client.get("/api/v1/billing/display", headers={"CF-IPCountry": "UZ"})
     assert home.json()["currency"] == "UZS" and home.json()["uzs_per_usd"] is None
+
+
+def test_when_the_bank_times_out_a_mirror_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def get(url: str) -> Any:
+        if url == display.CBU_URL:
+            raise httpx.ConnectTimeout("timed out")
+        return {"time_last_update_unix": 1793145751, "rates": {"UZS": 11940.03}}
+
+    monkeypatch.setattr(display, "_get", get)
+    shown = display.display_for(country="DE")
+    assert shown.currency == "USD"
+    assert shown.uzs_per_usd == Decimal("11940.03")
+    assert shown.rate_date == "28.10.2026"
+
+
+def test_with_every_source_down_the_rate_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def down(url: str) -> Any:
+        raise httpx.ConnectTimeout("timed out")
+
+    monkeypatch.setattr(display, "_get", down)
+    monkeypatch.setattr(display.settings, "usd_uzs_rate", "12000")
+    shown = display.display_for(country="DE")
+    assert shown.currency == "USD" and shown.uzs_per_usd == Decimal("12000")
