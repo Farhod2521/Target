@@ -22,4 +22,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    Base.metadata.drop_all(bind=op.get_bind())
+    """Refused: below the baseline is no schema at all, so this would drop every table."""
+    raise RuntimeError(
+        "Downgrading past the baseline drops every table and its data. "
+        "Restore a backup instead."
+    )

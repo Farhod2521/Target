@@ -6,6 +6,7 @@ from sqlalchemy import engine_from_config, pool
 from app import models  # noqa: F401
 from app.common.config import settings
 from app.common.db import Base
+from migrations.guard import guard
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.sqlalchemy_url.replace("%", "%%"))
@@ -33,7 +34,10 @@ def run_migrations_online() -> None:
     )
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata, compare_type=True
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            process_revision_directives=guard,
         )
         with context.begin_transaction():
             context.run_migrations()
