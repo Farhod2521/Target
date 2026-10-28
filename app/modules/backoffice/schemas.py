@@ -414,3 +414,12 @@ class CustomerCardOut(BaseModel):
     sales: CardSalesOut
     problems: list[TroubleOut]
     traces: list[TraceOut] = Field(description="The office's last 6 actions here.")
+
+
+class MessageOut(BaseModel):
+    message: str = Field(description="What happened, to show in the message strip.")
+
+
+class DeletedOut(MessageOut):
+    rows: int
+    receipts_kept: int

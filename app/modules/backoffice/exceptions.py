@@ -21,3 +21,7 @@ class EmailMismatch(DomainError):
 class SuperuserOnly(DomainError):
     def __init__(self) -> None:
         super().__init__("Parolni faqat super admin o'rnata oladi.")
+
+
+class PasswordRefused(DomainError):
+    pass

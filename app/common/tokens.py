@@ -3,11 +3,13 @@ from typing import Any
 
 import jwt
 
+from app.common.cache import cache
 from app.common.config import settings
 
 ALGORITHM = "HS256"
 ACCESS_MINUTES = 60
 REFRESH_DAYS = 30
+REVOKED_KEY = "tokens:revoked_before:{subject}"
 
 
 def issue(*, subject: str, kind: str, now: datetime) -> str:
@@ -32,4 +34,21 @@ def read(token: str, *, kind: str) -> str | None:
         return None
     if payload.get("typ") != kind:
         return None
-    return str(payload.get("sub") or "") or None
+    subject = str(payload.get("sub") or "")
+    if not subject:
+        return None
+    revoked = cache.get(REVOKED_KEY.format(subject=subject))
+    if revoked is not None and int(payload.get("iat") or 0) <= int(revoked):
+        return None
+    return subject
+
+
+def revoke_all(*, subject: str, now: datetime) -> None:
+    """Every token issued to ``subject`` up to ``now`` stops working - the
+    signing out everywhere a changed password owes, as Django's session hash
+    gave it. Kept as long as the longest token lives."""
+    cache.set(
+        REVOKED_KEY.format(subject=subject),
+        int(now.timestamp()),
+        timeout=int(timedelta(days=REFRESH_DAYS).total_seconds()),
+    )
