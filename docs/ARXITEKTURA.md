@@ -53,16 +53,16 @@ Modullar bir-birini import qilmasdan ham ta'sir qila oladi:
 | billing | Tarif, obuna, to'lov (Payme/Click/Paynet) | 12.1k | 7 | ✅ selectors, services, tasks, router `/billing`, webhook `/webhooks/pay/{provider}` |
 | ads | Kampaniya yaratish (launch), boshqaruv, kreativ, geo | 62.1k | 15 | ✅ selectors, mirror/media sinxron, boshqaruv, o'chirish, lapse, yetkazib berish to'xtashlari (`DeliveryStop`), tasks; router `/campaigns` (ro'yxat, tafsilot, sinxron, pauza/yoqish/budjet/qaytarish/o'chirish), `/launch` (yangi reklama ustasi: reja, rasmlar, taklif, yaratish, lid forma), `/google` (Google Ads ekrani va Search ustasi); Django admin va boshqaruv buyruqlari ⏳ |
 | leads | Lidlar, Meta webhook, formalar, eksport | 9.5k | 4 | ✅ selectors, services, tasks, router `/leads`, webhook `/webhooks/meta/leads/` |
-| destinations | Lidlarni Google Sheets'ga yozish | 3.8k | 3 | ⏳ |
-| metrics | Dashboard raqamlari, CRM paneli | 16.0k | 4 | ✅ sinxron (tungi/bugungi/kuzatilgan), saqlash, segmentlar, lid tafovuti, dashboard, kampaniya paneli, kreativ hisobot, tasks, router `/metrics` (asosiy dashboard sahifasidagi onboarding/promo bloklari ⏳) |
+| destinations | Lidlarni Google Sheets'ga yozish | 3.8k | 3 | ✅ selectors, services, tasks (6), `schedule.py` (har daqiqa yozish, 04:35 tekshirish), router `/destinations` (panel, Google OAuth, rejim, picker, uzish, qayta yaratish) |
+| metrics | Dashboard raqamlari, CRM paneli | 16.0k | 4 | ✅ sinxron (tungi/bugungi/kuzatilgan), saqlash, segmentlar, lid tafovuti, dashboard, kampaniya paneli, kreativ hisobot, tasks, router `/metrics` `/metrics/numbers` javobida `setup` (sozlash bloki) |
 | agent | AI agent: tahlil va takliflar | 11.9k | 5 | ✅ selectors (takliflar, kartalar, tungi dalillar, haftalik chastota, kuzatuv, o'zi to'xtatish nomzodlari, strategiya, baholar), services (tungi o'tish `run_agent`, Claude ko'rigi, rad etilgan reklamaga yangi matn, takliflarni saqlash/eskirtirish, o'zi tuzatish, natijani baholash, tashxis, nosozlikka taklif, natijasiz guruhni to'xtatish, chastota darajalari, kuzatuv tugmalari), tasks, router `/agent` |
-| chat | AI yordamchi chat | 11.4k | 3 | ✅ selectors (kontekst, 14 ta lookup, kunlik/haftalik hisobot), services (savol, javob oqimi, rad etish izohi, hisobot izohi), tasks, router `/chat` (ekran, `/ask`, SSE `/stream/{turn_id}`, `/report`, `/choices/{pk}`); kutish ro'yxati (inbox) notifications bilan ⏳ |
-| notifications | Telegram bot, xabarlar, hisobotlar | 13.6k | 4 | 🟡 bot ulash, sozlamalar, referal/pul yechish/fikr xabarlari; bot dialogi, hisobotlar, inbox ⏳ |
+| chat | AI yordamchi chat | 11.4k | 3 | ✅ selectors (kontekst, 14 ta lookup, kunlik/haftalik hisobot), services (savol, javob oqimi, rad etish izohi, hisobot izohi), tasks, router `/chat` (ekran, `/ask`, SSE `/stream/{turn_id}`, `/report`, `/choices/{pk}`); kutish ro'yxati (inbox) — notifications `/actions` |
+| notifications | Telegram bot, xabarlar, hisobotlar | 13.6k | 4 | 🟡 bot ulash, sozlamalar, referal/pul yechish/fikr xabarlari, amallar ekrani va qo'ng'iroqcha (router `/actions`, 28 turdan 28 tasi); bot dialogi, hisobotlar, Telegram xabarlari ⏳ |
 | miniapp | Telegram Mini App kirishi | 0.8k | 0 | ✅ router `/miniapp` |
-| onboarding | Boshlash qadamlari | 0.9k | 0 | ⏳ |
+| onboarding | Boshlash qadamlari | 0.9k | 0 | ✅ selectors (tayyorlik, sahifa tanlash, `setup_overview`), `finish_setup`, router `/start` (ekran + poll, `/finish`, `/gate` — Django middleware o'rniga) |
 | public | Bosh sahifa: maslahat arizasi, o'chirish so'rovi, sharhlar | 2.1k | 3 | ✅ selectors, services, router `/public`, `/data-deletion/callback/` |
-| surveys | Haftalik/oylik so'rovnomalar | 1.7k | 3 | ⏳ |
-| supportchat | Mijoz va ofis o'rtasidagi chat | 3.5k | 4 | ⏳ |
+| surveys | Haftalik/oylik so'rovnomalar | 1.7k | 3 | 🟡 mijoz tomoni: router `/surveys` (`/due`, `/answer`, `/later`); ofis tomoni (yaratish, tarjima) va Telegram orqali yuborish ⏳ |
+| supportchat | Mijoz va ofis o'rtasidagi chat | 3.5k | 4 | 🟡 mijoz tomoni: router `/support` (ekran, xabar/fayl, tahrir, o'chirish, poll), WebSocket `/support/ws` (Redis pub/sub); ofis servislari bor, ofis endpointlari va Telegram xabarlari ⏳ |
 | backoffice | Ofis (xodimlar paneli) | 10.8k | 1 | 🟡 permissions, journal (record/seen); qolgan ekranlar ⏳ |
 | crm | Mijozning o'z CRM doskasi (menejerlar, ustunlar) | 4.6k | 6 | ✅ selectors, services, tasks, router `/crm`; har bir sahifa + reklama akkaunti juftligi alohida CRM (`?pair=`), menejer bitta juftlikda, har sahifaga 1 bepul o'rin; Django'dagi bitta CRM 0006 migratsiyasida juftliklarga taqsimlanadi (`app/modules/crm/backfill.py`). O'rin sotib olish, sifatli lidlarni Meta'ga yuborish, jamoa statistikasi ⏳ |
 | sales | Sotuv doskasi (xodimlar) | 5.4k | 9 | ✅ selectors, services, tasks, router `/office/sales` |
@@ -100,11 +100,11 @@ turadi; `app.worker` ularni yig'adi va RedBeat (Redis) orqali yuboradi.
 Django'da `django-celery-beat` (Postgres) edi — vaqtlar uning
 `seed_schedules` buyrug'idan o'zgarishsiz olinadi, hammasi UTC.
 
-- ✅ 40 ta vazifa: ads 8, leads 8, agent 6, integrations 5, metrics 4, audit 2,
-  chat 2, billing 2, sales 2, crm 1 (har modulning `schedule.py` fayli)
-- ⏳ 12 tasi vazifa kodi ko'chirilgach qo'shiladi: notifications 8 (xabarlar,
+- ✅ 42 ta vazifa: ads 8, leads 8, agent 6, integrations 5, metrics 4, audit 2,
+  chat 2, billing 2, sales 2, destinations 2, crm 1 (har modulning `schedule.py` fayli)
+- ⏳ 10 tasi vazifa kodi ko'chirilgach qo'shiladi: notifications 8 (xabarlar,
   kunlik/haftalik hisobot, chastota, obuna tugashi, nosozlik, so'rovnoma),
-  destinations 2 (Google Sheets), montaj 1, crm `sweep_quality_task` 1
+  montaj 1, crm `sweep_quality_task` 1
 
 Beat `compose.yaml`da `beat` profili ortida: eski Django o'chirilgandan keyin
 `docker compose --profile beat up -d beat` bilan yoqiladi. Ikkala beat bir
