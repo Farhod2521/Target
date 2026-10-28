@@ -32,6 +32,7 @@ from app.modules.ads.constants import (
     MAX_BRIEF_CHARS,
     UPLOAD_CHUNK_BYTES,
     LaunchStatus,
+    TextMode,
 )
 from app.modules.ads.exceptions import ChunkOutOfPlace, ChunkTooLarge
 from app.modules.ads.inputs import Problems
@@ -194,7 +195,7 @@ def _save_text(
     variants.save_media_text(
         db,
         launch=launch,
-        mode=text.mode,
+        mode=text.mode or str(launch.answers.get("text_mode") or TextMode.SHARED),
         shared=text.shared,
         briefs=asset_briefs(text, variants=made),
     )

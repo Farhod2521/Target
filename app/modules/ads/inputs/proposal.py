@@ -1,12 +1,15 @@
 """The review screen's save: every section that was sent, checked whole.
 
-A section left out of the body is left alone; a section sent is the whole
-of that section's answer. Nothing is written unless every section passes.
+A section left out of the body is left alone, and so is a field left out of
+a section that was sent: it is read from the launch before the section is
+checked, so the services below still see a whole answer. Nothing is written
+unless every section passes.
 """
 
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Final
 
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.common.money import provider_money
@@ -14,6 +17,8 @@ from app.modules.ads import audiences as audience_field
 from app.modules.ads import draft as draft_field
 from app.modules.ads import geo as geo_field
 from app.modules.ads.constants import (
+    ATTRIBUTION,
+    FREQUENCY_CAP,
     GEO_AROUND,
     GEO_MODE_CHOICES,
     PRIMARY_TEXT_MAX,
@@ -37,13 +42,14 @@ from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.selectors.audiences_chosen import area_options
 from app.modules.ads.selectors.conversion_event import offered_events
 from app.modules.ads.selectors.delivery_options import cost_cap_choice
+from app.modules.ads.selectors.goals import goal_preset
 from app.modules.ads.selectors.lead_form import default_title, kept_questions
 from app.modules.ads.selectors.pixel import usable_pixels
 from app.modules.ads.selectors.review_proposal import (
     merged_questions,
     offered_interests,
 )
-from app.modules.ads.selectors.tracking import offered_buttons
+from app.modules.ads.selectors.tracking import effective_url_tags, offered_buttons
 from app.modules.ads.selectors.variants import (
     launch_variants,
     post_caption_of,
@@ -52,11 +58,14 @@ from app.modules.ads.selectors.variants import (
 from app.modules.ads.services.advanced import AdvancedEdit, CreativeEdit
 from app.modules.businesses.models import Business
 from app.modules.integrations.selectors.audiences import targets_for
-from core.targeting import GeoChoice
+from core.targeting import MAX_AGE, MIN_AGE, GeoChoice
 from core.targeting.attribution import windows_for
 from core.targeting.campaign_types import types_for
+from core.targeting.modes import DEFAULT_TARGETING_MODE
 
 PIN_PRECISION = Decimal("0.000001")
+NO_FORM: Final = "Bu maqsadning reklamasida lid-forma yo'q."
+NO_ADVANCED: Final = "Bu maqsadda «Kengaytirilgan» bo'limi yo'q."
 
 
 def check_proposal(
@@ -73,19 +82,32 @@ def check_proposal(
     answers: dict[str, Any] = {}
     if body.audience is not None:
         answers["audience"] = _audience(
-            db, launch=launch, business=business, body=body.audience, problems=problems
+            db,
+            launch=launch,
+            business=business,
+            body=_kept(body.audience, _audience_now(launch)),
+            problems=problems,
         )
     if body.interests is not None:
+        interests = _kept(
+            body.interests,
+            {
+                "queries": [
+                    str(item.get("query", ""))
+                    for item in draft_field.chosen(draft, DraftSection.INTERESTS) or []
+                ]
+            },
+        )
         offered = offered_interests(
             proposed=draft_field.proposal(draft, DraftSection.INTERESTS) or [],
             chosen=draft_field.chosen(draft, DraftSection.INTERESTS) or [],
         )
         known = {str(item.get("query", "")) for item in offered}
-        if any(query not in known for query in body.interests.queries):
+        if any(query not in known for query in interests.queries):
             problems.add("interests.queries", "Ro'yxatdan tanlang.")
         answers["interests"] = {
-            "queries": list(body.interests.queries),
-            "added": [line.strip() for line in body.interests.added if line.strip()],
+            "queries": list(interests.queries),
+            "added": [line.strip() for line in interests.added if line.strip()],
         }
     if body.traits is not None:
         proposed = draft_field.proposal(draft, DraftSection.TRAITS) or []
@@ -105,10 +127,19 @@ def check_proposal(
             db, launch=launch, body=body.creatives, problems=problems
         )
     if body.form is not None:
-        answers |= _form(
-            launch=launch, business=business, body=body.form, problems=problems
-        )
-    if body.advanced is not None:
+        preset = goal_preset(db, launch=launch)
+        if preset is None or not preset.needs_lead_form:
+            problems.add("form", NO_FORM)
+        else:
+            answers |= _form(
+                launch=launch,
+                business=business,
+                body=_kept(body.form, {"lead_form": launch.lead_form_external_id}),
+                problems=problems,
+            )
+    if body.advanced is not None and not _kinds(launch):
+        problems.add("advanced", NO_ADVANCED)
+    elif body.advanced is not None:
         answers["advanced"] = _advanced(
             db,
             launch=launch,
@@ -118,6 +149,58 @@ def check_proposal(
         )
     problems.refuse()
     return answers
+
+
+def _kept[M: BaseModel](body: M, now: dict[str, Any]) -> M:
+    """``body`` with every field it left out taken from ``now``."""
+    return body.model_copy(
+        update={
+            name: value
+            for name, value in now.items()
+            if name not in body.model_fields_set
+        }
+    )
+
+
+def _kinds(launch: CampaignLaunch) -> list[str]:
+    """The campaign types this goal is bought as; none, and there is no tab."""
+    goal = str(launch.answers.get("goal") or "")
+    return [row.key for row in types_for(provider=launch.provider, goal=goal)]
+
+
+def _audience_now(launch: CampaignLaunch) -> dict[str, Any]:
+    """The audience as the launch holds it, in the shape the section is sent."""
+    chosen = draft_field.chosen(launch.draft or {}, DraftSection.AUDIENCE) or {}
+    geo = geo_field.stored(chosen)
+    known = {row.get("key", "") for row in geo_field.known_places(chosen)}
+    return {
+        "targeting_mode": str(chosen.get("targeting_mode") or DEFAULT_TARGETING_MODE),
+        "placement_mode": str(chosen.get("placement_mode") or ""),
+        "lead_buying": LeadBuying.QUALITY
+        if launch.buy_qualified_leads
+        else LeadBuying.VOLUME,
+        "age_min": int(chosen.get("age_min") or MIN_AGE),
+        "age_max": int(chosen.get("age_max") or MAX_AGE),
+        "genders": [int(gender) for gender in chosen.get("genders") or []],
+        "geo_mode": str(geo.get("mode") or ""),
+        "places": [
+            str(row.get("key", ""))
+            for row in geo.get("places") or []
+            if isinstance(row, dict) and row.get("key") in known
+        ],
+        "areas": [row["area"] for row in geo_field.areas(chosen)],
+        "radius_km": chosen.get("radius_km"),
+        "lat": _degrees(geo.get("lat")),
+        "lng": _degrees(geo.get("lng")),
+        "audiences": audience_field.roles(chosen),
+    }
+
+
+def _degrees(value: Any) -> Decimal | None:
+    try:
+        return Decimal(str(value)) if value not in (None, "") else None
+    except InvalidOperation:
+        return None
 
 
 def _choice(value: str, allowed: list[str], *, field: str, problems: Problems) -> str:
@@ -212,15 +295,25 @@ def _creatives(
         variant.position: variant for variant in launch_variants(db, launch=launch)
     }
     edits: list[CreativeEdit] = []
-    for number, item in enumerate(body, start=1):
-        variant = by_position.get(item.position)
+    for number, sent in enumerate(body, start=1):
+        variant = by_position.get(sent.position)
         field = f"creatives.{number}"
         if variant is None:
             problems.add(field, f"{number}-reklama topilmadi.")
             continue
+        item = _kept(
+            sent,
+            {
+                "headline": variant.headline,
+                "description": variant.description,
+                "ad_name": variant.ad_name,
+            },
+        )
         caption = post_caption_of(variant)
         text = item.primary_text.strip()
-        if caption is not None and same_words(text, caption):
+        if "primary_text" not in sent.model_fields_set:
+            text = variant.primary_text
+        elif caption is not None and same_words(text, caption):
             text = caption
         elif not text:
             problems.add(
@@ -235,9 +328,9 @@ def _creatives(
             CreativeEdit(
                 position=item.position,
                 primary_text=text,
-                headline=item.headline.strip(),
-                description=item.description.strip(),
-                ad_name=item.ad_name.strip(),
+                headline=(item.headline or "").strip(),
+                description=(item.description or "").strip(),
+                ad_name=(item.ad_name or "").strip(),
             )
         )
     return edits
@@ -252,9 +345,10 @@ def _form(
 ) -> dict[str, Any]:
     if body.form_depth and body.form_depth not in FormDepth.values:
         problems.add("form.form_depth", "Ro'yxatdan tanlang.")
-    new_form = not body.lead_form.strip()
+    lead_form = (body.lead_form or "").strip()
+    new_form = not lead_form
     answers: dict[str, Any] = {
-        "lead_form": body.lead_form.strip(),
+        "lead_form": lead_form,
         "form_depth": body.form_depth,
         "questions": None,
         "ending": None,
@@ -291,10 +385,24 @@ def _advanced(
     problems: Problems,
     plan_owns_kind: bool,
 ) -> AdvancedEdit:
-    goal = str(launch.answers.get("goal") or "")
-    kinds = [row.key for row in types_for(provider=launch.provider, goal=goal)]
+    sent = body.model_fields_set
+    answers = launch.answers or {}
+    times, days = [*(answers.get(FREQUENCY_CAP) or []), None, None][:2]
+    body = _kept(
+        body,
+        {
+            "url_tags": effective_url_tags(db, launch=launch),
+            "end_date": launch.end_date,
+            "attribution": str(answers.get(ATTRIBUTION) or ""),
+            "cap_times": times,
+            "cap_days": days,
+        },
+    )
     _choice(
-        body.campaign_type, kinds, field="advanced.campaign_type", problems=problems
+        body.campaign_type,
+        _kinds(launch),
+        field="advanced.campaign_type",
+        problems=problems,
     )
     _choice(
         body.conversion_event,
@@ -315,7 +423,7 @@ def _advanced(
         problems=problems,
     )
     _choice(
-        body.attribution,
+        body.attribution or "",
         [row.key for row in windows_for(provider=launch.provider)],
         field="advanced.attribution",
         problems=problems,
@@ -325,13 +433,17 @@ def _advanced(
         conversion_event=body.conversion_event,
         pixel_id=body.pixel_id,
         call_to_action=body.call_to_action,
-        url_tags=body.url_tags,
+        url_tags=body.url_tags or "",
         end_date=body.end_date,
+        # Django's rule: no box for it any more, so a total left on an older
+        # preparation is cleared rather than carried onto a shared campaign.
         total_cap_minor=None,
         max_result_cost_minor=_cost_cap(
             db, launch=launch, amount=body.max_result_cost, problems=problems
-        ),
-        attribution=body.attribution,
+        )
+        if "max_result_cost" in sent
+        else None,
+        attribution=body.attribution or "",
         cap_times=body.cap_times,
         cap_days=body.cap_days,
     )

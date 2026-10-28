@@ -30,7 +30,7 @@ class SentFile(Protocol):
 class MediaTextIn(BaseModel):
     """One text for every advert, or one per advert, keyed by variant id."""
 
-    mode: TextMode = TextMode.SHARED
+    mode: TextMode | None = Field(None, description="Left out: the mode kept.")
     shared: str | None = Field(None, max_length=MAX_BRIEF_CHARS)
     briefs: dict[str, str] = Field(default_factory=dict)
     asset_briefs: dict[str, str] = Field(

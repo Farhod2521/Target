@@ -85,7 +85,7 @@ Maydon bo'yicha rad etish — `422`, `{"detail", "code": "invalid_input",
 | `GET/POST /launch/{id}/plan/goal`, `/plan/chat-questions` | Maqsadni so'z bilan o'qish, chat savollari (poll `tries`) |
 | `GET/POST /launch/{id}/media`, `/media/upload`, `/media/upload/chunk`, `/media/upload/finish`, `/media/status`, `/media/text` | 2-qadam: rasm/video, kutubxona, matnlar |
 | `GET /launch/{id}/review`, `/review/state` | Taklif ekrani va uning holati (poll) |
-| `POST /launch/{id}/edit` | Taklifni tahrirlash — hamma bo'lim bir yo'la yoki hech biri |
+| `POST /launch/{id}/edit` | Taklifni tahrirlash (PATCH) — yuborilmagan bo'lim yoki maydon o'zgarmaydi, `null` tozalaydi; hamma bo'lim bir yo'la yoki hech biri |
 | `POST /launch/{id}/create`, `/start`, `/retry`, `/discard`, `/clean-up` | Yaratish (pul sarflaydi), yoqish, qayta urinish, bekor qilish, tozalash |
 | `GET/POST /launch/{id}/form`, `/form/auto`, `/form/new`, `/form/refresh`, `/form-depth/{depth}` | Lid forma tanlash va savollar chuqurligi |
 | `GET /google`, `POST /google/switch`, `/budget`, `/delete`, `/refresh` | Google Ads ekrani va bosishlar |

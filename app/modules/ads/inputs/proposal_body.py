@@ -1,4 +1,8 @@
-"""What the review screen's save takes, section by section."""
+"""What the review screen's save takes, section by section.
+
+A field left out of a section keeps what the launch holds; ``null`` clears a
+field that may be empty, and a field that may not be empty refuses it.
+"""
 
 from datetime import date
 from decimal import Decimal
@@ -18,12 +22,12 @@ class AudienceIn(BaseModel):
     targeting_mode: str = ""
     placement_mode: str = ""
     lead_buying: str = ""
-    age_min: int = Field(ge=MIN_AGE, le=MAX_AGE)
-    age_max: int = Field(ge=MIN_AGE, le=MAX_AGE)
+    age_min: int = Field(MIN_AGE, ge=MIN_AGE, le=MAX_AGE)
+    age_max: int = Field(MAX_AGE, ge=MIN_AGE, le=MAX_AGE)
     genders: list[Literal[1, 2]] = Field(
         default_factory=list, description="Empty: everyone."
     )
-    geo_mode: str
+    geo_mode: str = ""
     places: list[str] = Field(default_factory=list)
     added: list[str] = Field(default_factory=list, description="Place names typed in.")
     areas: list[str] = Field(default_factory=list)
@@ -41,13 +45,17 @@ class InterestsIn(BaseModel):
 class CreativeIn(BaseModel):
     position: int = Field(ge=0)
     primary_text: str = ""
-    headline: str = Field("", max_length=60)
-    description: str = Field("", max_length=120)
-    ad_name: str = Field("", max_length=LAUNCH_NAME_MAX)
+    headline: str | None = Field("", max_length=60)
+    description: str | None = Field("", max_length=120)
+    ad_name: str | None = Field(
+        "", max_length=LAUNCH_NAME_MAX, description="Null: the generated name."
+    )
 
 
 class FormSectionIn(BaseModel):
-    lead_form: str = Field("", max_length=128)
+    lead_form: str | None = Field(
+        "", max_length=128, description="Null or empty: a new form of ours."
+    )
     rows: list[QuestionRow] | None = None
     ending: EndingIn | None = None
     form_depth: str = ""
@@ -59,18 +67,20 @@ class AdvancedIn(BaseModel):
     conversion_event: str = ""
     pixel_id: str = ""
     call_to_action: str = ""
-    url_tags: str = ""
+    url_tags: str | None = ""
     end_date: date | None = None
-    attribution: str = ""
+    attribution: str | None = ""
     cap_times: int | None = Field(None, ge=1, le=50)
     cap_days: int | None = Field(None, ge=1, le=90)
-    max_result_cost: Decimal | None = Field(None, ge=0)
+    max_result_cost: Decimal | None = Field(None, ge=0, description="Null: no cap.")
 
 
 class ProposalIn(BaseModel):
     audience: AudienceIn | None = None
     interests: InterestsIn | None = None
     traits: list[str] | None = Field(None, description="The trait queries kept.")
-    creatives: list[CreativeIn] | None = None
+    creatives: list[CreativeIn] | None = Field(
+        None, description="Only the adverts sent; the others are left as they are."
+    )
     form: FormSectionIn | None = None
     advanced: AdvancedIn | None = None

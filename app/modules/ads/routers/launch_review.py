@@ -141,7 +141,13 @@ def retry(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
 def save_edit(
     launch_id: uuid.UUID, body: ProposalIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
-    """Every section sent, written in one go or not at all."""
+    """Every section sent, written in one go or not at all.
+
+    A patch: a section or a field left out keeps what the launch holds, and
+    ``null`` clears a field that may be empty. A section the goal does not
+    draw (``form`` without a lead form, ``advanced`` without campaign types)
+    is refused.
+    """
     launch = writable_launch(db, user=user, launch_id=launch_id)
     business = launch_business(db, launch=launch)
     answers = check_proposal(
