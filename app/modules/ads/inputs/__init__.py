@@ -23,10 +23,10 @@ class Problems:
     def drop(self, field: str) -> None:
         self.found.pop(field, None)
 
-    def refuse(self) -> None:
+    def refuse(self, *, hints: dict[str, str] | None = None) -> None:
         """Raise when anything was found; return quietly otherwise."""
         if self.found:
-            raise InputRefused(self.found)
+            raise InputRefused(self.found, hints=hints)
 
 
 __all__ = ["Problems"]

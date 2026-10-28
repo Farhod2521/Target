@@ -12,10 +12,10 @@ poll ``GET /plan/goal?tries=n`` while ``keep_polling`` holds.
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
@@ -23,6 +23,7 @@ from app.common.db import utcnow
 from app.common.exceptions import InputRefused
 from app.modules.accounts.models import User
 from app.modules.ads.constants import (
+    CAMPAIGN_TYPE,
     CHAT_QUESTION_POLL_MS,
     GOAL_BY_PHRASE,
     GOAL_BY_PICK,
@@ -35,9 +36,11 @@ from app.modules.ads.constants import (
 from app.modules.ads.inputs.plan import (
     CHAT_GOAL,
     FORM_GOAL,
+    QUESTION_CHARS,
     SAY_WHAT_YOU_NEED,
     PlanIn,
     check_plan,
+    held_row,
     plan_frame,
     plan_goals,
     plan_initial,
@@ -54,11 +57,15 @@ from app.modules.ads.routers.launch_common import (
 )
 from app.modules.ads.selectors.campaign_type import picker_v2_on
 from app.modules.ads.selectors.goal_intent import goal_picker
-from app.modules.ads.selectors.goals import goal_needs_form, goal_needs_pixel
+from app.modules.ads.selectors.goals import (
+    goal_needs_form,
+    goal_needs_pixel,
+    opening_channel,
+)
 from app.modules.ads.selectors.launch_page import launch_page
 from app.modules.ads.selectors.lead_form import form_choice
 from app.modules.ads.selectors.pixel import launch_conversion_source
-from app.modules.ads.selectors.plan_picker import row_picker
+from app.modules.ads.selectors.plan_picker import BY_AI, BY_YOU, row_picker
 from app.modules.ads.selectors.quality import catalogue_questions, chat_question_reading
 from app.modules.ads.services import launch as launch_services
 from app.modules.ads.services import readings
@@ -72,7 +79,9 @@ TRIES_Q = Query(0, ge=0, description="The last answer's `tries`.")
 
 
 class GoalReadingIn(BaseModel):
-    goal_text: str = Field("", max_length=GOAL_TEXT_MAX)
+    goal_text: Annotated[
+        str, StringConstraints(strip_whitespace=True, max_length=GOAL_TEXT_MAX)
+    ] = ""
     phrase: str = Field("", description="A ready phrase's goal (or row) key.")
     pick: str = Field("", description="A goal (or row) picked from the list.")
 
@@ -124,11 +133,19 @@ def _plan(
     }
     if v2:
         chat = plan_frame(db, launch=launch, user=user, goal=CHAT_GOAL, now=now)
+        held = held_row(db, launch=launch)
+        # The chat row's channel whichever row is open, and a kind only
+        # when it is the held goal's - as Django's v2 step opened them.
+        answer["initial"] |= {
+            "chat_channel": opening_channel(db, launch=launch, goal=CHAT_GOAL),
+            CAMPAIGN_TYPE: held.key if held is not None else "",
+        }
         answer |= {
             "picker": row_picker(db, launch=launch, now=now),
             "chat_channels": chat.channels,
             "chat_defaults": catalogue_questions(db, launch=launch, goal=CHAT_GOAL),
             "max_chat_questions": MAX_CHAT_QUESTIONS,
+            "max_question_chars": QUESTION_CHARS,
             **_extras(db, launch=launch, goal=FORM_GOAL),
             "pixel": launch_conversion_source(db, launch=launch),
         }
@@ -177,6 +194,13 @@ def _reading(
     if picker_v2_on(user=user):
         picker = row_picker(db, launch=launch, now=now, gave_up=gave_up)
         reading = picker["reading"]
+        # The card opens on the row the reading landed on, not the one the
+        # page was drawn with.
+        picker |= {
+            "fresh": True,
+            "card_row": reading.row,
+            "card_by": BY_AI if reading.by == BY_AI else BY_YOU,
+        }
     else:
         picker = goal_picker(db, launch=launch, now=now, gave_up=gave_up)
         reading = picker.get("reading")
@@ -294,7 +318,9 @@ def _chat_questions(
             "gave_up": gave_up,
             "poll_ms": CHAT_QUESTION_POLL_MS,
             "error": error,
-            "keep_polling": str(reading.get("state", "")) == "pending" and not gave_up,
+            "keep_polling": str(reading.get("state", "")) == "pending"
+            and not gave_up
+            and not error,
         }
     )
 

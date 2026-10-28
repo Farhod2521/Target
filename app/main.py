@@ -33,7 +33,8 @@ def create_app() -> FastAPI:
                 {"problems": problems}
                 if (problems := getattr(exc, "problems", None))
                 else {}
-            ),
+            )
+            | ({"hints": hints} if (hints := getattr(exc, "hints", None)) else {}),
         )
 
     @app.get("/health", tags=["health"])

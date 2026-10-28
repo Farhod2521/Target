@@ -8,9 +8,10 @@ field is sent but only the ones the row asks for are kept.
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from metaads.specs import is_instagram
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.orm import Session
 
 from app.common.money import provider_money, to_major
@@ -62,6 +63,8 @@ from core.targeting.compat import (
 
 SAY_WHAT_YOU_NEED = "Nima kerakligini yozing yoki ro'yxatdan tanlang."
 QUESTION_CHARS = 80
+# The outcome whose rows open the Instagram profile.
+PROFILE_OUTCOME = "profile"
 ASKED_BY = {
     "link_url": "link",
     "phone_number": "phone",
@@ -74,7 +77,9 @@ ASKED_BY = {
 class PlanIn(BaseModel):
     goal: str = ""
     goal_mode: str = Field("", description="Which half of the first question sent it.")
-    goal_text: str = Field("", max_length=GOAL_TEXT_MAX)
+    goal_text: Annotated[
+        str, StringConstraints(strip_whitespace=True, max_length=GOAL_TEXT_MAX)
+    ] = ""
     outcome: str = Field("", max_length=32, description="Three-question picker only.")
     campaign_type: str = Field(
         "", max_length=64, description="Three-question picker only."
@@ -181,6 +186,15 @@ def plan_goals(
     ]
 
 
+def held_row(db: Session, *, launch: CampaignLaunch) -> Offer | None:
+    """The row the launch holds, when it is still its saved goal's."""
+    held = effective_campaign_type(launch=launch)
+    rows = {row.key: row for row in visible_rows(db, launch, keep=held)}
+    found = rows.get(held)
+    goal = str(launch.answers.get("goal") or "")
+    return found if found is not None and found.goal == goal else None
+
+
 def chosen_row(db: Session, *, launch: CampaignLaunch, body: PlanIn) -> Offer | None:
     """The row being submitted on the three-question picker."""
     held = effective_campaign_type(launch=launch)
@@ -209,7 +223,7 @@ def check_plan(
         problems.add("goal", SAY_WHAT_YOU_NEED)
         problems.refuse()
     frame = plan_frame(db, launch=launch, user=user, goal=body.goal, now=now)
-    answers = _destination(body, frame=frame, problems=problems)
+    answers = _destination(body, frame=frame, problems=problems, with_questions=False)
     answers |= _money_and_day(body, frame=frame, problems=problems)
     problems.refuse()
     answers["chat_questions"] = None
@@ -252,7 +266,7 @@ def _check_rows(
         asked=asked,
     )
     answers |= _money_and_day(body, frame=frame, problems=problems)
-    problems.refuse()
+    problems.refuse(hints=_hints(body, problems=problems))
     answers["goal"] = row.goal
     answers["goal_text"] = words_for_row(
         launch=launch, row=row, words=body.goal_text, mode=body.goal_mode
@@ -260,6 +274,20 @@ def _check_rows(
     if not campaign_type_locked(launch=launch):
         answers[CAMPAIGN_TYPE] = row.key
     return answers
+
+
+def _hints(body: PlanIn, *, problems: Problems) -> dict[str, str]:
+    """The profile goal offered beside an Instagram address typed for a site.
+
+    The refusal stays - it is still not a site - and the goal that opens
+    the profile is one press away, as Django's ``offers_profile`` had it.
+    """
+    typed = body.link_url.strip()
+    if typed and "://" not in typed:
+        typed = f"https://{typed}"
+    if "link_url" in problems and is_instagram(typed):
+        return {"offer_outcome": PROFILE_OUTCOME}
+    return {}
 
 
 def _fields(frame: PlanFrame) -> dict[str, Any]:
@@ -272,6 +300,7 @@ def _destination(
     frame: PlanFrame,
     problems: Problems,
     asked: dict[str, bool] | None = None,
+    with_questions: bool = True,
 ) -> dict[str, Any]:
     """Each destination field the goal asks for, checked; ``None`` otherwise."""
     wanted = asked or {
@@ -292,11 +321,15 @@ def _destination(
             field="phone_number",
         )
     if wanted["chat"]:
-        answers |= _chat(body, frame=frame, problems=problems)
+        answers |= _chat(
+            body, frame=frame, problems=problems, with_questions=with_questions
+        )
     return answers
 
 
-def _chat(body: PlanIn, *, frame: PlanFrame, problems: Problems) -> dict[str, Any]:
+def _chat(
+    body: PlanIn, *, frame: PlanFrame, problems: Problems, with_questions: bool = True
+) -> dict[str, Any]:
     welcome = body.welcome_text.strip()
     if len(welcome) > MAX_GREETING_CHARS:
         problems.add(
@@ -307,7 +340,7 @@ def _chat(body: PlanIn, *, frame: PlanFrame, problems: Problems) -> dict[str, An
         if channel or len(frame.channels) > 1:
             problems.add("chat_channel", "Odamlar qayerga yozishini tanlang.")
         channel = ""
-    questions = list(clean_questions(body.chat_questions))
+    questions = list(clean_questions(body.chat_questions)) if with_questions else []
     if len(questions) > MAX_CHAT_QUESTIONS:
         problems.add(
             "chat_questions",

@@ -9,8 +9,12 @@ from app.modules.ads.inputs import Problems
 from core.targeting import dialable, is_local
 
 URL_MAX = 1000
+# Django's URLValidator host rule, on the ASCII (punycode) form: no label
+# starts or ends with a hyphen, and a TLD is letters or an xn-- name.
 _HOST = re.compile(
-    r"^(?=.{1,253}$)([a-z0-9-]{1,63}\.)+[a-z]{2,63}$|^\d{1,3}(\.\d{1,3}){3}$"
+    r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"(?:[a-z]{2,63}|xn--[a-z0-9]{1,59})$"
+    r"|^\d{1,3}(\.\d{1,3}){3}$"
 )
 
 NOT_DIALABLE = "Bu raqamga qo'ng'iroq qilib bo'lmaydi — qaytadan yozing."
@@ -31,7 +35,13 @@ def web_address(raw: str) -> str:
         return ""
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
-    if parsed.scheme not in {"http", "https"} or not _HOST.match(host):
+    try:
+        # A Cyrillic .uz name is a site too: checked in its ASCII form, as
+        # Django's URLField took it, and kept as it was typed.
+        ascii_host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        return ""
+    if parsed.scheme not in {"http", "https"} or not _HOST.match(ascii_host):
         return ""
     return url
 
