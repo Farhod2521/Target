@@ -1,3 +1,8 @@
+from app.modules.billing.selectors.display import (
+    Display,
+    display_as_dict,
+    display_for,
+)
 from app.modules.billing.selectors.invoices import (
     first_payments,
     held_transactions,
@@ -127,6 +132,7 @@ __all__ = [
     "Capacity",
     "ChatAllowance",
     "DiscountQuote",
+    "Display",
     "Offer",
     "PageMix",
     "PageOffer",
@@ -149,6 +155,8 @@ __all__ = [
     "days_left",
     "discount_code",
     "discount_quote",
+    "display_as_dict",
+    "display_for",
     "entitled_owner_ids",
     "every_plan",
     "expiring_subscriptions",

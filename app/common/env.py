@@ -260,6 +260,7 @@ class Env(BaseSettings):
         default="TargetologAI <no-reply@targetolog.ai>", alias="DEFAULT_FROM_EMAIL"
     )
     media_root: Path = Field(default=BASE_DIR / "media", alias="MEDIA_ROOT")
+    geoip_db_path: str = Field(default="", alias="GEOIP_DB_PATH")
     media_url: str = Field(default="/media/", alias="MEDIA_URL")
     agent_small_budgets: dict[str, tuple[int, int]] = {"USD": (1_000, 500)}
     frequency_min_spend: dict[str, int] = {"USD": 300}
@@ -289,6 +290,12 @@ class Env(BaseSettings):
             "country_code": self.default_country_code,
             "timezone": self.default_timezone,
         }
+
+    @property
+    def geoip_db(self) -> Path:
+        if self.geoip_db_path:
+            return Path(self.geoip_db_path)
+        return self.media_root / "geoip" / "country.mmdb"
 
     @property
     def support_telegram_url(self) -> str:

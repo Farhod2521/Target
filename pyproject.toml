@@ -30,6 +30,7 @@ dependencies = [
     "videokit",
     "speechkit",
     "celery-redbeat>=2.2",
+    "maxminddb>=2.6",
 ]
 
 [dependency-groups]

@@ -72,9 +72,10 @@ def testimonial_out(row: Testimonial) -> dict[str, Any]:
 
 
 @router.get("/home", responses={200: {"model": HomeOut}})
-def home(db: Db, reader: OptionalUser) -> dict[str, Any]:
-    from app.modules.billing.routers import plan_out
+def home(db: Db, reader: OptionalUser, request: Request) -> dict[str, Any]:
+    from app.modules.billing.routers import plan_out, shown_prices
     from app.modules.billing.selectors import (
+        display_as_dict,
         featured_plan,
         payments_configured,
         public_plans,
@@ -103,6 +104,7 @@ def home(db: Db, reader: OptionalUser) -> dict[str, Any]:
         "plans": [plan_out(plan) for plan in plans],
         "featured_plan": plan_out(featured_plan(plans)),
         "payments_on": payments_configured(),
+        "display": display_as_dict(shown_prices(request)),
         "entry_plan": plan_out(
             min(monthly, key=lambda plan: plan.price) if monthly else None
         ),

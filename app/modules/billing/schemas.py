@@ -176,6 +176,22 @@ class Provider(BaseModel):
     label: str
 
 
+class DisplayOut(BaseModel):
+    """Prices stay in so'm everywhere; this only says how to show them.
+
+    With ``currency`` ``USD``, show a so'm amount as ``amount / uzs_per_usd``
+    dollars, marked as approximate - the bill and the payment page are still
+    in so'm. With ``UZS``, show so'm as before.
+    """
+
+    country: str = Field(
+        description='ISO code from the visitor\'s address; `""` unknown.'
+    )
+    currency: str = Field(description="`UZS` or `USD`.")
+    uzs_per_usd: str | None = Field(description="Central Bank rate: so'm per dollar.")
+    rate_date: str = Field(description="The bank's date for the rate, `dd.mm.yyyy`.")
+
+
 class PlansOut(PricedChoice):
     subscription: SubscriptionOut | None
     term: TermOut | None
@@ -197,6 +213,7 @@ class PlansOut(PricedChoice):
     payments_on: bool
     referral_percent: int
     max_pages_per_purchase: int
+    display: DisplayOut
 
 
 class PaywallOut(PricedChoice):
@@ -212,6 +229,7 @@ class PaywallOut(PricedChoice):
     promo_unknown: str | None = None
     providers: list[Provider] = []
     payments_on: bool = False
+    display: DisplayOut | None = None
 
 
 class HistoryLine(BaseModel):
@@ -275,6 +293,7 @@ class InvoiceStatusOut(BaseModel):
 
 __all__ = [
     "DetailOut",
+    "DisplayOut",
     "HistoryOut",
     "InvoiceStatusOut",
     "OkOut",

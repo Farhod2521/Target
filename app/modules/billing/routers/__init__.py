@@ -1,19 +1,20 @@
 import logging
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from paykit import REDIRECT, ProviderNotRegistered
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, Db
+from app.api.deps import CurrentUser, Db, client_address
 from app.common.config import settings
 from app.common.db import utcnow
 from app.common.exceptions import DomainError
+from app.common.geo import country_of
 from app.common.money import to_minor
 from app.modules.accounts.models import User
 from app.modules.billing import selectors, services
@@ -40,6 +41,7 @@ from app.modules.billing.exceptions import (
 from app.modules.billing.models import Invoice, Plan, PromoRedemption, Subscription
 from app.modules.billing.schemas import (
     DetailOut,
+    DisplayOut,
     HistoryOut,
     InvoiceStatusOut,
     OkOut,
@@ -56,6 +58,16 @@ PROMO_MAX_CHARS = 32
 RECENT_BILLS = 5
 HISTORY_PER_PAGE = 20
 PROMO_REFUSALS = (PromoNotFound, PromoNotApplicable, PromoAlreadyUsed, PromoUsedUp)
+
+
+def shown_prices(request: Request) -> selectors.Display:
+    """The currency this visitor is shown prices in, from where they are."""
+    return selectors.display_for(
+        country=country_of(headers=request.headers, address=client_address(request))
+    )
+
+
+Shown = Annotated[selectors.Display, Depends(shown_prices)]
 
 PLAN_Q = Query("", description="A plan `code`: price it in `chosen`.")
 PROMO_Q = Query("", description="A typed promo code to price `plan` with.")
@@ -245,6 +257,12 @@ def priced_choice(
     )
 
 
+@router.get("/display", responses={200: {"model": DisplayOut}})
+def price_display(shown: Shown) -> dict[str, Any]:
+    """The currency to show prices in. Needs no sign-in: the landing page asks too."""
+    return selectors.display_as_dict(shown)
+
+
 @router.get("/status", responses={200: {"model": StatusOut}})
 def subscription_status(
     db: Db,
@@ -283,6 +301,7 @@ def subscription_status(
 def plans(
     db: Db,
     user: CurrentUser,
+    shown: Shown,
     plan: str = PLAN_Q,
     promo: str = PROMO_Q,
     pages: PagesChoice = Query(
@@ -359,12 +378,13 @@ def plans(
         "payments_on": selectors.payments_configured(),
         "referral_percent": REFERRAL_PERCENT,
         "max_pages_per_purchase": MAX_PAGES_PER_PURCHASE,
+        "display": selectors.display_as_dict(shown),
     }
 
 
 @router.get("/paywall", responses={200: {"model": PaywallOut}})
 def paywall(
-    db: Db, user: CurrentUser, plan: str = PLAN_Q, promo: str = PROMO_Q
+    db: Db, user: CurrentUser, shown: Shown, plan: str = PLAN_Q, promo: str = PROMO_Q
 ) -> dict[str, Any]:
     if selectors.has_ever_subscribed(db, owner=user):
         return {"already_open": True}
@@ -404,6 +424,7 @@ def paywall(
             "promo_typed": typed,
             "providers": selectors.payment_providers(),
             "payments_on": selectors.payments_configured(),
+            "display": selectors.display_as_dict(shown),
         }
     )
 

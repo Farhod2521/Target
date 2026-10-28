@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
-from app.modules.billing.schemas import PlanOut
+from app.modules.billing.schemas import DisplayOut, PlanOut
 
 
 class TestimonialOut(BaseModel):
@@ -52,6 +52,7 @@ class HomeOut(BaseModel):
     plans: list[PlanOut]
     featured_plan: PlanOut | None
     payments_on: bool
+    display: DisplayOut = Field(description="Which currency to show prices in.")
     entry_plan: PlanOut | None = Field(description="The cheapest monthly plan.")
     tier_includes: list[str]
     questions: list[QuestionOut]
