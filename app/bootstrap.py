@@ -27,7 +27,9 @@ def register_providers() -> None:
             rehearse_writes=settings.google_ads_dry_run,
         ),
     )
+    from app.modules.ads.checks import warn_if_rehearsing
     from app.modules.billing.services.providers import register_payment_providers
 
     register_payment_providers()
+    warn_if_rehearsing(settings)
     _done = True

@@ -23,8 +23,8 @@ docker exec "$OLD_DB_CONTAINER" \
     sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc --no-owner --no-acl' > "$DUMP"
 test -s "$DUMP" || { echo "Dump bo'sh chiqdi"; exit 1; }
 
-echo "2/5 api va worker to'xtatiladi, yangi baza ishga tushadi"
-docker compose stop api worker 2>/dev/null || true
+echo "2/5 api, worker va beat to'xtatiladi, yangi baza ishga tushadi"
+docker compose --profile beat stop api worker beat 2>/dev/null || true
 docker compose up -d --wait db redis
 
 echo "3/5 Yangi bazaga yuklash"

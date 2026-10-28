@@ -95,12 +95,18 @@ Maydon bo'yicha rad etish — `422`, `{"detail", "code": "invalid_input",
 | `GET /agent/history`, `GET/PUT /agent/settings`, `GET /agent/verdicts` | Tarix, sozlamalar, kampaniya ro'yxatidagi baholar |
 | `POST /agent/watch/{adset_id}/{move}`, `/agent/frequency/{id}/fine`, `GET /agent/frequency/{id}/creative` | Kuzatuv va chastota tugmalari |
 
-Davriy vazifalar (`run_all_agents`, `diagnose_all_accounts_task`,
-`propose_all_fixes`, `assess_all_outcomes`, `stop_all_fruitless`,
-`check_all_frequency`, `release_stalled_runs_task`, ads'dagi
-`sweep_stranded_launches_task`, `release_stalled_launches_task`,
-`sweep_abandoned_uploads_task`, `check_all_sites_task`) beat jadvaliga
-qo'shiladi — Django'da `django-celery-beat` admin orqali turardi.
+Davriy vazifalar har modulning `schedule.py` faylidagi `SCHEDULE` ro'yxatida
+turadi; `app.worker` ularni yig'adi va RedBeat (Redis) orqali yuboradi.
+Django'da `django-celery-beat` (Postgres) edi — vaqtlar uning
+`seed_schedules` buyrug'idan o'zgarishsiz olinadi, hammasi UTC.
+
+- ✅ ads: 8 ta vazifa (`app/modules/ads/schedule.py`)
+- ⏳ agent, leads, notifications, integrations, metrics va boshqalar — keyingi bosqichlarda
+
+Beat `compose.yaml`da `beat` profili ortida: eski Django o'chirilgandan keyin
+`docker compose --profile beat up -d beat` bilan yoqiladi. Ikkala beat bir
+vaqtda ishlasa, bir xil reklama akkauntlari ikki marta sinxronlanadi va
+to'xtatiladi.
 
 ## Ko'chirish tartibi
 

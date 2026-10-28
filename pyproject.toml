@@ -29,6 +29,7 @@ dependencies = [
     "sitekit",
     "videokit",
     "speechkit",
+    "celery-redbeat>=2.2",
 ]
 
 [dependency-groups]

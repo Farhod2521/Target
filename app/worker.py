@@ -2,6 +2,9 @@
 
 uv run celery -A app.worker worker -Q sync,webhooks,chat,agent,upload,refresh
 uv run celery -A app.worker beat
+
+Beat is RedBeat: the schedule is each module's ``schedule.SCHEDULE``, kept in
+Redis, and a lock there lets only one beat send it however many are started.
 """
 
 import importlib
@@ -12,6 +15,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from celery import Celery, Task
+from celery.schedules import crontab
 from celery.signals import before_task_publish, task_postrun, task_prerun
 from kombu import Queue
 from sqlalchemy.orm import Session
@@ -44,6 +48,10 @@ celery_app.conf.update(
     result_expires=3600,
     worker_hijack_root_logger=False,
     task_always_eager=settings.celery_always_eager,
+    beat_scheduler="redbeat.RedBeatScheduler",
+    redbeat_redis_url=settings.celery_broker_url,
+    beat_max_loop_interval=60,
+    redbeat_lock_timeout=300,
 )
 
 
@@ -68,6 +76,31 @@ def autodiscover() -> None:
         except ModuleNotFoundError as exc:
             if exc.name != f"app.modules.{module.name}.tasks":
                 raise
+
+
+def beat_schedule() -> dict[str, dict[str, Any]]:
+    """Every module's ``schedule.SCHEDULE``, in the shape beat reads."""
+    import app.modules as modules
+
+    entries: dict[str, dict[str, Any]] = {}
+    for module in pkgutil.iter_modules(modules.__path__):
+        path = f"app.modules.{module.name}.schedule"
+        try:
+            declared = importlib.import_module(path)
+        except ModuleNotFoundError as exc:
+            if exc.name != path:
+                raise
+            continue
+        for entry in declared.SCHEDULE:
+            if entry.name in entries:
+                raise ValueError(f"Two schedule entries named {entry.name!r}")
+            entries[entry.name] = {
+                "task": entry.task,
+                "schedule": crontab(
+                    minute=entry.minute, hour=entry.hour, day_of_week=entry.day_of_week
+                ),
+            }
+    return entries
 
 
 @before_task_publish.connect
@@ -111,3 +144,4 @@ from app.bootstrap import register_providers  # noqa: E402
 
 register_providers()
 autodiscover()
+celery_app.conf.beat_schedule = beat_schedule()

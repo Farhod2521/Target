@@ -57,6 +57,15 @@ services:
     <<: *app
     command: celery -A app.worker worker -Q sync,webhooks,chat,agent,upload,refresh --concurrency 2 --loglevel INFO
 
+  # The clock: syncs, sweeps, lapsed subscriptions. Off until asked for,
+  # because while the old Django project still runs its own beat, two clocks
+  # would sync, pause and resume the same ad accounts twice. Once Django is
+  # stopped:  docker compose --profile beat up -d beat
+  beat:
+    <<: *app
+    command: celery -A app.worker beat --loglevel INFO
+    profiles: ["beat"]
+
 volumes:
   pgdata:
   redisdata:
