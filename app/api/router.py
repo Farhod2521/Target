@@ -8,6 +8,7 @@ from app.modules.ads.routers.launch_forms import router as launch_forms
 from app.modules.ads.routers.launch_media import router as launch_media
 from app.modules.ads.routers.launch_review import router as launch_review
 from app.modules.agent.routers import router as agent
+from app.modules.backoffice.routers import router as office
 from app.modules.billing.routers import router as billing
 from app.modules.billing.routers import webhooks as billing_webhooks
 from app.modules.businesses.routers import router as businesses
@@ -40,6 +41,7 @@ api_router.include_router(leads)
 api_router.include_router(crm)
 api_router.include_router(destinations)
 api_router.include_router(public)
+api_router.include_router(office)
 api_router.include_router(sales)
 api_router.include_router(notifications)
 api_router.include_router(actions)
