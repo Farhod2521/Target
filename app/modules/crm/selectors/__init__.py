@@ -196,6 +196,35 @@ def seated_ids(db: Session, *, owner: User, at: datetime) -> frozenset[uuid.UUID
     return frozenset(seated | set(waiting[: paid_seats(db, owner=owner, at=at)]))
 
 
+def seat_capacity(db: Session, *, owner: User, at: datetime) -> int:
+    """How many managers may work: a free seat per page of a paid plan, plus
+    the seats bought and running at ``at``."""
+    from app.modules.billing.constants import SubscriptionStatus
+    from app.modules.billing.selectors import live_subscription
+    from app.modules.billing.selectors.seats import paid_seats
+    from app.modules.integrations.selectors import enabled_pages
+
+    subscription = live_subscription(db, owner=owner)
+    free = (
+        0
+        if subscription is None or subscription.status == SubscriptionStatus.TRIAL
+        else len(enabled_pages(db, owner=owner))
+    )
+    return free + paid_seats(db, owner=owner, at=at)
+
+
+def team_size(db: Session, *, owner: User) -> int:
+    """Active managers across every pair of the owner's."""
+    return int(
+        db.scalar(
+            select(func.count(CrmMember.id)).where(
+                CrmMember.owner_id == owner.id, CrmMember.is_active.is_(True)
+            )
+        )
+        or 0
+    )
+
+
 def unseated_count(db: Session, *, owner: User, subscription: Any) -> int:
     """Active managers the plan's free page seats leave waiting for a bought one."""
     return len(_free_seating(db, owner=owner, subscription=subscription)[1])

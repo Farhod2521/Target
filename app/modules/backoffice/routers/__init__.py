@@ -13,39 +13,15 @@ from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.backoffice import selectors
 from app.modules.backoffice.constants import ROLE_LABELS, Role
-from app.modules.backoffice.models import StaffAction
 from app.modules.backoffice.permissions import staff_required
+from app.modules.backoffice.routers._out import choices, person_out, trace_out
+from app.modules.backoffice.routers.customers import router as customers
 from app.modules.backoffice.schemas import JournalOut, MeOut
 
 router = APIRouter(prefix="/office", tags=["office"])
 Staff = Annotated[User, Depends(staff_required(*Role))]
 Owner = Annotated[User, Depends(staff_required(Role.OWNER))]
-
-
-def person_out(user: User | None) -> dict[str, Any] | None:
-    if user is None:
-        return None
-    return {
-        "id": str(user.id),
-        "name": user.full_name or user.email,
-        "email": user.email,
-    }
-
-
-def trace_out(row: StaffAction) -> dict[str, Any]:
-    return {
-        "id": str(row.id),
-        "created_at": row.created_at,
-        "kind": row.kind,
-        "kind_label": selectors.kind_label(row.kind),
-        "reason": row.reason,
-        "detail": row.detail or {},
-        "actor": person_out(row.actor),
-    }
-
-
-def _choices(pairs: list[tuple[str, str]]) -> list[dict[str, str]]:
-    return [{"value": value, "label": label} for value, label in pairs]
+router.include_router(customers)
 
 
 @router.get("/me", responses={200: {"model": MeOut}})
@@ -91,7 +67,7 @@ def journal(
     page = selectors.journal(db, kind=kind, offset=offset)
     return {
         "kind": kind,
-        "kinds": _choices(selectors.kind_choices()),
+        "kinds": choices(selectors.kind_choices()),
         "rows": [
             {**trace_out(row), "customer": person_out(row.owner)} for row in page.rows
         ],
