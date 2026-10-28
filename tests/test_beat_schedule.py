@@ -45,6 +45,19 @@ def test_the_ads_tasks_keep_django_s_minutes() -> None:
     }
 
 
+def test_the_sheet_tasks_keep_django_s_minutes() -> None:
+    times = {
+        name: (entry["schedule"]._orig_minute, entry["schedule"]._orig_hour)
+        for name, entry in beat_schedule().items()
+        if entry["task"].startswith("app.modules.destinations.")
+    }
+
+    assert times == {
+        "Mijozlarni Google jadvalga yozish": ("*", "*"),
+        "Google jadvallarni tekshirish": ("35", "4"),
+    }
+
+
 def test_a_debug_machine_may_rehearse_quietly() -> None:
     debug = settings.model_copy(update={"debug": True, "ads_dry_run": True})
 

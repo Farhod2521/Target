@@ -11,6 +11,7 @@ from app.modules.metrics.selectors.campaign_panel import CampaignPanel
 from app.modules.metrics.selectors.creative_report import CreativeReport
 from app.modules.metrics.selectors.dashboard import Dashboard
 from app.modules.metrics.selectors.panel import AdChips, ChipRow
+from app.modules.onboarding.schemas import SetupOut
 
 
 class Choice(BaseModel):
@@ -64,6 +65,11 @@ class NumbersOut(BaseModel):
     poll_seconds: int
     gave_up: bool = Field(False, description="Only on the poll.")
     message: str = Field("", description="Only on a refresh the owner pressed.")
+    setup: SetupOut | None = Field(
+        None,
+        description="Only on `GET /metrics/numbers`: how far preparation has got. "
+        "The dashboard draws the preparation card while `setup.ready` is false.",
+    )
 
 
 class CardOut(BaseModel):

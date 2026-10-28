@@ -61,6 +61,8 @@ class NotChoosingFile(DomainError):
 
 
 class PickerExpired(DomainError):
+    status_code = 410
+
     def __init__(self) -> None:
         super().__init__(
             "Google bilan kirish eskirdi. Faylni tanlash uchun qaytadan kiring."

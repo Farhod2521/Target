@@ -144,8 +144,10 @@ def seen_keys(db: Session, *, owner: User) -> frozenset[str]:
 
 
 def cached_inbox(db: Session, *, owner: User, now: datetime) -> tuple[Any, ...]:
-    """The cabinet's waiting list. Empty until the inbox screen is ported from Django."""
-    return ()
+    """The cabinet's waiting list, from the minute-long cache when it is warm."""
+    from app.modules.notifications.selectors.bell import cached_inbox as held
+
+    return held(db, owner=owner, now=now)
 
 
 __all__ = [

@@ -9,6 +9,7 @@ from adskit import ExternalRef
 
 ItemKind = Literal[
     "suggestion",
+    "stop",
     "connection",
     "refusal",
     "trouble",

@@ -179,7 +179,12 @@ def numbers(
     start: date | None = START_Q,
     end: date | None = END_Q,
 ) -> dict[str, Any]:
-    return numbers_context(db, user, period=period, start=start, end=end)
+    from app.modules.onboarding.selectors import overview_as_dict, setup_overview
+
+    context = numbers_context(db, user, period=period, start=start, end=end)
+    # The dashboard's empty state: the preparation card while ``ready`` is false.
+    context["setup"] = overview_as_dict(setup_overview(db, owner=user))
+    return context
 
 
 @router.get("/numbers/poll", responses={200: {"model": NumbersOut}})
