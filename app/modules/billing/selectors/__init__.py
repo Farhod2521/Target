@@ -2,6 +2,8 @@ from app.modules.billing.selectors.display import (
     Display,
     display_as_dict,
     display_for,
+    in_display,
+    plan_in_display,
 )
 from app.modules.billing.selectors.invoices import (
     first_payments,
@@ -166,6 +168,7 @@ __all__ = [
     "has_ever_subscribed",
     "has_live_subscription",
     "held_transactions",
+    "in_display",
     "invoice_by_number",
     "invoice_for",
     "invoice_history",
@@ -198,6 +201,7 @@ __all__ = [
     "payment_providers",
     "payments_configured",
     "pending_redemption",
+    "plan_in_display",
     "plan_move",
     "plan_pages_minor",
     "plan_switch",

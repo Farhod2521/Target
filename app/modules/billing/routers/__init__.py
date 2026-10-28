@@ -73,10 +73,17 @@ PLAN_Q = Query("", description="A plan `code`: price it in `chosen`.")
 PROMO_Q = Query("", description="A typed promo code to price `plan` with.")
 
 
-def plan_out(plan: Plan | None) -> dict[str, Any] | None:
+def plan_out(
+    plan: Plan | None, display: selectors.Display | None = None
+) -> dict[str, Any] | None:
     if plan is None:
         return None
     sheet = selectors.tier_sheet(plan=plan)
+    shown = (
+        selectors.plan_in_display(plan, per_page=sheet.per_page, display=display)
+        if display is not None
+        else None
+    )
     return {
         "id": str(plan.id),
         "code": plan.code,
@@ -94,6 +101,7 @@ def plan_out(plan: Plan | None) -> dict[str, Any] | None:
         "features": [asdict(line) for line in sheet.lines],
         "highlights": list(sheet.highlights),
         "per_page": sheet.per_page,
+        "shown": shown,
     }
 
 
@@ -372,7 +380,7 @@ def plans(
                 db, owner=user, limit=RECENT_BILLS
             )
         ],
-        "plans": [plan_out(p) for p in offered],
+        "plans": [plan_out(p, shown) for p in offered],
         "featured": featured.code if featured else "",
         "providers": selectors.payment_providers(),
         "payments_on": selectors.payments_configured(),
@@ -418,7 +426,7 @@ def paywall(
         )
         | refusal
         | {
-            "plans": [plan_out(p) for p in offered],
+            "plans": [plan_out(p, shown) for p in offered],
             "featured": featured.code if featured else "",
             "asked": asked,
             "promo_typed": typed,

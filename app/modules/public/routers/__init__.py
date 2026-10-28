@@ -89,6 +89,7 @@ def home(db: Db, reader: OptionalUser, request: Request) -> dict[str, Any]:
         cards.extend((row, True) for row in testimonials)
     monthly = [plan for plan in plans if plan.price and plan.period_days >= MONTH_DAYS]
     region = _region()
+    shown = shown_prices(request)
     return {
         "dial_code": dial_code(region),
         "phone_example": example_national(region),
@@ -101,12 +102,12 @@ def home(db: Db, reader: OptionalUser, request: Request) -> dict[str, Any]:
         "steps": [asdict(card) for card in STEPS],
         "features": [asdict(card) for card in FEATURES],
         "targeting_sample": [asdict(tag) for tag in TARGETING_SAMPLE],
-        "plans": [plan_out(plan) for plan in plans],
-        "featured_plan": plan_out(featured_plan(plans)),
+        "plans": [plan_out(plan, shown) for plan in plans],
+        "featured_plan": plan_out(featured_plan(plans), shown),
         "payments_on": payments_configured(),
-        "display": display_as_dict(shown_prices(request)),
+        "display": display_as_dict(shown),
         "entry_plan": plan_out(
-            min(monthly, key=lambda plan: plan.price) if monthly else None
+            min(monthly, key=lambda plan: plan.price) if monthly else None, shown
         ),
         "tier_includes": [str(line) for line in TIER_INCLUDES],
         "questions": [asdict(item) for item in QUESTIONS],

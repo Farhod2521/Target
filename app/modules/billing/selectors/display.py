@@ -21,6 +21,7 @@ import httpx
 
 from app.common.cache import cache
 from app.common.config import settings
+from app.modules.billing.models import Plan
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ RATE_SECONDS: Final = 6 * 3600
 # After a failed fetch, so that every page view does not wait on the bank.
 RETRY_SECONDS: Final = 10 * 60
 # Short on connecting: a page view waits for this when the cache is empty.
+CENT: Final = Decimal("0.01")
 TIMEOUT: Final = httpx.Timeout(5.0, connect=2.0)
 
 
@@ -71,6 +73,26 @@ def display_as_dict(display: Display) -> dict[str, Any]:
         "currency": display.currency,
         "uzs_per_usd": str(display.uzs_per_usd) if display.uzs_per_usd else None,
         "rate_date": display.rate_date,
+    }
+
+
+def in_display(amount: int | None, display: Display) -> int | float | None:
+    """A so'm amount as this visitor is shown it: so'm, or dollars and cents."""
+    if amount is None or display.uzs_per_usd is None:
+        return amount
+    return float((Decimal(amount) / display.uzs_per_usd).quantize(CENT))
+
+
+def plan_in_display(
+    plan: Plan, *, per_page: int | None, display: Display
+) -> dict[str, Any]:
+    """A plan's prices in the visitor's currency, ready to print."""
+    return {
+        "currency": display.currency,
+        "price": in_display(plan.price, display),
+        "extra_page_price": in_display(plan.extra_page_price, display),
+        "per_page": in_display(per_page, display),
+        "approximate": display.currency != HOME_CURRENCY,
     }
 
 

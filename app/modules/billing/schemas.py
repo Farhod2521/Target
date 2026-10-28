@@ -13,6 +13,16 @@ from app.modules.billing.selectors.plans import TierLine
 from app.modules.billing.selectors.promo import ChatAllowance
 
 
+class ShownPrices(BaseModel):
+    """A plan's prices as this visitor is shown them; print these."""
+
+    currency: str = Field(description="`UZS` (so'm) or `USD` (dollars and cents).")
+    price: float
+    extra_page_price: float
+    per_page: float | None
+    approximate: bool = Field(description="Show as `≈`: the payment is in so'm.")
+
+
 class PlanOut(BaseModel):
     id: str
     code: str
@@ -30,6 +40,9 @@ class PlanOut(BaseModel):
     features: list[TierLine]
     highlights: list[str]
     per_page: int | None
+    shown: ShownPrices | None = Field(
+        None, description="On the landing page and plan lists only."
+    )
 
 
 class SubscriptionOut(BaseModel):
@@ -300,5 +313,6 @@ __all__ = [
     "PaywallOut",
     "PlansOut",
     "PromoOut",
+    "ShownPrices",
     "StatusOut",
 ]
