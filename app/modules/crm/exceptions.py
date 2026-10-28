@@ -118,3 +118,17 @@ class NoAdsChosen(DomainError):
         super().__init__(
             "Hech bir lid tushmaydi: «Hammasi»ni belgilang yoki kamida bitta reklamani tanlang."
         )
+
+
+class NoPair(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "CRM sahifa va reklama akkaunti juftligi uchun ishlaydi. Avval sahifani ulang."
+        )
+
+
+class NotOnPair(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu lid platformadan shu juftlikdan ishga tushirilgan reklamadan kelmagan."
+        )

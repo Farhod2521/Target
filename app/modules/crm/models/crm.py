@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, SmallInteger, String, UniqueConstraint, Uuid
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, SmallInteger, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.common.db import Base, Json, utcnow
@@ -17,9 +17,19 @@ class _Tenant:
     owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
 
 
-class CrmStage(_Tenant, Base):
+class _Pair:
+    # The page and ad account pair this row's CRM is for. Null only on rows
+    # copied from the Django project that no pair could take.
+    page_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("page_accounts.id", ondelete="RESTRICT"), nullable=True)
+    ad_account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("ad_accounts.id", ondelete="RESTRICT"), nullable=True)
+
+
+class CrmStage(_Tenant, _Pair, Base):
     __tablename__ = "crm_stages"
-    __table_args__ = (Index("crm_stages_owner_position_idx", "owner_id", "position"),)
+    __table_args__ = (
+        Index("crm_stages_owner_position_idx", "owner_id", "position"),
+        Index("crm_stages_pair_idx", "owner_id", "page_id", "ad_account_id"),
+    )
 
     name: Mapped[str] = mapped_column(String(48), nullable=False, default="")
     color: Mapped[str] = mapped_column(String(7), nullable=False, default="")
@@ -28,15 +38,18 @@ class CrmStage(_Tenant, Base):
     counts_as_quality: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
-class CrmLostReason(_Tenant, Base):
+class CrmLostReason(_Tenant, _Pair, Base):
     __tablename__ = "crm_lost_reasons"
-    __table_args__ = (Index("crm_lost_reasons_owner_position_idx", "owner_id", "position"),)
+    __table_args__ = (
+        Index("crm_lost_reasons_owner_position_idx", "owner_id", "position"),
+        Index("crm_lost_reasons_pair_idx", "owner_id", "page_id", "ad_account_id"),
+    )
 
     name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     position: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
 
 
-class CrmCard(_Tenant, Base):
+class CrmCard(_Tenant, _Pair, Base):
     __tablename__ = "crm_cards"
     __table_args__ = (
         Index("crm_cards_owner_stage_idx", "owner_id", "stage_id"),
@@ -44,6 +57,7 @@ class CrmCard(_Tenant, Base):
         Index("crm_cards_owner_due_idx", "owner_id", "due_at"),
         Index("crm_cards_owner_updated_idx", "owner_id", "updated_at"),
         Index("crm_cards_owner_qualified_idx", "owner_id", "qualified_at"),
+        Index("crm_cards_pair_stage_idx", "owner_id", "page_id", "ad_account_id", "stage_id"),
     )
 
     lead_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, unique=True)
@@ -80,9 +94,12 @@ class CrmActivity(_Tenant, Base):
     actor: Mapped["User | None"] = relationship(foreign_keys=[actor_id], lazy="select")  # noqa: F821
 
 
-class CrmMember(_Tenant, Base):
+class CrmMember(_Tenant, _Pair, Base):
     __tablename__ = "crm_members"
-    __table_args__ = (Index("crm_members_owner_active_idx", "owner_id", "is_active"),)
+    __table_args__ = (
+        Index("crm_members_owner_active_idx", "owner_id", "is_active"),
+        Index("crm_members_pair_idx", "owner_id", "page_id", "ad_account_id"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -98,9 +115,11 @@ class CrmMember(_Tenant, Base):
         return self.kpi_fix_minor is not None or self.kpi_percent is not None
 
 
-class CrmSetup(_Tenant, Base):
+class CrmSetup(_Tenant, _Pair, Base):
     __tablename__ = "crm_setups"
-    __table_args__ = (UniqueConstraint("owner_id", name="uniq_crm_setup_per_owner"),)
+    __table_args__ = (
+        Index("uniq_crm_setup_per_pair", "owner_id", "page_id", "ad_account_id", unique=True),
+    )
 
     state: Mapped[str] = mapped_column(String(8), nullable=False, default="draft")
     step: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)

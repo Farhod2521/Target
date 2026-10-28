@@ -1,13 +1,14 @@
 import uuid
-from collections.abc import Collection, Iterable
-from dataclasses import dataclass, field
+from collections.abc import Collection, Iterable, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, and_, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.dates import localtime
+from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.crm.constants import (
     CARDS_PER_COLUMN,
@@ -25,6 +26,7 @@ from app.modules.crm.models import (
     CrmSetup,
     CrmStage,
 )
+from app.modules.integrations.selectors import Pair, current_pair, page_pairs
 from app.modules.leads.models import Lead, LeadForm
 
 HISTORY_SHOWN = 40
@@ -32,14 +34,65 @@ CONTACT_KEYS = frozenset({"full_name", "phone_number", "email", "city"})
 
 
 @dataclass(frozen=True, slots=True)
+class Scope:
+    """One page and ad account pair's CRM: every row of it carries these three."""
+
+    owner_id: uuid.UUID
+    page_id: uuid.UUID
+    ad_account_id: uuid.UUID
+
+    @classmethod
+    def of(cls, pair: Pair) -> "Scope":
+        return cls(
+            owner_id=pair.page.owner_id,
+            page_id=pair.page.id,
+            ad_account_id=pair.account.id,
+        )
+
+    def holds(self, model: Any) -> ColumnElement[bool]:
+        return and_(
+            model.owner_id == self.owner_id,
+            model.page_id == self.page_id,
+            model.ad_account_id == self.ad_account_id,
+        )
+
+    def fields(self) -> dict[str, uuid.UUID]:
+        return {
+            "owner_id": self.owner_id,
+            "page_id": self.page_id,
+            "ad_account_id": self.ad_account_id,
+        }
+
+
+def holds(scope: "Scope | None", model: Any) -> ColumnElement[bool]:
+    return scope.holds(model) if scope is not None else false()
+
+
+@dataclass(frozen=True, slots=True)
 class Viewer:
+    """The reader of a CRM screen, on one pair's CRM.
+
+    The owner picks the pair; a manager works in the one pair they were
+    added to. ``pair`` is ``None`` when the owner has no pair yet, or the
+    manager's pair has left the subscription.
+    """
+
     owner: User
     user: User
     member: CrmMember | None
+    pair: Pair | None = None
+    pairs: tuple[Pair, ...] = ()
+    # Whether a manager sits in a seat: the free one of their page, or a
+    # bought one. Always true for the owner.
+    seated: bool = True
 
     @property
     def is_owner(self) -> bool:
         return self.member is None and self.user.id == self.owner.id
+
+    @property
+    def scope(self) -> Scope | None:
+        return Scope.of(self.pair) if self.pair is not None else None
 
     @property
     def may_work(self) -> bool:
@@ -48,79 +101,283 @@ class Viewer:
         return (
             self.member is not None
             and self.member.is_active
+            and self.seated
+            and self.pair is not None
             and bool(self.owner.is_active)
         )
 
 
-def viewer_for(db: Session, *, user: User) -> Viewer:
+def chosen_pair(
+    db: Session, *, owner: User, wanted: str, pairs: Sequence[Pair]
+) -> Pair | None:
+    """``wanted`` when it is one of ``pairs``, else the cabinet's current pair."""
+    found = next((pair for pair in pairs if pair.key == wanted), None)
+    if found is not None or not pairs:
+        return found
+    return current_pair(db, owner=owner, pairs=pairs)
+
+
+def pair_of_row(pairs: Sequence[Pair], row: Any) -> Pair | None:
+    return next(
+        (
+            pair
+            for pair in pairs
+            if pair.page.id == row.page_id and pair.account.id == row.ad_account_id
+        ),
+        None,
+    )
+
+
+def viewer_for(db: Session, *, user: User, wanted: str = "") -> Viewer:
     if user.crm_owner_id is None:
-        return Viewer(owner=user, user=user, member=None)
+        pairs = tuple(page_pairs(db, owner=user))
+        return Viewer(
+            owner=user,
+            user=user,
+            member=None,
+            pair=chosen_pair(db, owner=user, wanted=wanted, pairs=pairs),
+            pairs=pairs,
+        )
     member = db.scalar(select(CrmMember).where(CrmMember.user_id == user.id))
     owner_id = member.owner_id if member is not None else user.crm_owner_id
     owner = db.get(User, owner_id) or user
-    return Viewer(owner=owner, user=user, member=member)
+    if member is None:
+        return Viewer(owner=owner, user=user, member=None)
+    pairs = tuple(page_pairs(db, owner=owner))
+    return Viewer(
+        owner=owner,
+        user=user,
+        member=member,
+        pair=pair_of_row(pairs, member),
+        pairs=pairs,
+        seated=member.id in seated_ids(db, owner=owner, at=utcnow()),
+    )
+
+
+def viewer_on_card(db: Session, *, viewer: Viewer, card_id: str) -> Viewer | None:
+    """The owner moved onto the pair a card opened by its link belongs to.
+
+    A manager stays on their own pair; ``None`` when the card is on no pair
+    the reader may open.
+    """
+    try:
+        key = uuid.UUID(card_id)
+    except ValueError:
+        return None
+    card = db.scalar(
+        select(CrmCard).where(CrmCard.owner_id == viewer.owner.id, CrmCard.id == key)
+    )
+    if card is None:
+        return None
+    pair = pair_of_row(viewer.pairs, card)
+    if pair is None:
+        return None
+    if not viewer.is_owner:
+        return viewer if pair == viewer.pair else None
+    return replace(viewer, pair=pair)
+
+
+def seated_ids(db: Session, *, owner: User, at: datetime) -> frozenset[uuid.UUID]:
+    """The active managers inside a seat, oldest first.
+
+    A paid plan seats one manager free on each page of the subscription,
+    and that seat works only on its own page. The managers it does not
+    seat share the seats bought, in the order they were added; the rest
+    wait, locked out and handed no leads.
+    """
+    from app.modules.billing.constants import InvoiceStatus, SubscriptionStatus
+    from app.modules.billing.models import Invoice
+    from app.modules.billing.selectors import live_subscription
+    from app.modules.integrations.selectors import enabled_pages
+
+    members = list(
+        db.scalars(
+            select(CrmMember)
+            .where(CrmMember.owner_id == owner.id, CrmMember.is_active.is_(True))
+            .order_by(CrmMember.created_at, CrmMember.id)
+        )
+    )
+    if not members:
+        return frozenset()
+    subscription = live_subscription(db, owner=owner)
+    free_pages: set[uuid.UUID] = (
+        set()
+        if subscription is None or subscription.status == SubscriptionStatus.TRIAL
+        else {page.id for page in enabled_pages(db, owner=owner)}
+    )
+    paid = int(
+        db.scalar(
+            select(func.sum(Invoice.seats)).where(
+                Invoice.owner_id == owner.id,
+                Invoice.status == InvoiceStatus.PAID,
+                Invoice.seats > 0,
+                Invoice.seats_from <= at,
+                Invoice.seats_until > at,
+            )
+        )
+        or 0
+    )
+    seated: set[uuid.UUID] = set()
+    used: set[uuid.UUID] = set()
+    waiting: list[uuid.UUID] = []
+    for member in members:
+        if member.page_id in free_pages and member.page_id not in used:
+            used.add(member.page_id)
+            seated.add(member.id)
+        else:
+            waiting.append(member.id)
+    seated.update(waiting[:paid])
+    return frozenset(seated)
 
 
 def crm_open(db: Session | None = None, *, owner: User) -> bool:
-    return bool(owner.is_staff)
+    return True
 
 
-def setup_of(db: Session, *, owner: User) -> CrmSetup | None:
-    return db.scalar(select(CrmSetup).where(CrmSetup.owner_id == owner.id))
+def setup_of(db: Session, *, scope: Scope | None) -> CrmSetup | None:
+    if scope is None:
+        return None
+    return db.scalar(select(CrmSetup).where(scope.holds(CrmSetup)))
 
 
 def is_running(db: Session, *, owner: User) -> bool:
+    """Whether any of the owner's pairs runs a CRM."""
     return (
         db.scalar(
-            select(CrmSetup.id).where(
-                CrmSetup.owner_id == owner.id, CrmSetup.state == SetupState.ON
+            select(CrmSetup.id)
+            .where(
+                CrmSetup.owner_id == owner.id,
+                CrmSetup.page_id.is_not(None),
+                CrmSetup.state == SetupState.ON,
             )
+            .limit(1)
         )
         is not None
     )
 
 
-def stages_of(db: Session, *, owner: User) -> list[CrmStage]:
+def stages_of(db: Session, *, scope: Scope | None) -> list[CrmStage]:
     return list(
         db.scalars(
             select(CrmStage)
-            .where(CrmStage.owner_id == owner.id)
+            .where(holds(scope, CrmStage))
             .order_by(CrmStage.position, CrmStage.created_at)
         )
     )
 
 
-def stage_of_kind(db: Session, *, owner: User, kind: str) -> CrmStage | None:
+def stage_of_kind(db: Session, *, scope: Scope, kind: str) -> CrmStage | None:
     return db.scalar(
         select(CrmStage)
-        .where(CrmStage.owner_id == owner.id, CrmStage.kind == kind)
+        .where(scope.holds(CrmStage), CrmStage.kind == kind)
         .order_by(CrmStage.position)
         .limit(1)
     )
 
 
-def members_of(db: Session, *, owner: User) -> list[CrmMember]:
+def members_of(db: Session, *, scope: Scope | None) -> list[CrmMember]:
     return list(
         db.scalars(
             select(CrmMember)
-            .where(CrmMember.owner_id == owner.id)
+            .where(holds(scope, CrmMember))
             .order_by(CrmMember.created_at)
         )
     )
 
 
-def active_members(db: Session, *, owner: User) -> list[CrmMember]:
-    return [member for member in members_of(db, owner=owner) if member.is_active]
+def active_members(db: Session, *, scope: Scope | None) -> list[CrmMember]:
+    return [member for member in members_of(db, scope=scope) if member.is_active]
 
 
-def reasons_of(db: Session, *, owner: User) -> list[CrmLostReason]:
+def reasons_of(db: Session, *, scope: Scope | None) -> list[CrmLostReason]:
     return list(
         db.scalars(
             select(CrmLostReason)
-            .where(CrmLostReason.owner_id == owner.id)
+            .where(holds(scope, CrmLostReason))
             .order_by(CrmLostReason.position, CrmLostReason.created_at)
         )
     )
+
+
+def pair_conditions(
+    db: Session, *, owner: User, pairs: Sequence[Pair]
+) -> dict[str, ColumnElement[bool]]:
+    """``{pair key: its leads, as a condition on Lead}``.
+
+    A pair's leads come from the campaigns this product launched from that
+    page and account. A campaign launched before launches named their page
+    says only its account, so its lead joins the pair whose page the lead
+    itself names.
+    """
+    from app.modules.ads.selectors.owned import campaigns_by_pair
+    from app.modules.integrations.selectors import enabled_pages
+    from app.modules.leads.selectors import lead_scope
+
+    campaigns = campaigns_by_pair(db, owner=owner, pairs=pairs)
+    if not campaigns:
+        return {}
+    sole = len(enabled_pages(db, owner=owner)) == 1
+    found: dict[str, ColumnElement[bool]] = {}
+    for pair in pairs:
+        own = campaigns[pair.key]
+        condition: ColumnElement[bool] = Lead.campaign_external_id.in_(
+            sorted(own.exact)
+        )
+        if own.pageless:
+            condition = or_(
+                condition,
+                and_(
+                    Lead.campaign_external_id.in_(sorted(own.pageless)),
+                    lead_scope(page=pair.page, sole=sole),
+                ),
+            )
+        found[pair.key] = condition
+    return found
+
+
+def countable_leads(
+    db: Session, *, owner: User, pair: Pair | None = None
+) -> Select[tuple[Lead]]:
+    """The leads the CRM takes, of one pair or - with ``None`` - of any.
+
+    From an advert this product launched from one of the subscription's
+    pairs, on a paid page. A campaign built in Ads Manager, a test lead
+    Meta sends with no advert behind it, and an advert paid from an account
+    the page is not paired with are all left off.
+    """
+    from app.modules.leads.selectors import subscribed_lead_scope
+
+    pairs = page_pairs(db, owner=owner)
+    if pair is not None:
+        pairs = [each for each in pairs if each.key == pair.key]
+    conditions = list(pair_conditions(db, owner=owner, pairs=pairs).values())
+    return select(Lead).where(
+        Lead.owner_id == owner.id,
+        Lead.is_test.is_(False),
+        Lead.is_organic.is_(False),
+        or_(*conditions) if conditions else false(),
+        subscribed_lead_scope(db, owner=owner),
+    )
+
+
+def pair_of_lead(db: Session, *, owner: User, lead_id: uuid.UUID) -> Pair | None:
+    """The pair whose CRM ``lead`` belongs on, or ``None``."""
+    from app.modules.leads.selectors import subscribed_lead_scope
+
+    pairs = page_pairs(db, owner=owner)
+    conditions = pair_conditions(db, owner=owner, pairs=pairs)
+    base = select(Lead.id).where(
+        Lead.id == lead_id,
+        Lead.owner_id == owner.id,
+        Lead.is_test.is_(False),
+        Lead.is_organic.is_(False),
+        subscribed_lead_scope(db, owner=owner),
+    )
+    for pair in pairs:
+        condition = conditions.get(pair.key)
+        if condition is not None and db.scalar(base.where(condition)) is not None:
+            return pair
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,35 +388,37 @@ class AdOption:
     leads: int
 
 
-def countable_leads(db: Session, *, owner: User) -> Select[tuple[Lead]]:
-    from app.modules.leads.selectors import subscribed_lead_scope
-
-    return select(Lead).where(
-        Lead.owner_id == owner.id,
-        Lead.is_test.is_(False),
-        Lead.is_organic.is_(False),
-        subscribed_lead_scope(db, owner=owner),
-    )
-
-
-def lead_ads(db: Session, *, owner: User, since: datetime | None) -> list[AdOption]:
+def lead_ads(
+    db: Session, *, owner: User, pair: Pair | None, since: datetime | None
+) -> list[AdOption]:
+    """The running lead adverts of ``pair``'s campaigns, for picking which land."""
     from app.modules.ads.constants import Delivery
-    from app.modules.ads.models import Ad
+    from app.modules.ads.models import Ad, AdSet, Campaign
+    from app.modules.ads.selectors.owned import campaigns_by_pair
 
+    if pair is None:
+        return []
+    own = campaigns_by_pair(db, owner=owner, pairs=[pair]).get(pair.key)
+    campaign_ids = sorted(own.exact | own.pageless) if own else []
+    if not campaign_ids:
+        return []
     ads = list(
         db.scalars(
             select(Ad)
+            .join(AdSet, AdSet.id == Ad.adset_id)
+            .join(Campaign, Campaign.id == AdSet.campaign_id)
             .where(
                 Ad.owner_id == owner.id,
                 Ad.delivery == Delivery.ACTIVE,
                 Ad.lead_form_external_id != "",
+                Campaign.external_id.in_(campaign_ids),
             )
             .order_by(Ad.name)
         )
     )
     if not ads:
         return []
-    leads = countable_leads(db, owner=owner).where(
+    leads = countable_leads(db, owner=owner, pair=pair).where(
         Lead.ad_external_id.in_([ad.external_id for ad in ads])
     )
     if since is not None:
@@ -253,11 +512,11 @@ class Board:
 
 
 def _visible(viewer: Viewer) -> ColumnElement[bool]:
-    mine = CrmCard.owner_id == viewer.owner.id
+    mine = holds(viewer.scope, CrmCard)
     if viewer.is_owner:
         return mine
     new_stages = select(CrmStage.id).where(
-        CrmStage.owner_id == viewer.owner.id, CrmStage.kind == StageKind.NEW
+        holds(viewer.scope, CrmStage), CrmStage.kind == StageKind.NEW
     )
     return and_(
         mine,
@@ -342,7 +601,7 @@ def column_page(
     except ValueError:
         return None
     stage = db.scalar(
-        select(CrmStage).where(CrmStage.owner_id == viewer.owner.id, CrmStage.id == key)
+        select(CrmStage).where(holds(viewer.scope, CrmStage), CrmStage.id == key)
     )
     if stage is None:
         return None
@@ -367,12 +626,10 @@ def cursor_of(db: Session, *, viewer: Viewer) -> str:
     ).one()
     stages_at, stages_n = db.execute(
         select(func.max(CrmStage.updated_at), func.count(CrmStage.id)).where(
-            CrmStage.owner_id == viewer.owner.id
+            holds(viewer.scope, CrmStage)
         )
     ).one()
-    setup = db.scalar(
-        select(CrmSetup.updated_at).where(CrmSetup.owner_id == viewer.owner.id)
-    )
+    setup = db.scalar(select(CrmSetup.updated_at).where(holds(viewer.scope, CrmSetup)))
     return "|".join(
         (
             f"{cards_n}-{_stamp(cards_at)}",
@@ -390,7 +647,7 @@ def board(
 ) -> Board:
     from app.modules.ads.selectors import ad_labels
 
-    stages = stages_of(db, owner=viewer.owner)
+    stages = stages_of(db, scope=viewer.scope)
     base = _on_board(viewer=viewer, filters=filters, now=now)
     sub = base.subquery()
     totals = dict(
@@ -458,7 +715,7 @@ def placed_card(db: Session, *, viewer: Viewer, card_id: str) -> CrmCard | None:
 
 def attention_count(db: Session, *, viewer: Viewer, now: datetime) -> int:
     new_stages = select(CrmStage.id).where(
-        CrmStage.owner_id == viewer.owner.id, CrmStage.kind == StageKind.NEW
+        holds(viewer.scope, CrmStage), CrmStage.kind == StageKind.NEW
     )
     return _count(
         db,
@@ -532,15 +789,15 @@ def card_view(db: Session, *, viewer: Viewer, card_id: str) -> CardView | None:
         if lead.ad_external_id
         else None
     )
-    setup = setup_of(db, owner=viewer.owner)
+    setup = setup_of(db, scope=viewer.scope)
     return CardView(
         card=card,
         answers=tuple(a for a in answer_rows(lead=lead) if a.key not in CONTACT_KEYS),
         source=source,
         history=history,
-        stages=stages_of(db, owner=viewer.owner),
-        members=active_members(db, owner=viewer.owner),
-        reasons=reasons_of(db, owner=viewer.owner),
+        stages=stages_of(db, scope=viewer.scope),
+        members=active_members(db, scope=viewer.scope),
+        reasons=reasons_of(db, scope=viewer.scope),
         currency=setup.currency if setup else "",
     )
 

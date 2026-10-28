@@ -49,7 +49,9 @@ from app.modules.crm.exceptions import (
     EmptyNote,
     NameRequired,
     NoAdsChosen,
+    NoPair,
     NotConfigured,
+    NotOnPair,
     NotRunning,
     NotYours,
     PasswordsDiffer,
@@ -72,12 +74,16 @@ from app.modules.crm.models import (
 )
 from app.modules.crm.selectors import (
     LeadPlace,
+    Scope,
     Viewer,
     countable_leads,
     crm_open,
+    holds,
     is_running,
     lead_places,
+    pair_of_lead,
     qualified_count,
+    seated_ids,
 )
 from app.modules.leads.models import Lead
 
@@ -144,11 +150,18 @@ def check_password(*, password: str, email: str, full_name: str) -> None:
         raise PasswordTooWeak(str(exc)) from exc
 
 
-def require_owner(viewer: Viewer) -> None:
+def require_pair(viewer: Viewer) -> Scope:
+    if viewer.scope is None:
+        raise NoPair
+    return viewer.scope
+
+
+def require_owner(viewer: Viewer) -> Scope:
     if not crm_open(owner=viewer.owner):
         raise CrmClosed
     if not viewer.is_owner:
         raise NotYours
+    return require_pair(viewer)
 
 
 def require_open(viewer: Viewer) -> None:
@@ -156,12 +169,17 @@ def require_open(viewer: Viewer) -> None:
         raise CrmClosed
 
 
-def setup_for_update(db: Session, *, owner: User) -> CrmSetup:
-    setup = db.scalar(
-        select(CrmSetup).where(CrmSetup.owner_id == owner.id).with_for_update()
+def scope_of(row: CrmSetup | CrmCard) -> Scope:
+    assert row.page_id is not None and row.ad_account_id is not None
+    return Scope(
+        owner_id=row.owner_id, page_id=row.page_id, ad_account_id=row.ad_account_id
     )
+
+
+def setup_for_update(db: Session, *, scope: Scope) -> CrmSetup:
+    setup = db.scalar(select(CrmSetup).where(scope.holds(CrmSetup)).with_for_update())
     if setup is None:
-        setup = CrmSetup(owner_id=owner.id, currency=settings.billing_currency)
+        setup = CrmSetup(**scope.fields(), currency=settings.billing_currency)
         db.add(setup)
         db.flush()
     return setup
@@ -272,7 +290,7 @@ def card_for_write(
     require_open(viewer)
     card = db.scalar(
         select(CrmCard)
-        .where(CrmCard.owner_id == viewer.owner.id, CrmCard.id == _uuid(card_id))
+        .where(holds(viewer.scope, CrmCard), CrmCard.id == _uuid(card_id))
         .with_for_update(of=CrmCard)
     )
     if card is None:
@@ -284,14 +302,23 @@ def card_for_write(
     raise NotYours
 
 
-def _members(db: Session, owner_id: uuid.UUID) -> list[CrmMember]:
+def _members(db: Session, scope: Scope) -> list[CrmMember]:
     return list(
         db.scalars(
             select(CrmMember)
-            .where(CrmMember.owner_id == owner_id)
+            .where(scope.holds(CrmMember))
             .order_by(CrmMember.created_at)
         )
     )
+
+
+def _takers(db: Session, scope: Scope) -> list[CrmMember]:
+    """The pair's managers that sit in a seat: only they are handed leads."""
+    owner = db.get(User, scope.owner_id)
+    if owner is None:
+        return []
+    seated = seated_ids(db, owner=owner, at=utcnow())
+    return [member for member in _members(db, scope) if member.id in seated]
 
 
 def takes_lead(*, setup: CrmSetup, lead: Lead) -> bool:
@@ -329,12 +356,17 @@ def next_assignee(*, setup: CrmSetup, members: Sequence[CrmMember]) -> User | No
 
 
 def card_for_phone(db: Session, *, setup: CrmSetup, lead: Lead) -> CrmCard | None:
+    """The card this telephone already has on the setup's pair.
+
+    Per pair: the same person writing to two pages is a customer of each,
+    and each CRM works its own card.
+    """
     if not lead.phone_e164:
         return None
     return db.scalar(
         select(CrmCard)
         .join(Lead, Lead.id == CrmCard.lead_id)
-        .where(CrmCard.owner_id == setup.owner_id, Lead.phone_e164 == lead.phone_e164)
+        .where(scope_of(setup).holds(CrmCard), Lead.phone_e164 == lead.phone_e164)
         .order_by(CrmCard.updated_at.desc())
         .limit(1)
         .with_for_update(of=CrmCard)
@@ -381,7 +413,7 @@ def new_card(
 ) -> CrmCard:
     assignee = next_assignee(setup=setup, members=members)
     card = CrmCard(
-        owner_id=setup.owner_id,
+        **scope_of(setup).fields(),
         lead_id=lead.id,
         stage_id=first.id,
         assignee_id=assignee.id if assignee else None,
@@ -410,10 +442,10 @@ def new_card(
     return card
 
 
-def _first_stage(db: Session, owner_id: uuid.UUID) -> CrmStage | None:
+def _first_stage(db: Session, scope: Scope) -> CrmStage | None:
     return db.scalar(
         select(CrmStage)
-        .where(CrmStage.owner_id == owner_id, CrmStage.kind == StageKind.NEW)
+        .where(scope.holds(CrmStage), CrmStage.kind == StageKind.NEW)
         .order_by(CrmStage.position)
         .limit(1)
     )
@@ -430,22 +462,18 @@ def place_lead(db: Session, *, lead_id: str) -> Placement:
     owner = db.get(User, lead.owner_id)
     if owner is None or not crm_open(owner=owner):
         return "skipped"
+    pair = pair_of_lead(db, owner=owner, lead_id=lead.id)
+    if pair is None:
+        return "skipped"
+    scope = Scope.of(pair)
     setup = db.scalar(
-        select(CrmSetup)
-        .where(CrmSetup.owner_id == owner.id)
-        .with_for_update(of=CrmSetup)
+        select(CrmSetup).where(scope.holds(CrmSetup)).with_for_update(of=CrmSetup)
     )
     if setup is None or not takes_lead(setup=setup, lead=lead):
         return "skipped"
-    if not db.scalar(
-        countable_leads(db, owner=owner)
-        .where(Lead.id == lead.id)
-        .with_only_columns(Lead.id)
-    ):
-        return "skipped"
     if _on_board(db, lead.id):
         return "already"
-    first = _first_stage(db, owner.id)
+    first = _first_stage(db, scope)
     if first is None:
         return "skipped"
     now = utcnow()
@@ -457,7 +485,7 @@ def place_lead(db: Session, *, lead_id: str) -> Placement:
         db.commit()
         return "returned"
     new_card(
-        db, setup=setup, lead=lead, first=first, members=_members(db, owner.id), now=now
+        db, setup=setup, lead=lead, first=first, members=_takers(db, scope), now=now
     )
     db.commit()
     return "placed"
@@ -472,9 +500,9 @@ def queue_placement(db: Session, *, lead_id: str) -> None:
 def sweep_unplaced(db: Session, *, now: datetime) -> int:
     window = now - timedelta(hours=SWEEP_WINDOW_HOURS)
     boards = db.execute(
-        select(CrmSetup.owner_id, CrmSetup.enabled_at)
-        .join(User, User.id == CrmSetup.owner_id)
-        .where(CrmSetup.state == SetupState.ON, User.is_staff.is_(True))
+        select(CrmSetup.owner_id, func.min(CrmSetup.enabled_at))
+        .where(CrmSetup.state == SetupState.ON, CrmSetup.page_id.is_not(None))
+        .group_by(CrmSetup.owner_id)
     ).all()
     landed = 0
     for owner_id, enabled_at in boards:
@@ -503,15 +531,21 @@ def sweep_unplaced(db: Session, *, now: datetime) -> int:
 def add_lead(db: Session, *, viewer: Viewer, lead_id: str) -> CrmCard:
     require_owner(viewer)
     owner = viewer.owner
-    setup = setup_for_update(db, owner=owner)
-    if setup.state != SetupState.ON:
-        raise NotRunning
-    lead = db.scalar(countable_leads(db, owner=owner).where(Lead.id == _uuid(lead_id)))
+    lead = db.scalar(
+        select(Lead).where(Lead.owner_id == owner.id, Lead.id == _uuid(lead_id))
+    )
     if lead is None:
         raise UnknownCard
+    pair = pair_of_lead(db, owner=owner, lead_id=lead.id)
+    if pair is None:
+        raise NotOnPair
+    scope = Scope.of(pair)
+    setup = setup_for_update(db, scope=scope)
+    if setup.state != SetupState.ON:
+        raise NotRunning
     if _on_board(db, lead.id):
         raise AlreadyOnBoard
-    first = _first_stage(db, owner.id)
+    first = _first_stage(db, scope)
     if first is None:
         raise NotConfigured
     now = utcnow()
@@ -521,7 +555,7 @@ def add_lead(db: Session, *, viewer: Viewer, lead_id: str) -> CrmCard:
             raise AlreadyOnBoard
         return welcome_back(db, card=existing, lead=lead, first=first, now=now)
     return new_card(
-        db, setup=setup, lead=lead, first=first, members=_members(db, owner.id), now=now
+        db, setup=setup, lead=lead, first=first, members=_takers(db, scope), now=now
     )
 
 
@@ -537,16 +571,16 @@ def add_member(
 ) -> CrmMember:
     from app.modules.accounts.services import create_member_login
 
-    require_owner(viewer)
+    scope = require_owner(viewer)
     owner = viewer.owner
-    setup = setup_for_update(db, owner=owner)
+    setup = setup_for_update(db, scope=scope)
     name = name.strip()
     if not name:
         raise NameRequired
     check_password(password=password, email=email.strip().lower(), full_name=name)
     active = db.scalar(
         select(func.count(CrmMember.id)).where(
-            CrmMember.owner_id == owner.id, CrmMember.is_active.is_(True)
+            scope.holds(CrmMember), CrmMember.is_active.is_(True)
         )
     )
     if (active or 0) >= MAX_MEMBERS:
@@ -560,7 +594,7 @@ def add_member(
     except LoginTaken as exc:
         raise EmailTaken from exc
     member = CrmMember(
-        owner_id=owner.id,
+        **scope.fields(),
         user_id=user.id,
         kpi_fix_minor=fix,
         kpi_percent=percent,
@@ -586,7 +620,7 @@ def _member(
     db: Session, *, viewer: Viewer, member_id: str, active: bool = True
 ) -> CrmMember:
     query = select(CrmMember).where(
-        CrmMember.owner_id == viewer.owner.id, CrmMember.id == _uuid(member_id)
+        holds(viewer.scope, CrmMember), CrmMember.id == _uuid(member_id)
     )
     if active:
         query = query.where(CrmMember.is_active.is_(True))
@@ -608,8 +642,8 @@ def update_member(
 ) -> CrmMember:
     from app.modules.accounts.services import rename_member_login
 
-    require_owner(viewer)
-    setup = setup_for_update(db, owner=viewer.owner)
+    scope = require_owner(viewer)
+    setup = setup_for_update(db, scope=scope)
     member = _member(db, viewer=viewer, member_id=member_id)
     if not name.strip():
         raise NameRequired
@@ -646,43 +680,50 @@ def update_member(
 def remove_member(db: Session, *, viewer: Viewer, member_id: str) -> int:
     from app.modules.accounts.services import remove_member_login
 
-    require_owner(viewer)
+    scope = require_owner(viewer)
     owner = viewer.owner
-    setup = setup_for_update(db, owner=owner)
+    setup = setup_for_update(db, scope=scope)
     member = _member(db, viewer=viewer, member_id=member_id, active=False)
     now = utcnow()
     holder = member.user
-    first = _first_stage(db, owner.id)
+    # Every pair's: cards copied from the one-CRM days may sit on another.
     cards = list(
         db.scalars(
             select(CrmCard).where(
                 CrmCard.owner_id == owner.id,
+                CrmCard.page_id.is_not(None),
                 CrmCard.assignee_id == holder.id,
                 CrmCard.closed_at.is_(None),
             )
         )
     )
-    released = len(cards)
-    if cards and first is not None:
-        name = holder.full_name or holder.email
-        for card in cards:
-            if card.stage_id != first.id:
-                db.add(
-                    CrmActivity(
-                        owner_id=owner.id,
-                        card_id=card.id,
-                        actor_id=viewer.user.id,
-                        kind=ActivityKind.MOVED,
-                        text=f"{card.stage.name} → {first.name} ({name})",
-                    )
+    released = 0
+    name = holder.full_name or holder.email
+    firsts: dict[Scope, CrmStage | None] = {}
+    for card in cards:
+        where = scope_of(card)
+        if where not in firsts:
+            firsts[where] = _first_stage(db, where)
+        first = firsts[where]
+        if first is None:
+            continue
+        if card.stage_id != first.id:
+            db.add(
+                CrmActivity(
+                    owner_id=owner.id,
+                    card_id=card.id,
+                    actor_id=viewer.user.id,
+                    kind=ActivityKind.MOVED,
+                    text=f"{card.stage.name} → {first.name} ({name})",
                 )
-        db.execute(
-            update(CrmCard)
-            .where(CrmCard.id.in_([card.id for card in cards]))
-            .values(assignee_id=None, stage_id=first.id, taken_at=None, updated_at=now)
-        )
+            )
+        card.assignee_id = None
+        card.stage_id = first.id
+        card.taken_at = None
+        card.updated_at = now
+        released += 1
     if setup.last_assigned_id == member.user_id:
-        team = _members(db, owner.id)
+        team = _members(db, scope)
         order = [m.user_id for m in team]
         takers = [
             m.user
@@ -763,7 +804,7 @@ def _stage(
     db: Session, *, viewer: Viewer, stage_id: str, lock: bool = False
 ) -> CrmStage:
     query = select(CrmStage).where(
-        CrmStage.owner_id == viewer.owner.id, CrmStage.id == _uuid(stage_id)
+        holds(viewer.scope, CrmStage), CrmStage.id == _uuid(stage_id)
     )
     if lock:
         query = query.with_for_update()
@@ -774,32 +815,28 @@ def _stage(
 
 
 def add_stage(db: Session, *, viewer: Viewer, name: str, color: str) -> CrmStage:
-    require_owner(viewer)
+    scope = require_owner(viewer)
     owner = viewer.owner
-    setup_for_update(db, owner=owner)
+    setup_for_update(db, scope=scope)
     name = name.strip()[:48]
     if not name:
         raise NameRequired
-    count = db.scalar(
-        select(func.count(CrmStage.id)).where(CrmStage.owner_id == owner.id)
-    )
+    count = db.scalar(select(func.count(CrmStage.id)).where(scope.holds(CrmStage)))
     if (count or 0) >= MAX_STAGES:
         raise TooManyStages
     won = db.scalar(
-        select(CrmStage).where(
-            CrmStage.owner_id == owner.id, CrmStage.kind == StageKind.WON
-        )
+        select(CrmStage).where(scope.holds(CrmStage), CrmStage.kind == StageKind.WON)
     )
     if won is None:
         raise NotConfigured
     position = won.position
     db.execute(
         update(CrmStage)
-        .where(CrmStage.owner_id == owner.id, CrmStage.position >= position)
+        .where(scope.holds(CrmStage), CrmStage.position >= position)
         .values(position=CrmStage.position + 1)
     )
     stage = CrmStage(
-        owner_id=owner.id,
+        **scope.fields(),
         name=name,
         color=color if color in COLORS else COLORS[0],
         kind=StageKind.OPEN,
@@ -850,13 +887,13 @@ def update_stage(
 
 
 def delete_stage(db: Session, *, viewer: Viewer, stage_id: str) -> int:
-    require_owner(viewer)
+    scope = require_owner(viewer)
     owner = viewer.owner
-    setup_for_update(db, owner=owner)
+    setup_for_update(db, scope=scope)
     stage = _stage(db, viewer=viewer, stage_id=stage_id)
     if stage.kind != StageKind.OPEN:
         raise StageLocked
-    first = _first_stage(db, owner.id)
+    first = _first_stage(db, scope)
     if first is None:
         raise NotConfigured
     moved = db.execute(
@@ -884,11 +921,11 @@ def delete_stage(db: Session, *, viewer: Viewer, stage_id: str) -> int:
 def move_stage(
     db: Session, *, viewer: Viewer, stage_id: str, step: int
 ) -> list[CrmStage]:
-    require_owner(viewer)
+    scope = require_owner(viewer)
     stages = list(
         db.scalars(
             select(CrmStage)
-            .where(CrmStage.owner_id == viewer.owner.id)
+            .where(scope.holds(CrmStage))
             .order_by(CrmStage.position)
             .with_for_update()
         )
@@ -924,15 +961,13 @@ def move_stage(
 def setup_stages(
     db: Session, *, viewer: Viewer, columns: Sequence[str | tuple[str, str]]
 ) -> list[CrmStage]:
-    require_owner(viewer)
+    scope = require_owner(viewer)
     owner = viewer.owner
     now = utcnow()
-    setup = setup_for_update(db, owner=owner)
+    setup = setup_for_update(db, scope=scope)
     existing = list(
         db.scalars(
-            select(CrmStage)
-            .where(CrmStage.owner_id == owner.id)
-            .order_by(CrmStage.position)
+            select(CrmStage).where(scope.holds(CrmStage)).order_by(CrmStage.position)
         )
     )
     if existing:
@@ -942,7 +977,7 @@ def setup_stages(
     for preset, kind, color, _default, always in PRESETS:
         if always:
             row = CrmStage(
-                owner_id=owner.id,
+                **scope.fields(),
                 name=str(PRESET_LABELS[preset]),
                 color=color,
                 kind=kind,
@@ -967,7 +1002,7 @@ def setup_stages(
             color = color if color in COLORS else COLORS[0]
         rows.append(
             CrmStage(
-                owner_id=owner.id,
+                **scope.fields(),
                 name=name,
                 color=color,
                 kind=StageKind.OPEN,
@@ -978,11 +1013,9 @@ def setup_stages(
     for position, row in enumerate(rows):
         row.position = position
         db.add(row)
-    if not db.scalar(
-        select(CrmLostReason.id).where(CrmLostReason.owner_id == owner.id)
-    ):
+    if not db.scalar(select(CrmLostReason.id).where(scope.holds(CrmLostReason))):
         for position, name in enumerate(DEFAULT_LOST_REASONS):
-            db.add(CrmLostReason(owner_id=owner.id, name=str(name), position=position))
+            db.add(CrmLostReason(**scope.fields(), name=str(name), position=position))
     setup.step = max(setup.step, 2)
     db.flush()
     record_config(
@@ -1000,8 +1033,8 @@ def setup_stages(
 
 
 def advance_setup(db: Session, *, viewer: Viewer, to: int) -> CrmSetup:
-    require_owner(viewer)
-    setup = setup_for_update(db, owner=viewer.owner)
+    scope = require_owner(viewer)
+    setup = setup_for_update(db, scope=scope)
     if to > setup.step:
         setup.step = to
     db.flush()
@@ -1034,11 +1067,11 @@ def save_flow(
     take_new_ads: bool,
     advance_to: int = 0,
 ) -> CrmSetup:
-    require_owner(viewer)
+    scope = require_owner(viewer)
     if not (every_ad or ad_ids or take_new_ads):
         raise NoAdsChosen
     now = utcnow()
-    setup = setup_for_update(db, owner=viewer.owner)
+    setup = setup_for_update(db, scope=scope)
     before = {
         "since": setup.since,
         "every_ad": setup.every_ad,
@@ -1077,8 +1110,8 @@ def save_flow(
 def save_distribution(
     db: Session, *, viewer: Viewer, distribution: str, advance_to: int = 0
 ) -> CrmSetup:
-    require_owner(viewer)
-    setup = setup_for_update(db, owner=viewer.owner)
+    scope = require_owner(viewer)
+    setup = setup_for_update(db, scope=scope)
     before = {"distribution": setup.distribution}
     if distribution in {item.value for item in Distribution}:
         setup.distribution = distribution
@@ -1101,10 +1134,10 @@ def save_distribution(
 def save_quality(
     db: Session, *, viewer: Viewer, stage_ids: list[str], advance_to: int = 0
 ) -> CrmSetup:
-    require_owner(viewer)
-    setup = setup_for_update(db, owner=viewer.owner)
+    scope = require_owner(viewer)
+    setup = setup_for_update(db, scope=scope)
     now = utcnow()
-    mine = CrmStage.owner_id == viewer.owner.id
+    mine = scope.holds(CrmStage)
     before = sorted(
         str(pk)
         for pk in db.scalars(
@@ -1150,11 +1183,11 @@ def save_quality(
 
 
 def enable_crm(db: Session, *, viewer: Viewer) -> int:
-    require_owner(viewer)
+    scope = require_owner(viewer)
     owner = viewer.owner
     now = utcnow()
-    setup = setup_for_update(db, owner=owner)
-    first = _first_stage(db, owner.id)
+    setup = setup_for_update(db, scope=scope)
+    first = _first_stage(db, scope)
     if first is None:
         raise NotConfigured
     before = {"state": setup.state}
@@ -1169,7 +1202,7 @@ def enable_crm(db: Session, *, viewer: Viewer) -> int:
         for card in db.scalars(
             select(CrmCard)
             .join(Lead, Lead.id == CrmCard.lead_id)
-            .where(CrmCard.owner_id == owner.id, Lead.phone_e164 != "")
+            .where(scope.holds(CrmCard), Lead.phone_e164 != "")
             .order_by(CrmCard.updated_at)
         )
     }
@@ -1178,7 +1211,7 @@ def enable_crm(db: Session, *, viewer: Viewer) -> int:
     returning: dict[str, Lead] = {}
     seen: set[str] = set()
     for lead in db.scalars(
-        countable_leads(db, owner=owner)
+        countable_leads(db, owner=owner, pair=viewer.pair)
         .where(Lead.submitted_at >= setup.leads_since, Lead.id.not_in(placed_ids))
         .order_by(Lead.submitted_at.desc())
         .execution_options(yield_per=500)
@@ -1198,13 +1231,13 @@ def enable_crm(db: Session, *, viewer: Viewer) -> int:
     chosen.reverse()
     for phone, lead in returning.items():
         welcome_back(db, card=cards[phone], lead=lead, first=first, now=now)
-    members = _members(db, owner.id)
+    members = _takers(db, scope)
     for lead in chosen:
         assignee = next_assignee(setup=setup, members=members)
         if assignee is not None:
             setup.last_assigned_id = assignee.id
         card = CrmCard(
-            owner_id=owner.id,
+            **scope.fields(),
             lead_id=lead.id,
             stage_id=first.id,
             assignee_id=assignee.id if assignee else None,
@@ -1246,9 +1279,9 @@ def enable_crm(db: Session, *, viewer: Viewer) -> int:
 
 
 def disable_crm(db: Session, *, viewer: Viewer) -> CrmSetup:
-    require_owner(viewer)
+    scope = require_owner(viewer)
     now = utcnow()
-    setup = setup_for_update(db, owner=viewer.owner)
+    setup = setup_for_update(db, scope=scope)
     before = {"state": setup.state}
     setup.state = SetupState.OFF
     setup.disabled_at = now
@@ -1268,19 +1301,15 @@ def disable_crm(db: Session, *, viewer: Viewer) -> CrmSetup:
 
 
 def add_reason(db: Session, *, viewer: Viewer, name: str) -> CrmLostReason:
-    require_owner(viewer)
-    setup = setup_for_update(db, owner=viewer.owner)
+    scope = require_owner(viewer)
+    setup = setup_for_update(db, scope=scope)
     name = name.strip()[:64]
     if not name:
         raise NameRequired
     last = db.scalar(
-        select(func.max(CrmLostReason.position)).where(
-            CrmLostReason.owner_id == viewer.owner.id
-        )
+        select(func.max(CrmLostReason.position)).where(scope.holds(CrmLostReason))
     )
-    reason = CrmLostReason(
-        owner_id=viewer.owner.id, name=name, position=(last or 0) + 1
-    )
+    reason = CrmLostReason(**scope.fields(), name=name, position=(last or 0) + 1)
     db.add(reason)
     db.flush()
     record_config(
@@ -1298,12 +1327,11 @@ def add_reason(db: Session, *, viewer: Viewer, name: str) -> CrmLostReason:
 
 
 def delete_reason(db: Session, *, viewer: Viewer, reason_id: str) -> None:
-    require_owner(viewer)
-    setup = setup_for_update(db, owner=viewer.owner)
+    scope = require_owner(viewer)
+    setup = setup_for_update(db, scope=scope)
     reason = db.scalar(
         select(CrmLostReason).where(
-            CrmLostReason.owner_id == viewer.owner.id,
-            CrmLostReason.id == _uuid(reason_id),
+            scope.holds(CrmLostReason), CrmLostReason.id == _uuid(reason_id)
         )
     )
     if reason is None:
@@ -1335,7 +1363,7 @@ def assign_card(db: Session, *, viewer: Viewer, card_id: str, user_id: str) -> C
     else:
         member = db.scalar(
             select(CrmMember).where(
-                CrmMember.owner_id == viewer.owner.id,
+                holds(viewer.scope, CrmMember),
                 CrmMember.user_id == _uuid(user_id),
                 CrmMember.is_active.is_(True),
             )
@@ -1358,9 +1386,7 @@ def assign_card(db: Session, *, viewer: Viewer, card_id: str, user_id: str) -> C
 
 def _closing_stage(db: Session, *, viewer: Viewer, kind: str) -> CrmStage:
     stage = db.scalar(
-        select(CrmStage).where(
-            CrmStage.owner_id == viewer.owner.id, CrmStage.kind == kind
-        )
+        select(CrmStage).where(holds(viewer.scope, CrmStage), CrmStage.kind == kind)
     )
     if stage is None:
         raise NotConfigured
@@ -1371,7 +1397,7 @@ def win_card(
     db: Session, *, viewer: Viewer, card_id: str, amount: str, note: str
 ) -> CrmCard:
     card = card_for_write(db, viewer=viewer, card_id=card_id, purpose="take")
-    setup = db.scalar(select(CrmSetup).where(CrmSetup.owner_id == card.owner_id))
+    setup = db.scalar(select(CrmSetup).where(scope_of(card).holds(CrmSetup)))
     currency = setup.currency if setup else ""
     value = read_amount(amount)
     if value is None or value <= 0:
@@ -1419,7 +1445,7 @@ def lose_card(
     reason = (
         db.scalar(
             select(CrmLostReason).where(
-                CrmLostReason.owner_id == viewer.owner.id,
+                holds(viewer.scope, CrmLostReason),
                 CrmLostReason.id == _uuid(reason_id),
             )
         )
@@ -1575,9 +1601,7 @@ def take_card(db: Session, *, viewer: Viewer, card_id: str) -> CrmCard:
     if card.stage.kind == StageKind.NEW:
         working = db.scalar(
             select(CrmStage)
-            .where(
-                CrmStage.owner_id == viewer.owner.id, CrmStage.kind == StageKind.OPEN
-            )
+            .where(holds(viewer.scope, CrmStage), CrmStage.kind == StageKind.OPEN)
             .order_by(CrmStage.position)
             .limit(1)
         )

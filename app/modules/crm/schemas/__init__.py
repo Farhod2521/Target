@@ -67,6 +67,10 @@ class MemberOut(BaseModel):
     id: str
     user: CrmUserOut | None
     is_active: bool
+    seated: bool = Field(
+        description="In a seat: their page's free one or a bought one. A manager "
+        "out of a seat is locked out and handed no leads."
+    )
     takes_leads: bool
     must_change_password: bool
     kpi_fix_minor: int | None
@@ -89,6 +93,21 @@ class ColumnOut(BaseModel):
     )
 
 
+class PairOut(BaseModel):
+    key: str = Field(description="`page id:ad account id`; send as `pair`.")
+    page: str
+    account: str
+
+
+class PairsOut(BaseModel):
+    pair: str | None = Field(
+        description="The pair this CRM is for; null when the owner has no pair."
+    )
+    pairs: list[PairOut] = Field(
+        description="Every pair the owner may switch to; empty for a manager."
+    )
+
+
 class NavOut(BaseModel):
     url: str = Field(
         description="`/app/crm/` when the CRM is open, else `/app/leads/`."
@@ -96,7 +115,10 @@ class NavOut(BaseModel):
     attention: int = Field(description="Cards that need the viewer now.")
 
 
-class BoardOut(BaseModel):
+class BoardOut(PairsOut):
+    no_pair: bool = Field(
+        False, description="True when the owner has no page and ad account pair yet."
+    )
     setup_needed: bool = Field(
         description="True for an owner who has not finished setup; then only `step` "
         "comes with it."
@@ -147,6 +169,7 @@ class CardViewOut(BaseModel):
     reasons: list[ReasonOut]
     currency: str
     can_work: bool = Field(description="False once the card is closed.")
+    pair: str | None = Field(description="The pair the card is on.")
 
 
 class SetupOut(BaseModel):
@@ -171,7 +194,7 @@ class PresetOut(BaseModel):
     always: bool = Field(description="Cannot be unticked.")
 
 
-class SettingsOut(BaseModel):
+class SettingsOut(PairsOut):
     setup: SetupOut | None
     stages: list[StageOut]
     members: list[MemberOut]

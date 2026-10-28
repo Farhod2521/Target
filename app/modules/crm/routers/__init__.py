@@ -52,6 +52,12 @@ AD_Q = Query("", description="Only cards from this advert (Meta ad id).")
 FLAG_Q = Query(
     "", description="`late` (due time passed) or `today` (due today); empty for all."
 )
+PAIR_Q = Query(
+    "",
+    max_length=160,
+    description="The pair's CRM, as `page id:ad account id` from `pairs`; the "
+    "cabinet's current pair when empty or unknown. A manager always gets their own.",
+)
 
 
 class Closed(HTTPException):
@@ -60,9 +66,16 @@ class Closed(HTTPException):
 
 
 def crm_viewer(
-    user: User = Depends(current_user), db: Session = Depends(get_db)
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    pair: str = PAIR_Q,
 ) -> Viewer:
-    viewer = selectors.viewer_for(db, user=user)
+    viewer = selectors.viewer_for(db, user=user, wanted=pair)
+    if viewer.member is not None and viewer.member.is_active:
+        if viewer.pair is None:
+            raise Closed("no_pair")
+        if not viewer.seated:
+            raise Closed("seat")
     if not viewer.may_work:
         raise Closed("closed")
     if not selectors.crm_open(owner=viewer.owner):
@@ -70,7 +83,7 @@ def crm_viewer(
     if viewer.member is not None:
         if viewer.member.must_change_password:
             raise Closed("password")
-        setup = selectors.setup_of(db, owner=viewer.owner)
+        setup = selectors.setup_of(db, scope=viewer.scope)
         if setup is None or setup.state != SetupState.ON:
             raise Closed("off")
     return viewer
@@ -80,6 +93,43 @@ def owner_viewer(viewer: Viewer = Depends(crm_viewer)) -> Viewer:
     if not viewer.is_owner:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     return viewer
+
+
+def card_viewer(pk: uuid.UUID, db: Db, viewer: Viewer = Depends(crm_viewer)) -> Viewer:
+    """The reader on the pair of card ``pk``: a card opened by its link opens
+    whichever pair the owner's board is on."""
+    found = selectors.viewer_on_card(db, viewer=viewer, card_id=str(pk))
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return found
+
+
+def card_owner_viewer(viewer: Viewer = Depends(card_viewer)) -> Viewer:
+    if not viewer.is_owner:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return viewer
+
+
+def pairs_out(viewer: Viewer) -> dict[str, Any]:
+    return {
+        "pair": viewer.pair.key if viewer.pair is not None else None,
+        "pairs": [
+            {
+                "key": pair.key,
+                "page": pair.page.name or pair.page.external_id,
+                "account": pair.account.name or pair.account.external_id,
+            }
+            for pair in (viewer.pairs if viewer.is_owner else ())
+        ],
+    }
+
+
+def team_out(db: Session, viewer: Viewer) -> list[dict[str, Any]]:
+    seated = selectors.seated_ids(db, owner=viewer.owner, at=utcnow())
+    return [
+        member_out(m, seated=m.id in seated)
+        for m in selectors.active_members(db, scope=viewer.scope)
+    ]
 
 
 def _user(user: User | None) -> dict[str, Any] | None:
@@ -131,11 +181,12 @@ def card_out(card: CrmCard, *, ads: dict[str, str] | None = None) -> dict[str, A
     }
 
 
-def member_out(member: CrmMember) -> dict[str, Any]:
+def member_out(member: CrmMember, *, seated: bool = True) -> dict[str, Any]:
     return {
         "id": str(member.id),
         "user": _user(member.user),
         "is_active": member.is_active,
+        "seated": seated,
         "takes_leads": member.takes_leads,
         "must_change_password": member.must_change_password,
         "kpi_fix_minor": member.kpi_fix_minor,
@@ -158,13 +209,13 @@ def column_out(column: selectors.Column, ads: dict[str, str]) -> dict[str, Any]:
 
 
 @router.get("/nav", responses={200: {"model": NavOut}})
-def nav(db: Db, user: CurrentUser) -> dict[str, Any]:
+def nav(db: Db, user: CurrentUser, pair: str = PAIR_Q) -> dict[str, Any]:
     if user.crm_owner_id is not None or not selectors.crm_open(owner=user):
         return {"url": "/app/leads/", "attention": 0}
     count = 0
     if selectors.is_running(db, owner=user):
         count = selectors.attention_count(
-            db, viewer=selectors.viewer_for(db, user=user), now=utcnow()
+            db, viewer=selectors.viewer_for(db, user=user, wanted=pair), now=utcnow()
         )
     return {"url": "/app/crm/", "attention": count}
 
@@ -178,14 +229,20 @@ def board(
     ad: str = AD_Q,
     f: str = FLAG_Q,
 ) -> dict[str, Any]:
-    setup = selectors.setup_of(db, owner=viewer.owner)
+    if viewer.pair is None:
+        return {"setup_needed": False, "no_pair": True} | pairs_out(viewer)
+    setup = selectors.setup_of(db, scope=viewer.scope)
     if viewer.is_owner and (setup is None or setup.state == SetupState.DRAFT):
-        return {"setup_needed": True, "step": setup.step if setup else 1}
+        return {
+            "setup_needed": True,
+            "step": setup.step if setup else 1,
+        } | pairs_out(viewer)
     now = utcnow()
     filters = selectors.read_filters(q=q, m=m, ad=ad, f=f)
     found = selectors.board(db, viewer=viewer, filters=filters, now=now)
-    return {
+    return pairs_out(viewer) | {
         "setup_needed": False,
+        "no_pair": False,
         "running": setup is not None and setup.state == SetupState.ON,
         "is_owner": viewer.is_owner,
         "columns": [column_out(column, found.ads) for column in found.columns],
@@ -193,9 +250,7 @@ def board(
         "today": found.today,
         "cursor": found.cursor,
         "filters": asdict(filters),
-        "members": [
-            member_out(m) for m in selectors.active_members(db, owner=viewer.owner)
-        ],
+        "members": team_out(db, viewer),
         "ads": selectors.board_ads(db, viewer=viewer, now=now),
     }
 
@@ -251,7 +306,9 @@ def column(
 
 
 @router.get("/cards/{pk}", responses={200: {"model": CardViewOut}})
-def card(pk: uuid.UUID, db: Db, viewer: Viewer = Depends(crm_viewer)) -> dict[str, Any]:
+def card(
+    pk: uuid.UUID, db: Db, viewer: Viewer = Depends(card_viewer)
+) -> dict[str, Any]:
     view = selectors.card_view(db, viewer=viewer, card_id=str(pk))
     if view is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
@@ -270,6 +327,7 @@ def card(pk: uuid.UUID, db: Db, viewer: Viewer = Depends(crm_viewer)) -> dict[st
         ],
         "stages": [stage_out(s) for s in view.stages],
         "members": [member_out(m) for m in view.members],
+        "pair": viewer.pair.key if viewer.pair is not None else None,
         "reasons": [{"id": str(r.id), "name": r.name} for r in view.reasons],
         "currency": view.currency,
         "can_work": view.can_work,
@@ -310,13 +368,15 @@ class AssignIn(BaseModel):
 
 
 @router.post("/cards/{pk}/take", responses={200: {"model": CardOut}})
-def take(pk: uuid.UUID, db: Db, viewer: Viewer = Depends(crm_viewer)) -> dict[str, Any]:
+def take(
+    pk: uuid.UUID, db: Db, viewer: Viewer = Depends(card_viewer)
+) -> dict[str, Any]:
     return _done(db, services.take_card(db, viewer=viewer, card_id=str(pk)))
 
 
 @router.post("/cards/{pk}/move", responses={200: {"model": CardOut}})
 def move(
-    pk: uuid.UUID, body: MoveIn, db: Db, viewer: Viewer = Depends(crm_viewer)
+    pk: uuid.UUID, body: MoveIn, db: Db, viewer: Viewer = Depends(card_viewer)
 ) -> dict[str, Any]:
     return _done(
         db, services.move_card(db, viewer=viewer, card_id=str(pk), stage_id=body.to)
@@ -325,7 +385,7 @@ def move(
 
 @router.post("/cards/{pk}/note", responses={200: {"model": CardOut}})
 def note(
-    pk: uuid.UUID, body: TextIn, db: Db, viewer: Viewer = Depends(crm_viewer)
+    pk: uuid.UUID, body: TextIn, db: Db, viewer: Viewer = Depends(card_viewer)
 ) -> dict[str, Any]:
     return _done(
         db, services.note_card(db, viewer=viewer, card_id=str(pk), text=body.text)
@@ -334,14 +394,14 @@ def note(
 
 @router.post("/cards/{pk}/no-answer", responses={200: {"model": CardOut}})
 def no_answer(
-    pk: uuid.UUID, db: Db, viewer: Viewer = Depends(crm_viewer)
+    pk: uuid.UUID, db: Db, viewer: Viewer = Depends(card_viewer)
 ) -> dict[str, Any]:
     return _done(db, services.mark_no_answer(db, viewer=viewer, card_id=str(pk)))
 
 
 @router.post("/cards/{pk}/due", responses={200: {"model": CardOut}})
 def due(
-    pk: uuid.UUID, body: DueIn, db: Db, viewer: Viewer = Depends(crm_viewer)
+    pk: uuid.UUID, body: DueIn, db: Db, viewer: Viewer = Depends(card_viewer)
 ) -> dict[str, Any]:
     return _done(
         db,
@@ -353,14 +413,14 @@ def due(
 
 @router.post("/cards/{pk}/due/done", responses={200: {"model": CardOut}})
 def due_done(
-    pk: uuid.UUID, db: Db, viewer: Viewer = Depends(crm_viewer)
+    pk: uuid.UUID, db: Db, viewer: Viewer = Depends(card_viewer)
 ) -> dict[str, Any]:
     return _done(db, services.finish_due(db, viewer=viewer, card_id=str(pk)))
 
 
 @router.post("/cards/{pk}/win", responses={200: {"model": CardOut}})
 def win(
-    pk: uuid.UUID, body: WinIn, db: Db, viewer: Viewer = Depends(crm_viewer)
+    pk: uuid.UUID, body: WinIn, db: Db, viewer: Viewer = Depends(card_viewer)
 ) -> dict[str, Any]:
     return _done(
         db,
@@ -372,7 +432,7 @@ def win(
 
 @router.post("/cards/{pk}/lose", responses={200: {"model": CardOut}})
 def lose(
-    pk: uuid.UUID, body: LoseIn, db: Db, viewer: Viewer = Depends(crm_viewer)
+    pk: uuid.UUID, body: LoseIn, db: Db, viewer: Viewer = Depends(card_viewer)
 ) -> dict[str, Any]:
     return _done(
         db,
@@ -384,7 +444,7 @@ def lose(
 
 @router.post("/cards/{pk}/assign", responses={200: {"model": CardOut}})
 def assign(
-    pk: uuid.UUID, body: AssignIn, db: Db, viewer: Viewer = Depends(owner_viewer)
+    pk: uuid.UUID, body: AssignIn, db: Db, viewer: Viewer = Depends(card_owner_viewer)
 ) -> dict[str, Any]:
     return _done(
         db,
@@ -415,9 +475,9 @@ def first_password(body: PasswordIn, db: Db, user: CurrentUser) -> dict[str, boo
 
 def _settings(db: Session, viewer: Viewer) -> dict[str, Any]:
     owner = viewer.owner
-    setup = selectors.setup_of(db, owner=owner)
-    stages = selectors.stages_of(db, owner=owner)
-    return {
+    setup = selectors.setup_of(db, scope=viewer.scope)
+    stages = selectors.stages_of(db, scope=viewer.scope)
+    return pairs_out(viewer) | {
         "setup": {
             "state": setup.state,
             "step": setup.step,
@@ -433,17 +493,18 @@ def _settings(db: Session, viewer: Viewer) -> dict[str, Any]:
         if setup
         else None,
         "stages": [stage_out(s) for s in stages],
-        "members": [
-            member_out(m) for m in selectors.members_of(db, owner=owner) if m.is_active
-        ],
+        "members": team_out(db, viewer),
         "reasons": [
             {"id": str(r.id), "name": r.name}
-            for r in selectors.reasons_of(db, owner=owner)
+            for r in selectors.reasons_of(db, scope=viewer.scope)
         ],
         "ads": [
             asdict(option)
             for option in selectors.lead_ads(
-                db, owner=owner, since=setup.leads_since if setup else None
+                db,
+                owner=owner,
+                pair=viewer.pair,
+                since=setup.leads_since if setup else None,
             )
         ],
         "presets": [
@@ -491,14 +552,15 @@ def setup_step(
 ) -> dict[str, Any]:
     if step not in STEPS:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
-    setup = selectors.setup_of(db, owner=viewer.owner)
+    services.require_pair(viewer)
+    setup = selectors.setup_of(db, scope=viewer.scope)
     if step > (setup.step if setup else 1):
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail={"step": setup.step if setup else 1}
         )
     placed = 0
     if step == 1:
-        if not selectors.stages_of(db, owner=viewer.owner):
+        if not selectors.stages_of(db, scope=viewer.scope):
             columns: list[str | tuple[str, str]] = []
             ticked = set(body.presets)
             for key in body.columns:
@@ -634,7 +696,10 @@ def member_add(
         kpi_percent=body.kpi_percent,
     )
     db.commit()
-    return member_out(member)
+    return member_out(
+        member,
+        seated=member.id in selectors.seated_ids(db, owner=viewer.owner, at=utcnow()),
+    )
 
 
 @router.put("/settings/members/{pk}", responses={200: {"model": MemberOut}})
