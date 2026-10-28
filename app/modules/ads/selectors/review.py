@@ -126,6 +126,7 @@ def review_state(
         "progress": launch.progress,
         "error_code": launch.error_code,
         "error_message": launch.error_message,
+        "error_detail": dict(launch.error_detail or {}),
         "preparing": preparing(launch=launch, now=now, shown=shown)
         if status == LaunchStatus.BUILDING
         else None,

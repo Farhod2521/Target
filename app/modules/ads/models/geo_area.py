@@ -32,7 +32,7 @@ class GeoArea(Base):
     position: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # -- django extras --
-    parent: Mapped["GeoArea | None"] = relationship(foreign_keys=[parent_id], lazy="select")  # noqa: F821
+    parent: Mapped["GeoArea | None"] = relationship(foreign_keys=[parent_id], remote_side=[id], lazy="select")  # noqa: F821
     @property
     def name(self) -> str:
         by_language = {"ru": self.name_ru, "en": self.name_en}

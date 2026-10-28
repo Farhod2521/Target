@@ -28,6 +28,7 @@ from app.common.cache import cache
 from app.common.config import settings
 from app.common.crypto import decrypt
 from app.common.db import on_commit, utcnow
+from app.common.deletion import delete_rows
 from app.common.exceptions import DecryptionFailed, DomainError
 from app.common.trace import NoTrace
 from app.modules.accounts.models import User
@@ -1004,9 +1005,7 @@ def purge_raw_events(db: Session, *, before: datetime) -> int:
         )
         if not keys:
             break
-        removed += db.execute(
-            delete(RawLeadEvent).where(RawLeadEvent.id.in_(keys))
-        ).rowcount
+        removed += delete_rows(db, RawLeadEvent.__table__, RawLeadEvent.id.in_(keys))
         db.commit()
     return removed
 

@@ -144,6 +144,13 @@ def test_the_wizard_from_plan_to_review(
     )
     assert polled.json()["state"]["tries"] == 3
 
+    launch.error_detail = {"title": "Rasm rad etildi", "message": "Boshqasini tanlang"}
+    db.commit()
+    detail = client.get(f"/api/v1/launch/{launch_id}/review/state", headers=auth)
+    assert detail.json()["state"]["error_detail"]["title"] == "Rasm rad etildi"
+    launch.error_detail = {}
+    db.commit()
+
     launch.status = "ready"
     launch.targeting = {"geo_locations": {"countries": ["UZ"]}}
     db.commit()

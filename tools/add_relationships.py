@@ -44,9 +44,13 @@ def patch(path: Path, tables: dict[str, str]) -> int:
             continue
         model = tables[target.group(1)]
         optional = " | None" if "None" in kind else ""
+        # A row pointing at its own table: without remote_side the relationship
+        # reads the rows pointing at this one - the child, not the parent.
+        own = re.search(rf"^class {model}\(", text, re.M)
+        remote = "remote_side=[id], " if own else ""
         added.append(
             f'    {name}: Mapped["{model}{optional}"] = relationship('
-            f'foreign_keys=[{name}_id], lazy="select")  # noqa: F821'
+            f'foreign_keys=[{name}_id], {remote}lazy="select")  # noqa: F821'
         )
     if not added:
         return 0

@@ -15,7 +15,7 @@ from typing import Any, Final
 
 from adskit import ExternalRef, registry
 from adskit.dto import ActionResult, StatusDTO
-from adskit.errors import AccountActionRequired, ProviderError
+from adskit.errors import AccountActionRequired, PermissionDenied, ProviderError
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -25,7 +25,7 @@ from app.common.db import on_commit, utcnow
 from app.common.exceptions import DomainError
 from app.common.money import provider_money
 from app.modules.accounts.models import User
-from app.modules.ads.constants import MANAGE_LOG_PREFIX, ManagedLevel
+from app.modules.ads.constants import BLOCKED_STANDINGS, MANAGE_LOG_PREFIX, ManagedLevel
 from app.modules.ads.exceptions import (
     AccountNotConnected,
     AlreadyInState,
@@ -58,6 +58,7 @@ from app.modules.ads.services.access import target_account_and_token
 from app.modules.audit.constants import ActionStatus, ActionType, ActorType, EventName
 from app.modules.audit.models import ActionLog
 from app.modules.audit.services import emit
+from app.modules.integrations.models import AdAccount
 from core.agent import (
     AdContext,
     ObjectState,
@@ -166,11 +167,82 @@ def close_log(
     db.flush()
 
 
-def fail_log(db: Session, *, log: ActionLog, code: str, message: str) -> None:
+def fail_log(
+    db: Session,
+    *,
+    log: ActionLog,
+    code: str,
+    message: str,
+    detail: dict[str, str] | None = None,
+) -> None:
+    """``detail`` is what the provider wrote for the advertiser, quoted under
+    the screen's own sentence."""
     log.status = str(ActionStatus.FAILED)
     log.error_code = code[:32]
     log.error_message = message
+    if detail:
+        log.result_payload = {**(log.result_payload or {}), **detail}
     db.commit()
+
+
+# A provider's refusal by class name, so adding a provider never means
+# importing its exceptions here. Anything not named is a refusal.
+PROVIDER_FAILURES: Final[dict[str, str]] = {
+    "AuthFailed": "reconnect",
+    "PermissionDenied": "permission",
+    "AccountActionRequired": "account_action",
+    "PaymentMethodMissing": "payment_missing",
+    "RateLimited": "temporary",
+    "TemporaryFailure": "temporary",
+    "NotFound": "not_found",
+}
+
+
+def fail_provider(
+    db: Session, *, log: ActionLog, exc: ProviderError, account: AdAccount | None
+) -> None:
+    """A refusal under the word the screen reads; the provider's own code goes
+    into the message. A refused write on a blocked account is the account's,
+    not the profile's: Meta answers both with the same permission error."""
+    code = PROVIDER_FAILURES.get(type(exc).__name__, "refused")
+    if (
+        code == "permission"
+        and account is not None
+        and (account.may_advertise is False or account.standing in BLOCKED_STANDINGS)
+    ):
+        code = "account_blocked"
+    fail_log(
+        db,
+        log=log,
+        code=code,
+        message=f"[{exc.code}] {exc}" if exc.code else str(exc),
+        detail={
+            key: value
+            for key, value in (
+                ("user_title", exc.user_title),
+                ("user_message", exc.user_message),
+            )
+            if value
+        },
+    )
+
+
+def refused_by_provider(
+    db: Session,
+    *,
+    log: ActionLog,
+    exc: ProviderError,
+    account: AdAccount,
+    port: Any,
+    token: str,
+) -> None:
+    """Record the refusal; a permission refusal reads the account's money first,
+    so a blocked account is told apart from a missing role."""
+    if isinstance(exc, PermissionDenied):
+        from app.modules.ads.services.stops import refresh_account_state
+
+        refresh_account_state(db, ad_account=account, campaigns=port, token=token)
+    fail_provider(db, log=log, exc=exc, account=account)
 
 
 # -- the gate ---------------------------------------------------------------------------
@@ -757,7 +829,9 @@ def apply_change(db: Session, *, log_id: str) -> str:
         port = provider.campaigns
         before = port.get_status(ref=ref, token=token)
     except ProviderError as exc:
-        fail_log(db, log=log, code=exc.code or "read", message=str(exc))
+        refused_by_provider(
+            db, log=log, exc=exc, account=account, port=port, token=token
+        )
         return "failed"
     except Exception as exc:
         logger.exception("change %s could not be prepared", log.id)
@@ -782,7 +856,9 @@ def apply_change(db: Session, *, log_id: str) -> str:
             from app.modules.integrations.services import note_action_required
 
             note_action_required(db, connection=account.connection)
-        fail_log(db, log=log, code=exc.code or "write", message=str(exc))
+        refused_by_provider(
+            db, log=log, exc=exc, account=account, port=provider.campaigns, token=token
+        )
         return "failed"
     except Exception as exc:
         logger.exception("change %s failed unexpectedly", log.id)

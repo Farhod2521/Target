@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.common.config import settings
 from app.common.dates import date_format, localtime
 from app.common.db import on_commit, utcnow
+from app.common.deletion import delete_rows
 from app.common.money import format_minor, to_minor
 from app.common.passwords import PasswordInvalid, validate_password
 from app.modules.accounts.exceptions import EmailTaken as LoginTaken
@@ -1337,8 +1338,8 @@ def delete_reason(db: Session, *, viewer: Viewer, reason_id: str) -> None:
     if reason is None:
         raise NotConfigured
     name = reason.name
-    db.delete(reason)
-    db.flush()
+    delete_rows(db, CrmLostReason.__table__, CrmLostReason.id == reason.id)
+    db.expunge(reason)
     record_config(
         db,
         owner=viewer.owner,

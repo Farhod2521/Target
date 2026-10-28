@@ -7,6 +7,7 @@ from app.modules.ads.models import Campaign
 from app.modules.ads.selectors.actions import latest_actions, still_running
 from app.modules.ads.selectors.controls import controls_for
 from app.modules.ads.selectors.early_touch import early_hours_on, young_launches
+from app.modules.ads.selectors.failures import recent_delete_failure
 from app.modules.audit.constants import ActionType
 
 __all__ = ["with_controls", "with_switches"]
@@ -25,7 +26,8 @@ def with_switches(
     actions = latest_actions(
         db, owner=owner, external_ids=[row for ids in watched.values() for row in ids]
     )
-    young = young_launches(db, owner=owner, now=utcnow())
+    now = utcnow()
+    young = young_launches(db, owner=owner, now=now)
     for campaign in campaigns:
         campaign.early_hours = early_hours_on(
             target=campaign, level=ManagedLevel.CAMPAIGN, young=young
@@ -45,6 +47,9 @@ def with_switches(
             and last.action == ActionType.DELETE_CAMPAIGN
             and still_running([last])
         )
+        campaign.delete_failure = recent_delete_failure(
+            action=last, target=campaign, level=ManagedLevel.CAMPAIGN, now=now
+        )
     return campaigns
 
 
@@ -60,7 +65,8 @@ def with_controls(db: Session, *, owner: User, campaign: Campaign) -> Campaign:
             *(a.external_id for a in ads),
         ],
     )
-    young = young_launches(db, owner=owner, now=utcnow())
+    now = utcnow()
+    young = young_launches(db, owner=owner, now=now)
     for row, at in (
         (campaign, ManagedLevel.CAMPAIGN),
         *((adset, ManagedLevel.ADSET) for adset in adsets),
@@ -77,6 +83,9 @@ def with_controls(db: Session, *, owner: User, campaign: Campaign) -> Campaign:
             and adset.last_action.action == ActionType.DELETE_ADSET
             and still_running([adset.last_action])
         )
+        adset.delete_failure = recent_delete_failure(
+            action=adset.last_action, target=adset, level=ManagedLevel.ADSET, now=now
+        )
         adset.is_last = len(adsets) == 1
     for ad in ads:
         last = actions.get(ad.external_id)
@@ -86,6 +95,9 @@ def with_controls(db: Session, *, owner: User, campaign: Campaign) -> Campaign:
             last is not None
             and last.action == ActionType.DELETE_AD
             and still_running([last])
+        )
+        ad.delete_failure = recent_delete_failure(
+            action=last, target=ad, level=ManagedLevel.AD, now=now
         )
         ad.is_last = len(ad.adset.ads) == 1
     return campaign

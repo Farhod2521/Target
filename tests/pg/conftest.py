@@ -5,6 +5,7 @@ own, e.g. ``postgresql+psycopg://t:t@localhost:55432/t``.
 """
 
 import os
+import re
 from collections.abc import Iterator
 from datetime import timedelta
 
@@ -23,6 +24,34 @@ URL = os.environ.get("TEST_DATABASE_URL", "")
 pytestmark = pytest.mark.skipif(not URL, reason="TEST_DATABASE_URL is not set")
 
 
+def django_foreign_keys(engine) -> None:  # type: ignore[no-untyped-def]
+    """Every foreign key the way Django built production's: NO ACTION, checked
+    at commit. ``create_all`` would follow the models' CASCADE and SET NULL,
+    which that database never had, and hide every delete that forgets the
+    rows pointing at it."""
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT conrelid::regclass::text, conname, pg_get_constraintdef(oid) "
+                "FROM pg_constraint WHERE contype = 'f'"
+            )
+        ).all()
+        for table, name, definition in rows:
+            plain = re.sub(
+                r"\s+(ON (DELETE|UPDATE) (SET NULL|SET DEFAULT|NO ACTION|CASCADE|"
+                r"RESTRICT)|(NOT )?DEFERRABLE|INITIALLY (DEFERRED|IMMEDIATE))",
+                "",
+                definition,
+            )
+            conn.execute(text(f'ALTER TABLE {table} DROP CONSTRAINT "{name}"'))
+            conn.execute(
+                text(
+                    f'ALTER TABLE {table} ADD CONSTRAINT "{name}" {plain} '
+                    "DEFERRABLE INITIALLY DEFERRED"
+                )
+            )
+
+
 @pytest.fixture(scope="session")
 def pg_engine():  # type: ignore[no-untyped-def]
     if not URL:
@@ -30,6 +59,7 @@ def pg_engine():  # type: ignore[no-untyped-def]
     engine = create_engine(URL)
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    django_foreign_keys(engine)
     yield engine
     engine.dispose()
 

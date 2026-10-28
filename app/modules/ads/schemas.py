@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.modules.ads.selectors.built import BuiltCampaignType, BuiltConversionEvent
 from app.modules.ads.selectors.controls import Controls
 from app.modules.ads.selectors.editable import AdContent
+from app.modules.ads.selectors.failures import FailureNote
 from app.modules.ads.selectors.row_settings import RowSettings
 
 
@@ -51,6 +52,9 @@ class RowOut(BaseModel):
     controls: Controls | None = Field(description="Which switches this row offers.")
     last_action: ActionOut | None
     deleting: bool
+    delete_failure: FailureNote | None = Field(
+        description="A delete pressed within the hour that did not go through."
+    )
     synced_at: datetime | None
 
 
@@ -238,6 +242,12 @@ class ControlStateOut(BaseModel):
         description="Rows above and below that it moves."
     )
     polling: bool = Field(description="A change is pending: ask `.../state` again.")
+    stalled: bool = Field(
+        description="Polls ran out with the change still pending: say it is slow."
+    )
+    failure: FailureNote | None = Field(
+        description="Why the latest change on this row failed, when it did."
+    )
     tries: int = Field(description="Pass back as `tries`.")
     poll_seconds: int
     refusal: str = Field(description="Why the change was refused; empty if it was not.")

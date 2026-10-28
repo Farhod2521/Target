@@ -2,6 +2,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -16,10 +17,8 @@ _bearer = HTTPBearer(auto_error=False)
 CRM_MEMBER_PATHS = ("/api/v1/crm", "/api/v1/auth", "/api/v1/account/language")
 
 
-def current_user(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
-    db: Session = Depends(get_db),
+def signed_in(
+    request: Request, credentials: HTTPAuthorizationCredentials | None, db: Session
 ) -> User:
     refused = HTTPException(
         status.HTTP_401_UNAUTHORIZED,
@@ -39,15 +38,12 @@ def current_user(
         CRM_MEMBER_PATHS
     ):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Faqat CRM doskasi.")
-    activate(user.language)
     return user
 
 
-def optional_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
-    db: Session = Depends(get_db),
+def _bearer_user(
+    credentials: HTTPAuthorizationCredentials | None, db: Session
 ) -> User | None:
-    """The reader when a valid bearer came with the request, else None."""
     subject = (
         tokens.read(credentials.credentials, kind="access") if credentials else None
     )
@@ -57,7 +53,29 @@ def optional_user(
         return None
     if user is None or not user.is_active:
         return None
+    return user
+
+
+# Async on purpose: a sync dependency runs in a worker thread, and the language
+# it sets there never reaches the endpoint. The database read stays threaded.
+async def current_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    db: Session = Depends(get_db),
+) -> User:
+    user = await run_in_threadpool(signed_in, request, credentials, db)
     activate(user.language)
+    return user
+
+
+async def optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """The reader when a valid bearer came with the request, else None."""
+    user = await run_in_threadpool(_bearer_user, credentials, db)
+    if user is not None:
+        activate(user.language)
     return user
 
 

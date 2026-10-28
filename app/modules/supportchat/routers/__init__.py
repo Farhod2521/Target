@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import set_committed_value
 
-from app.api.deps import CurrentUser, Db, current_user
+from app.api.deps import CurrentUser, Db, signed_in
 from app.common.db import get_db, utcnow
 from app.common.exceptions import NotFound
 from app.modules.accounts.models import User
@@ -102,7 +102,7 @@ def file_reader(
     credentials = (
         HTTPAuthorizationCredentials(scheme="Bearer", credentials=raw) if raw else None
     )
-    return current_user(request, credentials, db)
+    return signed_in(request, credentials, db)
 
 
 FileReader = Annotated[User, Depends(file_reader)]

@@ -17,13 +17,14 @@ from metaads.creatives import (
 )
 from metaads.dto import MediaDTO
 from metaads.errors import MetaError
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, select, update
 from sqlalchemy.exc import DatabaseError, DataError
 from sqlalchemy.orm import Session
 
 from app.common import throttle
 from app.common.crypto import decrypt
 from app.common.db import on_commit, utcnow
+from app.common.deletion import delete_rows
 from app.common.exceptions import DecryptionFailed
 from app.modules.accounts.models import User
 from app.modules.ads.constants import (
@@ -280,17 +281,17 @@ def _store(
                 (instagram_user_id, "") if own else (instagram_user_id,)
             )
         )
-    db.execute(
-        delete(MediaAsset)
-        .where(
+    delete_rows(
+        db,
+        MediaAsset.__table__,
+        and_(
             MediaAsset.owner_id == owner.id,
             MediaAsset.provider == PROVIDER,
             MediaAsset.kind.in_([str(k) for k in kinds]),
             MediaAsset.created_at < read_at,
             MediaAsset.external_id.not_in(seen),
             *scope,
-        )
-        .execution_options(synchronize_session=False)
+        ),
     )
     db.commit()
 

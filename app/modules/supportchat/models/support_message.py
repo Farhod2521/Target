@@ -35,4 +35,4 @@ class SupportMessage(Base):
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
     conversation: Mapped["SupportConversation"] = relationship(foreign_keys=[conversation_id], lazy="select")  # noqa: F821
     sender: Mapped["User | None"] = relationship(foreign_keys=[sender_id], lazy="select")  # noqa: F821
-    reply_to: Mapped["SupportMessage | None"] = relationship(foreign_keys=[reply_to_id], lazy="select")  # noqa: F821
+    reply_to: Mapped["SupportMessage | None"] = relationship(foreign_keys=[reply_to_id], remote_side=[id], lazy="select")  # noqa: F821

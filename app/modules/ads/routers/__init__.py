@@ -56,6 +56,10 @@ TRIES_Q = Query(0, ge=0, description="The last answer's `tries`.")
 # -- drawing rows --------------------------------------------------------------------
 
 
+def _note(note: Any | None) -> dict[str, Any] | None:
+    return asdict(note) if note is not None else None
+
+
 def _action(row: Any | None) -> dict[str, Any] | None:
     if row is None:
         return None
@@ -95,6 +99,7 @@ def _base(row: Any) -> dict[str, Any]:
         "controls": _controls(row),
         "last_action": _action(getattr(row, "last_action", None)),
         "deleting": getattr(row, "deleting", False),
+        "delete_failure": _note(getattr(row, "delete_failure", None)),
         "synced_at": row.synced_at,
     }
 
@@ -525,6 +530,7 @@ def control_state(
     tries: int = 0,
     refusal: str = "",
 ) -> dict[str, Any]:
+    from app.modules.ads.selectors.failures import failure_note
     from app.modules.audit.constants import ActionStatus
 
     target = _target(db, user, level, external_id)
@@ -534,12 +540,14 @@ def control_state(
         owner=user,
         external_ids=[external_id, *(obj.external_id for _at, obj in beside)],
     )
+    pending = any(row.status == ActionStatus.PENDING for row in actions.values())
+    action = actions.get(external_id)
     return {
         "level": level,
         "external_id": external_id,
         "delivery": target.delivery,
         "controls": asdict(selectors.controls_for(target=target, level=level)),
-        "action": _action(actions.get(external_id)),
+        "action": _action(action),
         "clusters": [
             {
                 "level": at,
@@ -550,8 +558,13 @@ def control_state(
             }
             for at, obj in beside
         ],
-        "polling": any(row.status == ActionStatus.PENDING for row in actions.values())
-        and tries < MAX_ACTION_POLLS,
+        "polling": pending and tries < MAX_ACTION_POLLS,
+        "stalled": pending and tries >= MAX_ACTION_POLLS,
+        "failure": _note(
+            failure_note(action=action, target=target, level=level)
+            if action is not None and action.status == ActionStatus.FAILED
+            else None
+        ),
         "tries": tries + 1,
         "poll_seconds": ACTION_POLL_SECONDS,
         "refusal": refusal,

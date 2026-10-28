@@ -202,6 +202,7 @@ def _common(launch: GoogleLaunch) -> dict[str, Any]:
         "places": launch.places,
         "error_code": launch.error_code,
         "failure": GOOGLE_FAILURES.get(launch.error_code, ""),
+        "dry_run": launch.dry_run,
         "ai_written_at": launch.ai_written_at,
         "created_refs": launch.created_refs,
         "finished_at": launch.finished_at,

@@ -2,22 +2,23 @@
 
 The production database was built by Django: ``adsets.campaign_id`` and
 ``ads.adset_id`` are NO ACTION, DEFERRABLE INITIALLY DEFERRED, because
-Django's CASCADE lived in its ORM. ``create_all`` would make them CASCADE
-and hide every delete that forgets the rows beneath it, so these tests put
-Django's constraints back first.
+Django's CASCADE lived in its ORM. ``tests/pg/conftest.py`` builds every
+foreign key that way.
 """
 
-from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from adskit.dto import ActionResult, StatusDTO
+from adskit.dto import AccountStateDTO, ActionResult, StatusDTO
+from adskit.errors import NotFound, PermissionDenied
 from adskit.refs import ExternalRef
+from fastapi.testclient import TestClient
 from metaads import PROVIDER
-from sqlalchemy import Engine, func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.common import tokens
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.ads.constants import ManagedLevel
@@ -28,38 +29,6 @@ from app.modules.audit.models import ActionLog
 from app.modules.integrations.models import AdAccount
 from tests.pg.test_ads_manage import _mirror
 from tests.pg.test_cabinet_flows import _cabinet
-
-LINKS = [("adsets", "campaign_id", "campaigns"), ("ads", "adset_id", "adsets")]
-
-
-def _relink(engine: Engine, *, cascade: bool) -> None:
-    rule = "ON DELETE CASCADE" if cascade else "DEFERRABLE INITIALLY DEFERRED"
-    with engine.begin() as conn:
-        for table, column, parent in LINKS:
-            name = conn.execute(
-                text(
-                    "SELECT conname FROM pg_constraint WHERE contype = 'f' "
-                    "AND conrelid = CAST(:t AS regclass) "
-                    "AND confrelid = CAST(:p AS regclass)"
-                ),
-                {"t": table, "p": parent},
-            ).scalar_one()
-            conn.execute(text(f'ALTER TABLE {table} DROP CONSTRAINT "{name}"'))
-            conn.execute(
-                text(
-                    f'ALTER TABLE {table} ADD CONSTRAINT "{name}" FOREIGN KEY '
-                    f"({column}) REFERENCES {parent} (id) {rule}"
-                )
-            )
-
-
-@pytest.fixture
-def django_links(pg_engine: Engine, db: Session) -> Iterator[None]:
-    _relink(pg_engine, cascade=False)
-    yield
-    # The test's session still holds its locks; ALTER TABLE would wait on it.
-    db.close()
-    _relink(pg_engine, cascade=True)
 
 
 def _owner_with_mirror(db: Session) -> tuple[User, AdAccount]:
@@ -130,7 +99,7 @@ def _signed_in(
 
 
 def test_a_sync_forgets_a_campaign_with_everything_under_it(
-    db: Session, django_links: None
+    db: Session,
 ) -> None:
     _owner, account = _owner_with_mirror(db)
 
@@ -140,7 +109,7 @@ def test_a_sync_forgets_a_campaign_with_everything_under_it(
 
 
 def test_a_deleted_campaign_takes_its_groups_and_ads_with_it(
-    db: Session, django_links: None, monkeypatch: pytest.MonkeyPatch
+    db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     owner, account = _owner_with_mirror(db)
     _provider(monkeypatch, removal, ok=True)
@@ -155,7 +124,7 @@ def test_a_deleted_campaign_takes_its_groups_and_ads_with_it(
 
 
 def test_a_delete_meta_refused_quietly_keeps_the_mirror(
-    db: Session, django_links: None, monkeypatch: pytest.MonkeyPatch
+    db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     owner, account = _owner_with_mirror(db)
     _provider(monkeypatch, removal, ok=False)
@@ -229,3 +198,107 @@ def test_a_creative_swap_that_lands_is_saved(
 
     with pg_factory() as fresh:
         assert fresh.get(ActionLog, log_id).status == ActionStatus.APPLIED
+
+
+class RefusingCampaigns(FakeCampaigns):
+    """Meta refusing the delete, and reading the account when asked."""
+
+    def __init__(self, error: Exception, *, standing: str = "active") -> None:
+        super().__init__(ok=True)
+        self.error = error
+        self.standing = standing
+        self.reads = 0
+
+    def delete(self, *, ref: ExternalRef, **_: Any) -> ActionResult:
+        raise self.error
+
+    def set_status(self, *, ref: ExternalRef, **_: Any) -> ActionResult:
+        raise self.error
+
+    def read_account(self, *, account: Any, token: str) -> AccountStateDTO:
+        self.reads += 1
+        return AccountStateDTO(ref=account, standing=self.standing)
+
+
+def _refusing(monkeypatch: pytest.MonkeyPatch, module: Any, port: Any) -> None:
+    monkeypatch.setattr(
+        module,
+        "registry",
+        SimpleNamespace(get=lambda _: SimpleNamespace(campaigns=port)),
+    )
+
+
+def test_a_refused_delete_on_a_blocked_account_says_so(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, account = _owner_with_mirror(db)
+    error = PermissionDenied(
+        "(#200) no permission",
+        code="200",
+        user_title="Hisob to'xtatilgan",
+        user_message="To'lovni yangilang.",
+    )
+    port = RefusingCampaigns(error, standing="disabled_payment")
+    _refusing(monkeypatch, removal, port)
+    _signed_in(monkeypatch, removal, account)
+    log_id = _log(db, owner, ActionType.DELETE_ADSET, ManagedLevel.ADSET, "s_1")
+
+    assert removal.apply_delete(db, log_id=log_id) == "failed"
+
+    db.expire_all()
+    log = db.get(ActionLog, log_id)
+    assert port.reads == 1
+    assert db.get(AdAccount, account.id).standing == "disabled_payment"
+    assert log.error_code == "account_blocked"
+    assert log.error_message == "[200] (#200) no permission"
+    assert log.result_payload["user_title"] == "Hisob to'xtatilgan"
+    assert log.result_payload["user_message"] == "To'lovni yangilang."
+
+
+def test_a_refused_change_is_named_by_its_kind(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, account = _owner_with_mirror(db)
+    port = RefusingCampaigns(NotFound("gone", code="100"))
+    _refusing(monkeypatch, manage, port)
+    _signed_in(monkeypatch, manage, account)
+    log_id = _log(db, owner, ActionType.PAUSE, ManagedLevel.ADSET, "s_1")
+
+    assert manage.apply_change(db, log_id=log_id) == "failed"
+
+    db.expire_all()
+    log = db.get(ActionLog, log_id)
+    assert (log.error_code, port.reads) == ("not_found", 0)
+
+
+def test_the_screen_says_why_a_delete_did_not_go_through(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = User(
+        email="ads@example.com", full_name="Ads", password="!", date_joined=utcnow()
+    )
+    db.add(owner)
+    db.commit()
+    account, page = _cabinet(db, owner)
+    page.is_current = page.is_active = True
+    account.is_active = account.is_current = True
+    db.commit()
+    _mirror(db, owner, account.id)
+    port = RefusingCampaigns(
+        PermissionDenied("denied", code="200", user_message="Rol bering.")
+    )
+    _refusing(monkeypatch, removal, port)
+    _signed_in(monkeypatch, removal, account)
+    log_id = _log(db, owner, ActionType.DELETE_ADSET, ManagedLevel.ADSET, "s_1")
+    removal.apply_delete(db, log_id=log_id)
+    token = tokens.issue(subject=str(owner.id), kind="access", now=utcnow())
+
+    state = client.get(
+        "/api/v1/campaigns/manage/adset/s_1/state",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert state.status_code == 200, state.text
+    failure = state.json()["failure"]
+    assert failure["sentence"]
+    assert failure["provider_words"] == "Rol bering."

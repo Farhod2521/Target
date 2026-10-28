@@ -33,6 +33,7 @@ from app.modules.ads.services.manage import (
     fail_log,
     open_change,
     open_log,
+    refused_by_provider,
     state_payload,
     target_for,
 )
@@ -219,9 +220,7 @@ def apply_delete(db: Session, *, log_id: str) -> str:
         fail_log(db, log=log, code="gone", message="object is no longer in the mirror")
         return "gone"
     try:
-        _account, token = target_account_and_token(
-            target=target, level=log.target_level
-        )
+        account, token = target_account_and_token(target=target, level=log.target_level)
     except (NoAdAccount, ConnectionUnusable) as exc:
         fail_log(db, log=log, code="connection", message=exc.message)
         return "unusable"
@@ -229,11 +228,12 @@ def apply_delete(db: Session, *, log_id: str) -> str:
         provider=log.target_provider, level=log.target_level, id=log.target_external_id
     )
     try:
-        result = registry.get(log.target_provider).campaigns.delete(
-            ref=ref, token=token, dry_run=bool(settings.ads_dry_run)
-        )
+        port = registry.get(log.target_provider).campaigns
+        result = port.delete(ref=ref, token=token, dry_run=bool(settings.ads_dry_run))
     except ProviderError as exc:
-        fail_log(db, log=log, code=exc.code or "write", message=str(exc))
+        refused_by_provider(
+            db, log=log, exc=exc, account=account, port=port, token=token
+        )
         return "failed"
     except Exception as exc:
         # A row left PENDING locks every switch on this object behind a

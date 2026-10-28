@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.common.db import on_commit
@@ -64,9 +65,14 @@ def mark_seen(db: Session, *, owner: User, keys: frozenset[str]) -> int:
     )
     known = set(db.scalars(select(InboxSeen.key).where(InboxSeen.owner_id == owner.id)))
     fresh = sorted(keys - known)
-    for key in fresh:
-        db.add(InboxSeen(owner_id=owner.id, key=key))
-    db.flush()
+    if fresh:
+        # Two tabs can press the bell together: the later one skips what the
+        # earlier one wrote instead of failing on the unique key.
+        db.execute(
+            insert(InboxSeen)
+            .values([{"owner_id": owner.id, "key": key} for key in fresh])
+            .on_conflict_do_nothing(index_elements=["owner_id", "key"])
+        )
     return len(fresh)
 
 

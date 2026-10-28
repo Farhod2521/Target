@@ -5,13 +5,14 @@ import secrets
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.common import storage
 from app.common.cache import cache
 from app.common.db import Base, utcnow
+from app.common.deletion import ProtectedRows, delete_rows
 from app.common.passwords import make_password
 from app.modules.accounts.constants import (
     HANDOFF_TOKEN_BYTES,
@@ -20,7 +21,7 @@ from app.modules.accounts.constants import (
     PURGE_ORDER,
 )
 from app.modules.accounts.exceptions import EmailTaken
-from app.modules.accounts.models import User, UserGroup
+from app.modules.accounts.models import User
 from app.modules.audit.constants import EventName
 from app.modules.audit.services import emit
 
@@ -93,13 +94,12 @@ def remove_member_login(db: Session, *, user: User) -> bool:
     try:
         with db.begin_nested():
             purge_owned_rows(db, user=user)
-            db.execute(delete(UserGroup).where(UserGroup.user_id == user.id))
-            db.delete(user)
-            db.flush()
-    except IntegrityError:
+            delete_rows(db, User.__table__, User.id == user.id)
+    except ProtectedRows:
         user.is_active = False
         db.flush()
         return False
+    db.expunge(user)
     return True
 
 
@@ -262,13 +262,8 @@ def purge_user(db: Session, *, user: User, reason: str = "") -> PurgeReport:
     deleted = purge_owned_rows(db, user=user)
     for login in list(db.scalars(select(User).where(User.crm_owner_id == user.id))):
         purge_owned_rows(db, user=login)
-        db.execute(delete(UserGroup).where(UserGroup.user_id == login.id))
-        db.delete(login)
-    db.execute(
-        update(User).where(User.crm_owner_id == user.id).values(crm_owner_id=None)
-    )
-    db.execute(delete(UserGroup).where(UserGroup.user_id == user.id))
-    db.delete(user)
+        delete_rows(db, User.__table__, User.id == login.id)
+    delete_rows(db, User.__table__, User.id == user.id)
     db.commit()
     removed = 0
     for name in uploads:

@@ -91,7 +91,7 @@ def test_trial_then_connections_billing_and_profile(
         headers=auth,
     )
     assert saved.status_code == 200, saved.text
-    assert saved.json()["category_label"] == "Ресторан"
+    assert saved.json()["category_label"] == "Restoran"
 
     profile = client.get("/api/v1/business", headers=auth)
     assert profile.json()["business"]["direction_key"] == "restaurant"
