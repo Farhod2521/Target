@@ -100,8 +100,11 @@ turadi; `app.worker` ularni yig'adi va RedBeat (Redis) orqali yuboradi.
 Django'da `django-celery-beat` (Postgres) edi — vaqtlar uning
 `seed_schedules` buyrug'idan o'zgarishsiz olinadi, hammasi UTC.
 
-- ✅ ads: 8 ta vazifa (`app/modules/ads/schedule.py`)
-- ⏳ agent, leads, notifications, integrations, metrics va boshqalar — keyingi bosqichlarda
+- ✅ 40 ta vazifa: ads 8, leads 8, agent 6, integrations 5, metrics 4, audit 2,
+  chat 2, billing 2, sales 2, crm 1 (har modulning `schedule.py` fayli)
+- ⏳ 12 tasi vazifa kodi ko'chirilgach qo'shiladi: notifications 8 (xabarlar,
+  kunlik/haftalik hisobot, chastota, obuna tugashi, nosozlik, so'rovnoma),
+  destinations 2 (Google Sheets), montaj 1, crm `sweep_quality_task` 1
 
 Beat `compose.yaml`da `beat` profili ortida: eski Django o'chirilgandan keyin
 `docker compose --profile beat up -d beat` bilan yoqiladi. Ikkala beat bir
