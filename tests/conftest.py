@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 os.environ.setdefault("EMAIL_BACKEND", "memory")
+# The Redis cache has no clear(): its login throttle would carry over from one
+# test, and one run, to the next until every sign-in was refused.
+os.environ.setdefault("CACHE_BACKEND", "memory")
 
 from app.common import mail
 from app.common.cache import cache

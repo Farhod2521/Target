@@ -18,6 +18,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, Header, Query, Request, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -25,10 +26,14 @@ from sqlalchemy.orm import Session
 from app.api.deps import CurrentUser, Db
 from app.common import storage
 from app.common.db import utcnow
-from app.common.exceptions import DomainError, InputRefused, NotFound
+from app.common.exceptions import InputRefused, NotFound
 from app.modules.ads import draft as draft_field
-from app.modules.ads.constants import MAX_BRIEF_CHARS, LaunchStatus
-from app.modules.ads.exceptions import ChunkOutOfPlace
+from app.modules.ads.constants import (
+    MAX_BRIEF_CHARS,
+    UPLOAD_CHUNK_BYTES,
+    LaunchStatus,
+)
+from app.modules.ads.exceptions import ChunkOutOfPlace, ChunkTooLarge
 from app.modules.ads.inputs import Problems
 from app.modules.ads.inputs.media import (
     NOTHING_CHOSEN,
@@ -214,14 +219,22 @@ def media_continue(
             }
         )
 
-    def run() -> None:
-        if body.asset_ids:
-            variants.add_media(db, launch=launch, asset_ids=body.asset_ids, uploads=[])
-        if body.text is not None:
-            _save_text(db, launch=launch, text=body.text, asset_ids=body.asset_ids)
-        variants.require_ad_texts(db, launch=launch)
-
-    committed(db, run)
+    # Saved before the text gate, each on its own, as Django did: a missing
+    # sentence must not cost somebody the tiles they just ticked.
+    if body.asset_ids:
+        committed(
+            db,
+            lambda: variants.add_media(
+                db, launch=launch, asset_ids=body.asset_ids, uploads=[]
+            ),
+        )
+    if body.text is not None:
+        text = body.text
+        committed(
+            db,
+            lambda: _save_text(db, launch=launch, text=text, asset_ids=body.asset_ids),
+        )
+    variants.require_ad_texts(db, launch=launch)
     db.refresh(launch)
     if (
         not draft_field.is_written(launch.draft)
@@ -274,6 +287,19 @@ def media_upload(
     return {"detail": UPLOAD_TAKEN}
 
 
+async def _piece(request: Request) -> bytes:
+    """The body, refused as soon as it is longer than one piece may be."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > UPLOAD_CHUNK_BYTES:
+        raise ChunkTooLarge
+    data = bytearray()
+    async for part in request.stream():
+        data += part
+        if len(data) > UPLOAD_CHUNK_BYTES:
+            raise ChunkTooLarge
+    return bytes(data)
+
+
 @router.post("/{launch_id}/media/upload/chunk")
 async def media_chunk(
     launch_id: uuid.UUID,
@@ -284,12 +310,23 @@ async def media_chunk(
     total: Annotated[int, Header(alias="X-Upload-Size")] = -1,
     offset: Annotated[int, Header(alias="X-Upload-Offset")] = -1,
 ) -> Any:
-    """One piece. Answers how much of the file is here now."""
-    launch = writable_launch(db, user=user, launch_id=launch_id)
-    data = await request.body()
+    """One piece. Answers how much of the file is here now.
+
+    Async only to read the body; the query and the write to disk run in the
+    thread pool, so a slow disk holds one thread and not every request.
+    """
+    launch = await run_in_threadpool(
+        writable_launch, db, user=user, launch_id=launch_id
+    )
+    data = await _piece(request)
     try:
-        here = library.append_chunk(
-            launch=launch, upload_id=upload_id, total=total, offset=offset, data=data
+        here = await run_in_threadpool(
+            library.append_chunk,
+            launch=launch,
+            upload_id=upload_id,
+            total=total,
+            offset=offset,
+            data=data,
         )
     except ChunkOutOfPlace as exc:
         return JSONResponse(
@@ -312,10 +349,8 @@ def media_chunk_finish(
     try:
         problems.refuse()
         _take_file(db, launch=launch, upload=upload, asset_ids=body.asset_ids)
-    except DomainError:
+    finally:
         library.discard_upload(upload=upload)
-        raise
-    upload.close()
     return {"detail": UPLOAD_TAKEN}
 
 

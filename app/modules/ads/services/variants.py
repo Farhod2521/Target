@@ -160,11 +160,14 @@ def _create(
         **_words(db, launch, position, media_asset),
     )
     if upload is not None:
+        folder = storage.dated(UPLOAD_FOLDER, now=utcnow())
+        filename = upload.filename or "upload"
+        assembled = getattr(upload, "path", None)
         try:
-            row.media_upload = storage.save(
-                upload.file,
-                folder=storage.dated(UPLOAD_FOLDER, now=utcnow()),
-                filename=upload.filename or "upload",
+            row.media_upload = (
+                storage.move(assembled, folder=folder, filename=filename)
+                if assembled is not None
+                else storage.save(upload.file, folder=folder, filename=filename)
             )
         except OSError as exc:
             logger.exception("media.upload_failed", extra={"launch": str(launch.id)})

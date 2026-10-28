@@ -1,5 +1,6 @@
 """Files on disk under MEDIA_ROOT, named the way Django's FileField names them."""
 
+import os
 import shutil
 import uuid
 from datetime import datetime
@@ -22,10 +23,7 @@ def dated(folder: str, *, now: datetime) -> str:
     return now.strftime(folder)
 
 
-def save(
-    stream: BinaryIO, *, folder: str, filename: str, keep_name: bool = False
-) -> str:
-    """Write ``stream`` under ``folder`` and return the stored name, Django-style."""
+def _free_name(*, folder: str, filename: str, keep_name: bool) -> tuple[str, Path]:
     suffix = PurePath(filename).suffix.lower()[:8]
     stem = PurePath(filename).stem[:80] if keep_name else uuid.uuid4().hex
     name = f"{folder.strip('/')}/{stem}{suffix}"
@@ -34,8 +32,28 @@ def save(
         name = f"{folder.strip('/')}/{stem}_{uuid.uuid4().hex[:7]}{suffix}"
         path = media_path(name)
     path.parent.mkdir(parents=True, exist_ok=True)
+    return name, path
+
+
+def save(
+    stream: BinaryIO, *, folder: str, filename: str, keep_name: bool = False
+) -> str:
+    """Write ``stream`` under ``folder`` and return the stored name, Django-style."""
+    name, path = _free_name(folder=folder, filename=filename, keep_name=keep_name)
     with path.open("wb") as out:
         shutil.copyfileobj(stream, out)
+    return name
+
+
+def move(source: Path, *, folder: str, filename: str, keep_name: bool = False) -> str:
+    """Like :func:`save`, for a file already under MEDIA_ROOT: renamed, not copied.
+
+    What a file assembled from pieces takes: a rename on the same disk is
+    instant and leaves no second copy behind, where a copy of a 200 MB video
+    doubles it until somebody deletes the original.
+    """
+    name, path = _free_name(folder=folder, filename=filename, keep_name=keep_name)
+    os.replace(source, path)
     return name
 
 

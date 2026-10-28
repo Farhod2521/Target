@@ -126,6 +126,16 @@ class ChunkRefused(DomainError):
         )
 
 
+class ChunkTooLarge(DomainError):
+    status_code = 413
+    code = "chunk_too_large"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Faylning bir qismi juda katta keldi. Sahifani yangilab, qayta urinib ko'ring."
+        )
+
+
 class UploadIncomplete(DomainError):
     def __init__(self) -> None:
         super().__init__(
