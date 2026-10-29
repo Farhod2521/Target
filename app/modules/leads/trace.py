@@ -36,7 +36,7 @@ def record_delivery(trace: LeadTrace, *, event: Any) -> None:
     trace.inputs(
         "qator",
         {
-            "id": str(event.pk),
+            "id": str(event.id),
             "provider": event.provider,
             "signature_valid": event.signature_valid,
             "page_external_id": event.page_external_id,
@@ -59,7 +59,7 @@ def record_route(trace: LeadTrace, *, page: Any, adset: str = "") -> None:
     trace.decision(
         "sahifa",
         {
-            "page_id": str(page.pk),
+            "page_id": str(page.id),
             "page_external_id": page.external_id,
             "page_name": page.name,
             "owner_id": str(page.owner_id),
@@ -132,7 +132,7 @@ def record_row(trace: LeadTrace, *, row: Any) -> None:
     trace.decision(
         "Lead",
         {
-            "id": str(row.pk),
+            "id": str(row.id),
             "owner_id": str(row.owner_id),
             "provider": row.provider,
             "leadgen_id": row.leadgen_id,
