@@ -1,7 +1,8 @@
 """The agent over HTTP, and its nightly services on a cabinet with no figures."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 from metaads import PROVIDER
 from sqlalchemy import select
@@ -241,3 +242,35 @@ def test_the_readers_over_a_launched_group_with_figures(
     log = db.scalar(select(ActionLog).where(ActionLog.target_external_id == "s_1"))
     assert log is not None and AUTO_STOP_MARK in log.request_payload
     assert "sarflandi" in log.reason
+
+
+def test_frequency_is_read_at_nine_on_the_owner_s_clock_with_a_subscription(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from contextlib import contextmanager
+
+    from app.modules.agent import tasks
+
+    _, user = _owner(client, db)
+    account, _ = _cabinet(db, user)
+    account.is_current = account.is_active = True
+    db.commit()
+    queued: list[str] = []
+    monkeypatch.setattr(tasks, "task_session", contextmanager(lambda: iter([db])))
+    monkeypatch.setattr(tasks.check_frequency_task, "delay", queued.append)
+
+    # 04:05 UTC is 09:05 in Tashkent, the account's clock; 05:05 is ten.
+    monkeypatch.setattr(
+        tasks, "utcnow", lambda: datetime(2026, 10, 29, 5, 5, tzinfo=UTC)
+    )
+    assert tasks.check_all_frequency() == 0
+    monkeypatch.setattr(
+        tasks, "utcnow", lambda: datetime(2026, 10, 29, 4, 5, tzinfo=UTC)
+    )
+    assert tasks.check_all_frequency() == 1
+    assert queued == [str(user.id)]
+
+    monkeypatch.setattr(tasks, "check_frequency", lambda db, owner, now: [owner])
+    assert tasks.check_frequency_task(str(user.id)) == 0
+    start_trial(db, user=user, now=utcnow())
+    assert tasks.check_frequency_task(str(user.id)) == 1

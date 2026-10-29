@@ -58,6 +58,27 @@ def test_the_sheet_tasks_keep_django_s_minutes() -> None:
     }
 
 
+def test_the_agent_tasks_keep_django_s_minutes() -> None:
+    times = {
+        entry["task"].rsplit(".", 1)[1]: (
+            entry["schedule"]._orig_minute,
+            entry["schedule"]._orig_hour,
+        )
+        for entry in beat_schedule().values()
+        if entry["task"].startswith("app.modules.agent.")
+    }
+
+    assert times == {
+        "release_stalled_runs_task": ("13,43", "*"),
+        "stop_all_fruitless": ("19,49", "*"),
+        "propose_all_fixes": ("15,45", "*"),
+        "diagnose_all_accounts_task": ("50", "*"),
+        "assess_all_outcomes": ("55", "5"),
+        "run_all_agents": ("0", "*"),
+        "check_all_frequency": ("5", "*"),
+    }
+
+
 def test_a_debug_machine_may_rehearse_quietly() -> None:
     debug = settings.model_copy(update={"debug": True, "ads_dry_run": True})
 

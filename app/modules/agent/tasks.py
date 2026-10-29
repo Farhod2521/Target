@@ -176,24 +176,31 @@ def stop_all_fruitless() -> int:
 
 @celery_app.task(queue="agent", ignore_result=True)
 def check_frequency_task(owner_id: str) -> int:
-    """One owner's frequency levels for the night. Returns how many were raised.
+    """One owner's frequency levels for the morning. Returns how many were raised.
 
     The Django project calls this from the notifications app, which then
     sends what was raised; here the raise is the agent's and the message is
     left to whoever reads the ``agent.frequency_alerted`` events.
     """
+    from app.modules.billing.selectors.subscription import has_live_subscription
+
     with task_session() as db:
         owner = _owner(db, owner_id)
-        if owner is None:
+        if owner is None or not has_live_subscription(db, owner=owner):
             return 0
         return len(check_frequency(db, owner=owner, now=utcnow()))
 
 
 @celery_app.task(queue="agent", ignore_result=True)
 def check_all_frequency() -> int:
-    """Queue every owner the agent runs for who launched anything here."""
+    """Queue every owner whose clock reads ``FREQUENCY_HOUR`` - hourly, once a day."""
+    from app.modules.integrations.selectors.watch import owners_at_hour
+    from app.modules.notifications.constants import FREQUENCY_HOUR
+
     with task_session() as db:
-        owners = agent_owner_ids(db, now=utcnow()) & owners_with_launches(db)
+        owners = owners_at_hour(
+            db, owner_ids=owners_to_diagnose(db), now=utcnow(), hour=FREQUENCY_HOUR
+        )
     for owner_id in owners:
         check_frequency_task.delay(str(owner_id))
     return len(owners)

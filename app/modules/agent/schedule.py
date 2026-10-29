@@ -29,4 +29,7 @@ SCHEDULE: Final = [
         "5",
     ),
     Periodic("Agentni ishga tushirish", f"{TASKS}.run_all_agents", "0"),
+    # Django's notifications.deliver_frequency_alerts_task minute; the
+    # Telegram message waits for the notifications port.
+    Periodic("Chastota darajalari", f"{TASKS}.check_all_frequency", "5"),
 ]
