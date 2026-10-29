@@ -151,3 +151,59 @@ To'langan bo'lsa hisob (invoice) yoziladi va dashboard'da hisoblanadi.
 | `delete` | Owner | `email` — mijoz emailini qayta yozing. Javob: `message`, `rows`, `receipts_kept` |
 
 Admin = Support, Finance, Owner.
+
+---
+
+## 5. Promo — `/office/promo`
+
+Ko'rish va so'rovlarga javob: Support, Finance, Owner. Kod yaratish,
+tahrirlash, o'chirish: faqat Finance va Owner (`can.grant`).
+
+### `GET /office/promo?tab=&q=&offset=`
+
+| Parametr | Ma'nosi |
+|---|---|
+| `tab` | bo'sh — navbat (javob kutayotganlar, eskisi birinchi); `answered` — javob berilganlar (yangisi birinchi) |
+| `q` | Ism, email yoki kod |
+| `offset` | Keyingi sahifa: `next_offset` (20 tadan) |
+
+Javob:
+- `requests[]` — `customer`, `code`, `kind_label`, `offers` (`days`, `pages`, `plan`).
+  `refused_before` — oldin necha marta rad etilgan (faqat navbatda).
+  `status`, `decided_at`, `decided_by`, `decision_note`.
+- `current[]` — ishlayotgan va rejalashtirilgan kodlar; `finished[]` — o'chiq,
+  muddati yoki limiti tugaganlar. `status`: `live`, `scheduled`, `spent`,
+  `expired`, `off`. `used` / `max_uses`, `percent` — to'lish chizig'i (0 = cheklovsiz).
+- `kinds[]`, `discount_kinds[]`, `scopes[]`, `plans[]` — forma tanlovlari.
+- `currency` — chegirma summasi va `min_amount` shu valyutada, **butun birlikda**.
+
+### So'rovlar
+
+| Yo'l | Body | |
+|---|---|---|
+| `POST /promo/requests/{id}/approve` | — | Kod hozir nima bersa shuni beradi |
+| `POST /promo/requests/{id}/refuse` | `reason` | Sabab mijozga ko'rinadi |
+
+Allaqachon javob berilgan so'rov — `400` ("Bu so'rov allaqachon hal qilingan").
+
+### Kodlar
+
+| Yo'l | |
+|---|---|
+| `GET /promo/codes/{id}` | Tahrir formasi uchun |
+| `POST /promo/codes` | `kind` + maydonlar. Javob: `message`, `id` |
+| `PUT /promo/codes/{id}` | Maydonlar; `kind` o'zgarmaydi |
+| `DELETE /promo/codes/{id}` | Ishlatilgan kod o'chirilmaydi (`400`) — `is_active: false` qiling |
+
+Umumiy maydonlar: `code` (katta harfga o'tadi), `description`, `is_active`,
+`starts_at`, `expires_at` (zonasiz yuborilsa ofis vaqti), `max_uses`,
+`max_uses_per_user` (0 = cheklovsiz), `note`.
+
+| `kind` | O'z maydonlari | Qoidalar |
+|---|---|---|
+| `plan` | `grant_days`, `plan` (kod), `needs_approval` | Kun yoki tarif; `expires_at` va `max_uses` majburiy |
+| `slots` | `grant_pages`, `needs_approval` | Sahifa soni; `expires_at` va `max_uses` majburiy |
+| `discount` | `discount_kind` (`percent`/`amount`), `discount_value`, `scope`, `min_amount` | Foiz 1–99; tasdiq bilan bo'lmaydi |
+
+Boshqa turning maydonlari e'tiborsiz qoldiriladi. Xatolar `422` + `problems`
+(maydon nomi bo'yicha). Har bir yozish jurnalga tushadi (nima nimadan nimaga o'zgargani bilan).

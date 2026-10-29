@@ -449,3 +449,80 @@ class CustomerAdsOut(BaseModel):
     totals: list[AmountOut] = Field(description="Spend per currency, never summed.")
     hidden: int = Field(description="Adverts left out: quiet over this window.")
     rows: list[AdRowOut]
+
+
+class CreatedOut(MessageOut):
+    id: str
+
+
+class PromoPlanOut(BaseModel):
+    code: str
+    name: str
+
+
+class PromoCodeOut(BaseModel):
+    id: str
+    code: str
+    kind: str = Field(description="`plan`, `slots` or `discount`; never edited.")
+    kind_label: str
+    description: str
+    is_active: bool
+    status: str = Field(description="`live`, `scheduled`, `spent`, `expired`, `off`.")
+    status_label: str
+    used: int = Field(description="Uses spent; a waiting request counts.")
+    percent: int = Field(description="How full against `max_uses`; 0 = no ceiling.")
+    starts_at: datetime | None
+    expires_at: datetime | None
+    max_uses: int
+    max_uses_per_user: int
+    note: str
+    grant_days: int
+    plan: PromoPlanOut | None
+    grant_pages: int
+    needs_approval: bool
+    discount_kind: str
+    discount_value: int = Field(description="A percent, or whole units for `amount`.")
+    scope: str
+    min_amount: int = Field(description="Whole units of `currency`.")
+    created_at: datetime
+
+
+class PromoOffersOut(BaseModel):
+    days: int
+    pages: int
+    plan: str
+
+
+class PromoRequestOut(BaseModel):
+    id: str
+    customer: PersonOut
+    code: str
+    kind: str
+    kind_label: str
+    description: str
+    offers: PromoOffersOut = Field(description="What the code gives as it reads now.")
+    redeemed_at: datetime
+    refused_before: int = Field(
+        description="This person's earlier refusals; queue only."
+    )
+    status: str
+    status_label: str
+    decided_at: datetime | None
+    decided_by: PersonOut | None
+    decision_note: str
+
+
+class PromoOut(BaseModel):
+    tab: str
+    requests: list[PromoRequestOut]
+    total: int
+    offset: int
+    next_offset: int
+    has_more: bool
+    current: list[PromoCodeOut] = Field(description="Live, or written in advance.")
+    finished: list[PromoCodeOut] = Field(description="Off, expired, or used up.")
+    currency: str = Field(description="What fixed discounts and `min_amount` are in.")
+    kinds: list[ChoiceOut]
+    discount_kinds: list[ChoiceOut]
+    scopes: list[ChoiceOut]
+    plans: list[ChoiceOut]
