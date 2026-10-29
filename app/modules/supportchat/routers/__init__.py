@@ -137,7 +137,7 @@ def _read(db: Session, *, owner: User, chat: SupportConversation | None) -> None
         broadcast_read(owner_id=owner.id, side=CLIENT, at=now)
 
 
-def _composer() -> dict[str, Any]:
+def composer() -> dict[str, Any]:
     return {
         "max_body_chars": MAX_BODY_CHARS,
         "max_upload_mb": MAX_UPLOAD_MB,
@@ -179,7 +179,7 @@ def _screen(db: Session, *, owner: User, page: str | None) -> dict[str, Any]:
             "office_read_at": chat.office_read_at if chat is not None else None,
             "send_key": uuid.uuid4().hex,
             "ws_path": CLIENT_SOCKET_PATH,
-            "composer": _composer(),
+            "composer": composer(),
         }
     )
 
@@ -267,9 +267,7 @@ def _drawn_one(db: Session, *, owner: User, message_id: uuid.UUID) -> dict[str, 
     )
 
 
-def _check_box(
-    *, body: str, files: list[UploadFile], voice_seconds: int | None
-) -> None:
+def check_box(*, body: str, files: list[UploadFile], voice_seconds: int | None) -> None:
     """The composer's own checks, in its order, before the service's."""
     if len(body.strip()) > MAX_BODY_CHARS:
         raise MessageTooLong(MAX_BODY_CHARS)
@@ -322,7 +320,7 @@ def send_message(
     first one - and announce it to its sockets."""
     files = [item for item in attachments or [] if item.filename]
     recording = voice if voice is not None and voice.filename else None
-    _check_box(body=body, files=files, voice_seconds=voice_seconds)
+    check_box(body=body, files=files, voice_seconds=voice_seconds)
     draft = Draft(
         body=body,
         files=tuple(files),

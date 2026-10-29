@@ -207,3 +207,30 @@ Umumiy maydonlar: `code` (katta harfga o'tadi), `description`, `is_active`,
 
 Boshqa turning maydonlari e'tiborsiz qoldiriladi. Xatolar `422` + `problems`
 (maydon nomi bo'yicha). Har bir yozish jurnalga tushadi (nima nimadan nimaga o'zgargani bilan).
+
+---
+
+## 6. Chat (yordam) — `/office/support`
+
+Faqat Support va Owner (`can.answer_support`). Suhbatni o'qish va fayl
+yuklab olish jurnalga yoziladi (30 daqiqada bir marta).
+
+| Yo'l | |
+|---|---|
+| `GET /support?state=&offset=` | Navbat. `state`: `waiting` (standart, eng uzoq kutgan birinchi) yoki `all` (yangisi birinchi). 20 tadan |
+| `GET /support/{id}?page=` | Bitta suhbat (eng yangi sahifa). Ochilishi o'qildi deb belgilaydi — mijozda ikkinchi belgi chiqadi |
+| `POST /support/{id}/messages` | Javob. Mijoz tomonidagi bilan bir xil `multipart`: `body`, `attachments`, `voice` + `voice_seconds`, `sticker`, `reply_to`, `send_key`, `nonce` |
+| `POST /support/{id}/settle` | Navbatdan olish ("javob shart emas"). Mijoz yozsa qaytadi |
+| `PATCH /support/messages/{id}` | O'z javobini tahrirlash (`body`) |
+| `DELETE /support/messages/{id}` | O'z javobini o'chirish |
+| `GET /support/files/{id}`, `GET /support/messages/{id}/file` | Fayl. `<img>` uchun `?token=`, ko'rsatish uchun `?view=1` |
+| `GET /support/customers/{customer_id}` | Mijoz kartasidagi "Chat": suhbati bo'lsa o'sha, bo'lmasa bo'sh (`conversation_id: null`) |
+| `POST /support/customers/{customer_id}/messages` | Ofisning birinchi xabari — suhbatni ochadi |
+
+Xabar shakli mijoz chati bilan bir xil (`who` — ofisda hamkasb ismi yoki
+mijoz ismi; fayl `url`lari ofis yo'llari).
+
+**Socket:** `ws_path` + `?token=<access>` (`/api/v1/office/support/{id}/ws`).
+Mijoz socket'i bilan bir xil freymlar: yuborish `{"body"|"sticker", "nonce",
+"reply_to"}`, `{"typing": true}`, `{"read": true}`; qabul qilish `message`,
+`replace`, `read` (mijoz o'qidi), `typing`, `error`.

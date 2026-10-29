@@ -1,9 +1,11 @@
-"""The client's socket on their chat: words and stickers travel here, files
+"""The sockets on a support chat: words and stickers travel here, files
 take ``POST /support/messages``.
 
-``/api/v1/support/ws?token=<access token>``; add ``&watch=1`` for the
-corner widget, which only listens - a message drawn for it has not been
-read, so it does not mark the chat as read.
+``/api/v1/support/ws?token=<access token>`` is the client's; add
+``&watch=1`` for the corner widget, which only listens - a message drawn
+for it has not been read, so it does not mark the chat as read. The
+office's is ``/api/v1/office/support/{conversation_id}/ws?token=``, for a
+member who answers support, and speaks the same frames.
 
 What a page says over it, as JSON:
 
@@ -34,9 +36,11 @@ from app.common import tokens
 from app.common.db import get_db, utcnow
 from app.common.exceptions import DomainError
 from app.modules.accounts.models import User
+from app.modules.backoffice.services import may_answer_support
 from app.modules.supportchat import live, selectors, services
-from app.modules.supportchat.constants import CLIENT, WATCH_PARAM
+from app.modules.supportchat.constants import CLIENT, OFFICE, WATCH_PARAM, Viewer
 from app.modules.supportchat.drafts import Draft
+from app.modules.supportchat.models import SupportConversation
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +49,21 @@ class Door:
     """One open socket: its reader, its database session, and its writes
     to the page, each taken one at a time."""
 
-    def __init__(self, websocket: WebSocket, db: Session, user_id: uuid.UUID) -> None:
+    def __init__(
+        self,
+        websocket: WebSocket,
+        db: Session,
+        user_id: uuid.UUID,
+        *,
+        viewer: Viewer = CLIENT,
+        owner_id: uuid.UUID | None = None,
+    ) -> None:
         self.websocket = websocket
         self.db = db
         self.user_id = user_id
+        self.viewer = viewer
+        # Whose chat: the reader's own, or for the office the client's.
+        self.owner_id = owner_id or user_id
         self.watching = False
         self._db_lock = asyncio.Lock()
         self._send_lock = asyncio.Lock()
@@ -74,14 +89,18 @@ class Door:
             await self.websocket.send_json(payload)
 
     async def publish(self, event: dict[str, Any]) -> None:
-        await run_in_threadpool(live.publish, owner_id=self.user_id, event=event)
+        await run_in_threadpool(live.publish, owner_id=self.owner_id, event=event)
+
+    def chat(self, db: Session) -> SupportConversation | None:
+        owner = db.get(User, self.owner_id)
+        return selectors.chat_of(db, owner=owner) if owner is not None else None
 
     async def read(self) -> None:
         """The reader has the chat in front of them: move their side's
         moment, and tell the office's ticks when it moved."""
 
         def mark(db: Session, user: User) -> Any:
-            chat = selectors.chat_of(db, owner=user)
+            chat = self.chat(db)
             if chat is None:
                 return None
             now = utcnow()
@@ -90,16 +109,16 @@ class Door:
 
         moment = await self.run_db(mark)
         if moment is not None:
-            await self.publish(live.read_event(side=CLIENT, at=moment))
+            await self.publish(live.read_event(side=self.viewer, at=moment))
 
     async def draw(self, message_id: str) -> dict[str, Any] | None:
         """One message of this reader's chat, as the screen draws it."""
 
         def view(db: Session, user: User) -> dict[str, Any] | None:
             message = selectors.message_in_chat(
-                db, owner_id=user.id, message_id=message_id
+                db, owner_id=self.owner_id, message_id=message_id
             )
-            chat = selectors.chat_of(db, owner=user)
+            chat = self.chat(db)
             if message is None or chat is None:
                 return None
             drawn = selectors.drawn(db, [message])
@@ -108,7 +127,7 @@ class Door:
                     message,
                     drawn=drawn,
                     conversation=chat,
-                    viewer=CLIENT,
+                    viewer=self.viewer,
                     now=utcnow(),
                 )
             )
@@ -126,9 +145,17 @@ class Door:
 
         def store(db: Session, user: User) -> tuple[str, str, str]:
             try:
-                message = services.send_to_support(
-                    db, owner=user, draft=draft, now=utcnow()
-                )
+                if self.viewer == CLIENT:
+                    message = services.send_to_support(
+                        db, owner=user, draft=draft, now=utcnow()
+                    )
+                else:
+                    chat = self.chat(db)
+                    if chat is None:
+                        return "", "Suhbat topilmadi.", "not_found"
+                    message = services.post_message(
+                        db, conversation=chat, sender=user, draft=draft, now=utcnow()
+                    )
             except DomainError as exc:
                 return "", exc.message, exc.code
             return str(message.id), "", ""
@@ -150,7 +177,7 @@ class Door:
             await self.read()
             return
         if fields.get("typing") is True:
-            await self.publish(live.typing_event(side=CLIENT))
+            await self.publish(live.typing_event(side=self.viewer))
             return
         await self.post(fields)
 
@@ -181,9 +208,9 @@ class Door:
                     await self.send(
                         {"type": "replace", "id": view["id"], "message": view}
                     )
-            elif kind == live.READ and event.get("side") != CLIENT:
+            elif kind == live.READ and event.get("side") != self.viewer:
                 await self.send({"type": "read", "at": event.get("at", 0)})
-            elif kind == live.TYPING and event.get("side") != CLIENT:
+            elif kind == live.TYPING and event.get("side") != self.viewer:
                 await self.send({"type": "typing", "side": event.get("side", "")})
 
 
@@ -219,10 +246,16 @@ async def support_socket(
         return
     door = Door(websocket, db, user_id)
     door.watching = watch == "1"
+    await _serve(door)
+
+
+async def _serve(door: Door) -> None:
+    """Listen on the chat's channel and the page until either goes away."""
+    websocket = door.websocket
     async with AsyncExitStack() as stack:
         try:
             frames = await stack.enter_async_context(
-                live.hub.listen(live.channel_name(owner_id=user_id))
+                live.hub.listen(live.channel_name(owner_id=door.owner_id))
             )
         except Exception:
             logger.warning("support live channel unavailable")
@@ -245,6 +278,38 @@ async def support_socket(
         finally:
             forwarding.cancel()
             await asyncio.gather(forwarding, return_exceptions=True)
+
+
+def _office_reader(
+    db: Session, token: str, conversation_id: uuid.UUID
+) -> tuple[uuid.UUID, uuid.UUID] | None:
+    """A member who answers for the office, and whose chat they opened."""
+    subject = tokens.read(token, kind="access") if token else None
+    try:
+        user = db.get(User, uuid.UUID(subject or ""))
+        if user is None or not user.is_active or not may_answer_support(db, user=user):
+            return None
+        chat = selectors.staff_conversation(db, pk=conversation_id)
+        return (user.id, chat.owner_id) if chat is not None else None
+    except ValueError:
+        return None
+    finally:
+        db.close()
+
+
+async def office_socket(
+    websocket: WebSocket,
+    conversation_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    token: str = Query("", description="The access token."),
+) -> None:
+    """The office's live view of any client's chat."""
+    found = await run_in_threadpool(_office_reader, db, token, conversation_id)
+    if found is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    user_id, owner_id = found
+    await _serve(Door(websocket, db, user_id, viewer=OFFICE, owner_id=owner_id))
 
 
 async def _forward(door: Door, frames: AsyncIterator[str]) -> None:

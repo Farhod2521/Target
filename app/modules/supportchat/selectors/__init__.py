@@ -1,6 +1,8 @@
 """Public read API of the support chat."""
 
 from app.modules.supportchat.selectors.conversations import (
+    QueuePage,
+    QueueRow,
     awaiting_reply_count,
     chat_of,
     conversation_for_owner,
@@ -9,6 +11,7 @@ from app.modules.supportchat.selectors.conversations import (
     is_waiting,
     office_wrote_at,
     staff_conversation,
+    staff_conversations,
     unread_reply,
 )
 from app.modules.supportchat.selectors.messages import (
@@ -39,6 +42,8 @@ from app.modules.supportchat.selectors.views import message_view, message_views
 __all__ = [
     "Drawn",
     "MessagePage",
+    "QueuePage",
+    "QueueRow",
     "attachment_for_download",
     "awaiting_reply_count",
     "changed_since",
@@ -61,6 +66,7 @@ __all__ = [
     "relayed_chat_ids",
     "staff_attachment_for_download",
     "staff_conversation",
+    "staff_conversations",
     "staff_message_for_download",
     "staff_message_for_relay",
     "staff_messages_in",

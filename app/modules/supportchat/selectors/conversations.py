@@ -6,13 +6,19 @@ prove the role before calling: these functions check nothing themselves.
 """
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.modules.accounts.models import User
-from app.modules.supportchat.models import SupportConversation
+from app.modules.supportchat.constants import (
+    CONVERSATION_PAGE_SIZE,
+    WAITING,
+    QueueState,
+)
+from app.modules.supportchat.models import SupportConversation, SupportMessage
 
 C = SupportConversation
 
@@ -114,3 +120,86 @@ def awaiting_reply_count(db: Session) -> int:
     return int(
         db.scalar(select(func.count()).select_from(C).where(AWAITING_OFFICE)) or 0
     )
+
+
+@dataclass(frozen=True, slots=True)
+class QueueRow:
+    conversation: SupportConversation
+    waiting: bool
+    last: SupportMessage | None
+
+
+@dataclass(frozen=True, slots=True)
+class QueuePage:
+    rows: tuple[QueueRow, ...]
+    total: int
+    offset: int
+
+    @property
+    def next_offset(self) -> int:
+        return self.offset + len(self.rows)
+
+    @property
+    def has_more(self) -> bool:
+        return self.next_offset < self.total
+
+
+def staff_conversations(
+    db: Session, *, state: QueueState, offset: int = 0
+) -> QueuePage:
+    """The office's list: one row per client who has ever written, with the
+    last message for the list to show. Cross-tenant by design. Waiting is
+    oldest first - the person waiting longest is who the queue is for; the
+    full list is newest first."""
+    query = select(C).where(C.last_message_at.is_not(None))
+    if state == WAITING:
+        query = query.where(AWAITING_OFFICE).order_by(C.last_client_at)
+    else:
+        query = query.order_by(C.last_message_at.desc())
+    total = int(db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+    chats = list(
+        db.scalars(
+            query.options(joinedload(C.owner))
+            .offset(offset)
+            .limit(CONVERSATION_PAGE_SIZE)
+        )
+    )
+    latest = _latest(db, [chat.id for chat in chats])
+    return QueuePage(
+        rows=tuple(
+            QueueRow(
+                conversation=chat,
+                waiting=is_waiting(conversation=chat),
+                last=latest.get(chat.id),
+            )
+            for chat in chats
+        ),
+        total=total,
+        offset=offset,
+    )
+
+
+def _latest(
+    db: Session, conversation_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, SupportMessage]:
+    if not conversation_ids:
+        return {}
+    ranked = (
+        select(
+            SupportMessage.id,
+            func.row_number()
+            .over(
+                partition_by=SupportMessage.conversation_id,
+                order_by=(SupportMessage.created_at.desc(), SupportMessage.id.desc()),
+            )
+            .label("rank"),
+        )
+        .where(SupportMessage.conversation_id.in_(conversation_ids))
+        .subquery()
+    )
+    rows = db.scalars(
+        select(SupportMessage).where(
+            SupportMessage.id.in_(select(ranked.c.id).where(ranked.c.rank == 1))
+        )
+    )
+    return {row.conversation_id: row for row in rows}

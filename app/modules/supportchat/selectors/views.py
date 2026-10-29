@@ -28,6 +28,12 @@ from app.modules.supportchat.selectors.messages import Drawn
 
 CLIENT_FILE_URL = "/api/v1/support/files/{id}"
 CLIENT_MESSAGE_FILE_URL = "/api/v1/support/messages/{id}/file"
+OFFICE_FILE_URL = "/api/v1/office/support/files/{id}"
+OFFICE_MESSAGE_FILE_URL = "/api/v1/office/support/messages/{id}/file"
+DOORS = {
+    CLIENT_FILE_URL: OFFICE_FILE_URL,
+    CLIENT_MESSAGE_FILE_URL: OFFICE_MESSAGE_FILE_URL,
+}
 
 
 def message_views(
@@ -145,9 +151,9 @@ def _file(
 
 
 def _door(viewer: Viewer, pattern: str, pk: object) -> str:
-    """The client's download address; the office's door comes with the
-    office screen."""
-    return pattern.format(id=pk) if viewer == CLIENT else ""
+    """This reader's download address: the client's own, or the office's,
+    which journals the reading."""
+    return (pattern if viewer == CLIENT else DOORS[pattern]).format(id=pk)
 
 
 def _quote(

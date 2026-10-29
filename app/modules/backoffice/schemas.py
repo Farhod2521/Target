@@ -8,6 +8,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.modules.supportchat.schemas import ComposerOut
+from app.modules.supportchat.schemas import MessageOut as ChatMessageOut
+
 
 class PersonOut(BaseModel):
     id: str
@@ -526,3 +529,40 @@ class PromoOut(BaseModel):
     discount_kinds: list[ChoiceOut]
     scopes: list[ChoiceOut]
     plans: list[ChoiceOut]
+
+
+class SupportRowOut(BaseModel):
+    id: str = Field(description="The chat's id: `GET /office/support/{id}`.")
+    customer: PersonOut
+    waiting: bool = Field(description="The client spoke last and nobody settled it.")
+    last_message_at: datetime | None
+    last_client_at: datetime | None
+    preview: str = Field(description="The last message in one line.")
+    last_side: str = Field(description="`client` or `office`: who wrote it.")
+
+
+class SupportQueueOut(BaseModel):
+    state: str
+    states: list[ChoiceOut]
+    rows: list[SupportRowOut]
+    total: int
+    offset: int
+    next_offset: int
+    has_more: bool
+
+
+class SupportThreadOut(BaseModel):
+    customer: PersonOut
+    conversation_id: str | None = Field(
+        description="Empty: no chat yet; the first message writes it."
+    )
+    waiting: bool
+    messages: list[ChatMessageOut]
+    page: int
+    pages: int
+    has_previous: bool
+    has_next: bool
+    client_read_at: datetime | None = Field(description="The client's second tick.")
+    send_key: str
+    ws_path: str = Field(description="Add `?token=`; empty without a chat.")
+    composer: ComposerOut
