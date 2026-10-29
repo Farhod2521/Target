@@ -52,6 +52,11 @@ def upgrade() -> None:
         "CREATE UNIQUE INDEX IF NOT EXISTS uniq_crm_setup_per_pair "
         "ON crm_setups (owner_id, page_id, ad_account_id)"
     )
+    # The backfill loads User through today's model, which already reads the
+    # column 0007 adds; without it a run from 0001 to head fails here.
+    op.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at timestamptz NULL"
+    )
     report = assign_pairs(Session(bind=op.get_bind()))
     print(report.summary())
 
