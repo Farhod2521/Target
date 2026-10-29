@@ -17,6 +17,7 @@ from app.modules.backoffice.permissions import staff_required
 from app.modules.backoffice.routers._out import choices, person_out, trace_out
 from app.modules.backoffice.routers.actions import router as actions
 from app.modules.backoffice.routers.customers import router as customers
+from app.modules.backoffice.routers.dashboard import router as dashboard
 from app.modules.backoffice.routers.promo import router as promo
 from app.modules.backoffice.routers.support import router as support
 from app.modules.backoffice.schemas import JournalOut, MeOut
@@ -28,6 +29,7 @@ router.include_router(customers)
 router.include_router(actions)
 router.include_router(promo)
 router.include_router(support)
+router.include_router(dashboard)
 
 
 @router.get("/me", responses={200: {"model": MeOut}})

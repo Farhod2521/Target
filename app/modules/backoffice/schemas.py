@@ -3,7 +3,7 @@
 Attached with ``responses=``: the routes still return plain dicts.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -566,3 +566,135 @@ class SupportThreadOut(BaseModel):
     send_key: str
     ws_path: str = Field(description="Add `?token=`; empty without a chat.")
     composer: ComposerOut
+
+
+class WindowOut(BaseModel):
+    period: str
+    unit: str = Field(description="One bar: `day`, `week` or `month`.")
+    since: date
+    until: date
+    days: int
+    refused: str = Field(description="Why a typed range was not used; else empty.")
+    periods: list[ChoiceOut]
+
+
+class PlanShareOut(BaseModel):
+    name: str
+    payments: int
+    amount_minor: int
+    share_pct: int = Field(description="Of the amount.")
+
+
+class SliceOut(BaseModel):
+    amount_minor: int
+    payments: int
+    signups: int
+    average_minor: int
+    online_minor: int
+    manual_minor: int
+    plans: list[PlanShareOut]
+
+
+class BarOut(BaseModel):
+    key: str = Field(description="Pass as `bar` to read its figures.")
+    label: str
+    hint: str
+    height_pct: int
+    is_current: bool = Field(description="Today is in it: not finished yet.")
+    amount_minor: int
+    payments: int
+    signups: int
+
+
+class TakingsOut(BaseModel):
+    window: WindowOut
+    currency: str
+    bars: list[BarOut]
+    picked: str
+    shown: SliceOut = Field(description="The picked bar, or the whole window.")
+    before_minor: int = Field(description="The same number of days just before.")
+    change_pct: int | None
+    unpaid: int = Field(description="Bills waiting to be paid, now.")
+    unpaid_minor: int
+    given_free: int = Field(description="Plans, days, pages the office gave free.")
+
+
+class DashCustomersOut(BaseModel):
+    total: int
+    joined: int
+    joined_before: int
+    joined_change_pct: int | None
+    trial: int = Field(description="On a trial now.")
+    paying: int = Field(description="On a paid plan now.")
+    expiring: int = Field(description="Ending within 7 days.")
+    churned: int = Field(description="Stopped in the window and not back.")
+    joined_paid: int = Field(description="Of those who joined, how many paid.")
+    conversion_pct: int | None
+    setup_unfinished: int
+    meta_missing: int = Field(description="Subscribed, no live Facebook link.")
+
+
+class DashActivityOut(BaseModel):
+    running: int
+    launched: int
+    failed: int
+    spend: list[AmountOut] = Field(description="Customers' ad spend, per currency.")
+    leads: int
+    leads_before: int
+    leads_change_pct: int | None
+    ai_cost: AmountOut | None = Field(description="Money roles only.")
+
+
+class DashWaitingOut(BaseModel):
+    promos: int
+    support: int
+    support_oldest: datetime | None = Field(description="The longest-waiting chat.")
+    asks: int
+    feedback: int
+    arizas: int
+    holds: int = Field(description="Payments held longer than 12 hours.")
+
+
+class DashProblemOut(BaseModel):
+    kind: str
+    label: str
+    urgent: bool
+    customer_id: str | None
+    who: str
+    what: str
+    since: datetime | None
+    action: str
+
+
+class DashProblemsOut(BaseModel):
+    total: int
+    urgent: int
+    rows: list[DashProblemOut]
+
+
+class DashPaymentOut(BaseModel):
+    paid_at: datetime
+    customer: PersonOut | None = Field(description="Gone when the account was deleted.")
+    email: str
+    plan: str
+    amount_minor: int
+    currency: str
+    manual: bool
+
+
+class DashSalesOut(BaseModel):
+    manager: PersonOut
+    sold: int = Field(description="Sold in the window.")
+    open: int = Field(description="Cards open now.")
+
+
+class DashboardOut(BaseModel):
+    window: WindowOut
+    sees_money: bool
+    takings: TakingsOut | None = Field(description="Money roles only.")
+    customers: DashCustomersOut
+    activity: DashActivityOut
+    waiting: DashWaitingOut
+    problems: DashProblemsOut
+    payments: list[DashPaymentOut] | None = Field(description="Money roles only.")
+    sales: list[DashSalesOut]

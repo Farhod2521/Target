@@ -248,3 +248,42 @@ Mijoz socket'i bilan bir xil freymlar: yuborish `{"body"|"sticker", "nonce",
 - Mijoz botida `/yordam` dan keyingi yozilgan matn support chatga tushadi.
 - Webhook'lar: `POST /webhooks/telegram/` va `/webhooks/telegram/staff/`
   (Django bilan bir xil yo'l va secret).
+
+---
+
+## 7. Dashboard — `/office/dashboard`
+
+Support, Finance, Owner. **Pul** (`takings`, `payments`, `activity.ai_cost`)
+faqat Finance va Owner'ga keladi, boshqalarga `null` (`sees_money: false`).
+
+### `GET /office/dashboard?period=&since=&until=`
+
+`period`: `today`, `7`, `30` (standart), `month`, `year`, `range`
+(`since` + `until`, `YYYY-MM-DD`). Butun ekran shu oynaga qarab hisoblanadi;
+"oldingi davr" — xuddi shuncha kun undan oldin.
+
+| Blok | Nima |
+|---|---|
+| `window` | Tanlangan oyna, ustun o'lchami (`unit`: `day`/`week`/`month`), `refused` — oraliq noto'g'ri bo'lsa sababi |
+| `takings` | Pul kartasi (pastda) |
+| `customers` | `total`, `joined` (+ oldingi davr va `%`), `trial`, `paying`, `expiring` (7 kun), `churned` (davrda tugab qaytmagan), `joined_paid` / `conversion_pct`, `setup_unfinished`, `meta_missing` |
+| `activity` | `running` kampaniyalar, `launched` / `failed` launch'lar, `spend` (mijozlar reklama sarfi, valyuta bo'yicha), `leads` (+ oldingi davr), `ai_cost` |
+| `waiting` | `promos`, `support` + `support_oldest`, `asks`, `feedback`, `arizas`, `holds` — har biri o'z ekraniga havola |
+| `problems` | `total`, `urgent`, eng jiddiy 6 tasi (`customer_id` — kartaga havola) |
+| `payments` | Oxirgi 10 to'lov |
+| `sales` | Menejer bo'yicha: davrda sotilgan, hozir ochiq kartalar |
+
+Faqat platforma yaratgan kampaniyalar hisoblanadi; xodimlar va CRM loginlari
+mijoz hisoblanmaydi.
+
+### `GET /office/dashboard/takings?period=&since=&until=&bar=` — Finance, Owner
+
+Faqat pul kartasi (filtr yoki ustun bosilganda shuni qayta o'qing).
+
+- `bars[]` — `key`, `label`, `hint`, `height_pct`, `is_current`, `amount_minor`, `payments`, `signups`.
+- `bar=<key>` bosilsa `shown` — o'sha ustun, aks holda butun oyna:
+  `amount_minor`, `payments`, `signups`, `average_minor`, `online_minor`,
+  `manual_minor`, `plans[]` (`name`, `payments`, `amount_minor`, `share_pct`).
+- `before_minor`, `change_pct` — oldingi davrga nisbatan.
+- `unpaid`, `unpaid_minor` — hozir to'lanmagan hisoblar; `given_free` — davrda bepul berilganlar.
+- `currency` — oynadagi to'lovlarning asosiy valyutasi; boshqa valyutadagi to'lov qo'shilmaydi.
