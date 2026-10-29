@@ -8,6 +8,7 @@ Redis, and a lock there lets only one beat send it however many are started.
 """
 
 import importlib
+import logging
 import pkgutil
 import time
 from collections.abc import Iterator
@@ -21,6 +22,11 @@ from kombu import Queue
 from sqlalchemy.orm import Session
 
 from app.common.config import settings
+
+# httpx writes every request URL at INFO, and Graph API and Bot API URLs carry
+# the access token or the bot token in them.
+for _name in ("httpx", "httpcore"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
 
 celery_app = Celery("targetolog")
 celery_app.conf.update(
