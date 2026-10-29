@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.common.money import format_minor
+from app.modules.ads.constants import CREATIVE_KIND_LABELS
 from app.modules.ads.selectors import CreativeState
 from app.modules.metrics.selectors.creative_figures import cpql, rate
 from app.modules.metrics.selectors.creative_figures import verdict as verdict_of
@@ -11,6 +12,12 @@ from app.modules.metrics.selectors.creatives import CreativeSums
 from core.metrics import SegmentCost, WatchPoint, watch_shape
 
 _NO_STATE = CreativeState(delivery="", label="", ad_external_id="")
+
+
+def _kind_label(creative: Any) -> str:
+    if creative is None:
+        return ""
+    return str(CREATIVE_KIND_LABELS.get(creative.kind, creative.kind))
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +111,7 @@ def _card(
         headline=creative.headline if creative else "",
         message=creative.message if creative else "",
         thumbnail_url=creative.thumbnail_url if creative else "",
-        kind_label=creative.get_kind_display() if creative else "",
+        kind_label=_kind_label(creative),
         is_missing=creative is None,
         spend=format_minor(amount_minor=cost.spend_minor, currency=currency),
         spend_share=cost.spend_share,
@@ -158,7 +165,7 @@ def _waiting(
         headline=content.headline if content else standing.name,
         message=content.message if content else "",
         thumbnail_url=content.thumbnail_url if content else "",
-        kind_label=content.get_kind_display() if content else "",
+        kind_label=_kind_label(content),
         is_missing=False,
         spend="",
         spend_share=0,
