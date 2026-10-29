@@ -234,3 +234,17 @@ mijoz ismi; fayl `url`lari ofis yo'llari).
 Mijoz socket'i bilan bir xil freymlar: yuborish `{"body"|"sticker", "nonce",
 "reply_to"}`, `{"typing": true}`, `{"read": true}`; qabul qilish `message`,
 `replace`, `read` (mijoz o'qidi), `typing`, `error`.
+
+### Telegram orqali support (frontend uchun ish yo'q)
+
+- Mijoz yozgan har bir xabar xodimlar botini ulagan har bir Support/Owner
+  xodimiga nusxa bo'lib boradi (fayllari bilan). Nusxaga «Reply» qilinsa —
+  javob mijoz chatiga tushadi.
+- Kim javob bersa (ofisdan yoki Telegram'dan), barcha nusxalar «✅ Javob
+  berildi — kim, qachon» deb yangilanadi. Javob berilgan nusxaga yana reply
+  qilinsa, bot «baribir yuborilsinmi?» deb so'raydi.
+- Mijozning Telegram'i ulangan bo'lsa, ofis javob berganda unga bitta xabar
+  boradi (o'qimaguncha qayta bormaydi).
+- Mijoz botida `/yordam` dan keyingi yozilgan matn support chatga tushadi.
+- Webhook'lar: `POST /webhooks/telegram/` va `/webhooks/telegram/staff/`
+  (Django bilan bir xil yo'l va secret).

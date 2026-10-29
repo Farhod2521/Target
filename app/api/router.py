@@ -22,6 +22,7 @@ from app.modules.metrics.routers import router as metrics
 from app.modules.miniapp.routers import router as miniapp
 from app.modules.notifications.routers import router as notifications
 from app.modules.notifications.routers.actions import router as actions
+from app.modules.notifications.routers.webhooks import webhooks as telegram_webhooks
 from app.modules.onboarding.routers import router as onboarding
 from app.modules.public.routers import callbacks as public_callbacks
 from app.modules.public.routers import router as public
@@ -63,4 +64,5 @@ public_router = APIRouter()
 public_router.include_router(billing_webhooks)
 public_router.include_router(referral_landing)
 public_router.include_router(leads_webhooks)
+public_router.include_router(telegram_webhooks)
 public_router.include_router(public_callbacks)

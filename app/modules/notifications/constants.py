@@ -159,3 +159,11 @@ STAFF_LINK_TOKEN_KEY: Final = "notifications:staff-link:{token}"
 DEV_ALERT_KEY: Final = "notifications:devalert:{owner}:{code}:{digest}"
 DEV_ALERT_REPEAT_SECONDS: Final = 60 * 60
 DEV_ALERT_MESSAGE_CHARS: Final = 1500
+# The customer bot's "/" menu, and the wait after /yordam for words to Support.
+COMMAND_REPORT: Final = "hisobot"
+COMMAND_TODAY: Final = "bugun"
+COMMAND_HELP: Final = "yordam"
+SUPPORT_WAIT_KEY: Final = "notifications:support-wait:{chat_id}"
+SUPPORT_WAIT_TTL_SECONDS: Final = 15 * 60
+# "Parolni unutdingizmi?" opens the bot with this instead of a link code.
+RESET_PAYLOAD: Final = "parol"
