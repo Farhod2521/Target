@@ -38,7 +38,7 @@ o'zgarishsiz ko'rsatiladi** — frontend ularni tarjima qilmaydi.
 
 ## 2. Avtorizatsiya
 
-### Ro'yxatdan o'tish (2 qadam)
+### Ro'yxatdan o'tish
 
 ```http
 POST /api/v1/auth/signup
@@ -52,23 +52,36 @@ POST /api/v1/auth/signup
 }
 ```
 
-`202` → `{"email", "expires_in", "resend_in", "message"}`. Emailga 5 xonali
-kod ketadi, **3 daqiqa** amal qiladi. Akkaunt hali yaratilmagan.
-
-```http
-POST /api/v1/auth/signup/verify
-{"email": "ali@example.com", "code": "12345"}
-```
-
 `201` → `{"user": {...}, "access_token", "refresh_token", "token_type"}`.
-
-Kodni qayta yuborish: `POST /auth/signup/resend {"email"}` — `resend_in`
-soniya o'tgach.
+Akkaunt darhol ochiladi va foydalanuvchi tizimga kirgan bo'ladi — kod
+kutilmaydi. `user.email_verified_at` hali `null`.
 
 Bitta IP'dan soatiga 20 tadan ko'p signup → `429`.
 
 Referal havola `/r/{code}/` orqali kelgan bo'lsa, `referral_code`ni
 yuboring.
+
+### Emailni tasdiqlash (ixtiyoriy)
+
+Foydalanuvchi o'zi xohlasa, profilidan emailini tasdiqlaydi. Ikkalasi ham
+`Authorization: Bearer` talab qiladi.
+
+```http
+POST /api/v1/account/email/code
+```
+
+`202` → `{"email", "expires_in", "resend_in", "message"}`. Emailga 5 xonali
+kod ketadi, **3 daqiqa** amal qiladi. Qayta so'rash — `resend_in` soniya
+o'tgach (`429 resend_too_soon`), soatiga ko'pi bilan 5 ta (`429 too_many_codes`).
+
+```http
+POST /api/v1/account/email/verify
+{"code": "12345"}
+```
+
+`200` → yangilangan `user` (`email_verified_at` to'ldirilgan). Xatolar:
+`code_wrong` (qolgan urinishlar `detail`da), `code_tries_spent`,
+`code_expired`. Allaqachon tasdiqlangan bo'lsa → `409 email_already_verified`.
 
 ### Kirish
 

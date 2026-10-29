@@ -1,9 +1,11 @@
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
+from app.common.exceptions import DomainError
 from app.common.hooks import fire
-from app.common.passwords import make_password
+from app.common.passwords import PasswordInvalid, make_password, validate_password
 from app.modules.accounts.constants import Language
 from app.modules.accounts.exceptions import EmailTaken
 from app.modules.accounts.models import User
@@ -12,6 +14,35 @@ from app.modules.audit.constants import EventName
 from app.modules.audit.services import emit
 
 USER_REGISTERED = "accounts.user_registered"
+
+
+def sign_up(
+    db: Session,
+    *,
+    email: str,
+    full_name: str,
+    password: str,
+    phone: str,
+    language: str,
+    referral_code: str = "",
+) -> User:
+    """The signup form opens the account at once; the email is confirmed later."""
+    email = normalize_email(email)
+    if db.scalar(select(User.id).where(User.email == email)) is not None:
+        raise EmailTaken
+    try:
+        validate_password(password, email=email, full_name=full_name)
+    except PasswordInvalid as exc:
+        raise DomainError(str(exc)) from exc
+    return register_user(
+        db,
+        email=email,
+        full_name=full_name,
+        password=password,
+        phone=phone,
+        language=language,
+        referral_code=referral_code,
+    )
 
 
 def register_user(

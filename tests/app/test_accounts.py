@@ -160,14 +160,37 @@ def test_a_referral_code_binds_the_new_account(client: TestClient, db: Session) 
     assert "referral.bound" in db.scalars(select(Event.name)).all()
 
 
-def test_signup_waits_for_the_emailed_code(client: TestClient, db: Session) -> None:
+def test_signup_opens_the_account_without_a_code(
+    client: TestClient, db: Session
+) -> None:
     from app.common import mail
 
-    started = client.post("/api/v1/auth/signup", json=SIGNUP)
+    response = register(client)
 
-    assert started.status_code == 202, started.text
-    assert started.json()["expires_in"] == 180
-    assert db.scalar(select(User.id)) is None
+    assert response.status_code == 201, response.text
+    assert response.json()["user"]["email_verified_at"] is None
+    assert db.scalar(select(User.id)) is not None
+    assert mail.outbox == []
+
+
+def _send_code(client: TestClient, headers: dict[str, str]):  # type: ignore[no-untyped-def]
+    return client.post("/api/v1/account/email/code", headers=headers)
+
+
+def _verify(client: TestClient, headers: dict[str, str], code: str):  # type: ignore[no-untyped-def]
+    return client.post(
+        "/api/v1/account/email/verify", headers=headers, json={"code": code}
+    )
+
+
+def test_the_emailed_code_confirms_the_address(client: TestClient, db: Session) -> None:
+    from app.common import mail
+
+    headers = signed_in(client)
+    sent = _send_code(client, headers)
+
+    assert sent.status_code == 202, sent.text
+    assert sent.json()["expires_in"] == 180
     letter = mail.outbox[-1]
     code = code_for(SIGNUP["email"])
     assert letter.to == "Ali@example.com"
@@ -175,42 +198,47 @@ def test_signup_waits_for_the_emailed_code(client: TestClient, db: Session) -> N
     assert all(f">{digit}</td>" in letter.html for digit in code)
     assert "3 daqiqa" in letter.text
 
+    done = _verify(client, headers, code)
+    assert done.status_code == 200, done.text
+    assert done.json()["email_verified_at"] is not None
+    assert "user.email_verified" in db.scalars(select(Event.name)).all()
+    again = _send_code(client, headers)
+    assert again.status_code == 409
+    assert again.json()["code"] == "email_already_verified"
+
+
+def test_the_email_code_needs_a_signed_in_user(client: TestClient) -> None:
+    assert client.post("/api/v1/account/email/code").status_code == 401
+
 
 def test_a_wrong_code_counts_down_and_then_locks(client: TestClient) -> None:
-    client.post("/api/v1/auth/signup", json=SIGNUP)
+    headers = signed_in(client)
+    _send_code(client, headers)
     code = code_for(SIGNUP["email"])
     wrong = "00000" if code != "00000" else "11111"
 
-    first = client.post(
-        "/api/v1/auth/signup/verify", json={"email": SIGNUP["email"], "code": wrong}
-    )
+    first = _verify(client, headers, wrong)
     assert first.status_code == 400 and first.json()["code"] == "code_wrong"
     assert "4 marta" in first.json()["detail"]
     for _ in range(4):
-        last = client.post(
-            "/api/v1/auth/signup/verify",
-            json={"email": SIGNUP["email"], "code": wrong},
-        )
+        last = _verify(client, headers, wrong)
     assert last.status_code == 429 and last.json()["code"] == "code_tries_spent"
-    right_too_late = client.post(
-        "/api/v1/auth/signup/verify", json={"email": SIGNUP["email"], "code": code}
-    )
+    right_too_late = _verify(client, headers, code)
     assert right_too_late.json()["code"] == "code_tries_spent"
 
 
 def test_the_code_expires_after_three_minutes(client: TestClient, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     import time
 
-    from app.modules.accounts.services import signup_code
+    from app.modules.accounts.services import email_code
 
-    client.post("/api/v1/auth/signup", json=SIGNUP)
+    headers = signed_in(client)
+    _send_code(client, headers)
     code = code_for(SIGNUP["email"])
     later = time.time() + 181
-    monkeypatch.setattr(signup_code.time, "time", lambda: later)
+    monkeypatch.setattr(email_code.time, "time", lambda: later)
 
-    answer = client.post(
-        "/api/v1/auth/signup/verify", json={"email": SIGNUP["email"], "code": code}
-    )
+    answer = _verify(client, headers, code)
     assert answer.status_code == 400 and answer.json()["code"] == "code_expired"
 
 
@@ -219,25 +247,21 @@ def test_resend_waits_a_minute_then_sends_a_new_code(
 ) -> None:  # type: ignore[no-untyped-def]
     import time
 
-    from app.modules.accounts.services import signup_code
+    from app.modules.accounts.services import email_code
 
-    client.post("/api/v1/auth/signup", json=SIGNUP)
+    headers = signed_in(client)
+    _send_code(client, headers)
     first = code_for(SIGNUP["email"])
-    soon = client.post("/api/v1/auth/signup/resend", json={"email": SIGNUP["email"]})
+    soon = _send_code(client, headers)
     assert soon.status_code == 429 and soon.json()["code"] == "resend_too_soon"
 
     later = time.time() + 61
-    monkeypatch.setattr(signup_code.time, "time", lambda: later)
-    again = client.post("/api/v1/auth/signup/resend", json={"email": SIGNUP["email"]})
-    assert again.status_code == 200, again.text
+    monkeypatch.setattr(email_code.time, "time", lambda: later)
+    again = _send_code(client, headers)
+    assert again.status_code == 202, again.text
     second = code_for(SIGNUP["email"])
     if second != first:
-        stale = client.post(
-            "/api/v1/auth/signup/verify",
-            json={"email": SIGNUP["email"], "code": first},
-        )
+        stale = _verify(client, headers, first)
         assert stale.json()["code"] == "code_wrong"
-    done = client.post(
-        "/api/v1/auth/signup/verify", json={"email": SIGNUP["email"], "code": second}
-    )
-    assert done.status_code == 201, done.text
+    done = _verify(client, headers, second)
+    assert done.status_code == 200, done.text

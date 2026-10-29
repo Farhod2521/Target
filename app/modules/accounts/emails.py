@@ -1,4 +1,4 @@
-"""The signup code letter: one five-digit code, valid for a few minutes."""
+"""The email confirmation letter: one five-digit code, valid for a few minutes."""
 
 from html import escape
 
@@ -8,34 +8,34 @@ WORDS: dict[str, dict[str, str]] = {
     "uz": {
         "subject": "{code} — TargetologAI tasdiqlash kodi",
         "hello": "Assalomu alaykum, {name}!",
-        "lead": "TargetologAI'da ro'yxatdan o'tishni yakunlash uchun quyidagi kodni kiriting:",
+        "lead": "TargetologAI'dagi emailingizni tasdiqlash uchun quyidagi kodni kiriting:",
         "valid": "Kod {minutes} daqiqa amal qiladi.",
-        "ignore": "Agar siz ro'yxatdan o'tmagan bo'lsangiz, bu xatni e'tiborsiz qoldiring.",
+        "ignore": "Agar kodni siz so'ramagan bo'lsangiz, bu xatni e'tiborsiz qoldiring.",
         "never": "Bu kodni hech kimga bermang — TargetologAI xodimlari uni hech qachon so'ramaydi.",
         "team": "TargetologAI jamoasi",
     },
     "ru": {
         "subject": "{code} — код подтверждения TargetologAI",
         "hello": "Здравствуйте, {name}!",
-        "lead": "Чтобы завершить регистрацию в TargetologAI, введите этот код:",
+        "lead": "Чтобы подтвердить email в TargetologAI, введите этот код:",
         "valid": "Код действует {minutes} минуты.",
-        "ignore": "Если вы не регистрировались, просто проигнорируйте это письмо.",
+        "ignore": "Если вы не запрашивали код, просто проигнорируйте это письмо.",
         "never": "Никому не сообщайте этот код — сотрудники TargetologAI никогда его не спрашивают.",
         "team": "Команда TargetologAI",
     },
     "en": {
         "subject": "{code} — your TargetologAI confirmation code",
         "hello": "Hello, {name}!",
-        "lead": "To finish signing up for TargetologAI, enter this code:",
+        "lead": "To confirm your email for TargetologAI, enter this code:",
         "valid": "The code is valid for {minutes} minutes.",
-        "ignore": "If you did not sign up, you can safely ignore this email.",
+        "ignore": "If you did not ask for this code, you can safely ignore this email.",
         "never": "Never share this code — TargetologAI staff will never ask for it.",
         "team": "The TargetologAI team",
     },
 }
 
 
-def signup_code_mail(
+def email_code_mail(
     *, to: str, name: str, code: str, minutes: int, language: str
 ) -> Mail:
     words = WORDS.get(language, WORDS["uz"])

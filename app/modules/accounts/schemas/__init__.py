@@ -1,30 +1,28 @@
 from app.modules.accounts.schemas.account import (
     AccountIn,
+    EmailCodeIn,
     LanguageIn,
     PasswordIn,
     PhoneIn,
     UserOut,
 )
 from app.modules.accounts.schemas.auth import (
-    CodeIn,
     CodeSentOut,
     LoginIn,
     RefreshIn,
-    ResendIn,
     SignupIn,
     TokenPair,
 )
 
 __all__ = [
     "AccountIn",
-    "CodeIn",
     "CodeSentOut",
+    "EmailCodeIn",
     "LanguageIn",
     "LoginIn",
     "PasswordIn",
     "PhoneIn",
     "RefreshIn",
-    "ResendIn",
     "SignupIn",
     "TokenPair",
     "UserOut",

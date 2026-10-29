@@ -125,6 +125,7 @@ class EventName(Choices):
     USER_REGISTERED = "user.registered"
     USER_PROFILE_UPDATED = "user.profile_updated"
     USER_PASSWORD_CHANGED = "user.password_changed"
+    USER_EMAIL_VERIFIED = "user.email_verified"
     SUBSCRIPTION_TRIAL_STARTED = "subscription.trial_started"
     INVOICE_CREATED = "invoice.created"
     INVOICE_PRICED = "invoice.priced"
@@ -243,6 +244,7 @@ EVENT_NAME_LABELS = {
     EventName.USER_REGISTERED: "Akkaunt ochildi",
     EventName.USER_PROFILE_UPDATED: "Shaxsiy ma'lumot yangilandi",
     EventName.USER_PASSWORD_CHANGED: "Parol o'zgartirildi",
+    EventName.USER_EMAIL_VERIFIED: "Email tasdiqlandi",
     EventName.SUBSCRIPTION_TRIAL_STARTED: "Sinov muddati boshlandi",
     EventName.INVOICE_CREATED: "Hisob chiqarildi",
     EventName.INVOICE_PRICED: "Hisob summasi hisoblandi",

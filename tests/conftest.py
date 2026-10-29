@@ -89,15 +89,8 @@ def code_for(email: str) -> str:
 
 
 def register(client: TestClient, **extra: str):  # type: ignore[no-untyped-def]
-    """Sign up the way a person does: the form, then the emailed code."""
-    payload = SIGNUP | extra
-    started = client.post("/api/v1/auth/signup", json=payload)
-    if started.status_code != 202:
-        return started
-    return client.post(
-        "/api/v1/auth/signup/verify",
-        json={"email": payload["email"], "code": code_for(payload["email"])},
-    )
+    """Sign up the way a person does: one form, the account opens at once."""
+    return client.post("/api/v1/auth/signup", json=SIGNUP | extra)
 
 
 def signed_in(client: TestClient, **extra: str) -> dict[str, str]:

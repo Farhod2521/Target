@@ -29,6 +29,13 @@ class BadPhone(DomainError):
     code = "bad_phone"
 
 
+class EmailAlreadyVerified(Conflict):
+    code = "email_already_verified"
+
+    def __init__(self) -> None:
+        super().__init__("Email allaqachon tasdiqlangan.")
+
+
 class CodeExpired(DomainError):
     code = "code_expired"
 

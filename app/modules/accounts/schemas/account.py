@@ -16,6 +16,7 @@ class UserOut(BaseModel):
     language: str
     is_staff: bool
     date_joined: datetime
+    email_verified_at: datetime | None
     welcomed_at: datetime | None
 
 
@@ -31,6 +32,10 @@ class PhoneIn(BaseModel):
 class PasswordIn(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class EmailCodeIn(BaseModel):
+    code: str = Field(min_length=5, max_length=5, pattern=r"^\d{5}$")
 
 
 class LanguageIn(BaseModel):

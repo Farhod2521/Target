@@ -1,6 +1,11 @@
 from app.modules.accounts.services.authenticate import authenticate
 from app.modules.accounts.services.block_user import block_user
 from app.modules.accounts.services.change_password import change_password
+from app.modules.accounts.services.email_code import (
+    CodeSent,
+    confirm_email,
+    send_email_code,
+)
 from app.modules.accounts.services.members import (
     Handoff,
     PurgeReport,
@@ -16,19 +21,17 @@ from app.modules.accounts.services.members import (
     safe_destination,
     set_member_password,
 )
-from app.modules.accounts.services.register_user import USER_REGISTERED, register_user
+from app.modules.accounts.services.register_user import (
+    USER_REGISTERED,
+    register_user,
+    sign_up,
+)
 from app.modules.accounts.services.save_account import (
     PHONE_SAVED,
     save_account,
     save_phone,
 )
 from app.modules.accounts.services.set_language import set_language
-from app.modules.accounts.services.signup_code import (
-    CodeSent,
-    confirm_signup,
-    resend_code,
-    start_signup,
-)
 
 __all__ = [
     "PHONE_SAVED",
@@ -39,7 +42,7 @@ __all__ = [
     "authenticate",
     "block_user",
     "change_password",
-    "confirm_signup",
+    "confirm_email",
     "create_member_login",
     "email_in_use",
     "issue_handoff",
@@ -50,11 +53,11 @@ __all__ = [
     "register_user",
     "remove_member_login",
     "rename_member_login",
-    "resend_code",
     "safe_destination",
     "save_account",
     "save_phone",
+    "send_email_code",
     "set_language",
     "set_member_password",
-    "start_signup",
+    "sign_up",
 ]

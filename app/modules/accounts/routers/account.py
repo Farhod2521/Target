@@ -1,4 +1,6 @@
-from fastapi import APIRouter
+from dataclasses import asdict
+
+from fastapi import APIRouter, status
 
 from app.api.deps import CurrentUser, Db
 from app.modules.accounts import services
@@ -6,6 +8,8 @@ from app.modules.accounts.models import User
 from app.modules.accounts.phone import clean_phone
 from app.modules.accounts.schemas import (
     AccountIn,
+    CodeSentOut,
+    EmailCodeIn,
     LanguageIn,
     PasswordIn,
     PhoneIn,
@@ -45,3 +49,19 @@ def update_password(body: PasswordIn, user: CurrentUser, db: Db) -> User:
 @router.put("/language", response_model=UserOut)
 def update_language(body: LanguageIn, user: CurrentUser, db: Db) -> User:
     return services.set_language(db, user=user, language=body.language)
+
+
+@router.post(
+    "/email/code", response_model=CodeSentOut, status_code=status.HTTP_202_ACCEPTED
+)
+def send_email_code(user: CurrentUser) -> CodeSentOut:
+    """Mail a five-digit code to confirm the account's email. Optional."""
+    sent = services.send_email_code(user=user)
+    return CodeSentOut(
+        **asdict(sent), message="Emailingizga 5 xonali tasdiqlash kodi yuborildi."
+    )
+
+
+@router.post("/email/verify", response_model=UserOut)
+def verify_email(body: EmailCodeIn, user: CurrentUser, db: Db) -> User:
+    return services.confirm_email(db, user=user, code=body.code)
