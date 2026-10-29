@@ -2,7 +2,7 @@
 
 import uuid
 from typing import Any, Final
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode
 
 from fastapi import APIRouter, Response
 from fastapi.responses import RedirectResponse
@@ -141,7 +141,12 @@ def _back(next_url: str, **params: str) -> RedirectResponse:
         if next_url.startswith("/") and not next_url.startswith("//")
         else LEADS
     )
-    return RedirectResponse(f"{settings.site_url}{path}?{urlencode(params)}")
+    # The frontend's next may carry a query of its own (?connected=meta).
+    base, _, query = path.partition("?")
+    merged = dict(parse_qsl(query)) | params
+    if "error" in params:
+        merged.pop("connected", None)
+    return RedirectResponse(f"{settings.site_url}{base}?{urlencode(merged)}")
 
 
 @router.get("/sheet", responses={200: {"model": PanelOut}})

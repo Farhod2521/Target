@@ -3,7 +3,7 @@ import uuid
 from dataclasses import asdict
 from datetime import timedelta
 from typing import Any, Final
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode
 
 from adskit.errors import ProviderError
 from fastapi import APIRouter, HTTPException, Query, status
@@ -371,7 +371,12 @@ def _back(next_url: str, **params: str) -> RedirectResponse:
         if next_url.startswith("/") and not next_url.startswith("//")
         else "/app/connections"
     )
-    return RedirectResponse(f"{settings.site_url}{path}?{urlencode(params)}")
+    # The frontend's next may carry a query of its own (?connected=meta).
+    base, _, query = path.partition("?")
+    merged = dict(parse_qsl(query)) | params
+    if "error" in params:
+        merged.pop("connected", None)
+    return RedirectResponse(f"{settings.site_url}{base}?{urlencode(merged)}")
 
 
 def _api_base() -> str:
