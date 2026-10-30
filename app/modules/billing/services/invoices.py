@@ -152,8 +152,13 @@ def checkout_for(
             )
         )
     except PaymentError as exc:
+        # The reason is in the message too: with no log formatter set, ``extra``
+        # never reaches the container's output.
         logger.warning(
-            "checkout could not be opened",
+            "checkout %s via %s could not be opened: %s",
+            invoice.number,
+            provider,
+            exc,
             extra={"provider": provider, "invoice": invoice.number, "reason": str(exc)},
         )
         raise PaymentUnavailable from exc

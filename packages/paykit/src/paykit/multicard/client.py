@@ -86,8 +86,10 @@ class MulticardClient:
         except httpx.HTTPError as exc:
             raise ProviderUnavailable(f"multicard /auth: {type(exc).__name__}") from exc
         if response.status_code != 200:
+            # The body says why (wrong secret, unknown application); it carries
+            # no secret of ours.
             raise ProviderUnavailable(
-                f"multicard /auth answered {response.status_code}"
+                f"multicard /auth answered {response.status_code}: {response.text[:300]}"
             )
         body = response.json()
         token = str(body.get("token") or "")
@@ -117,7 +119,11 @@ def _data(response: httpx.Response, *, path: str) -> dict[str, Any]:
     if response.status_code != 200 or not body.get("success"):
         error = body.get("error") or {}
         logger.warning(
-            "multicard refused a request",
+            "multicard refused %s: %s %s %s",
+            path,
+            response.status_code,
+            error.get("code", ""),
+            error.get("details", ""),
             extra={
                 "path": path,
                 "status": response.status_code,
@@ -127,6 +133,7 @@ def _data(response: httpx.Response, *, path: str) -> dict[str, Any]:
         )
         raise ProviderUnavailable(
             f"multicard {path}: {error.get('code', response.status_code)}"
+            f" {error.get('details', '')}".rstrip()
         )
     data = body.get("data")
     return data if isinstance(data, dict) else {}
