@@ -1,0 +1,62 @@
+# A copy of production on this Mac, for trying a change on real rows.
+#   tools/staging/up.sh <db-dump.sql.gz>
+# Its own project name, volumes and ports: the dev stack (:5433, :6380, :8000)
+# and the PG tests (:55432) are never touched. Nothing here can reach a person
+# or Meta: writes are rehearsed (ADS_DRY_RUN), no bot, payment or mail key is
+# set, and ENCRYPTION_KEY is a fresh one, so the stored Meta tokens cannot be
+# read at all. No beat: the syncs would call Meta with every owner's token.
+
+name: targetolog-staging
+
+x-app: &app
+  build: ../..
+  image: targetolog-api:staging
+  environment:
+    DATABASE_URL: postgres://targetolog:staging@db:5432/targetolog
+    REDIS_URL: redis://redis:6379/0
+    CELERY_BROKER_URL: redis://redis:6379/1
+    CELERY_RESULT_BACKEND: redis://redis:6379/2
+    CHANNELS_REDIS_URL: redis://redis:6379/3
+    ENCRYPTION_KEY: ${STAGING_ENCRYPTION_KEY:?run tools/staging/up.sh}
+    ADS_DRY_RUN: "true"
+    GOOGLE_ADS_DRY_RUN: "true"
+    SITE_URL: http://localhost:8200
+    CORS_ALLOWED_ORIGINS: http://localhost:5173
+    MEDIA_ROOT: /app/media
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_started
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: targetolog
+      POSTGRES_PASSWORD: staging
+      POSTGRES_DB: targetolog
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U targetolog -d targetolog"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+
+  api:
+    <<: *app
+    ports:
+      - "127.0.0.1:8200:8000"
+
+  worker:
+    <<: *app
+    command: celery -A app.worker worker -Q sync,webhooks,chat,upload,refresh,agent --concurrency 2 --loglevel INFO
+
+volumes:
+  pgdata:
