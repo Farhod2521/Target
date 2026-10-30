@@ -21,7 +21,6 @@ from metaads.specs import (
 from metaads.specs import AdSetSpec as MetaAdSetSpec
 
 from app.common.config import settings
-from app.common.routes import reverse
 from app.modules.ads import draft as draft_field
 from app.modules.ads import naming
 from app.modules.ads.constants import (
@@ -31,7 +30,11 @@ from app.modules.ads.constants import (
     DraftSection,
 )
 from app.modules.ads.models import CampaignLaunch, LaunchCreative
-from app.modules.ads.selectors.lead_form import default_title, effective_ending
+from app.modules.ads.selectors.lead_form import (
+    default_title,
+    effective_ending,
+    privacy_url,
+)
 from app.modules.ads.selectors.schedule import effective_campaign_name
 from app.modules.businesses.models import Business
 from core.leads import TYPED_KEYS
@@ -308,10 +311,9 @@ def form_spec(
 ) -> LeadFormSpec:
     """The form itself, and the promise Meta requires beside it."""
     ending = effective_ending(launch=launch, business=business).ending
-    privacy = reverse("public:business_privacy", args=[business.id])
     return LeadFormSpec(
         name=naming.form_name(launch=launch, business=business, attempt=attempt),
-        privacy_policy_url=f"{settings.site_url}{privacy}",
+        privacy_policy_url=privacy_url(business),
         questions=_questions(launch),
         thank_you_title=ending.title or default_title(business),
         thank_you_body=ending.body,

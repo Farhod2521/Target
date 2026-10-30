@@ -59,6 +59,7 @@ from app.modules.ads.selectors.lead_form import (
     effective_ending,
     ending_fields,
     form_depth_choice,
+    privacy_url,
 )
 from app.modules.ads.selectors.pixel import pixel_choices
 from app.modules.ads.selectors.quality import QualityOffer, quality_offer
@@ -462,6 +463,7 @@ def _lead_form(
         if ending is not None and business is not None
         else None,
         "depth": form_depth_choice(db, launch=launch, now=now),
+        "privacy_url": privacy_url(business) if business is not None else "",
     }
 
 

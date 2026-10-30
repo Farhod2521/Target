@@ -1,5 +1,7 @@
 """The review answers keep the shape the API reference (and the frontend's types) promise."""
 
+import re
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -105,6 +107,8 @@ def test_a_lead_proposal_with_every_section_drawn_keeps_its_documented_shape(
     assert shaped.proposal.interests.chosen_queries == ["IELTS"]
     assert len(shaped.proposal.variants) == 1
     assert shaped.proposal.lead_form is not None
+    # The policy Meta will get, so the owner is not asked to type one.
+    assert re.search(r"/privacy/[0-9a-f-]{36}/$", shaped.proposal.lead_form.privacy_url)
 
     polled = client.get(f"/api/v1/launch/{launch_id}/review/state", headers=auth)
     ReviewPollOut.model_validate(polled.json())

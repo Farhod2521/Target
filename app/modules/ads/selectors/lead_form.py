@@ -8,6 +8,8 @@ from typing import Any, Final, Literal
 from metaads.specs import is_external
 from sqlalchemy.orm import Session
 
+from app.common.config import settings
+from app.common.routes import reverse
 from app.modules.ads import draft as draft_field
 from app.modules.ads.constants import (
     ENDING_BODY_MAX,
@@ -91,6 +93,12 @@ def default_title(business: Business) -> str:
     if len(title) <= ENDING_TITLE_MAX:
         return title
     return "Tez orada siz bilan bog'lanamiz."
+
+
+def privacy_url(business: Business) -> str:
+    """The policy a new form links to: the business's own page on our site."""
+    page = reverse("public:business_privacy", args=[business.id])
+    return f"{settings.site_url}{page}"
 
 
 def stored_ending(*, launch: CampaignLaunch) -> FormEnding | None:

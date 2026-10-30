@@ -265,6 +265,9 @@ class LeadFormOut(Shape):
     ending_choice: EndingChoice | None
     ending: dict[str, Any] | None
     depth: FormDepthChoice | None
+    privacy_url: str = Field(
+        description="The privacy policy a new form links to; Meta requires one."
+    )
 
 
 class AdvancedOut(Shape):
