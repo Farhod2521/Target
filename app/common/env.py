@@ -50,7 +50,7 @@ class Env(BaseSettings):
         default=["http://localhost:8000"], alias="DJANGO_CSRF_TRUSTED_ORIGINS"
     )
     cors_allowed_origins: CommaList = Field(
-        default=["https://new.targetolog.ai"], alias="CORS_ALLOWED_ORIGINS"
+        default=["https://targetolog.ai"], alias="CORS_ALLOWED_ORIGINS"
     )
     auth_throttle: bool = Field(default=True, alias="AUTH_THROTTLE")
     purge_test_emails: CommaList = Field(default=[], alias="PURGE_TEST_EMAILS")

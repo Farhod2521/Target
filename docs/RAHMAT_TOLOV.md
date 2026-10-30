@@ -38,7 +38,7 @@ MULTICARD_OFD_TIN=                 # ixtiyoriy
 MULTICARD_ALLOWED_IPS=             # masalan 195.158.26.90
 
 # Saytning ochiq domeni (pastdagi izohga qarang)
-SITE_URL=https://new.targetolog.ai
+SITE_URL=https://targetolog.ai
 ```
 
 | O'zgaruvchi | Izoh |

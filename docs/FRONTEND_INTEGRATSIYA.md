@@ -23,7 +23,7 @@ To'liq va jonli ro'yxat: `https://<api-host>/docs` (Swagger) va
 | Sanalar | ISO 8601, UTC (`2026-10-28T09:12:00Z`) |
 | Pul | `*_minor` — butun son, tiyin/sentda. Tayyor matn (`spend`, `cpl`, `display`) server formatlaydi |
 | Til | Javob matnlari foydalanuvchi tilida (`uz`, `ru`, `en`) — `PUT /account/language` |
-| CORS | `new.targetolog.ai` ruxsat etilgan. Yangi domen backend sozlamasidagi `cors_allowed_origins` ro'yxatiga qo'shiladi |
+| CORS | `targetolog.ai` ruxsat etilgan. Yangi domen backend sozlamasidagi `cors_allowed_origins` ro'yxatiga qo'shiladi |
 
 **Bitta domen.** Backend o'zi yasaydigan havolalarda (Meta OAuth callback,
 `/r/{code}/`, to'lovdan qaytish) bitta `SITE_URL` ishlatadi. Shuning uchun
