@@ -85,3 +85,31 @@ class MailUnavailable(DomainError):
         super().__init__(
             "Emailga xat yuborib bo'lmadi. Birozdan keyin qayta urinib ko'ring."
         )
+
+
+class TooManyAttempts(DomainError):
+    """One sentence for every limit: which one was met, and whether the email
+    named an account, are what somebody guessing would like to know."""
+
+    status_code = 429
+    code = "too_many_attempts"
+
+    def __init__(self) -> None:
+        super().__init__("Juda ko'p urinish. Bir oz kuting va qayta urinib ko'ring.")
+
+
+class HandoffExpired(DomainError):
+    code = "expired"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Havola eskirgan yoki ishlatilgan. Telegramdagi tugmani qaytadan bosing."
+        )
+
+
+class HandoffBlocked(DomainError):
+    status_code = 403
+    code = "blocked"
+
+    def __init__(self) -> None:
+        super().__init__("Kirish mumkin emas.")

@@ -6,11 +6,13 @@ from app.api.deps import CurrentUser, Db
 from app.modules.accounts import services
 from app.modules.accounts.models import User
 from app.modules.accounts.phone import clean_phone
+from app.modules.accounts.routers.auth import token_pair
 from app.modules.accounts.schemas import (
     AccountIn,
     CodeSentOut,
     EmailCodeIn,
     LanguageIn,
+    PasswordChanged,
     PasswordIn,
     PhoneIn,
     UserOut,
@@ -26,9 +28,8 @@ def me(user: CurrentUser) -> User:
 
 @router.put("", response_model=UserOut)
 def update(body: AccountIn, user: CurrentUser, db: Db) -> User:
-    return services.save_account(
-        db, user=user, full_name=body.full_name, phone=clean_phone(body.phone)
-    )
+    phone = None if body.phone is None else clean_phone(body.phone)
+    return services.save_account(db, user=user, full_name=body.full_name, phone=phone)
 
 
 @router.put("/phone", response_model=UserOut)
@@ -36,13 +37,20 @@ def update_phone(body: PhoneIn, user: CurrentUser, db: Db) -> User:
     return services.save_phone(db, user=user, phone=clean_phone(body.phone))
 
 
-@router.put("/password", response_model=UserOut)
-def update_password(body: PasswordIn, user: CurrentUser, db: Db) -> User:
-    return services.change_password(
+@router.put("/password", response_model=PasswordChanged)
+def update_password(body: PasswordIn, user: CurrentUser, db: Db) -> PasswordChanged:
+    """Every other device is signed out; this one carries on with the new pair."""
+    services.change_password(
         db,
         user=user,
         current_password=body.current_password,
         new_password=body.new_password,
+    )
+    pair = token_pair(user)
+    return PasswordChanged(
+        user=UserOut.model_validate(user),
+        access_token=pair.access_token,
+        refresh_token=pair.refresh_token,
     )
 
 

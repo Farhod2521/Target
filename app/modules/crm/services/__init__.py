@@ -9,6 +9,7 @@ from typing import Any, Literal
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.common import tokens
 from app.common.config import settings
 from app.common.dates import date_format, localtime
 from app.common.db import on_commit, utcnow
@@ -765,6 +766,10 @@ def reset_member_password(
         password=password, email=member.user.email, full_name=member.user.full_name
     )
     set_member_password(db, user=member.user, password=password)
+    # The owner resetting a manager's password ends the manager's sessions:
+    # it is how a login somebody else learnt stops working.
+    subject = str(member.user_id)
+    on_commit(db, lambda: tokens.revoke_all(subject=subject, now=utcnow()))
     member.must_change_password = True
     record_config(
         db,

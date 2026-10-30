@@ -8,9 +8,13 @@ from app.modules.audit.services import emit
 PHONE_SAVED = "accounts.phone_saved"
 
 
-def save_account(db: Session, *, user: User, full_name: str, phone: str) -> User:
+def save_account(
+    db: Session, *, user: User, full_name: str, phone: str | None = None
+) -> User:
+    """``phone=None`` keeps the number already on the row."""
     user.full_name = full_name.strip()
-    user.phone = phone
+    if phone is not None:
+        user.phone = phone
     _saved(db, user)
     return user
 

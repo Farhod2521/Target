@@ -15,6 +15,17 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 CRM_MEMBER_PATHS = ("/api/v1/crm", "/api/v1/auth", "/api/v1/account/language")
+# Read only: a manager's login may say who it is (name, language, whose
+# board), and nothing else under /account - saving a phone there would hand
+# the owner's call-back cards to the manager.
+CRM_MEMBER_READS = ("/api/v1/account",)
+
+
+def crm_member_may(request: Request) -> bool:
+    path = request.url.path
+    if path.startswith(CRM_MEMBER_PATHS):
+        return True
+    return request.method == "GET" and path.rstrip("/") in CRM_MEMBER_READS
 
 
 def signed_in(
@@ -34,9 +45,7 @@ def signed_in(
         raise refused from None
     if user is None or not user.is_active:
         raise refused
-    if user.crm_owner_id is not None and not request.url.path.startswith(
-        CRM_MEMBER_PATHS
-    ):
+    if user.crm_owner_id is not None and not crm_member_may(request):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Faqat CRM doskasi.")
     return user
 

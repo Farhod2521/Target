@@ -18,11 +18,17 @@ class UserOut(BaseModel):
     date_joined: datetime
     email_verified_at: datetime | None
     welcomed_at: datetime | None
+    crm_owner_id: uuid.UUID | None = Field(
+        default=None,
+        description="Set on a CRM manager's login: whose board it works in.",
+    )
 
 
 class AccountIn(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
-    phone: str = Field(min_length=1, max_length=32)
+    # Absent keeps the number on the row: an account made by staff has none,
+    # and renaming it must not demand one.
+    phone: str | None = Field(default=None, min_length=1, max_length=32)
 
 
 class PhoneIn(BaseModel):

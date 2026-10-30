@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field
 
 from app.modules.accounts.constants import Language
+from app.modules.accounts.schemas.account import UserOut
 
 
 class SignupIn(BaseModel):
@@ -32,3 +33,22 @@ class CodeSentOut(BaseModel):
     expires_in: int
     resend_in: int
     message: str = ""
+
+
+class PasswordChanged(TokenPair):
+    """Every other session ended with the old password; this pair is the
+    device that changed it."""
+
+    user: UserOut
+
+
+class HandoffIn(BaseModel):
+    next: str = Field(default="", max_length=512)
+
+
+class HandoffOut(BaseModel):
+    url: str
+
+
+class HandedOff(TokenPair):
+    next: str
