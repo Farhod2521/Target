@@ -16,7 +16,8 @@ from app.modules.ads.constants import PREVIEW_AD_FORMAT, EditSection, ManagedLev
 from app.modules.ads.exceptions import ChangeRefused, PreviewUnavailable, UnknownTarget
 from app.modules.ads.models import AdPreview
 from app.modules.ads.selectors.editable import Editable
-from core.targeting import AudienceEdit, changed, revise
+from core.targeting import AudienceEdit, revised
+from core.targeting.adjustments import Adjustment
 from core.targeting.exceptions import TargetingError
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class SettingsOutcome:
 
     queued: tuple[str, ...] = ()
     refused: dict[str, str] = field(default_factory=dict)
+    adjustments: tuple[Adjustment, ...] = ()
 
     @property
     def all_landed(self) -> bool:
@@ -49,6 +51,7 @@ def change_settings(
     """Ask for every section that actually moved, and say what came of each."""
     queued: list[str] = []
     refused: dict[str, str] = {}
+    adjusted: list[Adjustment] = []
     attempts = (
         (
             EditSection.BUDGET,
@@ -56,7 +59,9 @@ def change_settings(
         ),
         (
             EditSection.AUDIENCE,
-            _audience(db, user=user, editable=editable, wanted=audience),
+            _audience(
+                db, user=user, editable=editable, wanted=audience, notes=adjusted
+            ),
         ),
         (
             EditSection.LIMITS,
@@ -76,7 +81,9 @@ def change_settings(
             refused[str(section)] = outcome
         else:
             queued.append(str(section))
-    return SettingsOutcome(queued=tuple(queued), refused=refused)
+    return SettingsOutcome(
+        queued=tuple(queued), refused=refused, adjustments=tuple(adjusted)
+    )
 
 
 def _budget(
@@ -102,7 +109,12 @@ def _budget(
 
 
 def _audience(
-    db: Session, *, user: User, editable: Editable, wanted: AudienceEdit | None
+    db: Session,
+    *,
+    user: User,
+    editable: Editable,
+    wanted: AudienceEdit | None,
+    notes: list[Adjustment],
 ) -> str | None:
     from app.modules.ads.selectors.actions import managed_target
     from app.modules.ads.services.manage import request_targeting
@@ -117,15 +129,16 @@ def _audience(
         return str(UnknownTarget())
     stored = getattr(row, "targeting_raw", None) or {}
     try:
-        if not changed(stored, edit=wanted):
-            return None
-        revised = revise(stored, edit=wanted)
+        spec, adjustments = revised(stored, edit=wanted, special=target.special)
     except TargetingError:
         return str(ChangeRefused())
+    notes.extend(adjustments)
+    if spec == stored:
+        return None
     try:
         with db.begin_nested():
             request_targeting(
-                db, user=user, external_id=target.external_id, targeting=revised
+                db, user=user, external_id=target.external_id, targeting=spec
             )
     except DomainError as exc:
         return str(exc)

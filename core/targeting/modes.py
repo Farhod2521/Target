@@ -1,5 +1,6 @@
 """What each of the three audience modes does to a spec."""
 
+from collections.abc import Mapping
 from typing import Any, Final, Literal, get_args
 
 from core.targeting.adjustments import Adjustment
@@ -40,9 +41,18 @@ def automation(mode: TargetingMode) -> dict[str, int]:
 def fit(spec: dict[str, Any], notes: list[Adjustment], *, mode: TargetingMode) -> None:
     """Write the switch and correct what the mode will not accept beside it."""
     spec[AUTOMATION_KEY] = automation(mode)
-    if mode != "automatic":
-        return
+    if mode == "automatic":
+        fit_automatic_ages(spec, notes)
 
+
+def is_automatic(spec: Mapping[str, Any]) -> bool:
+    """Whether a finished spec has the switch on, whoever wrote it."""
+    switch = spec.get(AUTOMATION_KEY)
+    return isinstance(switch, Mapping) and switch.get(AUTOMATION_FIELD) == AUTOMATION_ON
+
+
+def fit_automatic_ages(spec: dict[str, Any], notes: list[Adjustment]) -> None:
+    """No upper age, and a lower one no later than the mode allows."""
     if spec.pop("age_max", None) is not None:
         notes.append(
             Adjustment(
@@ -89,6 +99,8 @@ __all__ = [
     "MODES",
     "automation",
     "fit",
+    "fit_automatic_ages",
+    "is_automatic",
     "requires_interests",
     "resolve_mode",
     "sent_ages",

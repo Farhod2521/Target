@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from core.targeting import AudienceEdit, changed, revise
+from core.targeting import AudienceEdit, changed, revise, revised
 from core.targeting.exceptions import InvalidTargeting
 
 AROUND: dict[str, Any] = {
@@ -201,3 +201,66 @@ def test_an_empty_edit_names_nothing() -> None:
     assert AudienceEdit().is_empty
     assert not AudienceEdit(radius_km=5).is_empty
     assert not AudienceEdit(keep_interests=False).is_empty
+
+
+# --- The launch's own rules, on a running audience -------------------------
+AUTOMATIC: dict[str, Any] = {
+    "geo_locations": {"countries": ["UZ"]},
+    "age_min": 20,
+    "targeting_automation": {"advantage_audience": 1},
+}
+
+
+def test_an_automatic_audience_gets_no_upper_age() -> None:
+    """Advantage+ takes no age_max below sixty-five: sent anyway, Meta refuses
+    the write after the screen has already said it went."""
+    after, notes = revised(AUTOMATIC, edit=AudienceEdit(age_min=22, age_max=40))
+
+    assert "age_max" not in after
+    assert after["age_min"] == 22
+    assert [note.field for note in notes] == ["age_max"]
+
+
+def test_an_automatic_audience_starts_no_later_than_twenty_five() -> None:
+    after, notes = revised(AUTOMATIC, edit=AudienceEdit(age_min=30, age_max=65))
+
+    assert after["age_min"] == 25
+    assert [(note.field, note.reason) for note in notes] == [
+        ("age_min", "automatic_targeting")
+    ]
+
+
+def test_a_special_category_keeps_every_age_and_both_genders() -> None:
+    """Housing, jobs and credit may not be narrowed by age or gender."""
+    spec = {**CITIES, "age_min": 18, "age_max": 65}
+
+    after, notes = revised(
+        spec,
+        edit=AudienceEdit(age_min=25, age_max=40, genders=(2,)),
+        special=True,
+    )
+
+    assert after == spec
+    assert {note.field for note in notes} == {"age", "genders"}
+
+
+def test_a_special_category_circle_is_never_smaller_than_the_law_allows() -> None:
+    after, notes = revised(AROUND, edit=AudienceEdit(radius_km=5), special=True)
+
+    assert after["geo_locations"]["custom_locations"][0]["radius"] == 24
+    assert [note.field for note in notes] == ["radius"]
+
+
+def test_a_gender_that_is_not_a_gender_is_refused_not_widened() -> None:
+    """Dropping an unknown number left nothing, and nothing meant everybody."""
+    with pytest.raises(InvalidTargeting):
+        revise(AROUND, edit=AudienceEdit(genders=(3,)))
+
+
+def test_the_dialogs_own_defaults_sent_back_move_nothing() -> None:
+    """A spec with no ages is 18-65 to Meta; the dialog shows those and
+    sends them back untouched - that is no change, not a write."""
+    spec = {"geo_locations": {"countries": ["UZ"]}}
+
+    assert not changed(spec, edit=AudienceEdit(age_min=18, age_max=65))
+    assert not changed(AUTOMATIC, edit=AudienceEdit(age_min=20, age_max=65))

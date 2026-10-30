@@ -376,6 +376,10 @@ class CampaignEditOut(BaseModel):
 class CampaignEditSaveOut(BaseModel):
     queued: list[str] = Field(description="Sections sent to Meta.")
     refused: dict[str, str] = Field(description="Section -> why it was not sent.")
+    adjustments: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="What the rules changed of what was asked: `field`, `reason`, `detail`.",
+    )
     message: str
 
 

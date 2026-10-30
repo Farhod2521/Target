@@ -214,3 +214,55 @@ def test_money_finer_than_a_cent_and_an_under_age_audience_are_refused(
     )
     assert young.status_code == 422, young.text
     assert db.scalar(select(ActionLog.id)) is None
+
+
+def test_a_running_audience_obeys_the_launchs_rules(
+    client, db: Session, queued: list
+) -> None:  # type: ignore[no-untyped-def]
+    """A gender that is not one is refused, an Advantage+ audience is written
+    without an upper age (and the screen is told), and the dialog's own
+    numbers sent back untouched open no write."""
+    headers = sign_up(client)
+    owner = db.scalar(select(User).order_by(User.date_joined.desc()))
+    assert owner is not None
+    account, page = _cabinet(db, owner)
+    page.is_current = page.is_active = True
+    account.is_active = account.is_current = True
+    db.commit()
+    start_trial(db, user=owner, now=utcnow())
+    db.commit()
+    campaign = _running(db, owner, account)
+    adset = db.scalar(select(AdSet).where(AdSet.external_id == "s_1"))
+    assert adset is not None
+    adset.targeting_raw = {
+        "geo_locations": {"countries": ["UZ"]},
+        "age_min": 20,
+        "targeting_automation": {"advantage_audience": 1},
+    }
+    db.commit()
+    edit = f"/api/v1/campaigns/{campaign.id}/edit"
+
+    unknown = client.post(
+        edit,
+        json={"audience": {"age_min": 20, "age_max": 65, "genders": [3]}},
+        headers=headers,
+    )
+    assert unknown.status_code == 422, unknown.text
+
+    untouched = client.post(
+        edit, json={"audience": {"age_min": 20, "age_max": 65}}, headers=headers
+    )
+    assert untouched.status_code == 200, untouched.text
+    assert untouched.json()["queued"] == []
+    assert db.scalar(select(ActionLog.id)) is None
+
+    narrowed = client.post(
+        edit, json={"audience": {"age_min": 22, "age_max": 40}}, headers=headers
+    )
+    assert narrowed.status_code == 200, narrowed.text
+    assert narrowed.json()["queued"] == ["audience"]
+    assert [note["field"] for note in narrowed.json()["adjustments"]] == ["age_max"]
+    log = db.scalar(select(ActionLog))
+    assert log is not None
+    sent = log.request_payload["targeting"]
+    assert sent["age_min"] == 22 and "age_max" not in sent

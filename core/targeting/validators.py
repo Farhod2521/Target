@@ -48,8 +48,8 @@ def validate_structure(
     spec = copy.deepcopy(dict(targeting))
     notes: list[Adjustment] = []
 
-    _clamp_age(spec, notes, special=bool(special_ad_category))
-    _clamp_radius(spec, notes, special=bool(special_ad_category))
+    clamp_age(spec, notes, special=bool(special_ad_category))
+    clamp_radius(spec, notes, special=bool(special_ad_category))
     if special_ad_category:
         _apply_special_category(spec, notes, category=special_ad_category)
     fit_mode(spec, notes, mode=targeting_mode)
@@ -65,7 +65,7 @@ def _check_budget(*, given: int, minimum: int, currency: str) -> None:
         raise BudgetTooLow(given_minor=given, minimum_minor=minimum, currency=currency)
 
 
-def _clamp_age(spec: dict[str, Any], notes: list[Adjustment], *, special: bool) -> None:
+def clamp_age(spec: dict[str, Any], notes: list[Adjustment], *, special: bool) -> None:
     """Pull the age range inside what the provider accepts."""
     if not special and "age_min" not in spec and "age_max" not in spec:
         return
@@ -93,7 +93,7 @@ def _clamp_age(spec: dict[str, Any], notes: list[Adjustment], *, special: bool) 
     spec["age_max"] = high
 
 
-def _clamp_radius(
+def clamp_radius(
     spec: dict[str, Any], notes: list[Adjustment], *, special: bool
 ) -> None:
     """Every custom location's radius, inside the allowed band."""

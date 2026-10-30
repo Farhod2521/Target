@@ -168,7 +168,7 @@ class AudienceProposal(BaseModel):
         downwards has two - swap them, or one of the numbers is the typo -
         and guessing which produces an audience nobody asked for.
 
-        ``core.targeting`` decides the same thing: ``_clamp_age`` raises on
+        ``core.targeting`` decides the same thing: ``clamp_age`` raises on
         an inverted range instead of sorting it. The problem is where it
         raises. Nothing in ``apps/`` catches ``InvalidTargeting``, so a
         proposal that got past validation here would be stored and blow up

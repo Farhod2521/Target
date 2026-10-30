@@ -43,6 +43,7 @@ class AudienceTarget:
     is_learning: bool
     allows_gender: bool
     min_radius_km: int
+    special: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +157,7 @@ def _audience(*, campaign: Campaign, groups: list[AdSet]) -> AudienceTarget | No
         is_learning=bool(group.is_learning),
         allows_gender=not special,
         min_radius_km=SPECIAL_MIN_RADIUS_KM if special else MIN_RADIUS_KM,
+        special=special,
     )
 
 

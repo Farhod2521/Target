@@ -8,7 +8,7 @@ import uuid
 from dataclasses import asdict
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
@@ -282,7 +282,7 @@ class BudgetSectionIn(BaseModel):
 class AudienceSectionIn(BaseModel):
     age_min: int = Field(ge=MIN_AGE, le=MAX_AGE)
     age_max: int = Field(ge=MIN_AGE, le=MAX_AGE)
-    genders: list[int] | None = Field(
+    genders: list[Literal[1, 2]] | None = Field(
         default=None, description="[] for everybody, [1] men, [2] women"
     )
     radius_km: int | None = None
@@ -397,6 +397,7 @@ def campaign_edit_save(
     return {
         "queued": list(outcome.queued),
         "refused": outcome.refused,
+        "adjustments": [asdict(note) for note in outcome.adjustments],
         "message": SENT_SETTINGS if outcome.queued else "O'zgarish kiritilmadi.",
     }
 

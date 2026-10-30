@@ -166,6 +166,7 @@ from core.targeting.revise import (
     AudienceEdit,
     changed,
     revise,
+    revised,
 )
 from core.targeting.tracking import (
     DEFAULT_TAGS,
@@ -315,6 +316,7 @@ __all__ = [
     "resolve_mode",
     "retranslate",
     "revise",
+    "revised",
     "sent_ages",
     "spend_limits_fit",
     "stand_in_room",
