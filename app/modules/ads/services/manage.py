@@ -13,9 +13,9 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Final
 
-from adskit import ExternalRef, registry
+from adskit import ExternalRef
 from adskit.dto import ActionResult, StatusDTO
-from adskit.errors import AccountActionRequired, PermissionDenied, ProviderError
+from adskit.errors import PermissionDenied, ProviderError
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -33,12 +33,10 @@ from app.modules.ads.exceptions import (
     CampaignFinished,
     ChangeInFlight,
     ChangeRefused,
-    ConnectionUnusable,
     ForeignAudience,
     GroupStillLearning,
     LastAdInGroup,
     LearningInProgress,
-    NoAdAccount,
     NothingToRevert,
     UnknownTarget,
 )
@@ -54,7 +52,6 @@ from app.modules.ads.selectors import (
     shared_adset_ids,
     shared_campaign_ids,
 )
-from app.modules.ads.services.access import target_account_and_token
 from app.modules.audit.constants import ActionStatus, ActionType, ActorType, EventName
 from app.modules.audit.models import ActionLog
 from app.modules.audit.services import emit
@@ -802,91 +799,65 @@ LIMIT_FIELDS: dict[str, str] = {
 
 
 def apply_change(db: Session, *, log_id: str) -> str:
-    log = db.get(ActionLog, uuid.UUID(str(log_id)))
-    if log is None:
-        return "gone"
-    if log.status != ActionStatus.PENDING:
-        return "done"
-    if log.action not in WRITES:
-        fail_log(db, log=log, code="unknown", message=f"no write for {log.action}")
-        return "unknown"
-    target = managed_target(
-        db, owner=log.owner, level=log.target_level, external_id=log.target_external_id
-    )
-    if target is None:
-        fail_log(db, log=log, code="gone", message="object is no longer in the mirror")
-        return "gone"
-    try:
-        account, token = target_account_and_token(target=target, level=log.target_level)
-    except (NoAdAccount, ConnectionUnusable) as exc:
-        fail_log(db, log=log, code="connection", message=exc.message)
-        return "unusable"
-    ref = ExternalRef(
-        provider=log.target_provider, level=log.target_level, id=log.target_external_id
-    )
-    try:
-        provider = registry.get(log.target_provider)
-        port = provider.campaigns
-        before = port.get_status(ref=ref, token=token)
-    except ProviderError as exc:
-        refused_by_provider(
-            db, log=log, exc=exc, account=account, port=port, token=token
-        )
-        return "failed"
-    except Exception as exc:
-        logger.exception("change %s could not be prepared", log.id)
-        fail_log(db, log=log, code="unknown", message=str(exc))
-        return "failed"
-    refusal = _refused(
-        db, log=log, before=before, target=target, port=port, token=token
-    )
-    if refusal:
-        fail_log(db, log=log, code=refusal, message="the check before the write failed")
-        return "refused"
-    moved = _moved_elsewhere(
-        log=log, target=target, provider=provider, ref=ref, token=token
-    )
-    if moved:
-        fail_log(db, log=log, code=moved, message="the audience is not the one edited")
-        return "refused"
-    try:
-        result = _write(
-            log=log,
-            provider=provider,
-            ref=ref,
-            token=token,
-            dry_run=bool(settings.ads_dry_run),
-        )
-    except ProviderError as exc:
-        if isinstance(exc, AccountActionRequired):
-            from app.modules.integrations.services import note_action_required
+    """A switch, a budget, a limit or an audience, carried out."""
+    from app.modules.ads.actions.executor import Write, carry_out
 
-            note_action_required(db, connection=account.connection)
-        refused_by_provider(
-            db, log=log, exc=exc, account=account, port=provider.campaigns, token=token
-        )
-        return "failed"
-    except Exception as exc:
-        logger.exception("change %s failed unexpectedly", log.id)
-        fail_log(db, log=log, code="unknown", message=str(exc))
-        return "failed"
-    if not result.ok:
-        # Meta's ``{"success": false}``: answered, said no, raised nothing.
-        # Nothing changed, so the row must not say it did.
-        fail_log(db, log=log, code="not_applied", message=str(result.raw_response))
-        return "failed"
-    after = _read_back(port=port, ref=ref, token=token, dry_run=result.dry_run)
+    return carry_out(
+        db,
+        log_id=log_id,
+        kind=Write(
+            actions=frozenset(WRITES),
+            check=_check_change,
+            write=_write_change,
+            finish=_finish_change,
+        ),
+    )
+
+
+def _check_change(db: Session, job: Any) -> str:
+    refusal = _refused(
+        db,
+        log=job.log,
+        before=job.before,
+        target=job.target,
+        port=job.provider.campaigns,
+        token=job.token,
+    )
+    return refusal or _moved_elsewhere(
+        log=job.log,
+        target=job.target,
+        provider=job.provider,
+        ref=job.ref,
+        token=job.token,
+    )
+
+
+def _write_change(db: Session, job: Any) -> ActionResult:
+    return _write(
+        log=job.log,
+        provider=job.provider,
+        ref=job.ref,
+        token=job.token,
+        dry_run=job.dry_run,
+    )
+
+
+def _finish_change(db: Session, job: Any, result: ActionResult) -> None:
+    after = _read_back(
+        port=job.provider.campaigns,
+        ref=job.ref,
+        token=job.token,
+        dry_run=result.dry_run,
+    )
     record(
         db,
-        log=log,
-        target=target,
+        log=job.log,
+        target=job.target,
         result=result,
-        before=before,
+        before=job.before,
         after=after,
-        landed=_landed(log=log, after=after),
+        landed=_landed(log=job.log, after=after),
     )
-    db.commit()
-    return "applied"
 
 
 def _moved_elsewhere(
@@ -991,9 +962,9 @@ def _ad_refusal(
     )
     try:
         found = port.get_status(ref=parent_ref, token=token)
-    except ProviderError as exc:
+    except ProviderError:
         logger.info("could not read %s before switching an ad off", parent_ref)
-        return exc.code or "read"
+        return "read"
     context = _ad_context(db, owner=log.owner, target=target)
     verdict = check_ad_pause(
         state=state,

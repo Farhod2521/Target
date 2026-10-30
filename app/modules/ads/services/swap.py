@@ -5,7 +5,7 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
-from adskit import ExternalRef, registry
+from adskit import ExternalRef
 from adskit.dto import ActionResult, StatusDTO
 from adskit.errors import ProviderError
 from metaads.assets import MetaAssets
@@ -15,16 +15,13 @@ from metaads.specs import STATUS_ACTIVE, STATUS_PAUSED
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.common.config import settings
 from app.modules.accounts.models import User
 from app.modules.ads.constants import ManagedLevel, MediaKind
 from app.modules.ads.exceptions import (
     CampaignFinished,
     ChangeRefused,
-    ConnectionUnusable,
     CreativeNotEditable,
     LearningInProgress,
-    NoAdAccount,
     NothingChanged,
     UnknownLeadForm,
     UnknownMedia,
@@ -35,14 +32,13 @@ from app.modules.ads.services.manage import (
     CREATIVE,
     Origin,
     _ad_context,
-    fail_log,
     open_change,
     record,
     state_of,
     state_payload,
     target_for,
 )
-from app.modules.audit.constants import ActionStatus, ActionType
+from app.modules.audit.constants import ActionType
 from app.modules.audit.models import ActionLog
 from app.modules.integrations.models import PageAccount
 from core.agent import AdContext, ObjectState, check_creative_swap
@@ -185,82 +181,74 @@ def _dispatch(log_id: str) -> None:
 
 def apply_swap(db: Session, *, log_id: str) -> str:
     """One audit row, carried out. Returns a word for the task's log line."""
-    from app.modules.ads.selectors import creative_of
-    from app.modules.ads.selectors.actions import managed_target
-    from app.modules.ads.services.access import target_account_and_token
+    from app.modules.ads.actions.executor import Write, carry_out
 
-    try:
-        log = db.get(ActionLog, uuid.UUID(str(log_id)))
-    except ValueError:
-        log = None
-    if log is None:
-        return "gone"
-    if log.status != ActionStatus.PENDING:
-        return "done"
-    owner = log.owner
-    target = managed_target(
-        db, owner=owner, level=log.target_level, external_id=log.target_external_id
-    )
-    if not isinstance(target, Ad):
-        fail_log(
-            db, log=log, code="gone", message="the advert is no longer in the mirror"
-        )
-        return "gone"
-    creative = creative_of(db, owner=owner, ad=target)
-    story = getattr(creative, "story_raw", None)
-    if not isinstance(story, dict) or not story:
-        fail_log(
-            db, log=log, code="creative", message="no stored creative to build from"
-        )
-        return "refused"
-    try:
-        account, token = target_account_and_token(target=target, level=ManagedLevel.AD)
-    except (NoAdAccount, ConnectionUnusable) as exc:
-        fail_log(db, log=log, code="connection", message=str(exc))
-        return "unusable"
-    port = registry.get(log.target_provider).campaigns
-    ref = ExternalRef(
-        provider=log.target_provider, level=ManagedLevel.AD, id=log.target_external_id
-    )  # type: ignore[arg-type]
-    try:
-        before = port.get_status(ref=ref, token=token)
-    except ProviderError as exc:
-        fail_log(db, log=log, code=exc.code or "read", message=str(exc))
-        return "failed"
-    dry_run = bool(settings.ads_dry_run)
-    refusal = swap_refusal(
+    return carry_out(
         db,
-        log=log,
-        before=before,
-        target=target,
-        port=port,
-        account_id=account.external_id,
-        token=token,
-        dry_run=dry_run,
+        log_id=log_id,
+        kind=Write(
+            actions=frozenset({ActionType.CREATIVE_SWAP}),
+            ready=_swappable,
+            check=_check_swap,
+            write=_write_swap,
+            finish=_finish_swap,
+        ),
     )
-    if refusal:
-        fail_log(db, log=log, code=refusal, message="the check before the write failed")
-        return "refused"
-    try:
-        result = _swap(
-            log=log,
-            target=target,
-            story=story,
-            account_id=account.external_id,
-            adset_id=parent_external_id(target=target),
-            port=port,
-            ref=ref,
-            before=before,
-            token=token,
-            dry_run=dry_run,
-        )
-    except ProviderError as exc:
-        fail_log(db, log=log, code=exc.code or "write", message=str(exc))
-        return "failed"
-    after = None if dry_run else _read_back(port=port, ref=ref, token=token)
-    record(db, log=log, target=target, result=result, before=before, after=after)
-    db.commit()
-    return "applied"
+
+
+def _swappable(db: Session, log: ActionLog, target: Any) -> str:
+    """An advert in the mirror with a stored creative to build the next one from."""
+    from app.modules.ads.selectors import creative_of
+
+    if not isinstance(target, Ad):
+        return "gone"
+    creative = creative_of(db, owner=log.owner, ad=target)
+    story = getattr(creative, "story_raw", None)
+    return "" if isinstance(story, dict) and story else "creative"
+
+
+def _check_swap(db: Session, job: Any) -> str:
+    return swap_refusal(
+        db,
+        log=job.log,
+        before=job.before,
+        target=job.target,
+        port=job.provider.campaigns,
+        account_id=job.account.external_id,
+        token=job.token,
+        dry_run=job.dry_run,
+    )
+
+
+def _write_swap(db: Session, job: Any) -> ActionResult:
+    from app.modules.ads.selectors import creative_of
+
+    creative = creative_of(db, owner=job.log.owner, ad=job.target)
+    return _swap(
+        log=job.log,
+        target=job.target,
+        story=creative.story_raw,
+        account_id=job.account.external_id,
+        adset_id=parent_external_id(target=job.target),
+        port=job.provider.campaigns,
+        ref=job.ref,
+        before=job.before,
+        token=job.token,
+        dry_run=job.dry_run,
+    )
+
+
+def _finish_swap(db: Session, job: Any, result: ActionResult) -> None:
+    port = job.provider.campaigns
+    after = None if job.dry_run else _read_back(port=port, ref=job.ref, token=job.token)
+    record(
+        db,
+        log=job.log,
+        target=job.target,
+        result=result,
+        before=job.before,
+        after=after,
+    )
 
 
 def swap_refusal(
@@ -290,9 +278,9 @@ def swap_refusal(
             hashes=[picture],
             token=token,
         )
-    except ProviderError as exc:
+    except ProviderError:
         logger.info("could not read %s before restaging an advert", parent_ref)
-        return exc.code or "read"
+        return "read"
     if foreign:
         return FOREIGN_PICTURE
     context = _ad_context(db, owner=log.owner, target=target)

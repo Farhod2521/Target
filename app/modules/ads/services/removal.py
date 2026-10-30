@@ -20,10 +20,10 @@ from app.common.config import settings
 from app.common.db import on_commit, utcnow
 from app.modules.accounts.models import User
 from app.modules.ads.constants import ManagedLevel
-from app.modules.ads.exceptions import ConnectionUnusable, NoAdAccount
+from app.modules.ads.exceptions import ConnectionUnusable
 from app.modules.ads.models import Ad, Campaign, GoalCampaign
 from app.modules.ads.selectors import managed_target
-from app.modules.ads.services.access import target_account_and_token, token_for
+from app.modules.ads.services.access import token_for
 from app.modules.ads.services.manage import (
     BY_HAND,
     BY_SYSTEM,
@@ -33,7 +33,6 @@ from app.modules.ads.services.manage import (
     fail_log,
     open_change,
     open_log,
-    refused_by_provider,
     state_payload,
     target_for,
 )
@@ -205,47 +204,29 @@ def request_ad_delete(
 
 
 def apply_delete(db: Session, *, log_id: str) -> str:
-    log = db.get(ActionLog, uuid.UUID(str(log_id)))
-    if log is None:
-        return "gone"
-    if log.status != ActionStatus.PENDING:
-        return "done"
-    if log.action not in DELETIONS:
-        fail_log(db, log=log, code="unknown", message=f"no delete for {log.action}")
-        return "unknown"
-    target = managed_target(
-        db, owner=log.owner, level=log.target_level, external_id=log.target_external_id
+    """A delete, carried out; the mirror forgets the object once it is gone."""
+    from app.modules.ads.actions.executor import Write, carry_out
+
+    return carry_out(
+        db,
+        log_id=log_id,
+        kind=Write(
+            actions=frozenset(DELETIONS),
+            write=_write_delete,
+            finish=_finish_delete,
+            reads_before=False,
+        ),
     )
-    if target is None:
-        fail_log(db, log=log, code="gone", message="object is no longer in the mirror")
-        return "gone"
-    try:
-        account, token = target_account_and_token(target=target, level=log.target_level)
-    except (NoAdAccount, ConnectionUnusable) as exc:
-        fail_log(db, log=log, code="connection", message=exc.message)
-        return "unusable"
-    ref = ExternalRef(
-        provider=log.target_provider, level=log.target_level, id=log.target_external_id
+
+
+def _write_delete(db: Session, job: Any) -> ActionResult:
+    return job.provider.campaigns.delete(
+        ref=job.ref, token=job.token, dry_run=job.dry_run
     )
-    try:
-        port = registry.get(log.target_provider).campaigns
-        result = port.delete(ref=ref, token=token, dry_run=bool(settings.ads_dry_run))
-    except ProviderError as exc:
-        refused_by_provider(
-            db, log=log, exc=exc, account=account, port=port, token=token
-        )
-        return "failed"
-    except Exception as exc:
-        # A row left PENDING locks every switch on this object behind a
-        # delete nobody can see, until the stale window passes.
-        logger.exception("delete %s failed unexpectedly", log.id)
-        fail_log(db, log=log, code="unknown", message=str(exc))
-        return "failed"
-    if not result.ok:
-        # Answered and refused without raising: the object is still there,
-        # so the mirror keeps its row.
-        fail_log(db, log=log, code="not_applied", message=str(result.raw_response))
-        return "failed"
+
+
+def _finish_delete(db: Session, job: Any, result: ActionResult) -> None:
+    log, target = job.log, job.target
     previous = state_payload(target) | {"name": target.name}
     if log.action == ActionType.DELETE_ADSET:
         previous["campaign_id"] = target.campaign.external_id
@@ -258,9 +239,9 @@ def apply_delete(db: Session, *, log_id: str) -> str:
             sweep_id = str(log.id)
             on_commit(db, lambda: drop_empty_campaign_task.delay(sweep_id))
     _deleted_event(db, log=log, dry_run=result.dry_run)
-    db.commit()
-    logger.info("%s %s deleted (dry run: %s)", log.target_level, ref.id, result.dry_run)
-    return "applied"
+    logger.info(
+        "%s %s deleted (dry run: %s)", log.target_level, job.ref.id, result.dry_run
+    )
 
 
 def _deleted_event(

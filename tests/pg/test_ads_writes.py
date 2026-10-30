@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.common import tokens
 from app.common.db import utcnow
 from app.modules.accounts.models import User
+from app.modules.ads.actions import executor
 from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.models import Ad, AdSet, Campaign
 from app.modules.ads.services import manage, mirror, removal, swap
@@ -112,8 +113,8 @@ def test_a_deleted_campaign_takes_its_groups_and_ads_with_it(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     owner, account = _owner_with_mirror(db)
-    _provider(monkeypatch, removal, ok=True)
-    _signed_in(monkeypatch, removal, account)
+    _provider(monkeypatch, executor, ok=True)
+    _signed_in(monkeypatch, executor, account)
     log_id = _log(db, owner, ActionType.DELETE_CAMPAIGN, ManagedLevel.CAMPAIGN, "c_1")
 
     assert removal.apply_delete(db, log_id=log_id) == "applied"
@@ -127,8 +128,8 @@ def test_a_delete_meta_refused_quietly_keeps_the_mirror(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     owner, account = _owner_with_mirror(db)
-    _provider(monkeypatch, removal, ok=False)
-    _signed_in(monkeypatch, removal, account)
+    _provider(monkeypatch, executor, ok=False)
+    _signed_in(monkeypatch, executor, account)
     log_id = _log(db, owner, ActionType.DELETE_ADSET, ManagedLevel.ADSET, "s_1")
 
     assert removal.apply_delete(db, log_id=log_id) == "failed"
@@ -143,12 +144,12 @@ def test_an_unexpected_error_in_a_delete_does_not_leave_it_pending(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     owner, account = _owner_with_mirror(db)
-    _signed_in(monkeypatch, removal, account)
+    _signed_in(monkeypatch, executor, account)
 
     def broken(_: str) -> Any:
         raise KeyError("no port")
 
-    monkeypatch.setattr(removal, "registry", SimpleNamespace(get=broken))
+    monkeypatch.setattr(executor, "registry", SimpleNamespace(get=broken))
     log_id = _log(db, owner, ActionType.DELETE_AD, ManagedLevel.AD, "a_1")
 
     assert removal.apply_delete(db, log_id=log_id) == "failed"
@@ -162,8 +163,8 @@ def test_a_change_meta_refused_quietly_is_not_recorded_as_applied(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     owner, account = _owner_with_mirror(db)
-    _provider(monkeypatch, manage, ok=False)
-    _signed_in(monkeypatch, manage, account)
+    _provider(monkeypatch, executor, ok=False)
+    _signed_in(monkeypatch, executor, account)
     log_id = _log(db, owner, ActionType.PAUSE, ManagedLevel.CAMPAIGN, "c_1")
 
     assert manage.apply_change(db, log_id=log_id) == "failed"
@@ -177,11 +178,12 @@ def test_a_creative_swap_that_lands_is_saved(
     db: Session, pg_factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from app.modules.ads import selectors
-    from app.modules.ads.services import access
 
     owner, account = _owner_with_mirror(db)
-    _provider(monkeypatch, swap, ok=True)
-    monkeypatch.setattr(access, "target_account_and_token", lambda **_: (account, "t"))
+    _provider(monkeypatch, executor, ok=True)
+    monkeypatch.setattr(
+        executor, "target_account_and_token", lambda **_: (account, "t")
+    )
     monkeypatch.setattr(
         selectors, "creative_of", lambda *_, **__: SimpleNamespace(story_raw={"a": 1})
     )
@@ -239,8 +241,8 @@ def test_a_refused_delete_on_a_blocked_account_says_so(
         user_message="To'lovni yangilang.",
     )
     port = RefusingCampaigns(error, standing="disabled_payment")
-    _refusing(monkeypatch, removal, port)
-    _signed_in(monkeypatch, removal, account)
+    _refusing(monkeypatch, executor, port)
+    _signed_in(monkeypatch, executor, account)
     log_id = _log(db, owner, ActionType.DELETE_ADSET, ManagedLevel.ADSET, "s_1")
 
     assert removal.apply_delete(db, log_id=log_id) == "failed"
@@ -260,8 +262,8 @@ def test_a_refused_change_is_named_by_its_kind(
 ) -> None:
     owner, account = _owner_with_mirror(db)
     port = RefusingCampaigns(NotFound("gone", code="100"))
-    _refusing(monkeypatch, manage, port)
-    _signed_in(monkeypatch, manage, account)
+    _refusing(monkeypatch, executor, port)
+    _signed_in(monkeypatch, executor, account)
     log_id = _log(db, owner, ActionType.PAUSE, ManagedLevel.ADSET, "s_1")
 
     assert manage.apply_change(db, log_id=log_id) == "failed"
@@ -287,8 +289,8 @@ def test_the_screen_says_why_a_delete_did_not_go_through(
     port = RefusingCampaigns(
         PermissionDenied("denied", code="200", user_message="Rol bering.")
     )
-    _refusing(monkeypatch, removal, port)
-    _signed_in(monkeypatch, removal, account)
+    _refusing(monkeypatch, executor, port)
+    _signed_in(monkeypatch, executor, account)
     log_id = _log(db, owner, ActionType.DELETE_ADSET, ManagedLevel.ADSET, "s_1")
     removal.apply_delete(db, log_id=log_id)
     token = tokens.issue(subject=str(owner.id), kind="access", now=utcnow())
@@ -352,7 +354,7 @@ def _audience_change(
     db.commit()
     audiences = FakeAudiences(live=live)
     monkeypatch.setattr(
-        manage,
+        executor,
         "registry",
         SimpleNamespace(
             get=lambda _: SimpleNamespace(
@@ -361,7 +363,7 @@ def _audience_change(
         ),
     )
     monkeypatch.setattr(manage.settings, "ads_dry_run", False)
-    _signed_in(monkeypatch, manage, account)
+    _signed_in(monkeypatch, executor, account)
     log = manage.open_log(
         db,
         owner=owner,
@@ -428,3 +430,37 @@ def test_an_audience_that_cannot_be_read_is_not_replaced(
     log = db.get(ActionLog, log_id)
     assert log.error_code == "read"
     assert audiences.written == []
+
+
+def test_a_refused_creative_swap_is_explained_like_any_other_refusal(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The swap kept Meta's raw code ("[200]") where every other write kept
+    the screen's word, so its failure read as Meta's bare refusal."""
+    from app.modules.ads import selectors
+
+    owner, account = _owner_with_mirror(db)
+    _refusing(monkeypatch, executor, RefusingCampaigns(KeyError("unused")))
+    _signed_in(monkeypatch, executor, account)
+    monkeypatch.setattr(
+        selectors, "creative_of", lambda *_, **__: SimpleNamespace(story_raw={"a": 1})
+    )
+    monkeypatch.setattr(swap, "swap_refusal", lambda *_, **__: "")
+
+    def refused(**_: Any) -> ActionResult:
+        raise PermissionDenied(
+            "(#200) Permissions error",
+            code="200",
+            user_title="Ruxsat yo'q",
+            user_message="Sahifa egasidan ruxsat so'rang.",
+        )
+
+    monkeypatch.setattr(swap, "_swap", refused)
+    log_id = _log(db, owner, ActionType.CREATIVE_SWAP, ManagedLevel.AD, "a_1")
+
+    assert swap.apply_swap(db, log_id=log_id) == "failed"
+
+    db.expire_all()
+    log = db.get(ActionLog, log_id)
+    assert log.error_code == "permission"
+    assert log.result_payload["user_title"] == "Ruxsat yo'q"
