@@ -99,7 +99,10 @@ class PaymentChoice:
     label: str
 
 
-PROVIDER_LABELS: dict[str, str] = {"multicard": "Rahmat (Uzcard, Humo, Visa)"}
+PROVIDER_LABELS: dict[str, str] = {
+    "multicard": "Rahmat (Uzcard, Humo, Visa)",
+    "payme": "Payme (Uzcard, Humo)",
+}
 
 
 def payment_providers() -> list[dict[str, str]]:
