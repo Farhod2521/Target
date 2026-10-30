@@ -253,17 +253,23 @@ def delete_image(
 
 def delete_video(
     *,
+    account_id: str,
     video_id: str,
     token: str,
     client: GraphClient | None = None,
     dry_run: bool = True,
 ) -> None:
-    """Remove one video. Unlike an image it is an object with an id."""
+    """Take one video off the ad account's library.
+
+    Through the account's edge, like an image, and not ``DELETE /{video}``:
+    the video object belongs to whoever uploaded it, so the account's own
+    token is refused there with ``(#200) Permissions error``.
+    """
     if dry_run:
         return
 
     with graph_client(client, token) as graph:
-        payload = graph.delete(video_id)
+        payload = graph.delete(f"{account_id}/advideos", video_id=video_id)
     _confirm_deleted(payload, what=_VIDEO)
 
 

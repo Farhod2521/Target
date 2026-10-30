@@ -653,7 +653,12 @@ def _refuse_if_shown(
 def _delete(*, asset: MediaAsset, account: AdAccount, token: str) -> None:
     assets = MetaAssets()
     if asset.kind == MediaKind.VIDEO:
-        assets.delete_video(video_id=asset.external_id, token=token, dry_run=False)
+        assets.delete_video(
+            account=_account_ref(account),
+            video_id=asset.external_id,
+            token=token,
+            dry_run=False,
+        )
         return
     assets.delete_image(
         account=_account_ref(account),

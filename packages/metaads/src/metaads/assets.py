@@ -393,7 +393,20 @@ class MetaAssets:
                 dry_run=dry_run,
             )
 
-    def delete_video(self, *, video_id: str, token: str, dry_run: bool = True) -> None:
+    def delete_video(
+        self,
+        *,
+        account: ExternalRef,
+        video_id: str,
+        token: str,
+        dry_run: bool = True,
+    ) -> None:
         """Take one video off the library. See the module docstring."""
         with session(token) as graph:
-            delete_video(video_id=video_id, token=token, client=graph, dry_run=dry_run)
+            delete_video(
+                account_id=account.id,
+                video_id=video_id,
+                token=token,
+                client=graph,
+                dry_run=dry_run,
+            )

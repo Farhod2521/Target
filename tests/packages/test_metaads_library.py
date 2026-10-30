@@ -54,13 +54,18 @@ def test_an_image_is_deleted_from_the_edge_it_was_uploaded_to() -> None:
     assert seen[0].url.params["hash"] == "9f8e"
 
 
-def test_a_video_is_deleted_by_its_own_id() -> None:
+def test_a_video_is_taken_off_the_accounts_edge() -> None:
+    """Not ``DELETE /777``: the video belongs to its uploader, and Meta answers
+    the account's token there with (#200) Permissions error."""
     graph, seen = recording({"success": True})
 
-    delete_video(video_id="777", token="t", client=graph, dry_run=False)
+    delete_video(
+        account_id="act_1", video_id="777", token="t", client=graph, dry_run=False
+    )
 
     assert seen[0].method == "DELETE"
-    assert seen[0].url.path.endswith("/777")
+    assert seen[0].url.path.endswith("/act_1/advideos")
+    assert seen[0].url.params["video_id"] == "777"
 
 
 def test_a_delete_meta_did_not_confirm_is_refused() -> None:
@@ -80,14 +85,16 @@ def test_a_delete_meta_did_not_confirm_is_refused() -> None:
 def test_a_yes_spelled_as_a_string_is_still_a_yes() -> None:
     graph, _ = recording({"success": "true"})
 
-    delete_video(video_id="777", token="t", client=graph, dry_run=False)
+    delete_video(
+        account_id="act_1", video_id="777", token="t", client=graph, dry_run=False
+    )
 
 
 def test_a_dry_run_delete_sends_nothing() -> None:
     graph = exploding()
 
     delete_image(account_id="act_1", image_hash="9f8e", token="t", client=graph)
-    delete_video(video_id="777", token="t", client=graph)
+    delete_video(account_id="act_1", video_id="777", token="t", client=graph)
 
 
 # --- Reading one image back ------------------------------------------------
