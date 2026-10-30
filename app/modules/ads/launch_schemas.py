@@ -26,7 +26,12 @@ from app.modules.ads.selectors.conversion_event import (
 )
 from app.modules.ads.selectors.delivery_options import CostCapChoice, DeliveryChoices
 from app.modules.ads.selectors.launches import IdentityHold
-from app.modules.ads.selectors.lead_form import EndingChoice, FormDepthChoice
+from app.modules.ads.selectors.lead_form import (
+    DepthBlock,
+    EndingChoice,
+    FormChoice,
+    FormDepthChoice,
+)
 from app.modules.ads.selectors.pixel import PixelOption
 from app.modules.ads.selectors.preparing import Preparing, WaitStage
 from app.modules.ads.selectors.proposal_changes import ProposalChange
@@ -331,4 +336,76 @@ class ReviewPollOut(Shape):
     state: ReviewStateOut
 
 
-__all__ = ["ReviewOut", "ReviewPollOut", "ReviewRetryOut"]
+class StandardQuestionOut(Shape):
+    kind: str = Field(
+        description="`full_name`, `first_name`, `phone`, `state`, `street_address`…"
+    )
+    label: str
+    checked: bool
+
+
+class TypedQuestionOut(Shape):
+    label: str
+    options: list[str]
+
+
+class FormPickerOut(Shape):
+    """GET /launch/{id}/form: the page's forms, or the questions of a new one."""
+
+    goal: str
+    lead_forms: list[PageFormOptionOut]
+    picker_fold: int
+    chosen_form: str = Field(
+        description="The Meta form's external id; empty: a new form."
+    )
+    standard_questions: list[StandardQuestionOut]
+    typed_questions: list[TypedQuestionOut]
+    form_name: str
+    open_builder: bool
+    max_options: int
+    max_questions: int
+    ending: dict[str, Any] | None = Field(
+        description="`kind`, `website`, `telegram`, `phone`, `button`, `title`, `body`, and the editor's chrome."
+    )
+    forms_synced_at: datetime | None
+    forms_since: str
+    forms_tries: int
+    forms_pending: bool
+    choice: FormChoice
+
+
+class FormRefreshOut(FormPickerOut):
+    """POST /launch/{id}/form/refresh: the picker, and why the list was not asked again."""
+
+    error: str
+
+
+class FormChosenOut(Shape):
+    """POST /launch/{id}/form, /form/auto and /form/new: the choice as it now stands."""
+
+    goal: str | None = None
+    choice: FormChoice
+
+
+class FormDepthOut(Shape):
+    """GET and POST /launch/{id}/form-depth/{depth}: one depth's questions, polled while written."""
+
+    block: DepthBlock
+    max_options: int
+    max_custom: int
+    standard_kinds: list[str]
+    tries: int
+    gave_up: bool
+    keep_polling: bool
+    refusal: str
+
+
+__all__ = [
+    "FormChosenOut",
+    "FormDepthOut",
+    "FormPickerOut",
+    "FormRefreshOut",
+    "ReviewOut",
+    "ReviewPollOut",
+    "ReviewRetryOut",
+]

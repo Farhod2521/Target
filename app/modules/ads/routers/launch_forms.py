@@ -32,6 +32,12 @@ from app.modules.ads.constants import (
 )
 from app.modules.ads.inputs.lead_form import DEFAULT_KINDS, LeadFormPickIn, check_pick
 from app.modules.ads.inputs.questions import MAX_QUESTIONS
+from app.modules.ads.launch_schemas import (
+    FormChosenOut,
+    FormDepthOut,
+    FormPickerOut,
+    FormRefreshOut,
+)
 from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.routers.launch_common import (
     attempted,
@@ -149,7 +155,7 @@ def _default_name(launch: CampaignLaunch, business: Business | None) -> str:
     return naming.form_name(launch=launch, business=business) if business else ""
 
 
-@router.get("/{launch_id}/form")
+@router.get("/{launch_id}/form", responses={200: {"model": FormPickerOut}})
 def lead_form(
     launch_id: uuid.UUID,
     db: Db,
@@ -166,7 +172,7 @@ def lead_form(
     )
 
 
-@router.post("/{launch_id}/form")
+@router.post("/{launch_id}/form", responses={200: {"model": FormChosenOut}})
 def pick_form(
     launch_id: uuid.UUID, body: LeadFormPickIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -199,7 +205,7 @@ def pick_form(
     return encoded({"goal": body.goal, "choice": form_choice(db, launch=launch)})
 
 
-@router.post("/{launch_id}/form/auto")
+@router.post("/{launch_id}/form/auto", responses={200: {"model": FormChosenOut}})
 def form_by_ai(
     launch_id: uuid.UUID, body: AutoIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -213,7 +219,7 @@ def form_by_ai(
     return encoded({"goal": body.goal, "choice": form_choice(db, launch=launch)})
 
 
-@router.post("/{launch_id}/form/new")
+@router.post("/{launch_id}/form/new", responses={200: {"model": FormChosenOut}})
 def new_form(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     """Drop the chosen form so the launch builds its own."""
     launch = writable_launch(db, user=user, launch_id=launch_id)
@@ -222,7 +228,7 @@ def new_form(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     return encoded({"choice": form_choice(db, launch=launch)})
 
 
-@router.post("/{launch_id}/form/refresh")
+@router.post("/{launch_id}/form/refresh", responses={200: {"model": FormRefreshOut}})
 def refresh_form_list(
     launch_id: uuid.UUID, db: Db, user: CurrentUser, goal: str = ""
 ) -> dict[str, Any]:
@@ -266,7 +272,7 @@ def _known(depth: str) -> None:
         raise NotFound("Bunday chuqurlik yo'q.")
 
 
-@router.get("/{launch_id}/form-depth/{depth}")
+@router.get("/{launch_id}/form-depth/{depth}", responses={200: {"model": FormDepthOut}})
 def form_depth(
     launch_id: uuid.UUID,
     depth: str,
@@ -279,7 +285,9 @@ def form_depth(
     return _depth_block(launch, depth=depth, tries=tries + 1)
 
 
-@router.post("/{launch_id}/form-depth/{depth}")
+@router.post(
+    "/{launch_id}/form-depth/{depth}", responses={200: {"model": FormDepthOut}}
+)
 def ask_form_depth(
     launch_id: uuid.UUID, depth: str, db: Db, user: CurrentUser
 ) -> dict[str, Any]:

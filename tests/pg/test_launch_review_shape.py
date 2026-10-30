@@ -5,7 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.modules.ads import draft as draft_field
 from app.modules.ads.constants import DraftSection, MediaKind
-from app.modules.ads.launch_schemas import ReviewOut, ReviewPollOut
+from app.modules.ads.launch_schemas import (
+    FormChosenOut,
+    FormDepthOut,
+    FormPickerOut,
+    ReviewOut,
+    ReviewPollOut,
+)
 from app.modules.ads.models import CampaignLaunch, MediaAsset
 from tests.pg.test_launch_api import _ready
 
@@ -102,3 +108,42 @@ def test_a_lead_proposal_with_every_section_drawn_keeps_its_documented_shape(
 
     polled = client.get(f"/api/v1/launch/{launch_id}/review/state", headers=auth)
     ReviewPollOut.model_validate(polled.json())
+
+
+def test_the_form_step_keeps_its_documented_shape(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, _user = _ready(client, db)
+    launch_id = client.post("/api/v1/launch", headers=auth).json()["id"]
+    form = f"/api/v1/launch/{launch_id}/form"
+
+    # Asked for the goal tapped on the plan, before the plan is saved.
+    picker = client.get(f"{form}?goal=leads", headers=auth)
+    assert picker.status_code == 200, picker.text
+    shaped = FormPickerOut.model_validate(picker.json())
+    assert {"full_name", "phone"} <= {
+        q.kind for q in shaped.standard_questions if q.checked
+    }
+
+    picked = client.post(
+        form,
+        json={
+            "goal": "leads",
+            "kinds": ["full_name", "phone"],
+            "typed": [{"label": "Darajangiz?", "options": ["A1", "B1"]}],
+            "ending": {"kind": "none"},
+        },
+        headers=auth,
+    )
+    assert picked.status_code == 200, picked.text
+    FormChosenOut.model_validate(picked.json())
+
+    auto = client.post(
+        f"{form}/auto", json={"goal": "leads", "depth": "deep"}, headers=auth
+    )
+    assert auto.status_code == 200, auto.text
+    assert FormChosenOut.model_validate(auto.json()).choice.depth == "deep"
+
+    depth = client.get(f"/api/v1/launch/{launch_id}/form-depth/deep", headers=auth)
+    assert depth.status_code == 200, depth.text
+    FormDepthOut.model_validate(depth.json())
