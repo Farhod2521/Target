@@ -37,6 +37,22 @@ class ActionOut(BaseModel):
     )
 
 
+class ActionTargetOut(BaseModel):
+    level: str
+    external_id: str
+    name: str = Field(description="Empty once the object is gone from the mirror.")
+    provider: str = Field(description="`meta`, `google`, ...")
+
+
+class ActionStateOut(ActionOut):
+    target: ActionTargetOut
+    polling: bool = Field(description="Still pending: ask again.")
+    explanation_html: str = Field(
+        description="Why a refused change failed and what to do, written once per code."
+    )
+    explaining: bool = Field(description="That answer is being written: ask again.")
+
+
 class RowOut(BaseModel):
     id: str
     external_id: str

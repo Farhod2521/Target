@@ -137,3 +137,124 @@ def test_every_kind_of_ask_has_a_spec() -> None:
     asks: set[Any] = set(actions.Ask.__args__)  # type: ignore[attr-defined]
 
     assert asks == set(actions.SPECS)
+
+
+# --- Undoing, and following one change -----------------------------------------
+
+
+def _applied(db: Session, log: ActionLog) -> ActionLog:
+    log.status = ActionStatus.APPLIED
+    log.dry_run = False
+    db.commit()
+    return log
+
+
+def test_a_delete_is_never_offered_for_undoing(
+    db: Session, queued: list, live: None
+) -> None:
+    owner, _ = _owner(db)
+    deleted = _applied(
+        db,
+        actions.request(
+            db,
+            user=owner,
+            ask=actions.Delete(level=ManagedLevel.ADSET, external_id="s_1"),
+        ),
+    )
+
+    assert actions.undoing(deleted) is None
+    with pytest.raises(NothingToRevert):
+        actions.revert(db, user=owner, log_id=str(deleted.id))
+
+
+def _two_budgets(db: Session, owner: User, campaign: Campaign) -> list[ActionLog]:
+    made = []
+    for before, after in ((100_000, 150_000), (150_000, 200_000)):
+        campaign.daily_budget_minor = before
+        db.commit()
+        made.append(
+            _applied(
+                db,
+                actions.request(
+                    db,
+                    user=owner,
+                    ask=actions.Budget(
+                        level=ManagedLevel.CAMPAIGN,
+                        external_id="c_1",
+                        daily_budget_minor=after,
+                    ),
+                ),
+            )
+        )
+    campaign.daily_budget_minor = 200_000
+    db.commit()
+    return made
+
+
+def test_only_the_latest_change_of_a_kind_is_undone(
+    db: Session, queued: list, live: None
+) -> None:
+    owner, campaign = _owner(db)
+    older, newer = _two_budgets(db, owner, campaign)
+
+    assert actions.revertible(db, [older, newer]) == {newer.id}
+    with pytest.raises(NothingToRevert):
+        actions.revert(db, user=owner, log_id=str(older.id))
+    back = actions.revert(db, user=owner, log_id=str(newer.id))
+    assert back.request_payload["daily_budget_minor"] == 150_000
+
+
+def _headers(owner: User) -> dict[str, str]:
+    from app.common import tokens
+
+    token = tokens.issue(subject=str(owner.id), kind="access", now=utcnow())
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_the_history_offers_undo_only_on_the_latest(
+    client: Any, db: Session, queued: list, live: None
+) -> None:
+    owner, campaign = _owner(db)
+    older, newer = _two_budgets(db, owner, campaign)
+
+    rows = client.get(
+        f"/api/v1/campaigns/{campaign.id}/history", headers=_headers(owner)
+    ).json()["history"]
+
+    offered = {row["log"]["id"]: row["log"]["revertible"] for row in rows}
+    assert offered == {str(older.id): False, str(newer.id): True}
+
+
+def test_one_change_is_followed_by_its_id(client: Any, db: Session) -> None:
+    owner, _ = _owner(db)
+    log = actions.request(
+        db,
+        user=owner,
+        ask=actions.Pause(level=ManagedLevel.CAMPAIGN, external_id="c_1"),
+    )
+    db.commit()
+    path = f"/api/v1/campaigns/actions/{log.id}"
+
+    pending = client.get(path, headers=_headers(owner))
+    log.status = ActionStatus.FAILED
+    log.error_code = "learning"
+    db.commit()
+    failed = client.get(path, headers=_headers(owner)).json()
+
+    assert pending.status_code == 200, pending.text
+    assert pending.json()["status"] == "pending" and pending.json()["polling"] is True
+    assert pending.json()["target"] == {
+        "level": "campaign",
+        "external_id": "c_1",
+        "name": "Bahor",
+        "provider": "meta",
+    }
+    assert failed["polling"] is False
+    assert failed["error_message"].startswith("Guruh hali o'rganmoqda")
+    assert (
+        client.get(
+            "/api/v1/campaigns/actions/00000000-0000-0000-0000-000000000000",
+            headers=_headers(owner),
+        ).status_code
+        == 404
+    )

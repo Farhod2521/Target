@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
@@ -33,6 +34,7 @@ from app.modules.ads.constants import (
 )
 from app.modules.ads.exceptions import NothingToRevert
 from app.modules.ads.schemas import (
+    ActionStateOut,
     BudgetFormOut,
     CampaignAdsOut,
     CampaignDetailOut,
@@ -62,9 +64,16 @@ def _note(note: Any | None) -> dict[str, Any] | None:
     return asdict(note) if note is not None else None
 
 
-def _action(row: Any | None) -> dict[str, Any] | None:
+def _action(
+    row: Any | None, *, revertible: bool | None = None
+) -> dict[str, Any] | None:
+    """One change as the screens read it. ``revertible`` is worked out here for
+    the latest change on a row - nothing newer can have replaced it - and
+    passed in for a history, where it can have been."""
     if row is None:
         return None
+    if revertible is None:
+        revertible = actions.undoing(row) is not None
     return {
         "id": str(row.id),
         "action": row.action,
@@ -75,7 +84,7 @@ def _action(row: Any | None) -> dict[str, Any] | None:
         else row.error_message,
         "created_at": row.created_at,
         "applied_at": row.applied_at,
-        "revertible": selectors.is_revertible(row),
+        "revertible": revertible,
         "dropped": dict(row.dropped or {}),
     }
 
@@ -483,17 +492,55 @@ def campaign_history(
     campaign_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
     campaign = _detail(db, user, campaign_id)
+    rows = selectors.campaign_history(db, owner=user, campaign=campaign)
+    undoable = actions.revertible(db, [row.log for row in rows])
     return {
         "history": [
             {
-                "log": _action(row.log),
+                "log": _action(row.log, revertible=row.log.id in undoable),
                 "level_label": row.level_label,
                 "amount": row.amount,
                 "moment": row.moment,
                 "reason": row.log.reason,
             }
-            for row in selectors.campaign_history(db, owner=user, campaign=campaign)
+            for row in rows
         ]
+    }
+
+
+@router.get("/actions/{action_id}", responses={200: {"model": ActionStateOut}})
+def action_state_by_id(
+    action_id: uuid.UUID, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    """One change, followed by its id: from the chat, a proposal or the centre."""
+    from app.modules.audit.models import ActionLog
+
+    row = db.scalar(
+        select(ActionLog).where(
+            ActionLog.owner_id == user.id, ActionLog.id == action_id
+        )
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="O'zgarish topilmadi.")
+    target = selectors.managed_target(
+        db, owner=user, level=row.target_level, external_id=row.target_external_id
+    )
+    failure = (
+        _failure(db, action=row, target=target, level=row.target_level)
+        if target is not None
+        else None
+    )
+    return {
+        **(_action(row, revertible=row.id in actions.revertible(db, [row])) or {}),
+        "target": {
+            "level": row.target_level,
+            "external_id": row.target_external_id,
+            "name": str(getattr(target, "name", "") or ""),
+            "provider": row.target_provider,
+        },
+        "polling": selectors.still_running([row]),
+        "explanation_html": failure.explanation_html if failure is not None else "",
+        "explaining": failure.explaining if failure is not None else False,
     }
 
 

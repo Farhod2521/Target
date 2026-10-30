@@ -13,7 +13,7 @@ is the mirror's to say, and the plan carries it.
 """
 
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -220,50 +220,99 @@ def revert(db: Session, *, user: User, log_id: str) -> ActionLog:
     except ValueError:
         raise NothingToRevert from None
     original = db.scalars(
-        select(ActionLog).where(
-            ActionLog.owner_id == user.id,
-            ActionLog.id == pk,
-            ActionLog.status == str(ActionStatus.APPLIED),
-        )
+        select(ActionLog).where(ActionLog.owner_id == user.id, ActionLog.id == pk)
     ).first()
-    if original is None or original.dry_run:
+    ask = undoing(original) if original is not None else None
+    if original is None or ask is None or not revertible(db, [original]):
         raise NothingToRevert
-    return request(db, user=user, ask=_undoing(original), reverts=str(original.id))
+    return request(db, user=user, ask=ask, reverts=str(original.id))
 
 
-def _undoing(original: ActionLog) -> Ask:
+# A change of one kind replaces an earlier change of the same kind on the same
+# object; undoing the earlier one would write over the later.
+KINDS: dict[str, str] = {
+    ActionType.PAUSE: "status",
+    ActionType.RESUME: "status",
+    ActionType.BUDGET_UP: "budget",
+    ActionType.BUDGET_DOWN: "budget",
+    ActionType.TARGETING_SWAP: "audience",
+    ActionType.END_TIME_SET: "end_time",
+    ActionType.SPEND_CAP_SET: "spend_cap",
+    ActionType.CREATIVE_SWAP: "advert",
+}
+DELETES = frozenset(
+    {ActionType.DELETE_CAMPAIGN, ActionType.DELETE_ADSET, ActionType.DELETE_AD}
+)
+STANDING = (str(ActionStatus.PENDING), str(ActionStatus.APPLIED))
+
+
+def revertible(db: Session, logs: Sequence[ActionLog]) -> set[uuid.UUID]:
+    """Which of these changes «Qaytarish» may be offered on: the one rule the button and
+    :func:`revert` share. One query, however many rows a history shows."""
+    candidates = [log for log in logs if undoing(log) is not None]
+    if not candidates:
+        return set()
+    later = db.execute(
+        select(
+            ActionLog.target_level,
+            ActionLog.target_external_id,
+            ActionLog.action,
+            ActionLog.created_at,
+        ).where(
+            ActionLog.owner_id == candidates[0].owner_id,
+            ActionLog.target_external_id.in_(
+                {log.target_external_id for log in candidates}
+            ),
+            ActionLog.status.in_(STANDING),
+            ActionLog.created_at > min(log.created_at for log in candidates),
+        )
+    ).all()
+    return {
+        log.id
+        for log in candidates
+        if not any(
+            (level, external_id) == (log.target_level, log.target_external_id)
+            and created > log.created_at
+            and (action in DELETES or KINDS.get(action) == KINDS.get(log.action))
+            for level, external_id, action, created in later
+        )
+    }
+
+
+def undoing(original: ActionLog) -> Ask | None:
+    """The change that puts back what this one replaced, or None when nothing can."""
+    if original.status != ActionStatus.APPLIED or original.dry_run:
+        return None
     previous = original.previous_state or {}
     level, external_id = original.target_level, original.target_external_id
     if original.action in BUDGET_ACTIONS:
         amount = previous.get("daily_budget_minor")
         if amount is None:
-            raise NothingToRevert
+            return None
         return Budget(
             level=level, external_id=external_id, daily_budget_minor=int(amount)
         )
     if original.action == ActionType.TARGETING_SWAP:
         spec = previous.get("targeting")
         if not isinstance(spec, dict) or not spec:
-            raise NothingToRevert
+            return None
         return Audience(external_id=external_id, targeting=spec)
     if original.action == ActionType.END_TIME_SET:
         stamp = parse_datetime(str(previous.get("end_time") or ""))
-        if stamp is None:
-            raise NothingToRevert
-        return EndTime(external_id=external_id, end_time=stamp)
+        return EndTime(external_id=external_id, end_time=stamp) if stamp else None
     if original.action == ActionType.SPEND_CAP_SET:
         ceiling = previous.get("spend_cap_minor")
         if ceiling is None:
-            raise NothingToRevert
+            return None
         return SpendCap(external_id=external_id, spend_cap_minor=int(ceiling))
     if original.action not in (ActionType.PAUSE, ActionType.RESUME):
-        raise NothingToRevert
+        return None
     wanted = str(previous.get("delivery", ""))
     if wanted == ACTIVE:
         return Resume(level=level, external_id=external_id)
     if wanted == PAUSED:
         return Pause(level=level, external_id=external_id)
-    raise NothingToRevert
+    return None
 
 
 __all__ = [
@@ -281,4 +330,6 @@ __all__ = [
     "preview",
     "request",
     "revert",
+    "revertible",
+    "undoing",
 ]

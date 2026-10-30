@@ -212,25 +212,6 @@ def still_running(rows: Sequence[Any | None]) -> bool:
     )
 
 
-def is_revertible(action: Any | None) -> bool:
-    from app.modules.audit.constants import ActionStatus, ActionType
-    from core.agent.guardrails import ACTIVE, PAUSED
-
-    if action is None or action.status != ActionStatus.APPLIED or action.dry_run:
-        return False
-    if action.action in (ActionType.BUDGET_UP, ActionType.BUDGET_DOWN):
-        return action.previous_state.get("daily_budget_minor") is not None
-    if action.action == ActionType.END_TIME_SET:
-        return bool(action.previous_state.get("end_time"))
-    if action.action == ActionType.SPEND_CAP_SET:
-        return action.previous_state.get("spend_cap_minor") is not None
-    if action.action == ActionType.CREATIVE_SWAP:
-        return False
-    if action.action == ActionType.TARGETING_SWAP:
-        return bool(action.previous_state.get("targeting"))
-    return action.previous_state.get("delivery") in (ACTIVE, PAUSED)
-
-
 # -- the campaigns list ---------------------------------------------------------------
 
 

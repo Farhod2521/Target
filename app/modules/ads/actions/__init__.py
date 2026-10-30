@@ -19,6 +19,8 @@ from app.modules.ads.actions.specs import (
     preview,
     request,
     revert,
+    revertible,
+    undoing,
 )
 
 __all__ = [
@@ -36,4 +38,6 @@ __all__ = [
     "preview",
     "request",
     "revert",
+    "revertible",
+    "undoing",
 ]
