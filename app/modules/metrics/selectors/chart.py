@@ -35,6 +35,7 @@ def series(
                 ),
                 label=labels[index],
                 display=displays[index],
+                value=float(value) if value is not None else None,
             )
             for index, value in enumerate(values)
         )

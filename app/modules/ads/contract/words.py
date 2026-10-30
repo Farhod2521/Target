@@ -79,10 +79,13 @@ RUNNING: Final[frozenset[Status]] = frozenset({"active", "learning", "pending"})
 LEARNING_HOURS: Final = 72
 
 
+def status_word(word: str) -> Status:
+    return STATUSES.get(word, "pending")
+
+
 def status_of(row: Any, *, learning: bool = False) -> Status:
     """What the row draws: the badge (the worst of its adverts), else its own delivery."""
-    word = str(getattr(row, "badge", None) or row.delivery)
-    status = STATUSES.get(word, "pending")
+    status = status_word(str(getattr(row, "badge", None) or row.delivery))
     if status == "active" and learning:
         return "learning"
     controls = getattr(row, "controls", None)
@@ -183,4 +186,5 @@ __all__ = [
     "network_of",
     "place_of",
     "status_of",
+    "status_word",
 ]

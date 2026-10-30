@@ -241,7 +241,7 @@ def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
                 )
             )
         ),
-        "access": _access(db, owner=owner),
+        "access": access_of(db, owner=owner),
         "unplaced": advertising.unplaced,
         "source_fallback": fallback,
         "sources": {
@@ -300,7 +300,7 @@ def _sync(owner: User, *, synced_at: Any, progress: Any) -> dict[str, Any]:
     }
 
 
-def _access(db: Session, *, owner: User) -> dict[str, Any]:
+def access_of(db: Session, *, owner: User) -> dict[str, Any]:
     from app.modules.billing.selectors import has_ever_subscribed, live_subscription
 
     live = live_subscription(db, owner=owner)
@@ -365,4 +365,11 @@ def _trial(db: Session, *, owner: User) -> dict[str, Any] | None:
     return {"limit": max(TRIAL_MAX_CAMPAIGNS, left), "left": left, "offer": offer}
 
 
-__all__ = ["ListAsk", "campaign_list", "campaign_row", "figures_of", "figures_range"]
+__all__ = [
+    "ListAsk",
+    "access_of",
+    "campaign_list",
+    "campaign_row",
+    "figures_of",
+    "figures_range",
+]

@@ -292,7 +292,12 @@ def _card(
         delta_pct=moved.percent if moved else 0,
         trend=moved.direction if moved else "flat",
         is_good=moved.is_good if moved else False,
+        value=_number(text.value(now)) if text.value is not None else None,
     )
+
+
+def _number(found: float | None) -> float | None:
+    return float(found) if found is not None else None
 
 
 def _walk(since: date, until: date) -> list[date]:

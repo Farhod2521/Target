@@ -114,3 +114,18 @@ def test_a_row_unfolds_into_its_groups_and_adverts(
     assert group["ads"][0]["position"] == 1
     assert group["ads"][0]["canSwap"] is True
     assert [ad["externalId"] for ad in ads.json()] == ["a_1"]
+
+
+def test_a_campaign_page_comes_in_one_answer(client: TestClient, db: Session) -> None:
+    headers, campaign = _cabinet_with_figures(client, db)
+
+    page = client.get(f"/api/v1/campaigns/{campaign.id}", headers=headers)
+
+    assert page.status_code == 200, page.text
+    body = page.json()
+    assert body["id"] == str(campaign.id) and body["network"]["id"] == "meta"
+    assert body["dailyBudget"]["minor"] == 150_000
+    assert body["ads"][0]["externalId"] == "a_1"
+    assert body["controls"]["canPause"] is True
+    assert {"hasChoice", "hasFigures", "periods"} <= set(body["panel"])
+    assert body["access"]["readOnly"] in (True, False)

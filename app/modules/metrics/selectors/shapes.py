@@ -48,6 +48,8 @@ class Point:
     y: float
     label: str
     display: str
+    # What ``display`` says, as a number: ``y`` is only where it is drawn.
+    value: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,6 +261,9 @@ class Card:
     delta_pct: int = 0
     trend: Trend = "flat"
     is_good: bool = False
+    # The figure as a number: minor units for money, basis points for a share,
+    # a count otherwise; None when there is none.
+    value: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

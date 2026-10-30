@@ -152,11 +152,9 @@ def test_campaigns_api(client, db: Session, queued: list) -> None:  # type: igno
 
     detail = client.get(f"/api/v1/campaigns/{campaign.id}", headers=headers)
     assert detail.status_code == 200, detail.text
-    groups = detail.json()["groups"]
-    assert (
-        groups[0]["external_id"] == "s_1"
-        and groups[0]["ads"][0]["external_id"] == "a_1"
-    )
+    page = detail.json()
+    assert page["groups"] is None  # one group: the page shows its adverts directly
+    assert page["ads"][0]["externalId"] == "a_1"
 
     paused = client.post("/api/v1/campaigns/manage/campaign/c_1/pause", headers=headers)
     assert paused.status_code == 200, paused.text

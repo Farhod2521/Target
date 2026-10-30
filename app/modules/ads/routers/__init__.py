@@ -33,12 +33,16 @@ from app.modules.ads.constants import (
     ManagedLevel,
     Shown,
 )
-from app.modules.ads.contract.shapes import CampaignAd, CampaignList, CampaignTree
+from app.modules.ads.contract.shapes import (
+    CampaignAd,
+    CampaignDetail,
+    CampaignList,
+    CampaignTree,
+)
 from app.modules.ads.exceptions import NothingToRevert
 from app.modules.ads.schemas import (
     ActionStateOut,
     BudgetFormOut,
-    CampaignDetailOut,
     CampaignHistoryOut,
     CampaignPollOut,
     ControlStateOut,
@@ -453,37 +457,26 @@ def _groups(db: Session, user: User, campaign: Any) -> list[Any]:
     return groups
 
 
-@router.get("/{campaign_id}", responses={200: {"model": CampaignDetailOut}})
+@router.get("/{campaign_id}", response_model=CampaignDetail)
 def campaign_detail(
     campaign_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
+    """One campaign's page: its figures, adverts, groups and history in one answer."""
+    from app.modules.ads.contract.detail import campaign_detail as detail
+    from app.modules.ads.contract.tree import ad_figures
+
     campaign = _detail(db, user, campaign_id)
     selectors.with_controls(db, owner=user, campaign=campaign)
     selectors.with_tree_badge(campaign=campaign)
     campaign.settings = selectors.row_settings(campaign=campaign)
-    built = selectors.built_campaign_type(campaign=campaign)
-    event = selectors.built_conversion_event(campaign=campaign)
-    return {
-        "campaign": campaign_out(campaign),
-        "groups": [
-            adset_out(adset, campaign, with_ads=True)
-            for adset in _groups(db, user, campaign)
-        ],
-        "history": [
-            {
-                "log": _action(row.log),
-                "actor": row.log.actor_type,
-                "level": row.log.target_level,
-                "level_label": row.level_label,
-                "amount": row.amount,
-                "moment": row.moment,
-                "reason": row.log.reason,
-            }
-            for row in selectors.campaign_history(db, owner=user, campaign=campaign)
-        ],
-        "built_type": asdict(built) if built else None,
-        "built_event": asdict(event) if event else None,
-    }
+    return detail(
+        db,
+        owner=user,
+        campaign=campaign,
+        groups=_groups(db, user, campaign),
+        history=selectors.campaign_history(db, owner=user, campaign=campaign),
+        chips=ad_figures(db, owner=user, campaign=campaign),
+    )
 
 
 def _tree(db: Session, user: User, campaign_id: uuid.UUID) -> dict[str, Any]:
