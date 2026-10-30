@@ -118,13 +118,29 @@ def _chip(key: str, *, totals: PanelTotals, currency: str, kind: Outcome) -> Chi
             )
         else:
             source = str(words_for(kind).source_note)
+    text = text_of(BY_KEY[key], kind=kind)
     return Chip(
         key=key,
-        label=str(short or text_of(BY_KEY[key], kind=kind).label),
-        display=text_of(BY_KEY[key], kind=kind).display(totals, None, currency)
-        or NO_ANSWER,
+        label=str(short or text.label),
+        display=text.display(totals, None, currency) or NO_ANSWER,
         source=source,
+        value=_value(key, text=text, totals=totals),
     )
+
+
+def _value(key: str, *, text: Any, totals: PanelTotals) -> float | None:
+    if text.value is not None:
+        found = text.value(totals)
+        return float(found) if found is not None else None
+    if key == "reach":
+        return float(totals.reach)
+    return None
+
+
+def _quiet_fields(row: Any, *, spent: int, date_range: Range) -> dict[str, Any]:
+    said = _quiet(row, spent=spent, date_range=date_range)
+    days = (date_range.until - date_range.since).days + 1 if said else None
+    return {"quiet": said, "quiet_days": days}
 
 
 def _quiet(row: Any, *, spent: int, date_range: Range) -> str:
@@ -177,7 +193,7 @@ def campaign_chips(
                 currency=campaign.ad_account.currency,
                 kind=adsets_kind(campaign.adsets),
             ),
-            quiet=_quiet(
+            **_quiet_fields(
                 campaign,
                 spent=spend.get(campaign.external_id, {}).get("spend", 0),
                 date_range=date_range,
@@ -223,7 +239,7 @@ def group_chips(
                 currency=adset.campaign.ad_account.currency,
                 kind=adsets_kind([adset]),
             ),
-            quiet=_quiet(
+            **_quiet_fields(
                 adset,
                 spent=spend.get(adset.external_id, {}).get("spend", 0),
                 date_range=date_range,

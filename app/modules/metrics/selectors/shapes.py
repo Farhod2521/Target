@@ -299,6 +299,9 @@ class Chip:
     display: str
     note: str = ""
     source: str = ""
+    # The figure itself: minor units for money, a count otherwise; None when
+    # there is none (a cost with no results). ``display`` is its words.
+    value: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +309,8 @@ class ChipRow:
     campaign_id: str
     chips: tuple[Chip, ...]
     quiet: str = ""
+    # The days of the range nothing was spent, when ``quiet`` says so.
+    quiet_days: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

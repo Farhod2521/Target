@@ -7,6 +7,7 @@ the frontend polls ``/manage/{level}/{external_id}/state`` until it lands.
 
 import uuid
 from dataclasses import asdict
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -32,6 +33,7 @@ from app.modules.ads.constants import (
     ManagedLevel,
     Shown,
 )
+from app.modules.ads.contract.shapes import CampaignList
 from app.modules.ads.exceptions import NothingToRevert
 from app.modules.ads.schemas import (
     ActionStateOut,
@@ -39,7 +41,6 @@ from app.modules.ads.schemas import (
     CampaignAdsOut,
     CampaignDetailOut,
     CampaignHistoryOut,
-    CampaignListOut,
     CampaignPollOut,
     ControlStateOut,
     DeletedOut,
@@ -321,23 +322,42 @@ def campaigns_context(
     }
 
 
-@router.get("", responses={200: {"model": CampaignListOut}})
+def _pick(value: str | None, allowed: tuple[str, ...], default: str) -> Any:
+    return value if value in allowed else default
+
+
+@router.get("", response_model=CampaignList)
 def campaign_list(
     db: Db,
     user: CurrentUser,
-    show: str | None = Query(
-        None,
-        description="`running`, `stopped` or `all`. Remembered for 90 days; "
-        "omit to keep the last choice.",
+    period: str | None = Query(
+        None, description="`today`, `7d`, `30d`, `90d`, `custom`."
     ),
+    status: str | None = Query(None, description="`running`, `paused` or `all`."),
     source: str | None = Query(
-        None,
-        description="`here` (launched from this cabinet), `elsewhere` (Ads Manager) "
-        "or `all`. Remembered like `show`.",
+        None, description="`all`, `here`, `network` or `other_account`."
     ),
-    waited: int = WAITED_Q,
+    network: str = Query("all", description="A network id, or `all`."),
+    since: date | None = Query(None, description="`custom`: the first day."),
+    until: date | None = Query(None, description="`custom`: the last day."),
+    started: str = Query(
+        "", description="Set by the launch that just started: `1`, or `first`."
+    ),
 ) -> dict[str, Any]:
-    return campaigns_context(db, user, show=show, source=source, waited=waited)
+    """The list as the screen draws it: rows with their figures, filtered, and its totals."""
+    from app.modules.ads.contract.listing import ListAsk
+    from app.modules.ads.contract.listing import campaign_list as listed
+
+    ask = ListAsk(
+        period=_pick(period, ("today", "7d", "30d", "90d", "custom"), "7d"),
+        status=_pick(status, ("running", "paused", "all"), "all"),
+        source=_pick(source, ("all", "here", "network", "other_account"), "all"),
+        network=network or "all",
+        since=since,
+        until=until,
+        started=started,
+    )
+    return listed(db, owner=user, ask=ask)
 
 
 @router.get("/poll", responses={200: {"model": CampaignPollOut}})

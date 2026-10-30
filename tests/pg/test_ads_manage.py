@@ -143,14 +143,12 @@ def test_campaigns_api(client, db: Session, queued: list) -> None:  # type: igno
     db.commit()
     campaign = _mirror(db, owner, account.id)
 
-    listed = client.get("/api/v1/campaigns?show=all&source=all", headers=headers)
+    listed = client.get("/api/v1/campaigns?status=all&source=all", headers=headers)
     assert listed.status_code == 200, listed.text
     body = listed.json()
-    assert [row["external_id"] for row in body["campaigns"]] == ["c_1"]
-    assert body["counts"]["total"] == 1
-    assert body["campaigns"][0]["controls"]["can_pause"] is True
-    kept = client.get("/api/v1/campaigns", headers=headers).json()
-    assert kept["shown"] == "all"
+    assert [row["externalId"] for row in body["campaigns"]] == ["c_1"]
+    assert body["total"] == 1
+    assert body["campaigns"][0]["controls"]["canPause"] is True
 
     detail = client.get(f"/api/v1/campaigns/{campaign.id}", headers=headers)
     assert detail.status_code == 200, detail.text
