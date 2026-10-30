@@ -55,7 +55,14 @@ services:
 
   worker:
     <<: *app
-    command: celery -A app.worker worker -Q sync,webhooks,chat,agent,upload,refresh --concurrency 2 --loglevel INFO
+    command: celery -A app.worker worker -Q sync,webhooks,chat,upload,refresh --concurrency 2 --loglevel INFO
+
+  # The AI and the launch wizard's own work (goal reading, the proposal,
+  # changes to campaigns) on slots of their own, so a person waiting on the
+  # screen is never queued behind an account sync.
+  worker-agent:
+    <<: *app
+    command: celery -A app.worker worker -Q agent --concurrency 3 --hostname agent@%h --loglevel INFO
 
   # The clock: syncs, sweeps, lapsed subscriptions. Off until asked for,
   # because while the old Django project still runs its own beat, two clocks
