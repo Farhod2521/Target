@@ -21,6 +21,7 @@ from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.ads.constants import LAUNCH_NAME_MAX, STARTABLE
 from app.modules.ads.inputs.proposal import ProposalIn, check_proposal
+from app.modules.ads.launch_schemas import ReviewOut, ReviewPollOut, ReviewRetryOut
 from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.routers.launch_common import (
     attempted,
@@ -98,7 +99,7 @@ def _side_reads(db: Session, *, launch: CampaignLaunch, user: User) -> None:
     db.commit()
 
 
-@router.get("/{launch_id}/review")
+@router.get("/{launch_id}/review", responses={200: {"model": ReviewOut}})
 def review(
     launch_id: uuid.UUID,
     db: Db,
@@ -111,7 +112,7 @@ def review(
     return _review(db, launch=launch, user=user, tries=0, shown=shown)
 
 
-@router.get("/{launch_id}/review/state")
+@router.get("/{launch_id}/review/state", responses={200: {"model": ReviewPollOut}})
 def review_poll(
     launch_id: uuid.UUID,
     db: Db,
@@ -125,7 +126,7 @@ def review_poll(
     return encoded({"launch": launch_head(launch), "state": state})
 
 
-@router.post("/{launch_id}/retry")
+@router.post("/{launch_id}/retry", responses={200: {"model": ReviewRetryOut}})
 def retry(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     """Ask for a proposal: again after a failure, or the first time."""
     launch = writable_launch(db, user=user, launch_id=launch_id)
@@ -137,7 +138,7 @@ def retry(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     }
 
 
-@router.post("/{launch_id}/edit")
+@router.post("/{launch_id}/edit", responses={200: {"model": ReviewOut}})
 def save_edit(
     launch_id: uuid.UUID, body: ProposalIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -179,7 +180,7 @@ def regenerate(
     return launch_head(launch)
 
 
-@router.post("/{launch_id}/name")
+@router.post("/{launch_id}/name", responses={200: {"model": ReviewOut}})
 def rename(
     launch_id: uuid.UUID, body: NameIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -193,7 +194,7 @@ def rename(
     return _review(db, launch=launch, user=user, tries=0, shown="")
 
 
-@router.post("/{launch_id}/budget/fit")
+@router.post("/{launch_id}/budget/fit", responses={200: {"model": ReviewOut}})
 def fit_budget(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     """Raise the daily budget enough for every advert's share."""
     launch = writable_launch(db, user=user, launch_id=launch_id)
@@ -205,7 +206,7 @@ def fit_budget(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any
     return _review(db, launch=launch, user=user, tries=0, shown="")
 
 
-@router.post("/{launch_id}/ads/trim")
+@router.post("/{launch_id}/ads/trim", responses={200: {"model": ReviewOut}})
 def trim_ads(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     """Keep only the adverts the budget carries, first ones first."""
     launch = writable_launch(db, user=user, launch_id=launch_id)
@@ -213,7 +214,9 @@ def trim_ads(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     return _review(db, launch=launch, user=user, tries=0, shown="")
 
 
-@router.post("/{launch_id}/ads/{position}/remove")
+@router.post(
+    "/{launch_id}/ads/{position}/remove", responses={200: {"model": ReviewOut}}
+)
 def remove_ad(
     launch_id: uuid.UUID, position: int, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -232,7 +235,7 @@ def refresh_forms(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, 
     return {"detail": "Formalar so'raldi. Bir necha soniyadan keyin yangilang."}
 
 
-@router.post("/{launch_id}/create")
+@router.post("/{launch_id}/create", responses={200: {"model": ReviewOut}})
 def create(
     launch_id: uuid.UUID, body: CreateIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -277,7 +280,7 @@ def discard(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, str]:
     return {"detail": "Tayyorlash o'chirildi."}
 
 
-@router.post("/{launch_id}/clean-up")
+@router.post("/{launch_id}/clean-up", responses={200: {"model": ReviewOut}})
 def clean_up(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     """Remove what a failed creation left at the provider."""
     launch = writable_launch(db, user=user, launch_id=launch_id)

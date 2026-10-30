@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.ads.constants import MediaKind
+from app.modules.ads.launch_schemas import ReviewOut, ReviewPollOut
 from app.modules.ads.models import CampaignLaunch, MediaAsset
 from app.modules.billing.services import start_trial
 from app.modules.billing.services.grants import complete_setup
@@ -137,12 +138,15 @@ def test_the_wizard_from_plan_to_review(
 
     review = client.get(f"/api/v1/launch/{launch_id}/review", headers=auth)
     assert review.status_code == 200, review.text
+    # The documented shape is the frontend's generated type: every key, nothing more.
+    ReviewOut.model_validate(review.json())
     state = review.json()["state"]
     assert state["status"] == "building" and state["keep_polling"] is True
     polled = client.get(
         f"/api/v1/launch/{launch_id}/review/state?tries=2", headers=auth
     )
     assert polled.json()["state"]["tries"] == 3
+    ReviewPollOut.model_validate(polled.json())
 
     launch.error_detail = {"title": "Rasm rad etildi", "message": "Boshqasini tanlang"}
     db.commit()
@@ -156,6 +160,7 @@ def test_the_wizard_from_plan_to_review(
     db.commit()
     ready = client.get(f"/api/v1/launch/{launch_id}/review", headers=auth)
     assert ready.status_code == 200, ready.text
+    ReviewOut.model_validate(ready.json())
     proposal = ready.json()["proposal"]
     assert proposal is not None and len(proposal["variants"]) == 1
     assert proposal["variants"][0]["asset"]["id"] == str(asset.id)
@@ -172,6 +177,7 @@ def test_the_wizard_from_plan_to_review(
     )
     assert renamed.status_code == 200, renamed.text
     assert renamed.json()["proposal"]["campaign_title"] == "Bahor osh"
+    ReviewOut.model_validate(renamed.json())
 
     gone = client.post(f"/api/v1/launch/{launch_id}/discard", headers=auth)
     assert gone.status_code in (200, 400), gone.text
