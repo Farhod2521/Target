@@ -33,12 +33,11 @@ from app.modules.ads.constants import (
     ManagedLevel,
     Shown,
 )
-from app.modules.ads.contract.shapes import CampaignList
+from app.modules.ads.contract.shapes import CampaignAd, CampaignList, CampaignTree
 from app.modules.ads.exceptions import NothingToRevert
 from app.modules.ads.schemas import (
     ActionStateOut,
     BudgetFormOut,
-    CampaignAdsOut,
     CampaignDetailOut,
     CampaignHistoryOut,
     CampaignPollOut,
@@ -487,24 +486,30 @@ def campaign_detail(
     }
 
 
-@router.get("/{campaign_id}/ads", responses={200: {"model": CampaignAdsOut}})
-def campaign_ads(
-    campaign_id: uuid.UUID, db: Db, user: CurrentUser, waited: int = WAITED_Q
-) -> dict[str, Any]:
+def _tree(db: Session, user: User, campaign_id: uuid.UUID) -> dict[str, Any]:
+    from app.modules.ads.contract.tree import ad_figures, campaign_tree
+
     campaign = _detail(db, user, campaign_id)
     selectors.with_controls(db, owner=user, campaign=campaign)
-    groups = _groups(db, user, campaign)
-    leaving = any(
-        getattr(row, "deleting", False)
-        for adset in groups
-        for row in (adset, *adset.fold_ads)
+    return campaign_tree(
+        _groups(db, user, campaign),
+        chips=ad_figures(db, owner=user, campaign=campaign),
     )
-    return {
-        "groups": [adset_out(adset, campaign, with_ads=True) for adset in groups],
-        "watching": leaving and waited < MAX_ACTION_POLLS,
-        "waited": waited + 1,
-        "list_poll_seconds": LIST_POLL_SECONDS,
-    }
+
+
+@router.get("/{campaign_id}/tree", response_model=CampaignTree)
+def campaign_tree(campaign_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
+    """Groups and adverts under one row, with their last week's figures."""
+    return _tree(db, user, campaign_id)
+
+
+@router.get("/{campaign_id}/ads", response_model=list[CampaignAd])
+def campaign_ads(
+    campaign_id: uuid.UUID, db: Db, user: CurrentUser
+) -> list[dict[str, Any]]:
+    """Every advert of one campaign, numbered across its groups."""
+    tree = _tree(db, user, campaign_id)
+    return [ad for group in tree["groups"] for ad in group["ads"]]
 
 
 @router.get("/{campaign_id}/history", responses={200: {"model": CampaignHistoryOut}})

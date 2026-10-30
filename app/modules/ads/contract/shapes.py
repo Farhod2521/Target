@@ -146,10 +146,56 @@ class CampaignList(Camel):
     campaigns: list[CampaignRow]
 
 
+class CampaignAd(Camel):
+    id: str
+    external_id: str
+    position: int
+    format: Literal["image", "video"]
+    duration: int | None = None
+    name: str | None = None
+    thumb: str | None = None
+    headline: str | None = None
+    text: str
+    description: str | None = None
+    cta: str | None = None
+    link: str | None = None
+    status: Status
+    results: int
+    unit_cost: Money | None
+    spent: Money | None
+    controls: Controls | None = None
+    is_last: bool | None = None
+    deleting: bool | None = None
+    can_swap: bool | None = Field(
+        None, description="False: the words live on the page's post, changed there."
+    )
+
+
+class AdGroup(Camel):
+    external_id: str
+    name: str
+    status: Status
+    daily_budget: Money | None
+    min_budget: Money | None
+    controls: Controls
+    is_last: bool
+    deleting: bool | None = None
+    last_action: Literal["failed", "dry_run"] | None = None
+    ads: list[CampaignAd]
+
+
+class CampaignTree(Camel):
+    split: bool
+    groups: list[AdGroup]
+
+
 __all__ = [
     "Access",
+    "AdGroup",
+    "CampaignAd",
     "CampaignList",
     "CampaignRow",
+    "CampaignTree",
     "Controls",
     "Counts",
     "DayRange",

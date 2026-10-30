@@ -95,3 +95,22 @@ def test_the_filters_are_applied_on_the_server(client: TestClient, db: Session) 
     }
     assert elsewhere["sourceFallback"] is True and len(elsewhere["campaigns"]) == 1
     assert nonsense.status_code == 200
+
+
+def test_a_row_unfolds_into_its_groups_and_adverts(
+    client: TestClient, db: Session
+) -> None:
+    headers, campaign = _cabinet_with_figures(client, db)
+
+    tree = client.get(f"/api/v1/campaigns/{campaign.id}/tree", headers=headers)
+    ads = client.get(f"/api/v1/campaigns/{campaign.id}/ads", headers=headers)
+
+    assert tree.status_code == 200, tree.text
+    body = tree.json()
+    assert body["split"] is False
+    group = body["groups"][0]
+    assert group["externalId"] == "s_1" and group["isLast"] is True
+    assert group["ads"][0]["externalId"] == "a_1"
+    assert group["ads"][0]["position"] == 1
+    assert group["ads"][0]["canSwap"] is True
+    assert [ad["externalId"] for ad in ads.json()] == ["a_1"]
