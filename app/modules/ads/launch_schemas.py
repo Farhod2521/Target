@@ -34,8 +34,8 @@ from app.modules.ads.selectors.quality import QualityOffer
 from app.modules.ads.selectors.schedule import StartDay
 from app.modules.ads.selectors.tracking import ButtonChoices, UrlTagsChoice
 from app.modules.ads.summaries import AudienceSummary, FormSummary, NameList
-from app.modules.leads.selectors.reads import FormOption as PageFormOption
 from core.agent.copy_check import CopyFinding
+from core.leads.ending import EndingLine
 
 
 class Shape(BaseModel):
@@ -112,7 +112,7 @@ class ReviewStateOut(Shape):
     keep_polling: bool
 
 
-class ChoiceOut(Shape):
+class ModeChoiceOut(Shape):
     value: str
     label: str
     note: str
@@ -132,7 +132,7 @@ class PinnedPlacementOut(Shape):
     note: str
 
 
-class AudienceOut(Shape):
+class ProposalAudienceOut(Shape):
     chosen: dict[str, Any] = Field(
         description="As saved: `age_min`, `age_max`, `genders` ([1] men, [2] women), "
         "`targeting_mode`, `placement_mode`, the geo keys."
@@ -143,13 +143,13 @@ class AudienceOut(Shape):
     exact_age_mode: str
     automatic_max_age_min: int
     automatic_age_max: int
-    modes: list[ChoiceOut]
+    modes: list[ModeChoiceOut]
     placement_mode: str
     placement_source: str
-    placement_modes: list[ChoiceOut]
+    placement_modes: list[ModeChoiceOut]
     placement_pinned: PinnedPlacementOut | None
     lead_buying: str = Field(description="`volume` or `quality`.")
-    lead_buying_modes: list[ChoiceOut]
+    lead_buying_modes: list[ModeChoiceOut]
     quality_offer: QualityOffer
     buying_advice: Recommendation | None
     geo: dict[str, Any] = Field(description="`mode` (`country`, `places`, `around`), …")
@@ -227,6 +227,19 @@ class DestinationOut(Shape):
     post_caption: str
 
 
+class PageFormOptionOut(Shape):
+    """One of the page's own lead forms (a ``FormOption``, named apart from the others)."""
+
+    external_id: str
+    name: str
+    questions: list[str]
+    leads_count: int | None
+    created_time: datetime | None
+    signature: list[str]
+    ending: EndingLine | None
+    custom_questions: list[dict[str, Any]]
+
+
 class LeadFormOut(Shape):
     questions: list[dict[str, Any]] = Field(description="`kind`, `label`, `options`, …")
     chosen_kinds: list[str]
@@ -235,7 +248,7 @@ class LeadFormOut(Shape):
     max_options: int
     max_custom: int
     options_pending: bool
-    lead_forms: list[PageFormOption]
+    lead_forms: list[PageFormOptionOut]
     lead_forms_hidden: int
     chosen_form: str = Field(
         description="The Meta form's external id; empty: a new form."
@@ -261,7 +274,7 @@ class AdvancedOut(Shape):
     delivery: DeliveryChoices
 
 
-class AdviceOut(Shape):
+class ProposalAdviceOut(Shape):
     audience: Recommendation | None
     placement: Recommendation
 
@@ -274,7 +287,7 @@ class ProposalOut(Shape):
     campaign_title: str
     campaign_named: bool
     name_max: int
-    audience: AudienceOut
+    audience: ProposalAudienceOut
     interests: InterestsOut
     traits: TraitsOut
     variants: list[VariantCardOut]
@@ -287,7 +300,7 @@ class ProposalOut(Shape):
         description="Per section (`audience`, `interests`, `traits`, `creative`, `form`): "
         "already written again — «Boshqacha qilib ko'r» is once per section."
     )
-    advice: AdviceOut
+    advice: ProposalAdviceOut
     chat_questions: list[str]
 
 
