@@ -1,16 +1,20 @@
 """Turn chosen interest names into ones the provider accepts, and measure the reach."""
 
+import hashlib
+import json
 import logging
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from adskit import AudiencePort, registry
+from adskit.dto import ReachDTO
 from adskit.errors import ProviderError
 from adskit.refs import ExternalRef, ProviderName
 from llmkit import LLMError, render
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.cache import cache
 from app.common.config import settings
 from app.common.db import on_commit, utcnow
 from app.common.llm import MECHANICAL, claude, model_for, prompts
@@ -461,7 +465,8 @@ def estimate_audience(db: Session, *, launch_id: UUID | str) -> str:
         return "no_provider"
     built = build_for(db, launch=launch, business=business)
     try:
-        reach = registry.get(launch.provider).audiences.estimate_reach(
+        reach = sized(
+            registry.get(launch.provider).audiences,
             account=ExternalRef(
                 provider=ProviderName(launch.provider),
                 level="account",
@@ -483,6 +488,47 @@ def estimate_audience(db: Session, *, launch_id: UUID | str) -> str:
     _store_reach(db, launch=launch, lower=reach.lower, upper=reach.upper)
     _settle_mode(db, launch=launch, business=business)
     return "estimated"
+
+
+# Meta's estimate of one spec moves slowly; a launch asks again after every save.
+REACH_KEPT_SECONDS: Final = 6 * 60 * 60
+REACH_KEY: Final = "reach:{fingerprint}"
+
+
+def sized(
+    port: Any,
+    *,
+    account: ExternalRef,
+    targeting: dict[str, Any],
+    optimization_goal: str,
+    token: str,
+) -> ReachDTO:
+    """The provider's estimate, asked once per account, goal and spec for a few hours.
+
+    An answer the provider has not finished is not kept: asking again is how
+    it finishes.
+    """
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            [account.provider, account.id, optimization_goal, targeting],
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode()
+    ).hexdigest()
+    key = REACH_KEY.format(fingerprint=fingerprint)
+    kept = cache.get(key)
+    if kept is not None:
+        return ReachDTO.model_validate(kept)
+    reach: ReachDTO = port.estimate_reach(
+        account=account,
+        targeting=targeting,
+        optimization_goal=optimization_goal,
+        token=token,
+    )
+    if reach.ready or not reach.available:
+        cache.set(key, reach.model_dump(mode="json"), REACH_KEPT_SECONDS)
+    return reach
 
 
 def _settle_mode(db: Session, *, launch: CampaignLaunch, business: Business) -> None:
