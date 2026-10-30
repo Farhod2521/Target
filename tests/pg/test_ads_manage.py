@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
 from app.modules.accounts.models import User
-from app.modules.ads import selectors, services
+from app.modules.ads import actions, selectors
 from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.exceptions import AlreadyInState, ChangeInFlight
 from app.modules.ads.models import Ad, AdSet, Campaign, CampaignLaunch
@@ -96,16 +96,20 @@ def test_scope_labels_and_a_pause(db: Session, queued: list) -> None:
         "c_1"
     ]
 
-    log = services.request_pause(
-        db, user=owner, level=ManagedLevel.CAMPAIGN, external_id="c_1"
+    log = actions.request(
+        db,
+        user=owner,
+        ask=actions.Pause(level=ManagedLevel.CAMPAIGN, external_id="c_1"),
     )
     db.commit()
     assert log.status == "pending" and log.action == "pause"
     assert queued and queued[-1][0].endswith("apply_change_task")
 
     try:
-        services.request_pause(
-            db, user=owner, level=ManagedLevel.CAMPAIGN, external_id="c_1"
+        actions.request(
+            db,
+            user=owner,
+            ask=actions.Pause(level=ManagedLevel.CAMPAIGN, external_id="c_1"),
         )
     except ChangeInFlight:
         db.rollback()
@@ -116,8 +120,10 @@ def test_scope_labels_and_a_pause(db: Session, queued: list) -> None:
     campaign.delivery = "paused"
     db.commit()
     try:
-        services.request_pause(
-            db, user=owner, level=ManagedLevel.CAMPAIGN, external_id="c_1"
+        actions.request(
+            db,
+            user=owner,
+            ask=actions.Pause(level=ManagedLevel.CAMPAIGN, external_id="c_1"),
         )
     except AlreadyInState:
         db.rollback()

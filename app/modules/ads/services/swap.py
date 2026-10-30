@@ -28,11 +28,9 @@ from app.modules.ads.exceptions import (
 )
 from app.modules.ads.models import Ad, MediaAsset
 from app.modules.ads.services.manage import (
-    BY_HAND,
     CREATIVE,
-    Origin,
+    Planned,
     _ad_context,
-    open_change,
     record,
     state_of,
     state_payload,
@@ -86,7 +84,7 @@ def foreign_pictures(
     return frozenset(wanted) - owned
 
 
-def request_swap(
+def plan_swap(
     db: Session,
     *,
     user: User,
@@ -96,8 +94,7 @@ def request_swap(
     description: str | None = None,
     asset_id: str = "",
     lead_form_id: str = "",
-    origin: Origin = BY_HAND,
-) -> ActionLog:
+) -> Planned:
     """Replace what one advert says, by making the next one."""
     from app.modules.ads.selectors import creative_of
     from app.modules.billing.services import require_live_subscription
@@ -125,17 +122,15 @@ def request_swap(
     )
     if not verdict.allowed:
         raise REFUSALS.get(verdict.reason, ChangeRefused)()
-    return open_change(
-        db,
-        user=user,
+    return Planned(
         target=target,
         level=LEVEL,
         external_id=external_id,
         action=ActionType.CREATIVE_SWAP,
         requested={**words, **picture, **form, "asset_id": asset_id},
         previous=state_payload(target) | {"creative": creative.external_id},
-        origin=origin,
         dispatch=_dispatch,
+        revertible=False,
     )
 
 
@@ -403,6 +398,6 @@ __all__ = [
     "foreign_pictures",
     "form_page",
     "parent_external_id",
-    "request_swap",
+    "plan_swap",
     "swap_refusal",
 ]

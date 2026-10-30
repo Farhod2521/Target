@@ -25,13 +25,11 @@ from app.modules.ads.models import Ad, Campaign, GoalCampaign
 from app.modules.ads.selectors import managed_target
 from app.modules.ads.services.access import token_for
 from app.modules.ads.services.manage import (
-    BY_HAND,
     BY_SYSTEM,
     REMOVAL,
-    Origin,
+    Planned,
     close_log,
     fail_log,
-    open_change,
     open_log,
     state_payload,
     target_for,
@@ -44,6 +42,11 @@ from app.modules.integrations.models import AdAccount
 
 logger = logging.getLogger(__name__)
 AGGREGATE = "ad_object"
+DELETE_ACTIONS: dict[str, str] = {
+    ManagedLevel.CAMPAIGN: ActionType.DELETE_CAMPAIGN,
+    ManagedLevel.ADSET: ActionType.DELETE_ADSET,
+    ManagedLevel.AD: ActionType.DELETE_AD,
+}
 DELETIONS: dict[str, str] = {
     ActionType.DELETE_CAMPAIGN: EventName.CAMPAIGN_DELETED,
     ActionType.DELETE_ADSET: EventName.ADSET_DELETED,
@@ -88,115 +91,42 @@ def _dispatch(log_id: str) -> None:
     apply_delete_task.delay(log_id)
 
 
-def _delete(
-    db: Session,
-    *,
-    user: User,
-    level: str,
-    external_id: str,
-    action: str,
-    origin: Origin,
-) -> ActionLog:
+def plan_delete(
+    db: Session, *, user: User, level: str, external_id: str, unpaid: bool = False
+) -> Planned:
+    """A campaign, a group or an ad - and an ad that is its group's last takes the group.
+
+    ``unpaid`` is the lapse sweep removing what nobody paid for: the
+    subscription check it skips is the reason it runs.
+    """
+    if not unpaid:
+        _live(db, user)
     target = target_for(
         db, user=user, level=level, external_id=external_id, aspect=REMOVAL
     )
-    return open_change(
-        db,
-        user=user,
+    if level == ManagedLevel.AD:
+        siblings = db.scalar(
+            select(Ad.id)
+            .where(
+                Ad.owner_id == user.id,
+                Ad.adset_id == target.adset_id,
+                Ad.id != target.id,
+            )
+            .limit(1)
+        )
+        if siblings is None:
+            level, external_id = ManagedLevel.ADSET, str(target.adset.external_id)
+            target = target_for(
+                db, user=user, level=level, external_id=external_id, aspect=REMOVAL
+            )
+    return Planned(
         target=target,
         level=level,
         external_id=external_id,
-        action=action,
+        action=DELETE_ACTIONS[level],
         requested={"status": "deleted"},
-        origin=origin,
         dispatch=_dispatch,
-    )
-
-
-def request_delete(
-    db: Session, *, user: User, external_id: str, origin: Origin = BY_HAND
-) -> ActionLog:
-    _live(db, user)
-    return _delete(
-        db,
-        user=user,
-        level=ManagedLevel.CAMPAIGN,
-        external_id=external_id,
-        action=ActionType.DELETE_CAMPAIGN,
-        origin=origin,
-    )
-
-
-def request_adset_delete(
-    db: Session, *, user: User, external_id: str, origin: Origin = BY_HAND
-) -> ActionLog:
-    _live(db, user)
-    return _delete(
-        db,
-        user=user,
-        level=ManagedLevel.ADSET,
-        external_id=external_id,
-        action=ActionType.DELETE_ADSET,
-        origin=origin,
-    )
-
-
-def request_lapse_removal(
-    db: Session, *, user: User, level: str, external_id: str, origin: Origin
-) -> ActionLog:
-    if level == ManagedLevel.ADSET:
-        return _delete(
-            db,
-            user=user,
-            level=ManagedLevel.ADSET,
-            external_id=external_id,
-            action=ActionType.DELETE_ADSET,
-            origin=origin,
-        )
-    return _delete(
-        db,
-        user=user,
-        level=ManagedLevel.CAMPAIGN,
-        external_id=external_id,
-        action=ActionType.DELETE_CAMPAIGN,
-        origin=origin,
-    )
-
-
-def request_ad_delete(
-    db: Session, *, user: User, external_id: str, origin: Origin = BY_HAND
-) -> ActionLog:
-    """An ad - or, when it is its group's last, the whole group."""
-    _live(db, user)
-    target = target_for(
-        db, user=user, level=ManagedLevel.AD, external_id=external_id, aspect=REMOVAL
-    )
-    siblings = db.scalar(
-        select(Ad.id)
-        .where(
-            Ad.owner_id == user.id, Ad.adset_id == target.adset_id, Ad.id != target.id
-        )
-        .limit(1)
-    )
-    if siblings is None:
-        return _delete(
-            db,
-            user=user,
-            level=ManagedLevel.ADSET,
-            external_id=str(target.adset.external_id),
-            action=ActionType.DELETE_ADSET,
-            origin=origin,
-        )
-    return open_change(
-        db,
-        user=user,
-        target=target,
-        level=ManagedLevel.AD,
-        external_id=external_id,
-        action=ActionType.DELETE_AD,
-        requested={"status": "deleted"},
-        origin=origin,
-        dispatch=_dispatch,
+        revertible=False,
     )
 
 

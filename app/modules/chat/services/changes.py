@@ -1,8 +1,8 @@
 """A change the owner asked the assistant for: prepared in the answer, carried out only on their press.
 
 The model never changes anything. Its ``propose_change`` look-up runs the same
-checks the campaigns screen runs (``budget_gate`` / ``status_gate``) without
-opening a change, and a change that would be refused is answered with the
+checks the campaigns screen runs (``actions.preview``) without opening a
+change, and a change that would be refused is answered with the
 refusal instead of a button. What is kept on the answer's row is what the
 product read itself - the object, its name, the figure before and after - so the
 button says exactly what will happen. Pressing it calls the campaigns screen's
@@ -69,8 +69,8 @@ def prepare_change(
     key: str,
 ) -> Prepared:
     """Check the change the way the campaigns screen would, and describe it, or say why not."""
+    from app.modules.ads import actions
     from app.modules.ads.selectors.actions import account_of, managed_target
-    from app.modules.ads.services import budget_gate, status_gate
 
     level, external_id = arguments.level, arguments.object_id
     target = managed_target(db, owner=owner, level=level, external_id=external_id)
@@ -89,24 +89,17 @@ def prepare_change(
             item = _budget(
                 db, owner=owner, arguments=arguments, target=target, account=account
             )
-            budget_gate(
-                db,
-                user=owner,
-                level=level,
-                external_id=external_id,
-                daily_budget_minor=item["daily_budget_minor"],
-            )
         else:
             wanted = PAUSED if arguments.action == "pause" else ACTIVE
-            status_gate(
-                db, user=owner, level=level, external_id=external_id, wanted=wanted
-            )
             item = {
                 "before": STATE_WORDS.get(
                     _status_of(target), str(getattr(target, "delivery", ""))
                 ),
                 "after": STATE_WORDS[wanted],
             }
+        actions.preview(
+            db, user=owner, ask=_ask(arguments.action, level, external_id, item)
+        )
     except _NotABudget as exc:
         return Prepared(text=str(exc))
     except DomainError as exc:
@@ -181,6 +174,21 @@ def _budget(
     }
 
 
+def _ask(action: str, level: str, external_id: str, item: dict[str, Any]) -> Any:
+    """The change the button stands for, as the campaigns screen asks for it."""
+    from app.modules.ads import actions
+
+    if action == "budget":
+        return actions.Budget(
+            level=level,
+            external_id=external_id,
+            daily_budget_minor=int(item["daily_budget_minor"]),
+        )
+    if action == "pause":
+        return actions.Pause(level=level, external_id=external_id)
+    return actions.Resume(level=level, external_id=external_id)
+
+
 def _status_of(target: Any) -> str:
     delivery = str(getattr(target, "delivery", ""))
     if delivery == "active":
@@ -240,7 +248,7 @@ def confirm_change(
     db: Session, *, owner: User, message_id: str, key: str
 ) -> ChangeState:
     """The owner pressed the button: the campaigns screen's own service, checked again."""
-    from app.modules.ads.services import request_budget, request_pause, request_resume
+    from app.modules.ads import actions
 
     row, index = _found(db, owner=owner, message_id=message_id, key=key)
     if row is None or index < 0:
@@ -248,19 +256,8 @@ def confirm_change(
     item = row.choices[index]
     if item.get("state") != OPEN:
         return change_state(db, owner=owner, message_id=message_id, key=key)
-    level, external_id = str(item["level"]), str(item["external_id"])
-    if item["action"] == "budget":
-        log = request_budget(
-            db,
-            user=owner,
-            level=level,
-            external_id=external_id,
-            daily_budget_minor=int(item["daily_budget_minor"]),
-        )
-    elif item["action"] == "pause":
-        log = request_pause(db, user=owner, level=level, external_id=external_id)
-    else:
-        log = request_resume(db, user=owner, level=level, external_id=external_id)
+    ask = _ask(str(item["action"]), str(item["level"]), str(item["external_id"]), item)
+    log = actions.request(db, user=owner, ask=ask)
     _write(db, row, index, state=SENT, log_id=str(log.id))
     return ChangeState(state="working", text=WORKING)
 

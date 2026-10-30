@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.common.exceptions import DomainError
 from app.modules.accounts.models import User
-from app.modules.ads.constants import LAPSE_DELETE_AFTER, LAPSE_MARK
+from app.modules.ads.constants import LAPSE_DELETE_AFTER, LAPSE_MARK, ManagedLevel
 from app.modules.ads.exceptions import (
     ConnectionUnusable,
     SyncAlreadyRunning,
@@ -23,9 +23,8 @@ from app.modules.ads.selectors import (
     lapse_targets,
     stops_in_flight,
 )
-from app.modules.ads.services.manage import BY_SYSTEM, request_pause, request_resume
+from app.modules.ads.services.manage import BY_SYSTEM
 from app.modules.ads.services.mirror import sync_ad_account
-from app.modules.ads.services.removal import request_lapse_removal
 from app.modules.audit.constants import ActionStatus, ActionType, EventName
 from app.modules.audit.models import ActionLog
 from app.modules.audit.services import emit
@@ -107,6 +106,7 @@ def open_lapse_hold(db: Session, *, owner: User, now: datetime) -> LapseHold | N
 def stop_running(
     db: Session, *, hold: LapseHold, targets: list[LapseTarget] | None = None
 ) -> int:
+    from app.modules.ads import actions
     from app.modules.ads.selectors.lapse import unwritable_account_ids
 
     owner = hold.owner
@@ -116,11 +116,10 @@ def stop_running(
         if not target.running or target.ad_account_id in unwritable:
             continue
         try:
-            log = request_pause(
+            log = actions.request(
                 db,
                 user=owner,
-                level=target.level,
-                external_id=target.external_id,
+                ask=actions.Pause(level=target.level, external_id=target.external_id),
                 origin=BY_SYSTEM,
             )
             _mark(db, log=log, hold=hold)
@@ -165,6 +164,8 @@ def settle_lapse(db: Session, *, hold: LapseHold, now: datetime) -> str:
 
 
 def resume_after_lapse(db: Session, *, hold: LapseHold, now: datetime) -> int | None:
+    from app.modules.ads import actions
+
     owner = hold.owner
     if not hold.is_open or not _has_live(db, owner):
         return None
@@ -176,11 +177,12 @@ def resume_after_lapse(db: Session, *, hold: LapseHold, now: datetime) -> int | 
         if stop.status != ActionStatus.APPLIED:
             continue
         try:
-            log = request_resume(
+            log = actions.request(
                 db,
                 user=owner,
-                level=stop.target_level,
-                external_id=stop.target_external_id,
+                ask=actions.Resume(
+                    level=stop.target_level, external_id=stop.target_external_id
+                ),
                 origin=BY_SYSTEM,
             )
             _mark(db, log=log, hold=hold)
@@ -198,6 +200,8 @@ def resume_after_lapse(db: Session, *, hold: LapseHold, now: datetime) -> int | 
 
 
 def remove_after_lapse(db: Session, *, hold: LapseHold, now: datetime) -> int | None:
+    from app.modules.ads import actions
+
     owner = hold.owner
     if not hold.is_open or now < hold.delete_after:
         return None
@@ -206,11 +210,14 @@ def remove_after_lapse(db: Session, *, hold: LapseHold, now: datetime) -> int | 
     removed = 0
     for target in lapse_targets(db, owner=owner):
         try:
-            log = request_lapse_removal(
+            log = actions.request(
                 db,
                 user=owner,
-                level=target.level,
-                external_id=target.external_id,
+                ask=actions.Delete(
+                    level=_removed_level(target.level),
+                    external_id=target.external_id,
+                    unpaid=True,
+                ),
                 origin=BY_SYSTEM,
             )
             _mark(db, log=log, hold=hold)
@@ -225,6 +232,11 @@ def remove_after_lapse(db: Session, *, hold: LapseHold, now: datetime) -> int | 
         removed += 1
     _close(db, hold=hold, field="deleted_at", name=EventName.ADS_LAPSE_REMOVED, now=now)
     return removed
+
+
+def _removed_level(level: str) -> str:
+    """What the sweep deletes: the group it named, or else the whole campaign."""
+    return ManagedLevel.ADSET if level == ManagedLevel.ADSET else ManagedLevel.CAMPAIGN
 
 
 def _close(

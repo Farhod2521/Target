@@ -89,19 +89,21 @@ def change_settings(
 def _budget(
     db: Session, *, user: User, editable: Editable, wanted: int | None
 ) -> str | None:
-    from app.modules.ads.services.manage import request_budget
+    from app.modules.ads import actions
 
     target = editable.budget
     if target is None or wanted is None or wanted == target.controls.daily_budget_minor:
         return None
     try:
         with db.begin_nested():
-            request_budget(
+            actions.request(
                 db,
                 user=user,
-                level=target.level,
-                external_id=target.external_id,
-                daily_budget_minor=wanted,
+                ask=actions.Budget(
+                    level=target.level,
+                    external_id=target.external_id,
+                    daily_budget_minor=wanted,
+                ),
             )
     except DomainError as exc:
         return str(exc)
@@ -116,8 +118,8 @@ def _audience(
     wanted: AudienceEdit | None,
     notes: list[Adjustment],
 ) -> str | None:
+    from app.modules.ads import actions
     from app.modules.ads.selectors.actions import managed_target
-    from app.modules.ads.services.manage import request_targeting
 
     target = editable.audience
     if target is None or wanted is None or wanted.is_empty:
@@ -137,8 +139,10 @@ def _audience(
         return None
     try:
         with db.begin_nested():
-            request_targeting(
-                db, user=user, external_id=target.external_id, targeting=spec
+            actions.request(
+                db,
+                user=user,
+                ask=actions.Audience(external_id=target.external_id, targeting=spec),
             )
     except DomainError as exc:
         return str(exc)
@@ -153,7 +157,7 @@ def _limits(
     end_time: datetime | None,
     spend_cap_minor: int | None,
 ) -> str | None:
-    from app.modules.ads.services.manage import request_end_time, request_spend_cap
+    from app.modules.ads import actions
 
     target = editable.limits
     if target is None:
@@ -162,11 +166,12 @@ def _limits(
     if end_time is not None and end_time != target.end_time:
         try:
             with db.begin_nested():
-                request_end_time(
+                actions.request(
                     db,
                     user=user,
-                    external_id=target.adset_external_id,
-                    end_time=end_time,
+                    ask=actions.EndTime(
+                        external_id=target.adset_external_id, end_time=end_time
+                    ),
                 )
         except DomainError as exc:
             return str(exc)
@@ -174,11 +179,13 @@ def _limits(
     if spend_cap_minor is not None and spend_cap_minor != target.spend_cap_minor:
         try:
             with db.begin_nested():
-                request_spend_cap(
+                actions.request(
                     db,
                     user=user,
-                    external_id=target.campaign_external_id,
-                    spend_cap_minor=spend_cap_minor,
+                    ask=actions.SpendCap(
+                        external_id=target.campaign_external_id,
+                        spend_cap_minor=spend_cap_minor,
+                    ),
                 )
         except DomainError as exc:
             return BOTH_HALVES % {"refusal": str(exc)} if sent else str(exc)

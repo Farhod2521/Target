@@ -1,7 +1,7 @@
 """Changing a live advert: pause, resume, budget, end date, spend cap, audience.
 
-A request checks the guardrails against the mirror and opens a PENDING
-ActionLog; the worker (``apply_change``) checks again against the provider,
+A plan checks the guardrails against the mirror; opening it writes a PENDING
+ActionLog (callers ask through :mod:`app.modules.ads.actions`); the worker (``apply_change``) checks again against the provider,
 writes, reads back and records. The commit that opens the log is the
 caller's, and the worker task is sent after it.
 """
@@ -37,7 +37,6 @@ from app.modules.ads.exceptions import (
     GroupStillLearning,
     LastAdInGroup,
     LearningInProgress,
-    NothingToRevert,
     UnknownTarget,
 )
 from app.modules.ads.models import Ad
@@ -431,42 +430,72 @@ def _ad_context(db: Session, *, owner: User, target: Any) -> AdContext:
     )
 
 
-def request_pause(
-    db: Session, *, user: User, level: str, external_id: str, origin: Origin = BY_HAND
-) -> ActionLog:
-    return request_status(
-        db,
-        user=user,
-        level=level,
-        external_id=external_id,
-        wanted=PAUSED,
-        origin=origin,
-    )
+@dataclass(frozen=True, slots=True)
+class Planned:
+    """A change every check passed, and everything opening it needs.
+
+    What :func:`app.modules.ads.actions.preview` answers: a screen or the
+    assistant can say what will happen from it, and nothing has been opened.
+    """
+
+    target: Any
+    level: str
+    external_id: str
+    action: str
+    requested: dict[str, Any]
+    previous: dict[str, Any] | None = None
+    dispatch: Callable[[str], Any] | None = None
+    # A change another one can undo carries the id of the one it undoes.
+    revertible: bool = True
+
+    @property
+    def provider(self) -> str:
+        return str(self.target.provider)
 
 
-def request_resume(
-    db: Session, *, user: User, level: str, external_id: str, origin: Origin = BY_HAND
-) -> ActionLog:
-    return request_status(
-        db,
-        user=user,
-        level=level,
-        external_id=external_id,
-        wanted=ACTIVE,
-        origin=origin,
-    )
-
-
-def request_budget(
+def open_planned(
     db: Session,
     *,
     user: User,
-    level: str,
-    external_id: str,
-    daily_budget_minor: int,
-    reverts: str = "",
+    plan: Planned,
     origin: Origin = BY_HAND,
+    reverts: str = "",
 ) -> ActionLog:
+    requested = dict(plan.requested)
+    if plan.revertible:
+        requested["reverts"] = reverts
+    return open_change(
+        db,
+        user=user,
+        target=plan.target,
+        level=plan.level,
+        external_id=plan.external_id,
+        action=plan.action,
+        requested=requested,
+        previous=plan.previous,
+        origin=origin,
+        dispatch=plan.dispatch,
+    )
+
+
+def plan_status(
+    db: Session, *, user: User, level: str, external_id: str, wanted: str
+) -> Planned:
+    target = status_gate(
+        db, user=user, level=level, external_id=external_id, wanted=wanted
+    )
+    return Planned(
+        target=target,
+        level=level,
+        external_id=external_id,
+        action=ActionType.PAUSE if wanted == PAUSED else ActionType.RESUME,
+        requested={"status": wanted},
+    )
+
+
+def plan_budget(
+    db: Session, *, user: User, level: str, external_id: str, daily_budget_minor: int
+) -> Planned:
     target, account = budget_gate(
         db,
         user=user,
@@ -475,9 +504,7 @@ def request_budget(
         daily_budget_minor=daily_budget_minor,
     )
     current = getattr(target, "daily_budget_minor", None) or 0
-    return open_change(
-        db,
-        user=user,
+    return Planned(
         target=target,
         level=level,
         external_id=external_id,
@@ -487,9 +514,7 @@ def request_budget(
         requested={
             "daily_budget_minor": daily_budget_minor,
             "currency": account.currency,
-            "reverts": reverts,
         },
-        origin=origin,
     )
 
 
@@ -524,31 +549,6 @@ def budget_gate(
     return target, account
 
 
-def request_status(
-    db: Session,
-    *,
-    user: User,
-    level: str,
-    external_id: str,
-    wanted: str,
-    reverts: str = "",
-    origin: Origin = BY_HAND,
-) -> ActionLog:
-    target = status_gate(
-        db, user=user, level=level, external_id=external_id, wanted=wanted
-    )
-    return open_change(
-        db,
-        user=user,
-        target=target,
-        level=level,
-        external_id=external_id,
-        action=ActionType.PAUSE if wanted == PAUSED else ActionType.RESUME,
-        requested={"status": wanted, "reverts": reverts},
-        origin=origin,
-    )
-
-
 def status_gate(
     db: Session, *, user: User, level: str, external_id: str, wanted: str
 ) -> Any:
@@ -579,15 +579,9 @@ def status_gate(
     return target
 
 
-def request_end_time(
-    db: Session,
-    *,
-    user: User,
-    external_id: str,
-    end_time: datetime,
-    reverts: str = "",
-    origin: Origin = BY_HAND,
-) -> ActionLog:
+def plan_end_time(
+    db: Session, *, user: User, external_id: str, end_time: datetime
+) -> Planned:
     _live(db, user)
     target = target_for(
         db,
@@ -600,29 +594,20 @@ def request_end_time(
     if not verdict.allowed:
         raise {REFUSED_FINISHED: CampaignFinished}.get(verdict.reason, ChangeRefused)()
     previous = getattr(target, "end_time", None)
-    return open_change(
-        db,
-        user=user,
+    return Planned(
         target=target,
         level=ManagedLevel.ADSET,
         external_id=external_id,
         action=ActionType.END_TIME_SET,
-        requested={"end_time": end_time.isoformat(), "reverts": reverts},
+        requested={"end_time": end_time.isoformat()},
         previous=state_payload(target)
         | {"end_time": previous.isoformat() if previous else ""},
-        origin=origin,
     )
 
 
-def request_spend_cap(
-    db: Session,
-    *,
-    user: User,
-    external_id: str,
-    spend_cap_minor: int,
-    reverts: str = "",
-    origin: Origin = BY_HAND,
-) -> ActionLog:
+def plan_spend_cap(
+    db: Session, *, user: User, external_id: str, spend_cap_minor: int
+) -> Planned:
     _live(db, user)
     if spend_cap_minor <= 0:
         raise ChangeRefused
@@ -636,30 +621,26 @@ def request_spend_cap(
     verdict = check_limit_change(state=state_of(target))
     if not verdict.allowed:
         raise {REFUSED_FINISHED: CampaignFinished}.get(verdict.reason, ChangeRefused)()
-    return open_change(
-        db,
-        user=user,
+    return Planned(
         target=target,
         level=ManagedLevel.CAMPAIGN,
         external_id=external_id,
         action=ActionType.SPEND_CAP_SET,
-        requested={"spend_cap_minor": spend_cap_minor, "reverts": reverts},
+        requested={"spend_cap_minor": spend_cap_minor},
         previous=state_payload(target)
         | {"spend_cap_minor": getattr(target, "spend_cap_minor", None)},
-        origin=origin,
     )
 
 
-def request_targeting(
+def plan_targeting(
     db: Session,
     *,
     user: User,
     external_id: str,
     targeting: Mapping[str, Any],
     step: str = "",
-    reverts: str = "",
     origin: Origin = BY_HAND,
-) -> ActionLog:
+) -> Planned:
     _live(db, user)
     if not targeting:
         raise ChangeRefused
@@ -683,90 +664,18 @@ def request_targeting(
     previous = getattr(target, "targeting_raw", None)
     if not isinstance(previous, dict) or not previous:
         raise UnknownTarget
-    return open_change(
-        db,
-        user=user,
+    return Planned(
         target=target,
         level="adset",
         external_id=external_id,
         action=ActionType.TARGETING_SWAP,
-        requested={"targeting": dict(targeting), "step": step, "reverts": reverts},
+        requested={"targeting": dict(targeting), "step": step},
         previous=state_payload(target) | {"targeting": previous},
-        origin=origin,
     )
 
 
-def request_revert(db: Session, *, user: User, log_id: str) -> ActionLog:
-    _live(db, user)
-    try:
-        pk = uuid.UUID(str(log_id))
-    except ValueError:
-        raise NothingToRevert from None
-    original = db.scalars(
-        select(ActionLog).where(
-            ActionLog.owner_id == user.id,
-            ActionLog.id == pk,
-            ActionLog.status == str(ActionStatus.APPLIED),
-        )
-    ).first()
-    if original is None or original.dry_run:
-        raise NothingToRevert
-    previous = original.previous_state
-    level, external_id = original.target_level, original.target_external_id
-    reverts = str(original.id)
-    if original.action in BUDGET_ACTIONS:
-        amount = previous.get("daily_budget_minor")
-        if amount is None:
-            raise NothingToRevert
-        return request_budget(
-            db,
-            user=user,
-            level=level,
-            external_id=external_id,
-            daily_budget_minor=int(amount),
-            reverts=reverts,
-        )
-    if original.action == ActionType.TARGETING_SWAP:
-        spec = previous.get("targeting")
-        if not isinstance(spec, dict) or not spec:
-            raise NothingToRevert
-        return request_targeting(
-            db, user=user, external_id=external_id, targeting=spec, reverts=reverts
-        )
-    if original.action == ActionType.END_TIME_SET:
-        stamp = _parse_datetime(str(previous.get("end_time") or ""))
-        if stamp is None:
-            raise NothingToRevert
-        return request_end_time(
-            db, user=user, external_id=external_id, end_time=stamp, reverts=reverts
-        )
-    if original.action == ActionType.SPEND_CAP_SET:
-        ceiling = previous.get("spend_cap_minor")
-        if ceiling is None:
-            raise NothingToRevert
-        return request_spend_cap(
-            db,
-            user=user,
-            external_id=external_id,
-            spend_cap_minor=int(ceiling),
-            reverts=reverts,
-        )
-    if original.action == ActionType.CREATIVE_SWAP:
-        raise NothingToRevert
-    wanted = str(previous.get("delivery", ""))
-    if wanted not in (ACTIVE, PAUSED):
-        raise NothingToRevert
-    return request_status(
-        db,
-        user=user,
-        level=level,
-        external_id=external_id,
-        wanted=wanted,
-        reverts=reverts,
-    )
+def parse_datetime(value: str) -> datetime | None:
 
-
-def _parse_datetime(value: str) -> datetime | None:
     try:
         return datetime.fromisoformat(value) if value else None
     except ValueError:
@@ -1096,7 +1005,7 @@ def _limit(*, log: ActionLog, result: ActionResult) -> tuple[str, Any] | None:
     if field is None:
         return None
     if field == "end_time":
-        return field, _parse_datetime(str(result.applied.get("end_time", "")))
+        return field, parse_datetime(str(result.applied.get("end_time", "")))
     return field, result.applied.get("spend_cap_minor")
 
 
@@ -1158,16 +1067,10 @@ def start_delivery(
     refused: list[str] = []
     for level, external_id in targets:
         try:
-            opened.append(
-                request_status(
-                    db,
-                    user=user,
-                    level=level,
-                    external_id=external_id,
-                    wanted=ACTIVE,
-                    origin=origin,
-                )
+            plan = plan_status(
+                db, user=user, level=level, external_id=external_id, wanted=ACTIVE
             )
+            opened.append(open_planned(db, user=user, plan=plan, origin=origin))
         except AlreadyInState:
             continue
         except DomainError as exc:

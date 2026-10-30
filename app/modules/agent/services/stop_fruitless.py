@@ -9,8 +9,9 @@ from app.common.config import settings
 from app.common.exceptions import DomainError
 from app.common.money import format_minor
 from app.modules.accounts.models import User
+from app.modules.ads import actions
 from app.modules.ads.constants import ManagedLevel
-from app.modules.ads.services.manage import Origin, request_pause
+from app.modules.ads.services.manage import Origin
 from app.modules.agent.constants import AUTO_STOP_MARK
 from app.modules.agent.selectors.auto_stop import StopCandidate, stop_candidates
 from app.modules.audit.constants import ActorType
@@ -43,11 +44,10 @@ def stop_fruitless(db: Session, *, owner: User, now: datetime) -> int:
 def _stop(db: Session, *, owner: User, found: StopCandidate) -> None:
     """The stop, and its mark written in the same transaction as the request,
     so the worker never reads the row without it."""
-    log = request_pause(
+    log = actions.request(
         db,
         user=owner,
-        level=ManagedLevel.ADSET,
-        external_id=found.group.adset_id,
+        ask=actions.Pause(level=ManagedLevel.ADSET, external_id=found.group.adset_id),
         origin=BY_ITSELF,
     )
     log.request_payload = {

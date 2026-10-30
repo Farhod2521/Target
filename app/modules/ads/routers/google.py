@@ -22,6 +22,7 @@ from app.api.deps import CurrentUser, Db
 from app.common.exceptions import NotFound
 from app.common.money import provider_money
 from app.modules.accounts.models import User
+from app.modules.ads import actions
 from app.modules.ads.constants import (
     GOOGLE_FAILURES,
     GOOGLE_GOAL_LABELS,
@@ -42,12 +43,6 @@ from app.modules.ads.selectors.google import (
     search_preview,
 )
 from app.modules.ads.services import google as google_services
-from app.modules.ads.services.manage import (
-    request_budget,
-    request_pause,
-    request_resume,
-)
-from app.modules.ads.services.removal import request_delete
 from app.modules.integrations.selectors.google import (
     current_google_account,
     google_ads_on,
@@ -131,11 +126,9 @@ def screen(
 def switch(body: SwitchIn, db: Db, user: CurrentUser) -> dict[str, str]:
     """Stop or start one campaign or group."""
     _switched_on(user)
-    change = request_pause if body.wanted == "pause" else request_resume
-    committed(
-        db,
-        lambda: change(db, user=user, level=body.level, external_id=body.external_id),
-    )
+    kind = actions.Pause if body.wanted == "pause" else actions.Resume
+    ask = kind(level=body.level, external_id=body.external_id)
+    committed(db, lambda: actions.request(db, user=user, ask=ask))
     return {"detail": "Google'ga yuborildi. Holat bir necha soniyada yangilanadi."}
 
 
@@ -151,12 +144,14 @@ def budget(body: BudgetIn, db: Db, user: CurrentUser) -> dict[str, str]:
     )
     committed(
         db,
-        lambda: request_budget(
+        lambda: actions.request(
             db,
             user=user,
-            level=ManagedLevel.CAMPAIGN,
-            external_id=body.external_id,
-            daily_budget_minor=amount,
+            ask=actions.Budget(
+                level=ManagedLevel.CAMPAIGN,
+                external_id=body.external_id,
+                daily_budget_minor=amount,
+            ),
         ),
     )
     return {"detail": "Google'ga yuborildi. Byudjet tez orada yangilanadi."}
@@ -166,7 +161,8 @@ def budget(body: BudgetIn, db: Db, user: CurrentUser) -> dict[str, str]:
 def delete(body: DeleteIn, db: Db, user: CurrentUser) -> dict[str, str]:
     """Remove a campaign for good, after the dialog has asked."""
     _switched_on(user)
-    committed(db, lambda: request_delete(db, user=user, external_id=body.external_id))
+    ask = actions.Delete(level=ManagedLevel.CAMPAIGN, external_id=body.external_id)
+    committed(db, lambda: actions.request(db, user=user, ask=ask))
     return {"detail": "Google'ga yuborildi. Kampaniya o'chiriladi."}
 
 

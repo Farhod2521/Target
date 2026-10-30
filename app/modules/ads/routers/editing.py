@@ -19,7 +19,7 @@ from app.api.deps import CurrentUser, Db
 from app.common.db import utcnow
 from app.common.money import provider_money
 from app.modules.accounts.models import User
-from app.modules.ads import selectors, services
+from app.modules.ads import actions, selectors, services
 from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.inputs import Problems
 from app.modules.ads.inputs.budget import budget_minor as checked_budget
@@ -156,15 +156,17 @@ def ad_edit_save(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Bu formani tanlab bo'lmaydi.",
             )
-    services.request_swap(
+    actions.request(
         db,
         user=user,
-        external_id=ad.external_id,
-        message=body.message,
-        headline=body.headline,
-        description=body.description,
-        asset_id=body.asset_id,
-        lead_form_id=body.lead_form_id,
+        ask=actions.NewAdvert(
+            external_id=ad.external_id,
+            message=body.message,
+            headline=body.headline,
+            description=body.description,
+            asset_id=body.asset_id,
+            lead_form_id=body.lead_form_id,
+        ),
     )
     db.commit()
     return {"message": SENT_AD, "campaign_id": str(ad.adset.campaign_id)}

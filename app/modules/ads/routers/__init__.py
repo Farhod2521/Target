@@ -21,7 +21,7 @@ from app.common.db import utcnow
 from app.common.exceptions import DomainError
 from app.common.money import format_minor, provider_money
 from app.modules.accounts.models import User
-from app.modules.ads import selectors, services
+from app.modules.ads import actions, selectors, services
 from app.modules.ads.constants import (
     ACTION_POLL_SECONDS,
     DEFAULT_SHOWN,
@@ -502,7 +502,13 @@ def campaign_delete(
     campaign_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
     campaign = _detail(db, user, campaign_id)
-    services.request_delete(db, user=user, external_id=campaign.external_id)
+    actions.request(
+        db,
+        user=user,
+        ask=actions.Delete(
+            level=ManagedLevel.CAMPAIGN, external_id=campaign.external_id
+        ),
+    )
     db.commit()
     return {"message": "Kampaniyani o'chirish so'rovi yuborildi."}
 
@@ -609,7 +615,11 @@ def pause(level: str, external_id: str, db: Db, user: CurrentUser) -> dict[str, 
         level,
         external_id,
         lambda: (
-            services.request_pause(db, user=user, level=level, external_id=external_id)
+            actions.request(
+                db,
+                user=user,
+                ask=actions.Pause(level=level, external_id=external_id),
+            )
             and ""
         ),
     )
@@ -699,12 +709,12 @@ def budget(
         level,
         external_id,
         lambda: (
-            services.request_budget(
+            actions.request(
                 db,
                 user=user,
-                level=level,
-                external_id=external_id,
-                daily_budget_minor=asked,
+                ask=actions.Budget(
+                    level=level, external_id=external_id, daily_budget_minor=asked
+                ),
             )
             and ""
         ),
@@ -725,7 +735,7 @@ def revert(
 
     def run() -> str:
         try:
-            services.request_revert(db, user=user, log_id=body.log)
+            actions.revert(db, user=user, log_id=body.log)
         except DomainError:
             raise NothingToRevert from None
         return ""
@@ -738,7 +748,11 @@ def revert(
 )
 def adset_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     adset = _target(db, user, ManagedLevel.ADSET, external_id)
-    services.request_adset_delete(db, user=user, external_id=external_id)
+    actions.request(
+        db,
+        user=user,
+        ask=actions.Delete(level=ManagedLevel.ADSET, external_id=external_id),
+    )
     db.commit()
     return {
         "message": "Guruhni o'chirish so'rovi yuborildi.",
@@ -749,7 +763,11 @@ def adset_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
 @router.post("/manage/ad/{external_id}/delete", responses={200: {"model": DeletedOut}})
 def ad_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     ad = _target(db, user, ManagedLevel.AD, external_id)
-    services.request_ad_delete(db, user=user, external_id=external_id)
+    actions.request(
+        db,
+        user=user,
+        ask=actions.Delete(level=ManagedLevel.AD, external_id=external_id),
+    )
     db.commit()
     return {
         "message": "Reklamani o'chirish so'rovi yuborildi.",

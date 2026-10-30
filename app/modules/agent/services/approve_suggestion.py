@@ -176,72 +176,54 @@ def carry_out(
     words: AdvertWords | None,
 ) -> ActionLog:
     """Hand the change to the ordinary management path."""
-    from app.modules.ads.services import (
-        by_agent,
-        request_budget,
-        request_pause,
-        request_resume,
-        request_swap,
-        request_targeting,
+    from app.modules.ads import actions
+    from app.modules.ads.services import by_agent
+
+    return actions.request(
+        db,
+        user=user,
+        ask=_ask(suggestion=suggestion, finding=finding, words=words),
+        origin=by_agent(str(suggestion.run_id)),
     )
 
-    origin = by_agent(str(suggestion.run_id))
-    external_id = suggestion.target_external_id
+
+def _ask(
+    *, suggestion: AgentSuggestion, finding: Finding, words: AdvertWords | None
+) -> Any:
+    """The proposal, as the change it asks for."""
+    from app.modules.ads import actions
+
+    level, external_id = suggestion.target_level, suggestion.target_external_id
     if finding.kind == SuggestionKind.PAUSE:
-        return request_pause(
-            db,
-            user=user,
-            level=suggestion.target_level,
-            external_id=external_id,
-            origin=origin,
-        )
+        return actions.Pause(level=level, external_id=external_id)
     if finding.kind == SuggestionKind.RESUME:
-        return request_resume(
-            db,
-            user=user,
-            level=suggestion.target_level,
-            external_id=external_id,
-            origin=origin,
-        )
+        return actions.Resume(level=level, external_id=external_id)
     if finding.kind in (
         SuggestionKind.SWAP_TARGETING,
         SuggestionKind.NARROW_TARGETING,
         SuggestionKind.DROP_AUDIENCE,
     ):
-        return request_targeting(
-            db,
-            user=user,
+        return actions.Audience(
             external_id=external_id,
             targeting=dict(finding.payload["targeting"]),
             step=str(finding.payload.get("step", "")),
-            origin=origin,
         )
     if finding.kind == SuggestionKind.NEW_PICTURE:
-        return request_swap(
-            db,
-            user=user,
-            external_id=external_id,
-            asset_id=str(finding.payload["asset_id"]),
-            origin=origin,
+        return actions.NewAdvert(
+            external_id=external_id, asset_id=str(finding.payload["asset_id"])
         )
     if finding.kind == SuggestionKind.NEW_AD and words is not None:
-        return request_swap(
-            db,
-            user=user,
+        return actions.NewAdvert(
             external_id=external_id,
             message=words.message,
             headline=words.headline,
             description=words.description,
             asset_id=words.asset_id,
-            origin=origin,
         )
-    return request_budget(
-        db,
-        user=user,
-        level=suggestion.target_level,
+    return actions.Budget(
+        level=level,
         external_id=external_id,
         daily_budget_minor=int(finding.payload["daily_budget_minor"]),
-        origin=origin,
     )
 
 
