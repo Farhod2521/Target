@@ -541,8 +541,6 @@ def control_state(
     tries: int = 0,
     refusal: str = "",
 ) -> dict[str, Any]:
-    from app.modules.ads.selectors.failures import failure_note
-
     target = _target(db, user, level, external_id)
     beside = selectors.clusters_beside(db, owner=user, target=target, level=level)
     actions = selectors.latest_actions(
@@ -570,15 +568,32 @@ def control_state(
         ],
         "polling": pending and tries < MAX_ACTION_POLLS,
         "stalled": pending and tries >= MAX_ACTION_POLLS,
-        "failure": _note(
-            failure_note(action=action, target=target, level=level)
-            if action is not None and action.status == ActionStatus.FAILED
-            else None
-        ),
+        "failure": _note(_failure(db, action=action, target=target, level=level)),
         "tries": tries + 1,
         "poll_seconds": ACTION_POLL_SECONDS,
         "refusal": refusal,
     }
+
+
+def _failure(db: Session, *, action: Any, target: Any, level: str) -> Any:
+    """Why the latest change failed, with the written answer when there is one."""
+    from app.common.i18n import get_language
+    from app.modules.ads.selectors.actions import account_of
+    from app.modules.ads.selectors.failures import explained, failure_note
+    from app.modules.chat.services.change_refusal import explain_later
+
+    if action is None or action.status != ActionStatus.FAILED:
+        return None
+    note = explained(
+        db,
+        note=failure_note(action=action, target=target, level=level),
+        action=action,
+        account_external_id=account_of(target=target, level=level).external_id,
+        language=get_language(),
+    )
+    if note.explaining:
+        explain_later(log=action, language=get_language())
+    return note
 
 
 def _changed(

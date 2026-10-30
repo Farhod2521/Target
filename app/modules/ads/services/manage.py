@@ -221,6 +221,24 @@ def fail_provider(
             if value
         },
     )
+    _explain_later(log)
+
+
+def _explain_later(log: ActionLog) -> None:
+    """A refusal the screen has no sentence for goes to be explained, in the owner's language.
+
+    After the row is committed, so a lost broker never turns a refusal into
+    an unknown failure.
+    """
+    from app.modules.ads.selectors.failures import unfamiliar
+    from app.modules.chat.services.change_refusal import explain_later
+
+    if not unfamiliar(log):
+        return
+    try:
+        explain_later(log=log, language=log.owner.language)
+    except Exception:
+        logger.exception("refusal %s was not sent to be explained", log.id)
 
 
 def refused_by_provider(

@@ -84,3 +84,8 @@ REFUSAL_MAX_TOKENS: Final = 900
 REFUSAL_ANSWER_FIELDS: Final = {"uz": "answer_uz", "ru": "answer_ru", "en": "answer_en"}
 REFUSAL_STALE_VERSIONS: Final = frozenset({"v1"})
 OUR_FAULT_KEYS: Final = frozenset({"meta:100/1885624", "meta:100/1815614"})
+CHANGE_REFUSAL_PROMPT_NAME: Final = "change_refusal"
+# Kept apart from the launch prompt's versions, which REFUSAL_STALE_VERSIONS retires.
+CHANGE_REFUSAL_VERSION_PREFIX: Final = "change-"
+# One question to Claude per refusal and language, however many screens ask.
+CHANGE_REFUSAL_LOCK_SECONDS: Final = 10 * 60

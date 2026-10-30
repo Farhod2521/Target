@@ -1,10 +1,11 @@
 """What a failed press on a switch or a bin says, and what a refusal was about."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any, Final
 
 from metaads.accounts import billing_url, manager_url
+from sqlalchemy.orm import Session
 
 from app.modules.ads.selectors.actions import account_of
 from app.modules.audit.constants import ActionStatus, ActionType
@@ -118,6 +119,15 @@ class FailureNote:
     fix_label: str = ""
     fix_url: str = ""
     provider_words: str = ""
+    # The written answer for this refusal, as HTML with the owner's own links.
+    explanation_html: str = ""
+    # No answer yet: one is being written; ask for the state again.
+    explaining: bool = False
+
+
+def unfamiliar(action: ActionLog) -> bool:
+    """A refusal the screen has no sentence of its own for - the kind a written answer explains."""
+    return action.error_code not in SENTENCES
 
 
 def failure_sentence(action: ActionLog) -> str:
@@ -155,6 +165,36 @@ def failure_note(*, action: ActionLog, target: Any, level: str) -> FailureNote:
     )
     return FailureNote(
         sentence=sentence, fix=fix, fix_label=label, fix_url=url, provider_words=words
+    )
+
+
+def explained(
+    db: Session,
+    *,
+    note: FailureNote,
+    action: ActionLog,
+    account_external_id: str,
+    language: str,
+) -> FailureNote:
+    """The note with the written answer under it, or marked as waiting for one."""
+    from app.modules.chat.selectors.change_refusal import (
+        change_explanation,
+        change_key,
+        change_links,
+    )
+    from core.chat.links import link_html
+    from core.chat.markdown import render as render_markdown
+
+    if not unfamiliar(action) or not change_key(action):
+        return note
+    text = change_explanation(db, log=action, language=language)
+    if not text:
+        return replace(note, explaining=True)
+    return replace(
+        note,
+        explanation_html=link_html(
+            render_markdown(text), change_links(account_external_id)
+        ),
     )
 
 

@@ -1,4 +1,4 @@
-"""A refused launch as the model is told about it, and its answer's key."""
+"""A refused launch or change as the model is told about it, and its answer's key."""
 
 import json
 import re
@@ -24,6 +24,53 @@ def refusal_key(*, provider: str, error_code: str, error_message: str) -> str:
     if error_code and error_code not in UNSPECIFIC and error_code in TROUBLE_WORDS:
         return f"{provider}:{error_code}"
     return ""
+
+
+# A refused change to a running advert is answered apart from a refused
+# launch: the same code means the same thing, but the steps differ - a
+# launch is retried from its page, a change from the campaigns screen.
+CHANGE_PREFIX: Final = "change"
+
+
+def change_refusal_key(*, provider: str, error_message: str) -> str:
+    """The name a refused change's answer is kept under, or empty for none.
+
+    Only a code with its subcode: a code alone ("100", invalid parameter)
+    names a family of refusals too wide for one answer to be true for all.
+    """
+    found = _NUMBERS.search(error_message or "")
+    if not found:
+        return ""
+    return f"{CHANGE_PREFIX}:{provider}:{found.group(1)}/{found.group(2)}"
+
+
+@dataclass(frozen=True, slots=True)
+class ChangeFacts:
+    """One refused change to a running advert, everything the model may know."""
+
+    change: str
+    level: str
+    provider_title: str = ""
+    provider_message: str = ""
+    developer_message: str = ""
+    links: tuple[tuple[str, str], ...] = ()
+
+    def render(self) -> str:
+        lines = [
+            "## The refusal",
+            f"- what the owner asked for: {self.change}",
+            f"- on: {self.level}",
+            f"- Meta's title for the advertiser: {self.provider_title or 'none'}",
+            f"- Meta's message for the advertiser: {self.provider_message or 'none'}",
+            f"- Meta's developer message: {self.developer_message or 'none'}",
+        ]
+        if self.links:
+            lines += ["", "## Links you may use"]
+            lines += [f"- [[{name}]] — {meaning}" for name, meaning in self.links]
+        return "\n".join(lines)
+
+    def figures(self) -> frozenset[str]:
+        return frozenset(figures_in(self.render()))
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,4 +140,12 @@ def shareable(text: str) -> bool:
     return gate.masked == 0
 
 
-__all__ = ["UNSPECIFIC", "RefusalFacts", "refusal_key", "shareable"]
+__all__ = [
+    "CHANGE_PREFIX",
+    "UNSPECIFIC",
+    "ChangeFacts",
+    "RefusalFacts",
+    "change_refusal_key",
+    "refusal_key",
+    "shareable",
+]

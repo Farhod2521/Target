@@ -50,7 +50,7 @@ from core.chat.choices import ChoiceGate
 from core.chat.links import Link, link_html, link_text
 from core.chat.markdown import render as render_markdown
 from core.chat.numbers import figures_in
-from core.chat.refusal import RefusalFacts, shareable
+from core.chat.refusal import ChangeFacts, RefusalFacts, shareable
 from core.chat.verify import FigureGate
 
 logger = logging.getLogger(__name__)
@@ -230,16 +230,18 @@ def _ask(
         related_id=payload.get("message_id", ""),
     )
     if key and text and not gate.masked and shareable(text):
-        _keep(db, key=key, language=language, text=text, facts=facts, version=version)
+        keep_answer(
+            db, key=key, language=language, text=text, facts=facts, version=version
+        )
 
 
-def _keep(
+def keep_answer(
     db: Session,
     *,
     key: str,
     language: str,
     text: str,
-    facts: RefusalFacts,
+    facts: RefusalFacts | ChangeFacts,
     version: str,
 ) -> None:
     """Fill this language's column on the refusal's one row."""
@@ -386,4 +388,4 @@ def _failed(db: Session, turn_id: str, *, payload: dict[str, Any]) -> None:
         )
 
 
-__all__ = ["answer_refusal", "start_refusal_turn"]
+__all__ = ["answer_refusal", "keep_answer", "start_refusal_turn"]

@@ -1,6 +1,12 @@
 """Which refusals share one written answer, and what the model is told."""
 
-from core.chat.refusal import RefusalFacts, refusal_key, shareable
+from core.chat.refusal import (
+    ChangeFacts,
+    RefusalFacts,
+    change_refusal_key,
+    refusal_key,
+    shareable,
+)
 
 
 def test_a_code_and_subcode_name_one_refusal() -> None:
@@ -93,3 +99,39 @@ def test_an_answer_with_only_words_of_the_sentence_is_shareable() -> None:
 def test_an_answer_with_somebody_s_budget_or_id_is_not() -> None:
     assert not shareable("Byudjetingiz 45 000 so'm.")
     assert not shareable("Akkaunt 1234567890 bloklangan.")
+
+
+def test_a_refused_change_is_kept_apart_from_a_refused_launch() -> None:
+    """Both forms the audit row has held: the code in brackets first, and not."""
+    for message in (
+        "[100] Invalid parameter | Campaign Spending Limit Too Low | code 100/1885272",
+        "Invalid parameter | Campaign Spending Limit Too Low | code 100/1885272",
+    ):
+        assert (
+            change_refusal_key(provider="meta", error_message=message)
+            == "change:meta:100/1885272"
+        )
+
+
+def test_a_refused_change_without_a_subcode_has_no_answer_of_its_own() -> None:
+    for message in (
+        "HTTP 413",
+        "An unexpected error | code 2",
+        "[200] Permissions error",
+    ):
+        assert change_refusal_key(provider="meta", error_message=message) == ""
+
+
+def test_the_model_is_told_what_was_asked_and_where_it_may_send() -> None:
+    facts = ChangeFacts(
+        change="a daily budget change",
+        level="ad group",
+        provider_title="Budget too low",
+        links=(("tolov", "Meta's billing page"),),
+    )
+
+    text = facts.render()
+
+    assert "a daily budget change" in text
+    assert "Budget too low" in text
+    assert "[[tolov]]" in text

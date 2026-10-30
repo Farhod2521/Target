@@ -298,7 +298,38 @@ def change_state(db: Session, *, owner: User, message_id: str, key: str) -> Chan
         if landed is False:
             return ChangeState(state="done", text="O'zgarish Meta tomonida ko'rinmadi.")
         return ChangeState(state="done", text=APPLIED)
-    return ChangeState(state="refused", text=log.error_message or FAILED_WORDS)
+    return ChangeState(state="refused", text=_refused_words(db, log=log))
+
+
+def _refused_words(db: Session, *, log: ActionLog) -> str:
+    """The screen's own sentence, and the written answer under it when there is one.
+
+    Never ``error_message``: that is the provider's text for the logs.
+    """
+    from app.common.i18n import get_language
+    from app.modules.ads.selectors.actions import account_of, managed_target
+    from app.modules.ads.selectors.failures import failure_sentence, unfamiliar
+    from app.modules.chat.selectors.change_refusal import (
+        change_explanation,
+        change_links,
+    )
+    from core.chat.links import link_text
+
+    sentence = failure_sentence(log) or FAILED_WORDS
+    if not unfamiliar(log):
+        return sentence
+    text = change_explanation(db, log=log, language=get_language())
+    if not text:
+        return sentence
+    target = managed_target(
+        db, owner=log.owner, level=log.target_level, external_id=log.target_external_id
+    )
+    account = (
+        account_of(target=target, level=log.target_level).external_id
+        if target is not None
+        else ""
+    )
+    return f"{sentence}\n\n{link_text(text, change_links(account))}"
 
 
 __all__ = [
