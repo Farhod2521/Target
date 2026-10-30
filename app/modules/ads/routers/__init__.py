@@ -44,6 +44,8 @@ from app.modules.ads.schemas import (
     MessageOut,
     SyncOut,
 )
+from app.modules.ads.selectors.failures import failure_sentence
+from app.modules.audit.constants import ActionStatus
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 FILTERS_KEY = "ads:campaign_filters:{user}"
@@ -68,7 +70,9 @@ def _action(row: Any | None) -> dict[str, Any] | None:
         "action": row.action,
         "status": row.status,
         "dry_run": row.dry_run,
-        "error_message": row.error_message,
+        "error_message": failure_sentence(row)
+        if row.status == ActionStatus.FAILED
+        else row.error_message,
         "created_at": row.created_at,
         "applied_at": row.applied_at,
         "revertible": selectors.is_revertible(row),
@@ -532,7 +536,6 @@ def control_state(
     refusal: str = "",
 ) -> dict[str, Any]:
     from app.modules.ads.selectors.failures import failure_note
-    from app.modules.audit.constants import ActionStatus
 
     target = _target(db, user, level, external_id)
     beside = selectors.clusters_beside(db, owner=user, target=target, level=level)

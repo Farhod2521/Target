@@ -120,6 +120,23 @@ class FailureNote:
     provider_words: str = ""
 
 
+def failure_sentence(action: ActionLog) -> str:
+    """What a failed audit row says to the owner, never the provider's own log text.
+
+    The row's ``error_message`` is written for whoever reads the logs, often in
+    English; this is the sentence the screens show beside the row, with what
+    the provider wrote for the advertiser after it.
+    """
+    sentence, _fix = SENTENCES.get(action.error_code, FALLBACK)
+    said = action.result_payload or {}
+    words = " ".join(
+        part
+        for part in (str(said.get("user_title", "")), str(said.get("user_message", "")))
+        if part
+    )
+    return f"{sentence} {words}" if words else sentence
+
+
 def failure_note(*, action: ActionLog, target: Any, level: str) -> FailureNote:
     """The sentence and the button for one failed audit row."""
     sentence, fix = SENTENCES.get(action.error_code, FALLBACK)

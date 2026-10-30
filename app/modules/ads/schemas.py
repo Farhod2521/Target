@@ -25,7 +25,9 @@ class ActionOut(BaseModel):
     action: str = Field(description="`pause`, `resume`, `budget`, `delete`, ...")
     status: str = Field(description="`pending`, `applied`, `failed`, ...")
     dry_run: bool
-    error_message: str
+    error_message: str = Field(
+        description="Why a failed change failed, as the owner reads it."
+    )
     created_at: datetime
     applied_at: datetime | None
     revertible: bool = Field(description="May be undone with `.../revert`.")
