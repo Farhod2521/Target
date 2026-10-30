@@ -24,6 +24,7 @@ from core.chat.context import as_quote
 from core.chat.links import Link
 from core.chat.refusal import RefusalFacts, refusal_key
 
+REFUSED = (LaunchStatus.FAILED, LaunchStatus.ROLLED_BACK)
 SECTIONS = (
     ("The owner's answers in the wizard", "answers"),
     ("The advert as drafted", "draft"),
@@ -45,7 +46,7 @@ def refused_launch_for(
     return db.scalar(
         select(CampaignLaunch).where(
             CampaignLaunch.owner_id == owner.id,
-            CampaignLaunch.status.in_((LaunchStatus.FAILED, LaunchStatus.ROLLED_BACK)),
+            CampaignLaunch.status.in_(REFUSED),
             CampaignLaunch.error_code != "",
             CampaignLaunch.id == key,
         )
@@ -171,6 +172,41 @@ def refusal_links(launch: CampaignLaunch) -> dict[str, Link]:
     return links
 
 
+def awaited(*, key: str, language: str) -> bool:
+    """Whether an answer for this key may still come: none was given up on today."""
+    from app.common.cache import cache
+    from app.modules.chat.constants import REFUSAL_GAVE_UP, REFUSAL_LOCK
+
+    lock = REFUSAL_LOCK.format(key=key, language=answer_language(language))
+    return bool(cache.get(lock) != REFUSAL_GAVE_UP)
+
+
+@dataclass(frozen=True, slots=True)
+class Explanation:
+    """The written answer under a refusal, or that one is being written."""
+
+    html: str = ""
+    explaining: bool = False
+
+
+def launch_explanation(
+    db: Session, *, launch: CampaignLaunch, language: str
+) -> Explanation:
+    """A refused launch's answer as HTML with the owner's own links."""
+    from core.chat.links import link_html
+    from core.chat.markdown import render as render_markdown
+
+    key = key_for(launch) if launch.status in REFUSED else ""
+    if not key:
+        return Explanation()
+    ready = ready_answer(db, key=key, language=language)
+    if ready is None:
+        return Explanation(explaining=awaited(key=key, language=language))
+    return Explanation(
+        html=link_html(render_markdown(ready.text), refusal_links(launch))
+    )
+
+
 def refusal_quote(launch: CampaignLaunch) -> dict[str, str]:
     """The card drawn above the question: what was refused, in Meta's words."""
     detail = _detail(launch)
@@ -193,9 +229,12 @@ def _detail(launch: CampaignLaunch) -> dict[str, Any]:
 
 __all__ = [
     "MEANINGS",
+    "Explanation",
     "ReadyAnswer",
     "answer_language",
+    "awaited",
     "key_for",
+    "launch_explanation",
     "ready_answer",
     "refusal_facts",
     "refusal_links",

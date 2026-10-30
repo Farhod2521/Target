@@ -64,11 +64,24 @@ class NameIn(BaseModel):
     name: str = Field("", max_length=LAUNCH_NAME_MAX)
 
 
+def _state(
+    db: Session, *, launch: CampaignLaunch, now: Any, shown: str, tries: int
+) -> dict[str, Any]:
+    """The review state; a refusal nobody has an answer for yet is sent to be explained."""
+    from app.common.i18n import get_language
+    from app.modules.chat.services.explain import explain_launch_later
+
+    state = review_state(db, launch=launch, now=now, shown=shown, tries=tries)
+    if state["explaining"]:
+        explain_launch_later(launch=launch, language=get_language())
+    return state
+
+
 def _review(
     db: Session, *, launch: CampaignLaunch, user: User, tries: int, shown: str
 ) -> dict[str, Any]:
     now = utcnow()
-    state = review_state(db, launch=launch, now=now, shown=shown, tries=tries)
+    state = _state(db, launch=launch, now=now, shown=shown, tries=tries)
     answer: dict[str, Any] = {
         "launch": launch_head(launch),
         "state": state,
@@ -122,7 +135,7 @@ def review_poll(
 ) -> dict[str, Any]:
     """The cheap half, for the progress poll. Stops itself after a while."""
     launch = owned_launch(db, user=user, launch_id=launch_id)
-    state = review_state(db, launch=launch, now=utcnow(), shown=shown, tries=tries + 1)
+    state = _state(db, launch=launch, now=utcnow(), shown=shown, tries=tries + 1)
     return encoded({"launch": launch_head(launch), "state": state})
 
 

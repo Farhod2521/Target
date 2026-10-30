@@ -182,6 +182,7 @@ def explained(
         change_key,
         change_links,
     )
+    from app.modules.chat.selectors.refusal import awaited
     from core.chat.links import link_html
     from core.chat.markdown import render as render_markdown
 
@@ -189,7 +190,9 @@ def explained(
         return note
     text = change_explanation(db, log=action, language=language)
     if not text:
-        return replace(note, explaining=True)
+        return replace(
+            note, explaining=awaited(key=change_key(action), language=language)
+        )
     return replace(
         note,
         explanation_html=link_html(

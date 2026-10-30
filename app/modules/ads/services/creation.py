@@ -627,7 +627,21 @@ def _fail(
     launch.finished_at = utcnow()
     db.commit()
     logger.warning("launch %s could not be created: %s - %s", launch.id, code, message)
+    _explain_later(launch)
     return code
+
+
+def _explain_later(launch: CampaignLaunch) -> None:
+    """A refusal with a key goes to be explained in the owner's language, chat or no chat.
+
+    After the row is committed: a lost broker leaves the refusal as it is.
+    """
+    from app.modules.chat.services.explain import explain_launch_later
+
+    try:
+        explain_launch_later(launch=launch, language=launch.owner.language)
+    except Exception:
+        logger.exception("refused launch %s was not sent to be explained", launch.id)
 
 
 # -- after it exists -------------------------------------------------------------------

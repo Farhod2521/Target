@@ -35,10 +35,20 @@ def answer_refusal_turn(turn_id: str) -> None:
 @celery_app.task(queue="chat", ignore_result=True)
 def explain_change_refusal(log_id: str, language: str) -> None:
     """Explain one refused change to a running advert, and keep the answer."""
-    from app.modules.chat.services.change_refusal import explain_change
+    from app.modules.chat.services.explain import explain_change
 
     with task_session() as db:
         explain_change(db, log_id=log_id, language=language)
+        db.commit()
+
+
+@celery_app.task(queue="chat", ignore_result=True)
+def explain_launch_refusal(launch_id: str, language: str) -> None:
+    """Explain one refused launch, and keep the answer: no chat, no button."""
+    from app.modules.chat.services.explain import explain_launch
+
+    with task_session() as db:
+        explain_launch(db, launch_id=launch_id, language=language)
         db.commit()
 
 
@@ -85,6 +95,7 @@ __all__ = [
     "answer_chat_turn",
     "answer_refusal_turn",
     "explain_change_refusal",
+    "explain_launch_refusal",
     "explain_week_task",
     "sweep_chat_sessions",
     "sweep_stuck_answers_task",

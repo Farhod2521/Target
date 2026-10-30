@@ -580,7 +580,7 @@ def _failure(db: Session, *, action: Any, target: Any, level: str) -> Any:
     from app.common.i18n import get_language
     from app.modules.ads.selectors.actions import account_of
     from app.modules.ads.selectors.failures import explained, failure_note
-    from app.modules.chat.services.change_refusal import explain_later
+    from app.modules.chat.services.explain import explain_later
 
     if action is None or action.status != ActionStatus.FAILED:
         return None

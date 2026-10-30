@@ -88,4 +88,9 @@ CHANGE_REFUSAL_PROMPT_NAME: Final = "change_refusal"
 # Kept apart from the launch prompt's versions, which REFUSAL_STALE_VERSIONS retires.
 CHANGE_REFUSAL_VERSION_PREFIX: Final = "change-"
 # One question to Claude per refusal and language, however many screens ask.
-CHANGE_REFUSAL_LOCK_SECONDS: Final = 10 * 60
+REFUSAL_LOCK: Final = "refusal-answer:{key}:{language}"
+REFUSAL_LOCK_SECONDS: Final = 10 * 60
+# An answer that could not be kept (it named this owner's figures, or Claude
+# failed): the screen stops waiting, and nobody asks again for a day.
+REFUSAL_GAVE_UP: Final = "none"
+REFUSAL_GAVE_UP_SECONDS: Final = 24 * 60 * 60

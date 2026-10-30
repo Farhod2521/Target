@@ -231,7 +231,7 @@ def _explain_later(log: ActionLog) -> None:
     an unknown failure.
     """
     from app.modules.ads.selectors.failures import unfamiliar
-    from app.modules.chat.services.change_refusal import explain_later
+    from app.modules.chat.services.explain import explain_later
 
     if not unfamiliar(log):
         return

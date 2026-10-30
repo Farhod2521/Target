@@ -108,8 +108,10 @@ def review_state(
     status = launch.status
     creating = status == LaunchStatus.CREATING
     failed_creating = status == LaunchStatus.FAILED and launch.step in CREATION_STEPS
+    explanation = _explanation(db, launch=launch)
     keep_polling = (
         status in (LaunchStatus.BUILDING, LaunchStatus.CREATING)
+        or explanation["explaining"]
         or bool(created.get("delivery_pending"))
         or (failed_creating and stranded)
         or (blocker == "places_missing" and bool(geo_waiting))
@@ -168,10 +170,22 @@ def review_state(
         if launch.error_code == "account_action"
         else None,
         "cap_not_sent": cap_not_sent(db, launch=launch),
+        **explanation,
         "reach": reach(launch),
         "tries": tries,
         "keep_polling": keep_polling and tries < limit,
     }
+
+
+def _explanation(db: Session, *, launch: CampaignLaunch) -> dict[str, Any]:
+    """The written answer under a refused launch, or that one is on its way."""
+    from app.common.i18n import get_language
+    from app.modules.chat.selectors.refusal import answer_language, launch_explanation
+
+    found = launch_explanation(
+        db, launch=launch, language=answer_language(get_language())
+    )
+    return {"explanation_html": found.html, "explaining": found.explaining}
 
 
 def _group_least(db: Session, *, launch: CampaignLaunch) -> str:

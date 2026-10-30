@@ -112,6 +112,13 @@ class ReviewStateOut(Shape):
     billing_url: str
     identity_hold: IdentityHold | None
     cap_not_sent: bool
+    explanation_html: str = Field(
+        default="",
+        description="Why it was refused and what to do, written once per Meta code.",
+    )
+    explaining: bool = Field(
+        default=False, description="That answer is being written: poll again."
+    )
     reach: ReachOut | None
     tries: int
     keep_polling: bool

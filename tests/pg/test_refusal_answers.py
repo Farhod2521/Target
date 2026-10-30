@@ -1,4 +1,4 @@
-"""A refused change to a running advert is explained where it failed, with no chat.
+"""A refused launch or change is explained where it failed, with no chat.
 
 A refusal the screen has a sentence for keeps its sentence. One it has none
 for is sent to Claude once per Meta code and language; the answer is kept and
@@ -22,11 +22,13 @@ from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.ads.actions import executor
 from app.modules.ads.constants import ManagedLevel
+from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.services import manage
 from app.modules.audit.constants import ActionType
 from app.modules.audit.models import ActionLog
+from app.modules.chat.constants import REFUSAL_LOCK
 from app.modules.chat.models import RefusalAnswer
-from app.modules.chat.services.change_refusal import LOCK, explain_change
+from app.modules.chat.services.explain import explain_change, explain_launch
 from tests.pg.test_ads_manage import _mirror
 from tests.pg.test_ads_writes import RefusingCampaigns, _log, _refusing, _signed_in
 from tests.pg.test_cabinet_flows import _cabinet
@@ -37,6 +39,7 @@ TOO_LOW = ProviderError(
     user_title="Campaign Spending Limit Too Low",
 )
 KEY = "change:meta:100/1885272"
+LAUNCH_KEY = "meta:100/1487851"
 ANSWER = (
     "Kampaniya uchun belgilangan chegara Meta ruxsat bergandan past.\n\n"
     "1. Ads Manager'da kampaniyani oching [[ads_manager]]\n"
@@ -56,13 +59,15 @@ class _Stream:
 
 class _Claude:
     asked = 0
+    answer = ANSWER
 
     def stream(self, **asked: Any) -> _Stream:
         _Claude.asked += 1
+        text = _Claude.answer
         return _Stream(
-            pieces=[ANSWER[:20], ANSWER[20:]],
+            pieces=[text[:20], text[20:]],
             result=LLMResult(
-                value=ANSWER,
+                value=text,
                 input_tokens=10,
                 output_tokens=5,
                 cost_micros=1,
@@ -82,9 +87,11 @@ def _claude(**_: Any):  # type: ignore[no-untyped-def]
 
 @pytest.fixture(autouse=True)
 def _unlocked() -> None:
-    for language in ("uz", "ru", "en"):
-        cache.delete(LOCK.format(key=KEY, language=language))
+    for key in (KEY, LAUNCH_KEY):
+        for language in ("uz", "ru", "en"):
+            cache.delete(REFUSAL_LOCK.format(key=key, language=language))
     _Claude.asked = 0
+    _Claude.answer = ANSWER
 
 
 def _owner(db: Session) -> tuple[User, Any]:
@@ -136,7 +143,7 @@ def test_the_answer_is_written_once_and_kept_for_everyone(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _owner_row, log_id = _refused(db, monkeypatch, TOO_LOW)
-    monkeypatch.setattr("app.modules.chat.services.change_refusal.claude", _claude)
+    monkeypatch.setattr("app.modules.chat.services.explain.claude", _claude)
 
     first = explain_change(db, log_id=log_id, language="uz")
     db.commit()
@@ -163,7 +170,7 @@ def test_the_screen_shows_the_answer_where_the_change_failed(
 
     waiting = client.get(path, headers=headers).json()["failure"]
     language = _explaining(queued)[-1][1]
-    monkeypatch.setattr("app.modules.chat.services.change_refusal.claude", _claude)
+    monkeypatch.setattr("app.modules.chat.services.explain.claude", _claude)
     explain_change(db, log_id=log_id, language=language)
     db.commit()
     shown = client.get(path, headers=headers).json()["failure"]
@@ -175,3 +182,88 @@ def test_the_screen_shows_the_answer_where_the_change_failed(
     )
     assert "[[" not in shown["explanation_html"]
     assert db.get(ActionLog, log_id).error_code == "refused"
+
+
+# --- A refused launch ----------------------------------------------------------
+
+
+def _refused_launch(db: Session) -> tuple[User, CampaignLaunch]:
+    from app.modules.ads.services import creation
+
+    owner, account = _owner(db)
+    launch = CampaignLaunch(
+        owner_id=owner.id,
+        ad_account_id=account.id,
+        page_id=_page_of(db, owner),
+        provider="meta",
+        status="creating",
+    )
+    db.add(launch)
+    db.commit()
+    creation._fail(
+        db,
+        launch,
+        code="refused",
+        message="Invalid parameter | Location not recognized | code 100/1487851",
+        detail={"title": "Location not recognized", "message": "Pick another place"},
+    )
+    return owner, launch
+
+
+def _page_of(db: Session, owner: User) -> Any:
+    from app.modules.integrations.models import PageAccount
+
+    return db.scalar(select(PageAccount.id).where(PageAccount.owner_id == owner.id))
+
+
+def test_a_refused_launch_is_sent_to_be_explained_without_a_chat(
+    db: Session, queued: list
+) -> None:
+    owner, launch = _refused_launch(db)
+
+    sent = [args for name, args in queued if name.endswith("explain_launch_refusal")]
+    assert sent == [(str(launch.id), owner.language)]
+
+
+def test_the_review_shows_the_launch_answer_and_polls_until_it_comes(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, launch = _refused_launch(db)
+    headers = {
+        "Authorization": "Bearer "
+        + tokens.issue(subject=str(owner.id), kind="access", now=utcnow())
+    }
+    path = f"/api/v1/launch/{launch.id}/review/state"
+
+    waiting = client.get(path, headers=headers).json()["state"]
+    monkeypatch.setattr("app.modules.chat.services.explain.claude", _claude)
+    for language in ("uz", "ru", "en"):
+        explain_launch(db, launch_id=str(launch.id), language=language)
+    db.commit()
+    shown = client.get(path, headers=headers).json()["state"]
+
+    assert waiting["explaining"] is True and waiting["keep_polling"] is True
+    assert shown["explaining"] is False and "[[" not in shown["explanation_html"]
+    assert "Ads Manager" in shown["explanation_html"]
+
+
+def test_an_answer_that_cannot_be_shared_stops_the_wait(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, launch = _refused_launch(db)
+    monkeypatch.setattr("app.modules.chat.services.explain.claude", _claude)
+    _Claude.answer = "Byudjetingiz 37 000 so'm - juda kam."
+    for language in ("uz", "ru", "en"):
+        assert explain_launch(db, launch_id=str(launch.id), language=language) == ""
+    db.commit()
+    headers = {
+        "Authorization": "Bearer "
+        + tokens.issue(subject=str(owner.id), kind="access", now=utcnow())
+    }
+
+    state = client.get(f"/api/v1/launch/{launch.id}/review/state", headers=headers)
+
+    assert state.json()["state"]["explaining"] is False
+    assert (
+        db.scalar(select(RefusalAnswer).where(RefusalAnswer.key == LAUNCH_KEY)) is None
+    )
