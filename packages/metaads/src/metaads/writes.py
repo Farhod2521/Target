@@ -64,6 +64,18 @@ class AdSetCreated:
     returned: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class TargetingWritten:
+    """A replaced audience: what Meta declined to keep, and what it holds.
+
+    ``returned`` is empty when nothing was read back - a dry run, or a
+    read that failed after Meta had already accepted the write.
+    """
+
+    dropped: dict[str, Any] = field(default_factory=dict)
+    returned: dict[str, Any] = field(default_factory=dict)
+
+
 def create_campaign(
     *,
     account_id: str,
@@ -347,7 +359,7 @@ def write_targeting(
     token: str,
     client: GraphClient | None = None,
     dry_run: bool = True,
-) -> dict[str, Any]:
+) -> TargetingWritten:
     """Replace an ad set's audience, then read back what survived.
 
     Two calls, and the second one is the reason this is not a one-liner
@@ -359,12 +371,12 @@ def write_targeting(
     the next sync, because by then the difference is indistinguishable from
     something the owner changed in Ads Manager.
 
-    Returns what was dropped, not whether it worked: a write Meta rejects
-    raises, so reaching the return means it was accepted, and the only
-    open question is how much of it.
+    Returns what was dropped and what is held, not whether it worked: a
+    write Meta rejects raises, so reaching the return means it was accepted,
+    and the only open question is how much of it.
     """
     if dry_run or is_dry_run_id(object_id):
-        return {}
+        return TargetingWritten()
 
     with graph_client(client, token) as graph:
         post_object(
@@ -376,8 +388,25 @@ def write_targeting(
         held = _targeting_held(graph, object_id=object_id)
 
     if held is None:
-        return {}
-    return dropped_from(sent=targeting, returned=held)
+        return TargetingWritten()
+    return TargetingWritten(
+        dropped=dropped_from(sent=targeting, returned=held), returned=held
+    )
+
+
+def read_targeting(
+    *, object_id: str, token: str, client: GraphClient | None = None
+) -> dict[str, Any]:
+    """The audience an ad set holds right now.
+
+    Unlike the read-back after a write, a failure here raises: it is asked
+    *before* a write, and an edit that cannot see the current audience must
+    not replace it.
+    """
+    with graph_client(client, token) as graph:
+        stored = graph.get(object_id, fields=TARGETING_FIELDS)
+    returned = stored.get("targeting")
+    return dict(returned) if isinstance(returned, dict) else {}
 
 
 def _targeting_held(graph: GraphClient, *, object_id: str) -> dict[str, Any] | None:
@@ -499,12 +528,14 @@ __all__ = [
     "STATUS_ACTIVE",
     "STATUS_PAUSED",
     "AdSetCreated",
+    "TargetingWritten",
     "changed_from",
     "create_ad",
     "create_adset",
     "create_campaign",
     "delete_object",
     "dropped_from",
+    "read_targeting",
     "set_budget",
     "set_status",
     "write_targeting",

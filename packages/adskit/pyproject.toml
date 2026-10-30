@@ -1,6 +1,6 @@
 [project]
 name = "adskit"
-version = "0.24.0"
+version = "0.25.0"
 description = "Reklama platformalari uchun portlar, DTO va registry"
 requires-python = ">=3.13,<3.14"
 # stdlib + pydantic, and nothing else, ever. adskit is the contract every

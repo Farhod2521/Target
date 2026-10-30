@@ -99,6 +99,12 @@ class GoogleAudiences:
     ) -> ActionResult:
         raise PortNotAvailable(provider=PROVIDER, port="audiences.apply")
 
+    def read_targeting(self, *, ref: ExternalRef, token: str) -> dict[str, Any]:
+        raise PortNotAvailable(provider=PROVIDER, port="audiences.read_targeting")
+
+    def same_targeting(self, first: dict[str, Any], second: dict[str, Any]) -> bool:
+        raise PortNotAvailable(provider=PROVIDER, port="audiences.same_targeting")
+
 
 def country_target(client: AdsClient, customer_id: str, country_code: str) -> str:
     """The geo target for a whole country, by its ISO code - or empty.

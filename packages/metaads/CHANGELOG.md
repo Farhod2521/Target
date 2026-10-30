@@ -3,6 +3,22 @@
 Semantik versiyalash. Meta API versiyasi (`v26.0`) paket versiyasidan
 alohida — u `client.py` dagi konstantada.
 
+## 0.43.0 — 2026-10-30
+
+### Qo'shildi
+- `metaads.audience_diff` — `audience_of`, `same_audience`: ikki auditoriya
+  bir xil odamlarga qaratilganmi. Meta shahar kalitini to'liq joyga
+  kengaytiradi va standart qiymatlar qo'shadi; solishtirish faqat
+  auditoriyani belgilaydigan qismlar bo'yicha. Prod nusxasidagi 18 376 ta
+  guruhda tekshirildi.
+- `read_targeting` — guruh auditoriyasini o'qiydi; xato bo'lsa ko'taradi
+  (yozishdan oldingi o'qish bo'sh javob bilan yozuvni o'tkazib yubormasin).
+- `MetaAudiences.read_targeting`, `MetaAudiences.same_targeting`.
+
+### O'zgardi
+- `write_targeting` endi `TargetingWritten(dropped, returned)` qaytaradi;
+  `MetaAudiences.apply` `applied["targeting"]` ga Meta saqlab qolganini yozadi.
+
 ## 0.42.1 — 2026-10-21
 
 ### Tuzatildi

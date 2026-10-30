@@ -35,7 +35,9 @@ from metaads.writes import (
     create_campaign,
     delete_object,
     dropped_from,
+    read_targeting,
     set_status,
+    write_targeting,
 )
 from metaads.writing import id_of, is_dry_run_id
 from pydantic import ValidationError
@@ -689,3 +691,52 @@ def test_an_ad_set_keeps_its_id_when_the_read_back_is_braked() -> None:
     assert created.id == "120"
     assert created.dropped == {}
     assert seen == ["POST"]
+
+
+# --- Replacing a running audience ----------------------------------------
+def test_a_replaced_audience_reports_what_meta_holds_afterwards() -> None:
+    """The mirror keeps this, so the screen shows the audience that runs,
+    not the one that was sent."""
+    returned = {
+        **TARGETING,
+        "geo_locations": {"cities": [{"key": "2019233", "name": "Tashkent"}]},
+        "flexible_spec": [{"interests": []}],
+    }
+    graph, seen = recording(on_get={"targeting": returned})
+
+    written = write_targeting(
+        object_id="120", targeting=TARGETING, token="t", client=graph, dry_run=False
+    )
+
+    assert [request.method for request in seen] == ["POST", "GET"]
+    assert written.returned == returned
+    assert written.dropped["interests"] == ["6003"]
+
+
+def test_a_dry_run_audience_write_reaches_nothing_and_holds_nothing() -> None:
+    written = write_targeting(
+        object_id="120", targeting=TARGETING, token="t", client=exploding()
+    )
+
+    assert written.returned == {} and written.dropped == {}
+
+
+def test_the_audience_is_read_as_meta_holds_it() -> None:
+    graph, seen = recording(on_get={"targeting": TARGETING})
+
+    assert read_targeting(object_id="120", token="t", client=graph) == TARGETING
+    assert [request.method for request in seen] == ["GET"]
+
+
+def test_a_failed_read_before_a_write_raises_rather_than_answering_empty() -> None:
+    """Empty would read as "nothing to protect" and let the write through."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": {"message": "down", "code": 2}})
+
+    graph = GraphClient(
+        token="t", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+
+    with pytest.raises(MetaAPIError):
+        read_targeting(object_id="120", token="t", client=graph)

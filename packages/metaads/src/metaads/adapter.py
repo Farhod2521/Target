@@ -88,6 +88,7 @@ from adskit.registry import ProviderBundle
 
 from metaads import PROVIDER
 from metaads.account_state import read_account_state
+from metaads.audience_diff import same_audience
 from metaads.audience_rules import event_of as meta_event
 from metaads.audience_rules import excluded_event_of as meta_excluded_event
 from metaads.audience_rules import supported_rules as meta_rule_support
@@ -184,6 +185,7 @@ from metaads.specs import (
 )
 from metaads.text import plain_text
 from metaads.writes import delete_object as remove_object
+from metaads.writes import read_targeting as read_adset_targeting
 from metaads.writes import set_budget as write_budget
 from metaads.writes import set_end_time as write_end_time
 from metaads.writes import set_spend_cap as write_spend_cap
@@ -1142,7 +1144,7 @@ class MetaAudiences:
         did.
         """
         with session(token) as graph:
-            dropped = write_targeting(
+            written = write_targeting(
                 object_id=ref.id,
                 targeting=targeting,
                 token=token,
@@ -1153,10 +1155,21 @@ class MetaAudiences:
         return ActionResult(
             ok=True,
             ref=ref,
-            applied={"targeting": dict(targeting)},
-            dropped=dropped,
+            applied={"targeting": written.returned or dict(targeting)},
+            dropped=written.dropped,
             dry_run=dry_run,
         )
+
+    def read_targeting(self, *, ref: ExternalRef, token: str) -> dict[str, object]:
+        """The ad set's audience as Meta holds it now."""
+        with session(token) as graph:
+            return read_adset_targeting(object_id=ref.id, token=token, client=graph)
+
+    def same_targeting(
+        self, first: dict[str, object], second: dict[str, object]
+    ) -> bool:
+        """See :mod:`metaads.audience_diff`."""
+        return same_audience(first, second)
 
     @staticmethod
     def _interest(

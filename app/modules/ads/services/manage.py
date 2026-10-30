@@ -843,6 +843,12 @@ def apply_change(db: Session, *, log_id: str) -> str:
     if refusal:
         fail_log(db, log=log, code=refusal, message="the check before the write failed")
         return "refused"
+    moved = _moved_elsewhere(
+        log=log, target=target, provider=provider, ref=ref, token=token
+    )
+    if moved:
+        fail_log(db, log=log, code=moved, message="the audience is not the one edited")
+        return "refused"
     try:
         result = _write(
             log=log,
@@ -881,6 +887,33 @@ def apply_change(db: Session, *, log_id: str) -> str:
     )
     db.commit()
     return "applied"
+
+
+def _moved_elsewhere(
+    *, log: ActionLog, target: Any, provider: Any, ref: ExternalRef, token: str
+) -> str:
+    """Why this audience must not be replaced now, or nothing.
+
+    The spec goes out whole, built on the copy the owner was shown. When the
+    ad set holds another audience by now - changed in Ads Manager, or trimmed
+    by Meta itself - that copy would undo the change. The mirror takes what
+    Meta holds, and the owner looks again before saving.
+    """
+    if log.action != ActionType.TARGETING_SWAP or settings.ads_dry_run:
+        return ""
+    seen = (log.previous_state or {}).get("targeting")
+    if not isinstance(seen, dict) or not seen:
+        return ""
+    try:
+        live = provider.audiences.read_targeting(ref=ref, token=token)
+    except ProviderError as exc:
+        logger.info("could not read %s before replacing its audience: %s", ref, exc)
+        return "read"
+    if provider.audiences.same_targeting(seen, live):
+        return ""
+    if live and hasattr(target, "targeting_raw"):
+        target.targeting_raw = live
+    return "changed_elsewhere"
 
 
 def _landed(*, log: ActionLog, after: StatusDTO | None) -> bool | None:

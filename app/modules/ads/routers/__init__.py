@@ -72,6 +72,7 @@ def _action(row: Any | None) -> dict[str, Any] | None:
         "created_at": row.created_at,
         "applied_at": row.applied_at,
         "revertible": selectors.is_revertible(row),
+        "dropped": dict(row.dropped or {}),
     }
 
 

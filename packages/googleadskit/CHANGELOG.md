@@ -3,6 +3,12 @@
 Semantik versiyalash. Google Ads API versiyasi (`v25`) paket versiyasidan
 alohida — u `client.py` dagi `API_VERSION` konstantasida.
 
+## 0.8.0 — 2026-10-30
+
+### Qo'shildi
+- `GoogleAudiences.read_targeting`, `same_targeting` — `adskit` 0.25.0
+  porti uchun; ikkalasi ham `PortNotAvailable`.
+
 ## 0.7.0 — 2026-10-16
 
 ### Qo'shildi

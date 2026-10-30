@@ -1,6 +1,6 @@
 [project]
 name = "metaads"
-version = "0.42.1"
+version = "0.43.0"
 description = "Meta Marketing API klienti va adskit adapteri"
 requires-python = ">=3.13,<3.14"
 dependencies = [

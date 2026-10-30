@@ -226,6 +226,12 @@ class Unavailable:
     ) -> ActionResult:
         raise self._refuse()
 
+    def read_targeting(self, *, ref: ExternalRef, token: str) -> dict[str, Any]:
+        raise self._refuse()
+
+    def same_targeting(self, first: dict[str, Any], second: dict[str, Any]) -> bool:
+        raise self._refuse()
+
     # --- AudienceSourcePort -----------------------------------------------
     def list_audiences(self, *, account: ExternalRef, token: str) -> list[AudienceDTO]:
         raise self._refuse()

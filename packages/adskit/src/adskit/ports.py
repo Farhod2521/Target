@@ -549,6 +549,27 @@ class AudiencePort(Protocol):
         single example produces a model shaped exactly like that example.
 
         What came back may not be what went in - see ``ActionResult.dropped``.
+        ``ActionResult.applied["targeting"]`` is what the provider holds
+        afterwards when it could be read back, else what was sent.
+        """
+        ...
+
+    def read_targeting(self, *, ref: ExternalRef, token: str) -> dict[str, Any]:
+        """The spec this ad set holds right now, in the provider's own shape.
+
+        Read just before :meth:`apply` replaces it: the spec goes out whole,
+        so one built on an older copy undoes whatever was changed since -
+        in the provider's own manager, or by the provider itself.
+        """
+        ...
+
+    def same_targeting(self, first: dict[str, Any], second: dict[str, Any]) -> bool:
+        """Whether two specs aim at the same people.
+
+        The provider's own question, because only it knows which of its keys
+        are the audience and which are its bookkeeping: Meta expands a city
+        key into a whole location and adds defaults nobody sent, and a plain
+        ``==`` would call every ad set changed.
         """
         ...
 

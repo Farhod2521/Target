@@ -9,6 +9,23 @@ buzadi — kamdan-kam va ogohlantirish bilan.
 | Yangi port, yangi metod, ixtiyoriy maydon | MINOR |
 | Xato tuzatish, ichki refactoring | PATCH |
 
+## 0.25.0 — 2026-10-30
+
+MINOR: `AudiencePort.read_targeting`, `AudiencePort.same_targeting`.
+
+### Qo'shildi
+- `AudiencePort.read_targeting` — guruh hozir ushlab turgan auditoriya.
+  `apply` dan oldin o'qiladi: auditoriya butunligicha almashtiriladi, eski
+  nusxa ustiga qurilgan tahrir Ads Manager'da qilingan o'zgarishni o'chiradi.
+- `AudiencePort.same_targeting` — ikki auditoriya bir xil odamlarga
+  qaratilganmi. Provayderning o'z savoli: qaysi kalit auditoriya, qaysi biri
+  uning o'z yozuvi ekanini faqat u biladi.
+- `Unavailable` ikkala metodni ham rad etadi.
+
+### O'zgardi
+- `ActionResult.applied["targeting"]` — `AudiencePort.apply` dan keyin
+  provayder saqlab qolgan auditoriya (o'qib bo'lmasa — yuborilgani).
+
 ## 0.24.0 — 2026-10-16
 
 MINOR: `CampaignControlPort.read_objects`.

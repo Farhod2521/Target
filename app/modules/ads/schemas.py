@@ -29,6 +29,10 @@ class ActionOut(BaseModel):
     created_at: datetime
     applied_at: datetime | None
     revertible: bool = Field(description="May be undone with `.../revert`.")
+    dropped: dict[str, Any] = Field(
+        default_factory=dict,
+        description="What Meta accepted the write without keeping, e.g. `interests`.",
+    )
 
 
 class RowOut(BaseModel):

@@ -302,3 +302,129 @@ def test_the_screen_says_why_a_delete_did_not_go_through(
     failure = state.json()["failure"]
     assert failure["sentence"]
     assert failure["provider_words"] == "Rol bering."
+
+
+# --- An audience is replaced only over the one that was edited ---------------
+SEEN = {
+    "geo_locations": {"cities": [{"key": "2019233"}]},
+    "age_min": 25,
+    "age_max": 45,
+}
+
+
+class FakeAudiences:
+    """Meta's ad set as it reads now, and what a write leaves behind."""
+
+    def __init__(self, *, live: dict[str, Any] | Exception) -> None:
+        self.live = live
+        self.written: list[dict[str, Any]] = []
+
+    def read_targeting(self, *, ref: ExternalRef, token: str) -> dict[str, Any]:
+        if isinstance(self.live, Exception):
+            raise self.live
+        return self.live
+
+    def same_targeting(self, first: dict[str, Any], second: dict[str, Any]) -> bool:
+        from metaads.audience_diff import same_audience
+
+        return same_audience(first, second)
+
+    def apply(
+        self, *, ref: ExternalRef, targeting: dict[str, Any], **_: Any
+    ) -> ActionResult:
+        self.written.append(targeting)
+        held = {
+            **targeting,
+            "geo_locations": {"cities": [{"key": "2019233", "name": "Tashkent"}]},
+        }
+        return ActionResult(
+            ok=True, ref=ref, applied={"targeting": held}, dropped={}, dry_run=False
+        )
+
+
+def _audience_change(
+    db: Session, monkeypatch: pytest.MonkeyPatch, *, live: dict[str, Any] | Exception
+) -> tuple[FakeAudiences, str]:
+    owner, account = _owner_with_mirror(db)
+    adset = db.scalar(select(AdSet).where(AdSet.external_id == "s_1"))
+    assert adset is not None
+    adset.targeting_raw = SEEN
+    db.commit()
+    audiences = FakeAudiences(live=live)
+    monkeypatch.setattr(
+        manage,
+        "registry",
+        SimpleNamespace(
+            get=lambda _: SimpleNamespace(
+                campaigns=FakeCampaigns(ok=True), audiences=audiences
+            )
+        ),
+    )
+    monkeypatch.setattr(manage.settings, "ads_dry_run", False)
+    _signed_in(monkeypatch, manage, account)
+    log = manage.open_log(
+        db,
+        owner=owner,
+        action=ActionType.TARGETING_SWAP,
+        provider=PROVIDER,
+        level=ManagedLevel.ADSET,
+        external_id="s_1",
+        requested={"targeting": {**SEEN, "age_min": 30}},
+        previous={"targeting": SEEN},
+        dry_run=False,
+    )
+    db.commit()
+    return audiences, str(log.id)
+
+
+def test_an_audience_changed_in_ads_manager_is_not_written_over(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The spec goes out whole: written over a newer audience, it would undo
+    whatever was changed there. The mirror takes Meta's, the owner looks again."""
+    elsewhere = {**SEEN, "age_max": 35}
+    audiences, log_id = _audience_change(db, monkeypatch, live=elsewhere)
+
+    assert manage.apply_change(db, log_id=log_id) == "refused"
+
+    db.expire_all()
+    log = db.get(ActionLog, log_id)
+    assert (log.status, log.error_code) == (ActionStatus.FAILED, "changed_elsewhere")
+    assert audiences.written == []
+    adset = db.scalar(select(AdSet).where(AdSet.external_id == "s_1"))
+    assert adset.targeting_raw == elsewhere
+
+
+def test_meta_spelling_the_same_audience_its_own_way_is_no_change(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Meta expands a city key into a whole location and adds defaults; that is
+    the same audience, and the write goes ahead. The mirror then keeps what
+    Meta holds, not what was sent."""
+    spelled = {
+        **SEEN,
+        "geo_locations": {"cities": [{"key": "2019233", "name": "Tashkent"}]},
+        "targeting_automation": {"advantage_audience": 0},
+    }
+    audiences, log_id = _audience_change(db, monkeypatch, live=spelled)
+
+    assert manage.apply_change(db, log_id=log_id) == "applied"
+
+    db.expire_all()
+    assert len(audiences.written) == 1
+    adset = db.scalar(select(AdSet).where(AdSet.external_id == "s_1"))
+    assert adset.targeting_raw["geo_locations"]["cities"][0]["name"] == "Tashkent"
+    assert adset.targeting_raw["age_min"] == 30
+
+
+def test_an_audience_that_cannot_be_read_is_not_replaced(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    audiences, log_id = _audience_change(db, monkeypatch, live=NotFound("gone"))
+
+    assert manage.apply_change(db, log_id=log_id) == "refused"
+
+    db.expire_all()
+    log = db.get(ActionLog, log_id)
+    assert log.error_code == "read"
+    assert audiences.written == []

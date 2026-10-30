@@ -62,6 +62,12 @@ class _Audiences:
     ) -> ActionResult:
         return ActionResult(ok=True, ref=ref, applied=targeting, dry_run=dry_run)
 
+    def read_targeting(self, *, ref: ExternalRef, token: str) -> dict[str, Any]:
+        return {}
+
+    def same_targeting(self, first: dict[str, Any], second: dict[str, Any]) -> bool:
+        return first == second
+
 
 def _bundle() -> ProviderBundle:
     return ProviderBundle(
