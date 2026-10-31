@@ -46,6 +46,20 @@ def suggestion_message(*, card: Card) -> Message:
     return Message(text="\n".join(lines), suggestion_id=str(card.pk))
 
 
+def suggestion_notice(*, card: Card) -> Message:
+    """A proposal said short. The answer is given in the cabinet's center, not
+    under the message: the phone carries no buttons that write to Meta."""
+    lines = [
+        _bold(str(card.rule_label)),
+        escaped(card.target_name),
+        "",
+        f"{escaped('Agent taklifi')}: {_bold(str(card.action_label or card.kind_label))}",
+        "",
+        escaped("Javob berish uchun «Batafsil» ni bosing."),
+    ]
+    return Message(text="\n".join(lines), suggestion_id=str(card.pk))
+
+
 def decided_message(*, card: Card, outcome: str) -> Message:
     lines = [
         _bold(str(card.rule_label)),
@@ -381,6 +395,11 @@ def miniapp_button(*, route: str, label: str, query: str = "") -> tuple[Button, 
     return (Button(text=label, web_app=door_url(destination=destination)),)
 
 
+def center_button() -> tuple[Button, ...]:
+    """The way to the cabinet's center, where every ad notice is answered."""
+    return miniapp_button(route="actions:home", label="Batafsil")
+
+
 def ask_button(*, suggestion_id: str = "", item_key: str = "") -> tuple[Button, ...]:
     if suggestion_id:
         query = urlencode({"suggestion": suggestion_id})
@@ -421,6 +440,7 @@ __all__ = [
     "FEEDBACK_MAX_CHARS",
     "Message",
     "ask_button",
+    "center_button",
     "decided_message",
     "early_touch_message",
     "escaped",
@@ -434,6 +454,7 @@ __all__ = [
     "rejection_message",
     "spend_guard_message",
     "suggestion_message",
+    "suggestion_notice",
     "support_question_message",
     "support_reply_message",
     "trouble_message",

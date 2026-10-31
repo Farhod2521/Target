@@ -97,6 +97,9 @@ REJECTION_DIGEST_CHARS: Final = 8
 MAX_REJECTIONS_PER_SWEEP: Final = 3
 MAX_TROUBLES_PER_SWEEP: Final = 3
 DAILY_REPORT_HOUR: Final = 7
+# The cabinet's troubles are said once a day, at this hour on the owner's
+# clock: after the daily report and the frequency message, never at night.
+TROUBLE_HOUR: Final = 10
 DAILY_REPORT_LATEST_HOUR: Final = 9
 WEEKLY_REPORT_HOUR: Final = 8
 WEEKLY_REPORT_LATEST_HOUR: Final = 10
@@ -150,6 +153,7 @@ __all__ = [
     "SURVEY_LAST_HOUR",
     "SURVEY_STATE_KEY",
     "SURVEY_STATE_TTL_SECONDS",
+    "TROUBLE_HOUR",
     "UNDELIVERED_DAYS",
     "WEEKLY_REPORT_HOUR",
     "WEEKLY_REPORT_LATEST_HOUR",

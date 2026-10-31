@@ -137,3 +137,48 @@ def deliver_support_reply_task(owner_id: str, subject: str) -> bool:
         sent = announce_support_reply(db, owner=owner, subject=subject, now=utcnow())
         db.commit()
         return sent
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def deliver_notices_task() -> int:
+    """Every quarter hour: what every linked phone is owed."""
+    from app.modules.notifications.services.sweep import deliver_notices
+
+    with task_session() as db:
+        sent = deliver_notices(db, now=utcnow())
+        db.commit()
+        return sent
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def deliver_trouble_notices_task() -> int:
+    """Hourly: the cabinet's troubles, to the owners whose morning it is."""
+    from app.modules.notifications.services.sweep import deliver_troubles
+
+    with task_session() as db:
+        sent = deliver_troubles(db, now=utcnow())
+        db.commit()
+        return sent
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def deliver_expiry_notices_task() -> int:
+    """Once a day: warn the accounts whose subscriptions are running out."""
+    from app.modules.notifications.services.sweep import deliver_expiry_notices
+
+    with task_session() as db:
+        sent = deliver_expiry_notices(db, now=utcnow())
+        db.commit()
+        return sent
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def deliver_lapse_notices_task() -> int:
+    """Every quarter hour: the adverts an ended subscription stopped, and the
+    day before they are removed."""
+    from app.modules.notifications.services.sweep import deliver_lapse_notices
+
+    with task_session() as db:
+        sent = deliver_lapse_notices(db, now=utcnow())
+        db.commit()
+        return sent

@@ -1,0 +1,37 @@
+"""When the notification tasks run on their own.
+
+The names and minutes of Django's ``seed_schedules``, unchanged, all UTC.
+"""
+
+from typing import Final
+
+from app.common.periodic import Periodic
+
+TASKS = "app.modules.notifications.tasks"
+
+SCHEDULE: Final = [
+    # Off the hour, so it is not queued behind the mirror's fan-out.
+    Periodic(
+        "Telegram bildirishnomalarini yuborish",
+        f"{TASKS}.deliver_notices_task",
+        "3,18,33,48",
+    ),
+    # 05:00 UTC is ten in the morning in the market this deployment sells to.
+    Periodic(
+        "Obuna tugashi haqida ogohlantirish",
+        f"{TASKS}.deliver_expiry_notices_task",
+        "0",
+        "5",
+    ),
+    # Five minutes behind the lapse sweep that stops the adverts.
+    Periodic(
+        "Obuna tugagani haqida xabar berish",
+        f"{TASKS}.deliver_lapse_notices_task",
+        "10,25,40,55",
+    ),
+    Periodic(
+        "Kabinetdagi muammolar haqida xabar berish",
+        f"{TASKS}.deliver_trouble_notices_task",
+        "20",
+    ),
+]
