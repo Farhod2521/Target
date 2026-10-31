@@ -307,3 +307,56 @@ def test_what_never_existed_is_still_not_found(
     found = client.get("/api/v1/campaigns/manage/ad/no_such_ad/state", headers=headers)
 
     assert found.status_code == 404
+
+
+def test_a_closing_account_is_named_on_the_campaign_and_on_the_list(
+    client, db: Session, queued: list
+) -> None:  # type: ignore[no-untyped-def]
+    _, headers, campaign = _ready(client, db)
+    ad = _ad(db, campaign)
+    words = "Ad Account Pending Closure"
+    _turned_down(
+        db,
+        ad,
+        issues=[{"code": "2490471", "summary": words, "message": words}],
+        issue_codes=["2490471"],
+        issue_summary=words,
+    )
+
+    found = client.get(f"/api/v1/campaigns/{campaign.id}", headers=headers).json()
+    listed = client.get("/api/v1/campaigns", headers=headers).json()
+
+    rejection = found["rejection"]
+    assert rejection["title"] == "Reklama akkaunti yopilmoqda"
+    assert rejection["key"] is None
+    assert "accountquality" in rejection["fix"]["url"]
+    row = next(row for row in listed["campaigns"] if row["id"] == str(campaign.id))
+    assert row["rejection"]["title"] == rejection["title"]
+
+
+def test_a_lost_audience_opens_its_own_campaign(
+    client, db: Session, queued: list
+) -> None:  # type: ignore[no-untyped-def]
+    _, headers, campaign = _ready(client, db)
+    ad = _ad(db, campaign)
+    _turned_down(db, ad, issues=[{"code": "1359208"}], issue_codes=["1359208"])
+
+    found = client.get(f"/api/v1/campaigns/{campaign.id}", headers=headers).json()
+
+    assert found["rejection"]["fix"]["url"] == f"/app/campaigns/{campaign.id}/edit/"
+
+
+def test_a_written_trouble_sends_no_question(client, db: Session, queued: list) -> None:  # type: ignore[no-untyped-def]
+    owner, _, campaign = _ready(client, db)
+    ad = _ad(db, campaign)
+    _turned_down(
+        db,
+        ad,
+        issues=[{"code": "3253001", "summary": "Limit"}],
+        issue_codes=["3253001"],
+    )
+    queued.clear()
+
+    explain_rejections(db, owner=owner, ads=[ad])
+
+    assert not [name for name, _ in queued if name.endswith("explain_action_refusal")]

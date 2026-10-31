@@ -133,6 +133,9 @@ WAITING: Final = "waiting"
 FAILURE_CODES: Final[dict[str, str]] = {
     "AuthFailed": "reconnect",
     "PermissionDenied": "reconnect",
+    "AccountNotWritable": "account_disabled",
+    "AdvertiserRoleMissing": "account_role",
+    "PageAccessDenied": "page_role",
     "RateLimited": "rate_limited",
     "TemporaryFailure": "temporary",
     "NotFound": "refused",

@@ -57,6 +57,8 @@ from adskit.dto import (
 )
 from adskit.errors import (
     AccountActionRequired,
+    AccountNotWritable,
+    AdvertiserRoleMissing,
     AuthFailed,
     BidStrategyRefused,
     BudgetTooLow,
@@ -66,6 +68,7 @@ from adskit.errors import (
     LocationsOverlap,
     MediaTooLarge,
     NotFound,
+    PageAccessDenied,
     PaymentMethodMissing,
     PermissionDenied,
     ProviderError,
@@ -236,6 +239,17 @@ _IN_PROCESS = "IN_PROCESS"
 # no good". The difference decides whether the customer reconnects or the
 # app needs a permission it was never granted.
 _PERMISSION_CODES = frozenset({200, 294})
+
+# The same code 200, but the account's status is what refuses: "Ad account
+# not writable" and "Ad account can't be edited". Read before the code, or the
+# owner is sent to fix a role that is not the trouble.
+_ACCOUNT_STATE_SUBCODES = frozenset({2490592, 4841021})
+
+# Code 200 again: "contact an admin to get permission with Advertiser role".
+_ROLE_SUBCODES = frozenset({2490585})
+
+# "Insufficient Page Permission to Run Ads", a subcode of 100.
+_PAGE_ACCESS_SUBCODES = frozenset({1487202})
 
 # 803 is "object does not exist or you cannot see it", which for our
 # purposes is the same thing. 100 is not here: it is "Invalid parameter",
@@ -474,6 +488,10 @@ def _translated(exc: MetaError) -> ProviderError:
         # is you", and those are different sentences to a person.
         if exc.subcode in _ACTION_SUBCODES:
             return AccountActionRequired(str(exc), code=str(exc.subcode or ""), **words)
+        if exc.subcode in _ACCOUNT_STATE_SUBCODES:
+            return AccountNotWritable(str(exc), code=str(exc.code or ""), **words)
+        if exc.subcode in _ROLE_SUBCODES:
+            return AdvertiserRoleMissing(str(exc), code=str(exc.code or ""), **words)
         if exc.code in _PERMISSION_CODES:
             return PermissionDenied(str(exc), code=str(exc.code or ""), **words)
         return AuthFailed(str(exc), code=str(exc.code or ""), **words)
@@ -507,6 +525,8 @@ def _translated(exc: MetaError) -> ProviderError:
             return LeadFormPrivacyMissing(
                 str(exc), code=str(exc.subcode or ""), **words
             )
+        if exc.subcode in _PAGE_ACCESS_SUBCODES:
+            return PageAccessDenied(str(exc), code=str(exc.code or ""), **words)
         if exc.code in _NOT_FOUND_CODES:
             return NotFound(str(exc), code=str(exc.code or ""), **words)
         return InvalidRequest(str(exc), code=str(exc.code or ""), **words)

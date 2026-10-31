@@ -212,31 +212,43 @@ def close_stalled_changes(db: Session, *, now: datetime) -> int:
 PROVIDER_FAILURES: Final[dict[str, str]] = {
     "AuthFailed": "reconnect",
     "PermissionDenied": "permission",
+    "AccountNotWritable": "account_blocked",
+    "AdvertiserRoleMissing": "account_role",
+    "PageAccessDenied": "page_role",
     "AccountActionRequired": "account_action",
     "PaymentMethodMissing": "payment_missing",
     "RateLimited": "temporary",
     "TemporaryFailure": "temporary",
     "NotFound": "not_found",
+    "MediaTooLarge": "media_too_large",
 }
 
 
-def fail_provider(
-    db: Session, *, log: ActionLog, exc: ProviderError, account: AdAccount | None
-) -> None:
-    """A refusal under the word the screen reads; the provider's own code goes
-    into the message. A refused write on a blocked account is the account's,
-    not the profile's: Meta answers both with the same permission error."""
+def provider_failure(exc: ProviderError, account: AdAccount | None) -> str:
+    """The word a screen reads for this refusal.
+
+    A refused write on a blocked account is the account's, not the profile's:
+    Meta answers both with the same permission error.
+    """
     code = PROVIDER_FAILURES.get(type(exc).__name__, "refused")
     if (
         code == "permission"
         and account is not None
         and (account.may_advertise is False or account.standing in BLOCKED_STANDINGS)
     ):
-        code = "account_blocked"
+        return "account_blocked"
+    return code
+
+
+def fail_provider(
+    db: Session, *, log: ActionLog, exc: ProviderError, account: AdAccount | None
+) -> None:
+    """A refusal under the word the screen reads; the provider's own code goes
+    into the message."""
     fail_log(
         db,
         log=log,
-        code=code,
+        code=provider_failure(exc, account),
         message=f"[{exc.code}] {exc}" if exc.code else str(exc),
         detail={
             key: value
