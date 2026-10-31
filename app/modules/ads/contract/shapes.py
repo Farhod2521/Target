@@ -508,6 +508,36 @@ class AdEdit(Camel):
     early_hours: int
 
 
+class GroupSource(Camel):
+    external_id: str
+    name: str
+
+
+class NewGroupForm(Camel):
+    """Where a new group goes, what it may copy, and who pays for it."""
+
+    campaign: CampaignRef
+    network: NetworkRef
+    budget_at: Literal["campaign", "adset"]
+    currency: str
+    min_budget: float
+    groups: list[GroupSource]
+
+
+class NewAdForm(AdEdit):
+    """The advert a new one starts from; ``external_id`` names it as ``source``."""
+
+    group: str
+    name: str
+    warns_learning: bool = Field(
+        description="Adding an advert restarts this group's learning."
+    )
+
+
+class AdditionStarted(Camel):
+    action_id: str = Field(description="Follow it at `/campaigns/actions/{id}`.")
+
+
 class PageName(Camel):
     name: str
     initials: str

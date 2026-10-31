@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
 from app.modules.ads.exceptions import NothingToRevert
+from app.modules.ads.services.additions import plan_new_ad, plan_new_group
 from app.modules.ads.services.manage import (
     BUDGET_ACTIONS,
     BY_HAND,
@@ -101,6 +102,30 @@ class NewAdvert:
 
 
 @dataclass(frozen=True, slots=True)
+class NewGroup:
+    """A paused copy of one of a campaign's groups."""
+
+    external_id: str
+    name: str
+    source: str = ""
+    daily_budget_minor: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NewAd:
+    """A paused copy of an advert, put in the group named."""
+
+    external_id: str
+    name: str
+    message: str | None = None
+    headline: str | None = None
+    description: str | None = None
+    asset_id: str = ""
+    lead_form_id: str = ""
+    source: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class Delete:
     level: str
     external_id: str
@@ -108,7 +133,18 @@ class Delete:
     unpaid: bool = False
 
 
-Ask = Pause | Resume | Budget | EndTime | SpendCap | Audience | NewAdvert | Delete
+Ask = (
+    Pause
+    | Resume
+    | Budget
+    | EndTime
+    | SpendCap
+    | Audience
+    | NewAdvert
+    | NewGroup
+    | NewAd
+    | Delete
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +215,32 @@ SPECS: dict[type, Spec] = {
             description=ask.description,
             asset_id=ask.asset_id,
             lead_form_id=ask.lead_form_id,
+        ),
+    ),
+    NewGroup: Spec(
+        "new_group",
+        lambda db, user, ask, _origin: plan_new_group(
+            db,
+            user=user,
+            external_id=ask.external_id,
+            name=ask.name,
+            source=ask.source,
+            daily_budget_minor=ask.daily_budget_minor,
+        ),
+    ),
+    NewAd: Spec(
+        "new_ad",
+        lambda db, user, ask, _origin: plan_new_ad(
+            db,
+            user=user,
+            external_id=ask.external_id,
+            name=ask.name,
+            message=ask.message,
+            headline=ask.headline,
+            description=ask.description,
+            asset_id=ask.asset_id,
+            lead_form_id=ask.lead_form_id,
+            source=ask.source,
         ),
     ),
     Delete: Spec(
@@ -322,7 +384,9 @@ __all__ = [
     "Budget",
     "Delete",
     "EndTime",
+    "NewAd",
     "NewAdvert",
+    "NewGroup",
     "Pause",
     "Resume",
     "Spec",

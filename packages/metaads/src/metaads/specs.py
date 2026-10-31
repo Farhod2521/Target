@@ -132,10 +132,11 @@ PROVIDER_HOSTS: Final[frozenset[str]] = frozenset(
 # after a campaign already exists.
 BID_LOWEST_COST: Final = "LOWEST_COST_WITHOUT_CAP"
 BID_COST_CAP: Final = "COST_CAP"
+BID_CAP: Final = "LOWEST_COST_WITH_BID_CAP"
 
 # The strategies that carry an amount. A set rather than one name, so that
 # the day a second one is offered the rule below already covers it.
-CAPPED_STRATEGIES: Final[frozenset[str]] = frozenset({BID_COST_CAP})
+CAPPED_STRATEGIES: Final[frozenset[str]] = frozenset({BID_COST_CAP, BID_CAP})
 
 # Meta's own question types. Everything not in here is asked as CUSTOM,
 # which is the difference between a field Meta prefills from the person's

@@ -151,6 +151,15 @@ def _put_form(block: dict[str, Any], lead_form_id: str) -> None:
     }
 
 
+def restageable(story: Any) -> bool:
+    """Whether this stored story has a block new words could go into."""
+    try:
+        _block_of(story)
+    except InvalidRequest:
+        return False
+    return True
+
+
 def changed(story: Mapping[str, Any], **asked: Any) -> bool:
     """Whether restaging with these answers would say anything different.
 

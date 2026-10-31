@@ -589,6 +589,30 @@ class AlreadyInState(DomainError):
         super().__init__("Bu allaqachon shu holatda. Sahifani yangilang.")
 
 
+class AdditionNotOffered(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu tarmoqda yangi guruh yoki reklama qo'shib bo'lmaydi.")
+
+
+class NothingToCopy(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu kampaniyada nusxa oladigan guruh yo'q.")
+
+
+class GroupBudgetNeeded(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu kampaniyada byudjet guruhlarda turadi. Yangi guruhga kunlik byudjet yozing."
+        )
+
+
+class CampaignHoldsBudget(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu kampaniyada byudjet kampaniyaning o'zida. Yangi guruhga alohida byudjet berilmaydi."
+        )
+
+
 class CampaignFinished(DomainError):
     def __init__(self) -> None:
         super().__init__(

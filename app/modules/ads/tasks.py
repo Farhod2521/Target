@@ -164,6 +164,24 @@ def apply_swap_task(log_id: str) -> str:
         return apply_swap(db, log_id=log_id)
 
 
+@celery_app.task(queue="agent")
+def apply_new_group_task(log_id: str) -> str:
+    """Make a new group from one of the campaign's. Never retried: every call creates."""
+    from app.modules.ads.services.additions import apply_new_group
+
+    with task_session() as db:
+        return apply_new_group(db, log_id=log_id)
+
+
+@celery_app.task(queue="agent")
+def apply_new_ad_task(log_id: str) -> str:
+    """Make a new advert from one that works. Never retried: every call creates."""
+    from app.modules.ads.services.additions import apply_new_ad
+
+    with task_session() as db:
+        return apply_new_ad(db, log_id=log_id)
+
+
 @celery_app.task(bind=True, queue="agent", max_retries=SWEEP_RETRIES)
 def drop_empty_campaign_task(self: Task, log_id: str) -> str:
     try:
