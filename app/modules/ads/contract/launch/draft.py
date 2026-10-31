@@ -27,6 +27,7 @@ from app.modules.ads.contract.launch.words import (
 )
 from app.modules.ads.inputs.media import MediaTextIn
 from app.modules.ads.inputs.plan import PlanIn
+from app.modules.ads.selectors.goal_intent import TEXT_MODE
 
 GOAL_READINGS = frozenset({"found", "two", "sale", "unclear"})
 
@@ -305,9 +306,10 @@ def plan_in(plan: dict[str, Any], tapped: dict[str, Any], method: str | None) ->
         else (method_of(plan.get("goal")) or method)
     )
     budget = tapped.get("daily_budget")
+    mode = tapped.get("goal_mode") or plan.get("goal_mode") or ""
     return PlanIn(
         goal=goal_key(goal, chosen, goal_keys(plan)),
-        goal_mode=tapped.get("goal_mode") or plan.get("goal_mode") or "",
+        goal_mode=TEXT_MODE if mode == "words" else mode,
         goal_text=tapped.get("goal_words", plan.get("goal_text") or ""),
         daily_budget=whole_of(Money.model_validate(budget))
         if budget

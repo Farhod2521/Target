@@ -320,6 +320,8 @@ def read_goal(
         if _settled(found):
             break
         time.sleep(float(READING["poll_seconds"]))
+        # The worker writes in its own session; this one still holds the press.
+        db.refresh(launch)
         found = flat_reading(
             plan_routes.goal_reading(
                 launch.id, db, user, tries=found.get("tries") or attempt + 1
