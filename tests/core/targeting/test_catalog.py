@@ -23,16 +23,22 @@ from core.targeting import (
 
 PROVIDER = "meta"
 
-# The twelve the product offers. Written out rather than counted: this list
+# The eighteen the product offers. Written out rather than counted: this list
 # changing is a product decision, and a test that counts files would let it
 # happen by accident.
 EXPECTED = (
+    "agriculture",
     "auto",
     "beauty",
     "construction",
     "ecommerce",
     "education",
+    "finance",
     "fitness",
+    "furniture",
+    "it_software",
+    "kids",
+    "logistics",
     "medical",
     "real_estate",
     "restaurant",

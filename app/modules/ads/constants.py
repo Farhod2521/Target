@@ -597,12 +597,18 @@ GOAL_PHRASES: Final[tuple[tuple[str, Any], ...]] = (
 )
 MESSAGES_PHRASE_WITHOUT_INSTAGRAM: Final = "Menga yozsin"
 GOAL_EXAMPLES: Final[dict[str, Any]] = {
+    "agriculture": "Masalan: fermerlar mahsulot narxini so'rab qo'ng'iroq qilsin.",
     "auto": "Masalan: transport olmoqchi bo'lganlar telefon raqamini qoldirsin.",
     "beauty": "Masalan: mijozlar Instagram'da yozib, navbatga yozilsin.",
     "construction": "Masalan: ta'mir qilmoqchi bo'lganlar menga qo'ng'iroq qilsin.",
     "ecommerce": "Masalan: odamlar saytimizga kirib, mahsulotlarni ko'rsin.",
     "education": "Masalan: ingliz tili kursiga o'quvchi kerak, raqamini qoldirsin.",
+    "finance": "Masalan: shartlar bilan qiziqqanlar raqamini qoldirsin.",
     "fitness": "Masalan: zalga yozilmoqchi bo'lganlar raqamini qoldirsin.",
+    "furniture": "Masalan: mebel buyurtma qilmoqchi bo'lganlar Instagram'da yozsin.",
+    "it_software": "Masalan: sayt yoki ilova kerak bo'lgan kompaniyalar raqamini qoldirsin.",
+    "kids": "Masalan: ota-onalar bolalar mahsulotlarini ko'rib, Instagram'da yozsin.",
+    "logistics": "Masalan: yuk jo'natmoqchi bo'lganlar menga qo'ng'iroq qilsin.",
     "medical": "Masalan: bemorlar qabulga yozilish uchun qo'ng'iroq qilsin.",
     "real_estate": "Masalan: kvartira olmoqchi bo'lganlar raqamini qoldirsin.",
     "restaurant": "Masalan: joy band qilish uchun Instagram'da yozishsin.",

@@ -27,16 +27,22 @@ DEFAULT_BUTTON_TEXT: Final[Mapping[str, str]] = {
 }
 
 AI_ENDINGS: Final[Mapping[str, EndingKind]] = {
+    "agriculture": ENDING_CALL,
     "auto": ENDING_CALL,
     "beauty": ENDING_CALL,
     "construction": ENDING_CALL,
     "education": ENDING_CALL,
+    "finance": ENDING_CALL,
     "fitness": ENDING_CALL,
+    "furniture": ENDING_CALL,
+    "it_software": ENDING_CALL,
+    "logistics": ENDING_CALL,
     "medical": ENDING_CALL,
     "real_estate": ENDING_CALL,
     "restaurant": ENDING_CALL,
     "services": ENDING_CALL,
     "ecommerce": ENDING_WEBSITE,
+    "kids": ENDING_WEBSITE,
     "retail_store": ENDING_WEBSITE,
     "travel": ENDING_WEBSITE,
 }

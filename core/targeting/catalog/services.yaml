@@ -1,7 +1,7 @@
 # Xizmatlar. Meta vocabulary, no interest ids - see restaurant.yaml.
 #
 # The catch-all category. Its seeds are deliberately broad: this is the file
-# a business lands in when none of the eleven specific ones fit, so the
+# a business lands in when none of the specific ones fit, so the
 # starting list is a starting point and Claude does most of the narrowing.
 provider: meta
 category: services
@@ -19,7 +19,7 @@ interest_seeds:
   - { label: "Marketing", query: "Marketing" }
 
 
-# No trait_seeds. This file holds every business none of the other eleven
+# No trait_seeds. This file holds every business none of the others
 # fit - pest control, marketing, a laundry - and no life event describes the
 # customer of all of them. A behaviour or life event offered here would be
 # noise on most of the adverts built from it.

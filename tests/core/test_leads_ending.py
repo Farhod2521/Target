@@ -60,8 +60,8 @@ def test_a_telegram_address_is_recognised_and_any_other_is_not() -> None:
     assert telegram_of("https://osh.uz") == ""
 
 
-def test_the_twelve_categories_each_have_an_ending() -> None:
-    assert len(AI_ENDINGS) == 12
+def test_the_eighteen_categories_each_have_an_ending() -> None:
+    assert len(AI_ENDINGS) == 18
     assert ai_ending_kind(category="medical") == "call"
     assert ai_ending_kind(category="ecommerce") == "website"
 
