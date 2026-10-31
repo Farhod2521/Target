@@ -39,7 +39,7 @@ class RowFigures(Camel):
     spent: Money
 
 
-class CampaignRow(Camel):
+class ListedCampaign(Camel):
     id: str
     external_id: str
     name: str
@@ -143,7 +143,7 @@ class CampaignList(Camel):
     draft: None = None
     counts: Counts
     total: int
-    campaigns: list[CampaignRow]
+    campaigns: list[ListedCampaign]
 
 
 class CampaignAd(Camel):
@@ -209,7 +209,7 @@ class PanelSeries(Camel):
     peak: str
 
 
-class FunnelStep(Camel):
+class FunnelStage(Camel):
     label: str
     value: str
     share_pct: int | None
@@ -219,10 +219,10 @@ class FunnelStep(Camel):
 class Funnel(Camel):
     heading: str
     lid: str
-    steps: list[FunnelStep]
+    steps: list[FunnelStage]
 
 
-class PanelPeriod(Camel):
+class PanelTab(Camel):
     key: str
     label: str
     empty: bool
@@ -236,7 +236,7 @@ class Panel(Camel):
     has_choice: bool
     has_figures: bool
     note: str | None = None
-    periods: list[PanelPeriod]
+    periods: list[PanelTab]
 
 
 class Social(Camel):
@@ -252,17 +252,17 @@ class Quality(Camel):
     conversion: str | None = None
 
 
-class WatchPoint(Camel):
+class WatchMark(Camel):
     at: int
     share: int
 
 
 class Watch(Camel):
     plays: int
-    points: list[WatchPoint]
+    points: list[WatchMark]
 
 
-class CreativeCard(Camel):
+class CreativeView(Camel):
     external_id: str
     place: int | None = None
     name: str | None = None
@@ -287,7 +287,7 @@ class CreativeCard(Camel):
     missing: bool | None = None
 
 
-class CreativeReport(Camel):
+class CreativesReport(Camel):
     since: str
     until: str
     average: str | None = None
@@ -298,11 +298,11 @@ class CreativeReport(Camel):
     min_results: int
     best_results: int
     note: str | None = None
-    ranked: list[CreativeCard]
-    barren: list[CreativeCard]
-    weak: list[CreativeCard]
-    thin: list[CreativeCard]
-    waiting: list[CreativeCard]
+    ranked: list[CreativeView]
+    barren: list[CreativeView]
+    weak: list[CreativeView]
+    thin: list[CreativeView]
+    waiting: list[CreativeView]
 
 
 class HistoryRow(Camel):
@@ -379,7 +379,7 @@ class CampaignDetail(Camel):
     controls: Controls
     access: Access
     panel: Panel
-    creatives: CreativeReport | None
+    creatives: CreativesReport | None
 
 
 class Fix(Camel):
@@ -579,15 +579,15 @@ __all__ = [
     "CampaignDetail",
     "CampaignEdit",
     "CampaignList",
-    "CampaignRow",
     "CampaignTree",
     "ControlState",
     "Controls",
     "Counts",
-    "CreativeReport",
+    "CreativesReport",
     "DayRange",
     "HistoryRow",
     "Learning",
+    "ListedCampaign",
     "ManagerData",
     "NetworkRef",
     "Panel",
