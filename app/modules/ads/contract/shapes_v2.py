@@ -5,7 +5,12 @@ from typing import Literal
 from pydantic import Field
 
 from app.common.contract import Camel
-from app.modules.ads.contract.shapes import CampaignList, ListedCampaign, ManagerRow
+from app.modules.ads.contract.shapes import (
+    CampaignDetail,
+    CampaignList,
+    ListedCampaign,
+    ManagerRow,
+)
 from app.modules.ads.contract.words import Kind
 
 KindV2 = Literal[Kind, "conversion", "recall", "other"]
@@ -20,6 +25,13 @@ class ListedCampaignV2(ListedCampaign):
 
 class CampaignListV2(CampaignList):
     campaigns: list[ListedCampaignV2]  # type: ignore[assignment]
+
+
+class CampaignDetailV2(CampaignDetail):
+    kind: KindV2  # type: ignore[assignment]
+    result_label: str | None = Field(
+        None, description="What a `conversion` result is, in words."
+    )
 
 
 class ManagerRowV2(ManagerRow):
@@ -40,6 +52,7 @@ class ManagerDataV2(Camel):
 
 
 __all__ = [
+    "CampaignDetailV2",
     "CampaignListV2",
     "KindV2",
     "ListedCampaignV2",

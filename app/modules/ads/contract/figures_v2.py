@@ -10,14 +10,16 @@ agrees with the figure beside it.
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Final
 
 from adskit import MinorUnits
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.common.contract import Money
+from app.common.contract import Money, zero_or
+from app.common.db import utcnow
+from app.common.money import format_minor
 from app.modules.accounts.models import User
 from app.modules.ads import selectors
 from app.modules.ads.contract.listing import ListAsk, campaign_list, figures_range
@@ -25,12 +27,13 @@ from app.modules.ads.contract.manager import manager
 from app.modules.metrics.constants import EVERY_ACCOUNT, MetricLevel
 from app.modules.metrics.models import MetricsDaily
 from app.modules.metrics.ranges import CUSTOM, Range
+from app.modules.metrics.selectors.cards import NO_ANSWER, count_text
 from app.modules.metrics.selectors.facts import (
     People,
     cabinet_where,
     people_counts,
 )
-from app.modules.metrics.selectors.results import screen_kind
+from app.modules.metrics.selectors.results import RESULT_WORDS, screen_kind
 from core.metrics import cost_per
 from core.metrics.outcomes import SITE_GOAL, campaign_goal
 
@@ -64,6 +67,10 @@ CONVERSION_LABELS: Final[dict[str, str]] = {
 CONVERSION_LABEL: Final = "Konversiyalar"
 # Goals the outcomes do not name, whose events Meta's results column does count.
 COUNTED_GOALS: Final[dict[str, str]] = {"VISIT_INSTAGRAM_PROFILE": "profile"}
+CONVERSION_COST_LABEL: Final = "Bitta natija narxi"
+RESULT_CARD_KEY: Final = "leads"
+COST_CARD_KEY: Final = "cpl"
+STATS_DAYS: Final = 7
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +78,7 @@ class Exact:
     link_clicks: int = 0
     results: int = 0
     impressions: int = 0
+    spend_minor: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +112,7 @@ def _exact(
             func.coalesce(func.sum(M.inline_link_clicks), 0),
             func.coalesce(func.sum(M.results_reported), 0),
             func.coalesce(func.sum(M.impressions), 0),
+            func.coalesce(func.sum(M.spend_minor), 0),
         )
         .where(
             *cabinet_where(db, owner=owner, level=rows_of, account=EVERY_ACCOUNT),
@@ -115,7 +124,10 @@ def _exact(
     )
     return {
         row[0]: Exact(
-            link_clicks=int(row[1]), results=int(row[2]), impressions=int(row[3])
+            link_clicks=int(row[1]),
+            results=int(row[2]),
+            impressions=int(row[3]),
+            spend_minor=int(row[4]),
         )
         for row in rows
     }
@@ -301,13 +313,13 @@ def campaign_list_v2(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any
     return out
 
 
-def tree_results_v2(
-    db: Session, *, owner: User, campaign: Any, tree: dict[str, Any], date_range: Range
-) -> dict[str, Any]:
-    """The adverts of an event campaign count that event, like their campaign."""
-    if not shown_of("", campaign.adsets).counts_events:
-        return tree
-    ads = [ad for group in tree["groups"] for ad in group["ads"]]
+def _ad_results(
+    db: Session,
+    *,
+    owner: User,
+    ads: list[dict[str, Any]],
+    date_range: Range,
+) -> None:
     figures = _exact(
         db,
         owner=owner,
@@ -320,7 +332,155 @@ def tree_results_v2(
             ad["results"], ad["unit_cost"] = _event_result(
                 figures.get(ad["external_id"], Exact()), ad["spent"]
             )
+
+
+def tree_results_v2(
+    db: Session, *, owner: User, campaign: Any, tree: dict[str, Any], date_range: Range
+) -> dict[str, Any]:
+    """The adverts of an event campaign count that event, like their campaign."""
+    if shown_of("", campaign.adsets).counts_events:
+        ads = [ad for group in tree["groups"] for ad in group["ads"]]
+        _ad_results(db, owner=owner, ads=ads, date_range=date_range)
     return tree
+
+
+def _windows(
+    db: Session, *, owner: User, campaign: Any, days: int
+) -> tuple[Exact, Exact]:
+    """The last ``days`` and the same stretch before them, as the panel counts."""
+    today = utcnow().astimezone(campaign.ad_account.tzinfo()).date()
+    since = today - timedelta(days=days - 1)
+    before = since - timedelta(days=days)
+    ids = [campaign.external_id]
+
+    def read(start: date, end: date) -> Exact:
+        found = _exact(
+            db,
+            owner=owner,
+            level=MetricLevel.CAMPAIGN,
+            ids=ids,
+            date_range=Range(since=start, until=end, key=CUSTOM),
+        )
+        return found.get(campaign.external_id, Exact())
+
+    return read(since, today), read(before, since - timedelta(days=1))
+
+
+def _unit_cost(figures: Exact) -> int | None:
+    return cost_per(MinorUnits(figures.spend_minor), figures.results)
+
+
+def _exact_cost(figures: Exact) -> float | None:
+    """Unrounded: whole minor units would bend the change of a cheap result."""
+    if _unit_cost(figures) is None:
+        return None
+    return figures.spend_minor / figures.results
+
+
+def _change(now: float | None, was: float | None) -> int | None:
+    """Percent change, signed; ``None`` when there is nothing to compare with."""
+    if now is None or not was or now == was:
+        return None
+    return round((now - was) * 100 / was)
+
+
+def _card(
+    *, key: str, label: str, display: str, change: int | None, rise_is_good: bool
+) -> dict[str, Any]:
+    trend = "flat" if not change else "up" if change > 0 else "down"
+    return {
+        "key": key,
+        "label": label,
+        "display": display,
+        "trend": trend,
+        "delta_pct": abs(change or 0),
+        "good": trend == "flat" or (trend == "up") == rise_is_good,
+        "hint": None,
+        "basis_note": None,
+    }
+
+
+def _event_cards(
+    *, shown: Shown, now: Exact, was: Exact, currency: str
+) -> list[dict[str, Any]]:
+    label, cost_label = (
+        (shown.label, CONVERSION_COST_LABEL)
+        if shown.label
+        else (
+            str(RESULT_WORDS["profile"].label),
+            str(RESULT_WORDS["profile"].cost_label),
+        )
+    )
+    cost = _unit_cost(now)
+    return [
+        _card(
+            key=RESULT_CARD_KEY,
+            label=label,
+            display=count_text(now.results),
+            change=_change(now.results, was.results),
+            rise_is_good=True,
+        ),
+        _card(
+            key=COST_CARD_KEY,
+            label=cost_label,
+            display=NO_ANSWER
+            if cost is None
+            else format_minor(amount_minor=cost, currency=currency),
+            change=_change(_exact_cost(now), _exact_cost(was)),
+            rise_is_good=False,
+        ),
+    ]
+
+
+def _event_stats(
+    *, campaign: Any, now: Exact, was: Exact, currency: str
+) -> dict[str, Any] | None:
+    cost = _unit_cost(now)
+    if cost is None:
+        return None
+    provider = campaign.provider
+    return {
+        "unit_cost": zero_or(int(cost), currency, provider=provider),
+        "unit_cost_delta_pct": _change(_exact_cost(now), _exact_cost(was)),
+        "spent": zero_or(now.spend_minor, currency, provider=provider),
+        "results": now.results,
+        "results_delta_pct": _change(now.results, was.results),
+        "impressions": now.impressions,
+        "ctr": now.link_clicks / now.impressions if now.impressions else 0,
+    }
+
+
+def detail_v2(
+    db: Session,
+    *,
+    owner: User,
+    campaign: Any,
+    answer: dict[str, Any],
+    date_range: Range,
+) -> dict[str, Any]:
+    """Version 1's page, with the result its panel leaves out for an event goal."""
+    shown = shown_of(answer["kind"], campaign.adsets)
+    answer.update(kind=shown.kind, result_label=shown.label)
+    if not shown.counts_events:
+        return answer
+    _ad_results(db, owner=owner, ads=answer["ads"], date_range=date_range)
+    currency = campaign.ad_account.currency
+    panel = answer["panel"]
+    panel["note"] = None
+    for tab in panel["periods"]:
+        now, was = _windows(db, owner=owner, campaign=campaign, days=int(tab["key"]))
+        tab["cards"] = _event_cards(
+            shown=shown, now=now, was=was, currency=currency
+        ) + [
+            card
+            for card in tab["cards"]
+            if card["key"] not in (RESULT_CARD_KEY, COST_CARD_KEY)
+        ]
+    now, was = _windows(db, owner=owner, campaign=campaign, days=STATS_DAYS)
+    answer["stats"] = _event_stats(
+        campaign=campaign, now=now, was=was, currency=currency
+    )
+    return answer
 
 
 def tree_range(db: Session, *, owner: User, campaign: Any, ask: ListAsk) -> Range:
@@ -332,6 +492,7 @@ def tree_range(db: Session, *, owner: User, campaign: Any, ask: ListAsk) -> Rang
 
 __all__ = [
     "campaign_list_v2",
+    "detail_v2",
     "manager_v2",
     "shown_of",
     "tree_range",

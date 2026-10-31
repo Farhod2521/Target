@@ -239,3 +239,109 @@ def test_a_refused_extra_range_keeps_the_periods(
 
     assert written == 3
     assert db.scalar(select(PeopleCount).where(PeopleCount.since == today))
+
+
+def _detail(
+    client: TestClient, headers: dict[str, str], id_: Any, query: str = ""
+) -> Any:
+    answer = client.get(f"/api/v2/campaigns/{id_}{query}", headers=headers)
+    assert answer.status_code == 200, answer.text
+    return answer.json()
+
+
+def _registrations(client: TestClient, db: Session) -> tuple[Any, Any, date]:
+    return _figures(
+        client,
+        db,
+        goal="OFFSITE_CONVERSIONS",
+        promoted={"custom_event_type": "COMPLETE_REGISTRATION"},
+    )
+
+
+def test_the_page_counts_an_event_in_every_block(
+    client: TestClient, db: Session
+) -> None:
+    headers, campaign, _ = _registrations(client, db)
+
+    body = _detail(client, headers, campaign.id)
+
+    assert body["kind"] == "conversion"
+    assert body["resultLabel"] == "Ro'yxatdan o'tishlar"
+    assert body["stats"]["results"] == EVENTS
+    assert body["stats"]["unitCost"]["minor"] == 44
+    assert body["stats"]["spent"]["minor"] == SPEND
+    assert body["ads"][0]["results"] == EVENTS
+    assert body["panel"]["note"] is None
+    first = body["panel"]["periods"][0]["cards"][:2]
+    assert [card["key"] for card in first] == ["leads", "cpl"]
+    assert first[0]["label"] == "Ro'yxatdan o'tishlar"
+    assert first[0]["display"].replace(" ", "") == str(EVENTS)
+
+
+def test_a_change_is_measured_against_the_stretch_before(
+    client: TestClient, db: Session
+) -> None:
+    headers, campaign, today = _registrations(client, db)
+    earlier = db.scalar(select(MetricsDaily).where(MetricsDaily.level == "adset"))
+    assert earlier is not None
+    db.add(
+        MetricsDaily(
+            owner_id=earlier.owner_id,
+            ad_account_id=earlier.ad_account_id,
+            provider=earlier.provider,
+            external_id=earlier.external_id,
+            level="adset",
+            campaign_external_id="c_1",
+            adset_external_id="s_1",
+            date=today - timedelta(days=8),
+            spend_minor=SPEND,
+            currency="USD",
+            results_reported=EVENTS // 2,
+            synced_at=utcnow(),
+        )
+    )
+    db.commit()
+
+    stats = _detail(client, headers, campaign.id)["stats"]
+
+    assert stats["resultsDeltaPct"] == 100
+    assert stats["unitCostDeltaPct"] == -50
+
+
+def test_an_ordinary_page_keeps_version_one_figures(
+    client: TestClient, db: Session
+) -> None:
+    headers, campaign, _ = _figures(client, db, goal="LINK_CLICKS")
+
+    new = _detail(client, headers, campaign.id)
+    old = client.get(f"/api/v1/campaigns/{campaign.id}", headers=headers).json()
+
+    assert new["panel"] == old["panel"] and new["stats"] == old["stats"]
+    assert new["ads"] == old["ads"] and new["creatives"] == old["creatives"]
+    assert new["kind"] == "click"
+
+
+def test_the_page_adverts_follow_the_period(client: TestClient, db: Session) -> None:
+    headers, campaign, today = _figures(client, db, goal="LINK_CLICKS")
+    row = db.scalar(select(MetricsDaily).where(MetricsDaily.level == "ad"))
+    assert row is not None
+    row.date = today - timedelta(days=10)
+    db.commit()
+    since = today - timedelta(days=13)
+
+    week = _detail(client, headers, campaign.id)
+    fortnight = _detail(
+        client, headers, campaign.id, f"?period=custom&since={since}&until={today}"
+    )
+
+    assert week["ads"][0]["spent"] is None
+    assert fortnight["ads"][0]["spent"]["minor"] == SPEND
+
+
+def test_version_one_page_answers_as_it_did(client: TestClient, db: Session) -> None:
+    headers, campaign, _ = _registrations(client, db)
+
+    body = client.get(f"/api/v1/campaigns/{campaign.id}", headers=headers).json()
+
+    assert "resultLabel" not in body
+    assert body["ads"][0]["results"] == 0
