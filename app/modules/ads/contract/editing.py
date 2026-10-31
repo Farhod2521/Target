@@ -30,6 +30,8 @@ FORM_FIELDS: Final[dict[str, str]] = {
     "budget": "dailyBudget",
     "audience": "ageMin",
     "places": "places",
+    "detailed": "detailed",
+    "lists": "audiences",
     "limits": "endsAt",
 }
 GENDERS: Final[dict[str, list[int]]] = {"male": [1], "female": [2], "all": []}
@@ -43,6 +45,17 @@ class PlacePatch(Camel):
     type: Literal["city", "region", "country"]
 
 
+class DetailPatch(Camel):
+    id: str
+    name: str
+    kind: str
+
+
+class PinPatch(Camel):
+    lat: str
+    lng: str
+
+
 class CampaignPatch(Camel):
     daily_budget: float = Field(description="Major units, as the input shows them.")
     age_min: int
@@ -54,6 +67,14 @@ class CampaignPatch(Camel):
     places: list[PlacePatch] | None = Field(
         None, description="Where it reaches, whole; left out, it stays as it is."
     )
+    pin: PinPatch | None = Field(None, description="One point instead of the places.")
+    radius_km: int | None = None
+    excluded_places: list[PlacePatch] | None = None
+    detailed: list[DetailPatch] | None = None
+    excluded_detailed: list[DetailPatch] | None = None
+    included_lists: list[str] | None = None
+    excluded_lists: list[str] | None = None
+    locales: list[int] | None = None
     group: str | None = Field(None, description="Split campaigns: the group edited.")
 
 
@@ -74,31 +95,9 @@ def changed_sections(
     ):
         out["budget"] = {"daily_budget": Decimal(str(patch.daily_budget))}
     audience = sections.get("audience")
-    genders = GENDERS[patch.gender]
-    if audience and audience["can_change"]:
-        moved = (
-            patch.age_min != audience["age_min"]
-            or patch.age_max != audience["age_max"]
-            or genders != audience["genders"]
-        )
-        if moved:
-            out["audience"] = {
-                "age_min": patch.age_min,
-                "age_max": patch.age_max,
-                "genders": genders if audience["allows_gender"] else None,
-                "radius_km": audience["radius_km"]
-                if audience["offers_radius"]
-                else None,
-                "keep_interests": True,
-            }
-    if audience and audience["can_move"] and patch.places is not None:
-        wanted = [row.model_dump() for row in patch.places]
-        if _spots(wanted) != _spots(audience["places"]):
-            out["audience"] = out.get("audience") or {
-                "age_min": audience["age_min"],
-                "age_max": audience["age_max"],
-            }
-            out["audience"]["places"] = wanted
+    sent = _audience_sent(audience, patch) if audience else None
+    if sent:
+        out["audience"] = sent
     limits = sections.get("limits")
     if limits and limits["can_change"]:
         cap = float(limits["spend_cap"]) if limits["spend_cap"] else None
@@ -112,8 +111,74 @@ def changed_sections(
     return out or None
 
 
+def _audience_sent(
+    audience: dict[str, Any], patch: CampaignPatch
+) -> dict[str, Any] | None:
+    """What of the audience moved, and what the owner may move right now."""
+    sent: dict[str, Any] = {}
+    genders = GENDERS[patch.gender]
+    if audience["can_change"]:
+        if (
+            patch.age_min != audience["age_min"]
+            or patch.age_max != audience["age_max"]
+            or genders != audience["genders"]
+        ):
+            sent |= {
+                "age_min": patch.age_min,
+                "age_max": patch.age_max,
+                "genders": genders if audience["allows_gender"] else None,
+                "keep_interests": True,
+            }
+        sent |= _people_sent(audience, patch)
+    if audience["can_move"]:
+        sent |= _where_sent(audience, patch)
+    if not sent:
+        return None
+    return {"age_min": audience["age_min"], "age_max": audience["age_max"]} | sent
+
+
+def _people_sent(audience: dict[str, Any], patch: CampaignPatch) -> dict[str, Any]:
+    sent: dict[str, Any] = {}
+    for key in ("detailed", "excluded_detailed"):
+        rows = getattr(patch, key)
+        if rows is None or not audience["detail_open"]:
+            continue
+        wanted = [row.model_dump() for row in rows]
+        if _details(wanted) != _details(audience[key]):
+            sent[key] = wanted
+    if patch.excluded_places is not None:
+        wanted = [row.model_dump() for row in patch.excluded_places]
+        if _spots(wanted) != _spots(audience["excluded_places"]):
+            sent["excluded_places"] = wanted
+    for key in ("included_lists", "excluded_lists", "locales"):
+        chosen = getattr(patch, key)
+        if chosen is not None and set(chosen) != set(audience[key]):
+            sent[key] = chosen
+    return sent
+
+
+def _where_sent(audience: dict[str, Any], patch: CampaignPatch) -> dict[str, Any]:
+    sent: dict[str, Any] = {}
+    if patch.places is not None:
+        wanted = [row.model_dump() for row in patch.places]
+        if _spots(wanted) != _spots(audience["places"]):
+            sent["places"] = wanted
+    pin = audience["pin"]
+    if patch.pin is not None and (
+        pin is None or (patch.pin.lat, patch.pin.lng) != (pin["lat"], pin["lng"])
+    ):
+        sent["pin"] = patch.pin.model_dump()
+    if patch.radius_km is not None and patch.radius_km != audience["radius_km"]:
+        sent["radius_km"] = patch.radius_km
+    return sent
+
+
 def _spots(places: list[dict[str, str]]) -> set[tuple[str, str]]:
     return {(row["type"], row["id"]) for row in places}
+
+
+def _details(rows: list[dict[str, str]]) -> set[tuple[str, str]]:
+    return {(row["kind"], row["id"]) for row in rows}
 
 
 def edit_form(
@@ -192,11 +257,19 @@ def edit_form(
         "place_limit": MAX_GEO_PLACES,
         "can_move": bool((audience or {}).get("can_move")),
         "learning": bool((audience or {}).get("is_learning")),
+        "pin": _pin(audience),
+        "excluded_places": (audience or {}).get("excluded_places", []),
+        "detailed": (audience or {}).get("detailed", []),
+        "excluded_detailed": (audience or {}).get("excluded_detailed", []),
+        "detail_open": bool((audience or {}).get("detail_open")),
+        "locales": [
+            {"id": key, "name": ""} for key in (audience or {}).get("locales", [])
+        ],
         "age_min": (audience or {}).get("age_min", 18),
         "age_max": (audience or {}).get("age_max", 65),
         "age_bounds": (audience or {}).get("age_bounds", [18, 65]),
         "gender": gender,
-        "audiences": [],
+        "audiences": _lists(db, owner=owner, campaign=campaign, audience=audience),
         "reach": [0, 0],
         "ends_at": limits["end_date"].isoformat()
         if limits and limits["end_date"]
@@ -215,6 +288,54 @@ def edit_form(
         },
         "early_hours": early,
     }
+
+
+def _pin(audience: dict[str, Any] | None) -> dict[str, Any] | None:
+    pin = (audience or {}).get("pin")
+    if pin is None or audience is None:
+        return None
+    low, high = audience["radius_bounds"]
+    return {
+        "lat": pin["lat"],
+        "lng": pin["lng"],
+        "km": audience["radius_km"] or low,
+        "min_km": low,
+        "max_km": high,
+    }
+
+
+def _lists(
+    db: Session, *, owner: User, campaign: Any, audience: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """The owner's lists on this account, and any the spec holds besides them."""
+    from app.modules.integrations.selectors.audiences import targets_for
+
+    if audience is None:
+        return []
+    side = dict.fromkeys(audience["included_lists"], "include") | dict.fromkeys(
+        audience["excluded_lists"], "exclude"
+    )
+    rows = [
+        {
+            "id": option.external_id,
+            "name": option.label,
+            "on": side.get(option.external_id) == "include",
+            "side": side.get(option.external_id, "off"),
+            "blocked": option.blocked_reason,
+        }
+        for option in targets_for(
+            db,
+            owner=owner,
+            account=campaign.ad_account,
+            special_ad_category=audience["category"],
+        )
+    ]
+    known = {row["id"] for row in rows}
+    return rows + [
+        {"id": key, "name": key, "on": where == "include", "side": where, "blocked": ""}
+        for key, where in side.items()
+        if key not in known
+    ]
 
 
 def _lock(open_now: bool, learning: bool) -> str | None:

@@ -40,6 +40,7 @@ from adskit.dto import (
     LeadDTO,
     LeadEventDTO,
     LeadFormDTO,
+    LocaleDTO,
     LocationDTO,
     LookalikeSpecDTO,
     MemberUploadDTO,
@@ -119,6 +120,7 @@ from metaads.discovery import (
     TRAIT_CLASSES,
     browse_traits,
     search_interests,
+    search_locales,
     search_locations,
     validate_interests,
 )
@@ -1054,6 +1056,40 @@ class MetaAudiences:
             self._interest(row, kind=kind)
             for row in rows
             if _folded(str(row.get("name", ""))) in wanted
+        ]
+
+    def search_detail(self, *, query: str, token: str) -> list[InterestDTO]:
+        """One word in, what a person may pick for it out.
+
+        Interests are searched; behaviours and life events are browsed whole
+        and read here for the word, because Meta ignores a query on them.
+        """
+        if not query.strip():
+            return []
+
+        word = _folded(query)
+        with session(token) as graph:
+            rows = search_interests(query=query, token=token, client=graph)
+            found = [self._interest(row) for row in rows]
+            for kind, klass in TRAIT_CLASSES.items():
+                found += [
+                    self._interest(row, kind=kind)
+                    for row in browse_traits(klass=klass, token=token, client=graph)
+                    if word in _folded(str(row.get("name", "")))
+                ]
+        return [item for item in found if item.ref.id]
+
+    def search_locales(self, *, query: str, token: str) -> list[LocaleDTO]:
+        """One word in, the languages Meta targets by out."""
+        if not query.strip():
+            return []
+
+        with session(token) as graph:
+            rows = search_locales(query=query, token=token, client=graph)
+        return [
+            LocaleDTO(key=int(str(row["key"])), name=str(row.get("name", "")))
+            for row in rows
+            if str(row.get("key", "")).isdigit()
         ]
 
     def find_locations(

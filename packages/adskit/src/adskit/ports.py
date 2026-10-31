@@ -33,6 +33,7 @@ from adskit.dto import (
     LeadDTO,
     LeadEventDTO,
     LeadFormDTO,
+    LocaleDTO,
     LocationDTO,
     LookalikeSpecDTO,
     MemberUploadDTO,
@@ -474,6 +475,19 @@ class AudiencePort(Protocol):
         "interested in" moving house. Their entire audience is one row in a
         list of about a dozen, and this is the method that reaches it.
         """
+        ...
+
+    def search_detail(self, *, query: str, token: str) -> list[InterestDTO]:
+        """Interests, behaviours and life events a person may pick for this word.
+
+        Ranked and partial, unlike :meth:`find_interests`, which confirms on
+        the owner's behalf and so takes exact names only. These rows are shown
+        and chosen by a person, as :meth:`find_locations` rows are.
+        """
+        ...
+
+    def search_locales(self, *, query: str, token: str) -> list[LocaleDTO]:
+        """The languages the provider targets by, under this word."""
         ...
 
     def find_locations(

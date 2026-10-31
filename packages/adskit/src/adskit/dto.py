@@ -810,6 +810,15 @@ class RetiredOptionDTO(BaseModel):
     alternative_name: str = ""
 
 
+class LocaleDTO(BaseModel):
+    """One language the provider targets by; its key is the provider's own number."""
+
+    model_config = _CONFIG
+
+    key: int
+    name: str
+
+
 class LocationDTO(BaseModel):
     """One place in the provider's geography catalogue.
 

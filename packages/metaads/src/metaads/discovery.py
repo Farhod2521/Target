@@ -217,6 +217,15 @@ def search_locations(
     return list(payload.get("data", []))
 
 
+def search_locales(
+    *, query: str, token: str, client: GraphClient | None = None
+) -> list[dict[str, Any]]:
+    """Languages whose name matches ``query``: a ``key`` number and a ``name``."""
+    with _session(client, token) as graph:
+        payload = graph.get("search", type="adlocale", q=query, limit=SEARCH_LIMIT)
+    return list(payload.get("data", []))
+
+
 # Meta's own name for each closed detailed-targeting class, against the
 # domain's word for it.
 #

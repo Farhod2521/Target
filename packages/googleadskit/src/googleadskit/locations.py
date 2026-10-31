@@ -18,7 +18,7 @@ from typing import Any, Final
 
 import httpx
 from adskit import PortNotAvailable
-from adskit.dto import ActionResult, InterestDTO, LocationDTO, ReachDTO
+from adskit.dto import ActionResult, InterestDTO, LocaleDTO, LocationDTO, ReachDTO
 from adskit.refs import ExternalRef, GeoKind, ProviderName, TraitKind
 
 from googleadskit.campaigns import google_calls
@@ -78,6 +78,12 @@ class GoogleAudiences:
         self, *, kind: TraitKind, names: list[str], token: str
     ) -> list[InterestDTO]:
         raise PortNotAvailable(provider=PROVIDER, port="audiences.find_traits")
+
+    def search_detail(self, *, query: str, token: str) -> list[InterestDTO]:
+        raise PortNotAvailable(provider=PROVIDER, port="audiences.search_detail")
+
+    def search_locales(self, *, query: str, token: str) -> list[LocaleDTO]:
+        raise PortNotAvailable(provider=PROVIDER, port="audiences.search_locales")
 
     def estimate_reach(
         self,

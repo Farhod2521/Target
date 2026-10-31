@@ -14,6 +14,7 @@ from adskit import (
     CampaignControlPort,
     ExternalRef,
     InterestDTO,
+    LocaleDTO,
     LeadSourcePort,
     LocationDTO,
     MetricsPort,
@@ -35,6 +36,12 @@ class _Audiences:
     def find_traits(
         self, *, kind: TraitKind, names: list[str], token: str
     ) -> list[InterestDTO]:
+        return []
+
+    def search_detail(self, *, query: str, token: str) -> list[InterestDTO]:
+        return []
+
+    def search_locales(self, *, query: str, token: str) -> list[LocaleDTO]:
         return []
 
     def find_locations(

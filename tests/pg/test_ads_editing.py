@@ -421,3 +421,211 @@ def test_while_it_learns_only_the_place_can_move(
     log = db.scalars(select(ActionLog)).one()
     assert log.request_payload["targeting"]["age_min"] == 25
     assert "cities" in log.request_payload["targeting"]["geo_locations"]
+
+
+COFFEE = {"id": "11", "name": "Coffee", "kind": "interests"}
+
+
+def _searches(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.modules.ads.services.audience_search._kept",
+        lambda _key, _ask: [
+            {**COFFEE, "path": "Interests · Food", "lower": 10, "upper": 20}
+        ],
+    )
+
+
+def _with_spec(db: Session, **spec: object) -> AdSet:
+    group = db.scalars(select(AdSet)).one()
+    group.targeting_raw = {**group.targeting_raw, **spec}
+    db.commit()
+    return group
+
+
+def test_the_form_reads_what_the_audience_holds(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+    _with_spec(
+        db,
+        flexible_spec=[{"interests": [{"id": "1", "name": "Tort"}]}],
+        exclusions={"behaviors": [{"id": "2", "name": "Sayohat"}]},
+        excluded_geo_locations={"cities": [{"key": "7", "name": "Samarqand"}]},
+        custom_audiences=[{"id": "500"}],
+        locales=[6],
+    )
+
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers).json()
+
+    assert form["detailed"] == [{"id": "1", "name": "Tort", "kind": "interests"}]
+    assert form["excludedDetailed"] == [
+        {"id": "2", "name": "Sayohat", "kind": "behaviors"}
+    ]
+    assert form["excludedPlaces"] == [{"id": "7", "name": "Samarqand", "type": "city"}]
+    assert form["detailOpen"] is True
+    assert form["locales"] == [{"id": 6, "name": ""}]
+    assert form["audiences"] == [
+        {"id": "500", "name": "500", "on": True, "side": "include", "blocked": ""}
+    ]
+
+
+def test_a_searched_interest_and_a_language_are_saved(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _searches(monkeypatch)
+    headers, campaign = _signed_with_campaign(client, db)
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, detailed=[COFFEE], locales=[6]),
+        headers=headers,
+    )
+
+    assert saved.status_code == 200, saved.text
+    targeting = db.scalars(select(ActionLog)).one().request_payload["targeting"]
+    assert targeting["flexible_spec"] == [
+        {"interests": [{"id": "11", "name": "Coffee"}]}
+    ]
+    assert targeting["locales"] == [6]
+
+
+def test_an_interest_nobody_searched_is_refused(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _searches(monkeypatch)
+    headers, campaign = _signed_with_campaign(client, db)
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, detailed=[{**COFFEE, "id": "999"}]),
+        headers=headers,
+    )
+
+    assert saved.status_code == 422
+    assert "detailed" in saved.text
+    assert db.scalars(select(ActionLog)).all() == []
+
+
+def test_an_audience_in_several_steps_keeps_its_detail(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _searches(monkeypatch)
+    headers, campaign = _signed_with_campaign(client, db)
+    _with_spec(
+        db, flexible_spec=[{"interests": [{"id": "1"}]}, {"behaviors": [{"id": "2"}]}]
+    )
+
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers).json()
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, detailed=[COFFEE]),
+        headers=headers,
+    )
+
+    assert form["detailOpen"] is False
+    assert saved.status_code == 204
+
+
+def test_a_list_of_another_account_is_refused(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, includedLists=["nobodys"]),
+        headers=headers,
+    )
+
+    assert saved.status_code == 422
+    assert "audiences" in saved.text
+
+
+def test_a_held_list_can_change_sides(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+    _with_spec(db, custom_audiences=[{"id": "500"}])
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, includedLists=[], excludedLists=["500"]),
+        headers=headers,
+    )
+
+    assert saved.status_code == 200, saved.text
+    targeting = db.scalars(select(ActionLog)).one().request_payload["targeting"]
+    assert "custom_audiences" not in targeting
+    assert targeting["excluded_custom_audiences"] == [{"id": "500"}]
+
+
+def test_a_pin_and_its_radius_move_while_it_learns(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+    group = db.scalars(select(AdSet)).one()
+    group.is_learning = True
+    db.commit()
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(
+            campaign,
+            pin={"lat": "41.3", "lng": "69.2"},
+            radiusKm=9,
+            locales=[6],
+        ),
+        headers=headers,
+    )
+
+    assert saved.status_code == 200, saved.text
+    targeting = db.scalars(select(ActionLog)).one().request_payload["targeting"]
+    assert targeting["geo_locations"]["custom_locations"][0]["radius"] == 9
+    assert "locales" not in targeting
+
+
+def test_the_searches_answer_the_forms_rows(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _searches(monkeypatch)
+    headers, campaign = _signed_with_campaign(client, db)
+
+    found = client.get(
+        f"/api/v1/campaigns/{campaign.id}/targeting-search?q=coffee", headers=headers
+    )
+
+    assert found.status_code == 200, found.text
+    assert found.json() == [
+        {**COFFEE, "path": "Interests · Food", "lower": 10, "upper": 20}
+    ]
+
+
+def test_reach_is_asked_of_the_form_as_it_stands_and_nothing_is_written(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from adskit.dto import ReachDTO
+
+    asked: list[dict] = []
+
+    def estimate(**kept: object) -> ReachDTO:
+        asked.append(kept["targeting"])  # type: ignore[arg-type]
+        return ReachDTO(lower=100, upper=200, ready=True, available=True)
+
+    monkeypatch.setattr("app.modules.ads.routers.editing.estimated_reach", estimate)
+    headers, campaign = _signed_with_campaign(client, db)
+
+    answer = client.post(
+        f"/api/v1/campaigns/{campaign.id}/reach",
+        json=_patch(campaign, ageMin=30),
+        headers=headers,
+    )
+
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {
+        "available": True,
+        "ready": True,
+        "lower": 100,
+        "upper": 200,
+    }
+    assert asked[0]["age_min"] == 30
+    assert db.scalars(select(ActionLog)).all() == []

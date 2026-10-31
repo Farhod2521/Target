@@ -188,7 +188,9 @@ def choose_budget(
         raise DeliveryOptionUnusable
     if sharing and level != BUDGET_AT_ADSET:
         raise DeliveryOptionUnusable
-    return save_answers(db, launch=launch, **{BUDGET_LEVEL: level, BUDGET_SHARING: sharing})
+    return save_answers(
+        db, launch=launch, **{BUDGET_LEVEL: level, BUDGET_SHARING: sharing}
+    )
 
 
 def choose_attribution(

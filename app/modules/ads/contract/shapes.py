@@ -458,10 +458,44 @@ class EditPlace(Camel):
     type: Literal["city", "region", "country"]
 
 
+class EditDetail(Camel):
+    id: str
+    name: str
+    kind: str = Field(description="The spec's key: interests, behaviors, life_events.")
+
+
+class DetailFound(EditDetail):
+    path: str
+    lower: int
+    upper: int
+
+
+class EditLocale(Camel):
+    id: int
+    name: str
+
+
+class EditPin(Camel):
+    lat: str
+    lng: str
+    km: int
+    min_km: int
+    max_km: int
+
+
+class ReachEstimate(Camel):
+    available: bool = Field(description="False: the network will not size this.")
+    ready: bool = Field(description="False: not worked out yet, ask again.")
+    lower: int
+    upper: int
+
+
 class EditAudience(Camel):
     id: str
     name: str
     on: bool
+    side: Literal["include", "exclude", "off"]
+    blocked: str = Field(description="Why it cannot be chosen; empty when it can.")
 
 
 class CampaignEdit(Camel):
@@ -481,6 +515,14 @@ class CampaignEdit(Camel):
     place_limit: int
     can_move: bool = Field(description="Places can change, even while it learns.")
     learning: bool
+    pin: EditPin | None = Field(description="One point on the map, when it has one.")
+    excluded_places: list[EditPlace]
+    detailed: list[EditDetail]
+    excluded_detailed: list[EditDetail]
+    detail_open: bool = Field(
+        description="False: several steps or a special category; shown, not changed."
+    )
+    locales: list[EditLocale]
     age_min: int
     age_max: int
     age_bounds: list[int]

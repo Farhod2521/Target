@@ -34,23 +34,46 @@ from app.modules.ads.contract.shapes import (
     AdPreview,
     CampaignEdit,
     ControlState,
+    DetailFound,
+    EditLocale,
+    ReachEstimate,
 )
 from app.modules.ads.inputs import Problems
 from app.modules.ads.inputs.budget import budget_minor as checked_budget
 from app.modules.ads.inputs.budget import cap_minor as checked_cap
+from app.modules.ads.models import Campaign
 from app.modules.ads.routers import _target, router
 from app.modules.ads.schemas import (
     CampaignEditSaveOut,
+)
+from app.modules.ads.services.audience_search import (
+    confirmed_detail,
+    estimated_reach,
+    search_detail,
+    search_locales,
 )
 from app.modules.ads.services.locations import (
     campaign_places,
     confirmed_for_campaign,
     place_query,
 )
+from adskit.errors import ProviderError
 from core.targeting import MAX_AGE, MIN_AGE, AudienceEdit
-from core.targeting.geo import GeoPlace, chosen_places
+from core.targeting.audiences import EXCLUDE_KEY, INCLUDE_KEY, AudienceRef
+from core.targeting.exceptions import InvalidTargeting
+from core.targeting.geo import GeoChoice, GeoPlace, chosen_places, pins
+from core.targeting.revise import (
+    Detail,
+    detail_is_open,
+    detailed_of,
+    excluded_detailed_of,
+    excluded_places_of,
+    revise,
+)
 
 GEO_SEARCH_BUCKET = "geo-search"
+REACH_BUCKET = "campaign-reach"
+REACHES_PER_MINUTE = 30
 SENT_SETTINGS = "O'zgarish yuborildi. Bir necha soniyada ko'rinadi."
 HEADLINE_LIMIT = 255
 MESSAGE_LIMIT = 2000
@@ -256,6 +279,20 @@ def _sections(
             "radius_km": sketch.radius,
             "radius_bounds": [edit.audience.min_radius_km, MAX_RADIUS_KM],
             "has_interests": bool(sketch.interests),
+            "pin": _one_pin(edit.audience.spec),
+            "excluded_places": [
+                {"id": place.key, "name": place.name, "type": place.kind}
+                for place in excluded_places_of(edit.audience.spec)
+            ],
+            "detailed": [asdict(row) for row in detailed_of(edit.audience.spec)],
+            "excluded_detailed": [
+                asdict(row) for row in excluded_detailed_of(edit.audience.spec)
+            ],
+            "detail_open": _detail_open(edit.audience),
+            "included_lists": _held_lists(edit.audience.spec, INCLUDE_KEY),
+            "excluded_lists": _held_lists(edit.audience.spec, EXCLUDE_KEY),
+            "locales": list(edit.audience.spec.get("locales") or []),
+            "category": _category(edit.campaign),
         }
     if edit.limits is not None:
         limits = edit.limits
@@ -295,6 +332,33 @@ def _sections(
     }
 
 
+def _one_pin(spec: dict[str, Any]) -> dict[str, str] | None:
+    """The point on the map; several, from Ads Manager, are read as none."""
+    held = pins(spec)
+    if len(held) != 1:
+        return None
+    return {"lat": str(held[0]["latitude"]), "lng": str(held[0]["longitude"])}
+
+
+def _detail_open(target: Any) -> bool:
+    return detail_is_open(target.spec) and not target.special
+
+
+def _held_lists(spec: dict[str, Any], key: str) -> list[str]:
+    return [str(row["id"]) for row in spec.get(key) or () if row.get("id")]
+
+
+def _category(campaign: Any) -> str:
+    return next(
+        (
+            name
+            for name in campaign.special_ad_categories or ()
+            if name and name != "NONE"
+        ),
+        "",
+    )
+
+
 @router.get("/{campaign_id}/edit", response_model=CampaignEdit)
 def campaign_edit(
     campaign_id: uuid.UUID, db: Db, user: CurrentUser, group: str = GROUP_Q
@@ -316,6 +380,17 @@ class PlaceIn(BaseModel):
     type: Literal["city", "region", "country"]
 
 
+class DetailIn(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=255)
+    kind: str = Field(min_length=1, max_length=32)
+
+
+class PinIn(BaseModel):
+    lat: str = Field(min_length=1, max_length=32)
+    lng: str = Field(min_length=1, max_length=32)
+
+
 class AudienceSectionIn(BaseModel):
     age_min: int = Field(ge=MIN_AGE, le=MAX_AGE)
     age_max: int = Field(ge=MIN_AGE, le=MAX_AGE)
@@ -327,6 +402,13 @@ class AudienceSectionIn(BaseModel):
     places: list[PlaceIn] | None = Field(
         default=None, description="Where it reaches, whole; none leaves it as it is."
     )
+    pin: PinIn | None = Field(default=None, description="One point instead of places.")
+    excluded_places: list[PlaceIn] | None = None
+    detailed: list[DetailIn] | None = None
+    excluded_detailed: list[DetailIn] | None = None
+    included_lists: list[str] | None = None
+    excluded_lists: list[str] | None = None
+    locales: list[int] | None = None
 
 
 class LimitsSectionIn(BaseModel):
@@ -350,8 +432,6 @@ def _save(
     """Every section checked together, then written one by one; what each became is said."""
     from zoneinfo import ZoneInfo
 
-    from core.targeting import MAX_RADIUS_KM
-
     edit = _editable(db, user, campaign_id, group)
     errors: dict[str, str] = {}
     problems = Problems()
@@ -373,43 +453,10 @@ def _save(
             problems=problems,
             field="budget",
         )
-    if (
-        body.audience is not None
-        and edit.audience is not None
-        and edit.audience.can_change
-    ):
-        wanted = body.audience
-        sketch = edit.audience.sketch
-        if wanted.age_min > wanted.age_max:
-            errors["audience"] = "Yosh oralig'i teskari kiritilgan."
-        radius = wanted.radius_km if sketch.geo == "around" else None
-        if radius is not None and not (
-            edit.audience.min_radius_km <= radius <= MAX_RADIUS_KM
-        ):
-            errors["audience"] = "Masofa %s-%s km oralig'ida bo'lishi kerak." % (
-                edit.audience.min_radius_km,
-                MAX_RADIUS_KM,
-            )
-        audience = AudienceEdit(
-            age_min=wanted.age_min,
-            age_max=wanted.age_max,
-            genders=tuple(wanted.genders)
-            if wanted.genders is not None and edit.audience.allows_gender
-            else None,
-            radius_km=radius,
-            keep_interests=wanted.keep_interests if sketch.interests else True,
+    if body.audience is not None and edit.audience is not None:
+        audience = _audience_edit(
+            db, user=user, edit=edit, wanted=body.audience, errors=errors
         )
-    if (
-        body.audience is not None
-        and body.audience.places is not None
-        and edit.audience is not None
-        and edit.audience.can_move
-    ):
-        places = _wanted_places(db, edit=edit, picked=body.audience.places)
-        if places is None:
-            errors["places"] = "Joylardan birini qidiruvdan qayta tanlang."
-        else:
-            audience = replace(audience or AudienceEdit(), places=places)
     if body.limits is not None and edit.limits is not None and edit.limits.can_change:
         zone = ZoneInfo(_zone(db, user))
         if body.limits.end_date is not None and edit.limits.offers_end_time:
@@ -452,6 +499,197 @@ def _save(
     }
 
 
+def _audience_edit(
+    db: Session,
+    *,
+    user: User,
+    edit: Any,
+    wanted: AudienceSectionIn,
+    errors: dict[str, str],
+) -> AudienceEdit | None:
+    """The form's audience as one edit; what may not change now is left out."""
+    from core.targeting import MAX_RADIUS_KM
+
+    target = edit.audience
+    found: AudienceEdit | None = None
+    if target.can_change:
+        if wanted.age_min > wanted.age_max:
+            errors["audience"] = "Yosh oralig'i teskari kiritilgan."
+        found = AudienceEdit(
+            age_min=wanted.age_min,
+            age_max=wanted.age_max,
+            genders=tuple(wanted.genders)
+            if wanted.genders is not None and target.allows_gender
+            else None,
+            keep_interests=wanted.keep_interests if target.sketch.interests else True,
+        )
+        found = _people(
+            db, user=user, edit=edit, wanted=wanted, found=found, errors=errors
+        )
+    if target.can_move:
+        found = found or AudienceEdit()
+        radius = (
+            wanted.radius_km
+            if target.sketch.geo == "around" or wanted.pin is not None
+            else None
+        )
+        if radius is not None and not target.min_radius_km <= radius <= MAX_RADIUS_KM:
+            errors["audience"] = "Masofa %s-%s km oralig'ida bo'lishi kerak." % (
+                target.min_radius_km,
+                MAX_RADIUS_KM,
+            )
+        found = replace(found, radius_km=radius)
+        found = _where(db, edit=edit, wanted=wanted, found=found, errors=errors)
+    return None if found is None or found.is_empty else found
+
+
+def _where(
+    db: Session,
+    *,
+    edit: Any,
+    wanted: AudienceSectionIn,
+    found: AudienceEdit,
+    errors: dict[str, str],
+) -> AudienceEdit:
+    if wanted.places is not None:
+        places = _wanted_places(db, edit=edit, picked=wanted.places)
+        if places is None:
+            errors["places"] = "Joylardan birini qidiruvdan qayta tanlang."
+        else:
+            found = replace(found, places=places)
+    if wanted.pin is not None:
+        point = GeoChoice(mode="around", lat=wanted.pin.lat, lng=wanted.pin.lng)
+        if not point.has_pin:
+            errors["places"] = "Xaritadan nuqta tanlang."
+        else:
+            found = replace(found, pin=(wanted.pin.lat, wanted.pin.lng))
+    return found
+
+
+def _people(
+    db: Session,
+    *,
+    user: User,
+    edit: Any,
+    wanted: AudienceSectionIn,
+    found: AudienceEdit,
+    errors: dict[str, str],
+) -> AudienceEdit:
+    spec = edit.audience.spec
+    if wanted.detailed is not None or wanted.excluded_detailed is not None:
+        if not _detail_open(edit.audience):
+            errors["detailed"] = "Bu auditoriyada qiziqishlar shu yerda o'zgarmaydi."
+        else:
+            found = _details(db, edit=edit, wanted=wanted, found=found, errors=errors)
+    if wanted.excluded_places is not None:
+        held = {(row.kind, row.key): row for row in excluded_places_of(spec)}
+        places = _picked_places(db, edit=edit, held=held, picked=wanted.excluded_places)
+        if places is None or len(wanted.excluded_places) > MAX_GEO_PLACES:
+            errors["places"] = "Joylardan birini qidiruvdan qayta tanlang."
+        else:
+            found = replace(found, excluded_places=places)
+    if wanted.included_lists is not None or wanted.excluded_lists is not None:
+        lists = _wanted_lists(db, user=user, edit=edit, wanted=wanted)
+        if lists is None:
+            errors["lists"] = "Bu auditoriyani tanlab bo'lmaydi."
+        else:
+            found = replace(found, included_lists=lists[0], excluded_lists=lists[1])
+    if wanted.locales is not None:
+        found = replace(found, locales=tuple(wanted.locales))
+    return found
+
+
+def _details(
+    db: Session,
+    *,
+    edit: Any,
+    wanted: AudienceSectionIn,
+    found: AudienceEdit,
+    errors: dict[str, str],
+) -> AudienceEdit:
+    spec = edit.audience.spec
+    if wanted.detailed is not None:
+        rows = _wanted_detail(
+            db, edit=edit, picked=wanted.detailed, held=detailed_of(spec)
+        )
+        if rows is None:
+            errors["detailed"] = "Qiziqishlardan birini qidiruvdan qayta tanlang."
+        else:
+            found = replace(found, detailed=rows)
+    if wanted.excluded_detailed is not None:
+        rows = _wanted_detail(
+            db,
+            edit=edit,
+            picked=wanted.excluded_detailed,
+            held=excluded_detailed_of(spec),
+        )
+        if rows is None:
+            errors["detailed"] = "Qiziqishlardan birini qidiruvdan qayta tanlang."
+        else:
+            found = replace(found, excluded_detailed=rows)
+    return found
+
+
+def _wanted_detail(
+    db: Session, *, edit: Any, picked: list[DetailIn], held: tuple[Detail, ...]
+) -> tuple[Detail, ...] | None:
+    """A row the audience has stays; a new one was searched."""
+    kept = {(row.kind, row.id): row for row in held}
+    new = [row for row in picked if (row.kind, row.id) not in kept]
+    found = confirmed_detail(
+        db, campaign=edit.campaign, picked=[row.model_dump() for row in new]
+    )
+    if found is None:
+        return None
+    fresh = {(row.kind, row.id): row for row in found}
+    return tuple(
+        kept.get((row.kind, row.id)) or fresh[(row.kind, row.id)] for row in picked
+    )
+
+
+def _wanted_lists(
+    db: Session, *, user: User, edit: Any, wanted: AudienceSectionIn
+) -> tuple[tuple[AudienceRef, ...], tuple[AudienceRef, ...]] | None:
+    """Both sides as refs: a list it holds stays, another must be this account's and usable."""
+    from app.modules.integrations.selectors.audiences import targets_for
+
+    spec = edit.audience.spec
+    held = {*_held_lists(spec, INCLUDE_KEY), *_held_lists(spec, EXCLUDE_KEY)}
+    options = {
+        row.external_id: row
+        for row in targets_for(
+            db,
+            owner=user,
+            account=edit.campaign.ad_account,
+            special_ad_category=_category(edit.campaign),
+        )
+    }
+    sides = (
+        wanted.included_lists
+        if wanted.included_lists is not None
+        else _held_lists(spec, INCLUDE_KEY),
+        wanted.excluded_lists
+        if wanted.excluded_lists is not None
+        else _held_lists(spec, EXCLUDE_KEY),
+    )
+    for key in {*sides[0], *sides[1]}:
+        option = options.get(key)
+        if key not in held and (option is None or not option.is_usable):
+            return None
+
+    def refs(keys: list[str]) -> tuple[AudienceRef, ...]:
+        return tuple(
+            AudienceRef(
+                external_id=key,
+                label=options[key].label if key in options else "",
+                is_lookalike=options[key].is_lookalike if key in options else False,
+            )
+            for key in keys
+        )
+
+    return refs(sides[0]), refs(sides[1])
+
+
 def _wanted_places(
     db: Session, *, edit: Any, picked: list[PlaceIn]
 ) -> tuple[GeoPlace, ...] | None:
@@ -459,11 +697,24 @@ def _wanted_places(
     held = {
         (place.kind, place.key): place for place in chosen_places(edit.audience.spec)
     }
+    places = _picked_places(db, edit=edit, held=held, picked=picked)
+    if not picked or len(picked) > MAX_GEO_PLACES:
+        return None
+    return places
+
+
+def _picked_places(
+    db: Session,
+    *,
+    edit: Any,
+    held: dict[tuple[str, str], GeoPlace],
+    picked: list[PlaceIn],
+) -> tuple[GeoPlace, ...] | None:
     new = [row for row in picked if (row.type, row.id) not in held]
     found = confirmed_for_campaign(
         db, campaign=edit.campaign, picked=[row.model_dump() for row in new]
     )
-    if found is None or not picked or len(picked) > MAX_GEO_PLACES:
+    if found is None:
         return None
     fresh = {(place.kind, place.key): place for place in found}
     return tuple(
@@ -507,6 +758,120 @@ def campaign_locations(
         )
         for row in rows
     ]
+
+
+def _searched_campaign(db: Session, *, user: User, campaign_id: uuid.UUID) -> Campaign:
+    """The campaign a search is for, once this person has not asked too often."""
+    campaign = selectors.campaign_detail(db, owner=user, campaign_id=campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Kampaniya topilmadi.")
+    if not throttle.hit(
+        bucket=GEO_SEARCH_BUCKET,
+        key=str(user.id),
+        limit=GEO_SEARCHES_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.",
+        )
+    return campaign
+
+
+@router.get("/{campaign_id}/targeting-search", response_model=list[DetailFound])
+def campaign_detail_search(
+    campaign_id: uuid.UUID,
+    db: Db,
+    user: CurrentUser,
+    q: str = Query("", max_length=MAX_GEO_SEARCH),
+) -> list[dict[str, Any]]:
+    """Interests, behaviours and life events a running audience may take."""
+    query = place_query(q)
+    if not query:
+        return []
+    campaign = _searched_campaign(db, user=user, campaign_id=campaign_id)
+    return search_detail(db, campaign=campaign, query=query)
+
+
+@router.get("/{campaign_id}/languages", response_model=list[EditLocale])
+def campaign_language_search(
+    campaign_id: uuid.UUID,
+    db: Db,
+    user: CurrentUser,
+    q: str = Query("", max_length=MAX_GEO_SEARCH),
+) -> list[dict[str, Any]]:
+    """The languages a running audience may be narrowed to."""
+    query = place_query(q)
+    if not query:
+        return []
+    campaign = _searched_campaign(db, user=user, campaign_id=campaign_id)
+    return search_locales(db, campaign=campaign, query=query)
+
+
+NO_ESTIMATE: dict[str, Any] = {
+    "available": False,
+    "ready": True,
+    "lower": 0,
+    "upper": 0,
+}
+
+
+@router.post("/{campaign_id}/reach", response_model=ReachEstimate)
+def campaign_reach(
+    campaign_id: uuid.UUID, body: CampaignPatch, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    """How many people the form as it stands would reach. Nothing is saved or sent."""
+    from app.modules.ads.contract.editing import changed_sections
+    from app.modules.ads.exceptions import ConnectionUnusable, NoAdAccount
+
+    edit, form = _sections(db, user, campaign_id, body.group or "")
+    if edit.audience is None:
+        return NO_ESTIMATE
+    if not throttle.hit(
+        bucket=REACH_BUCKET,
+        key=str(user.id),
+        limit=REACHES_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.",
+        )
+    group = next(
+        row
+        for row in edit.campaign.adsets
+        if row.external_id == edit.audience.external_id
+    )
+    errors: dict[str, str] = {}
+    sent = (changed_sections(form["sections"], body) or {}).get("audience")
+    audience = (
+        _audience_edit(
+            db,
+            user=user,
+            edit=edit,
+            wanted=AudienceSectionIn(**sent),
+            errors=errors,
+        )
+        if sent
+        else None
+    )
+    if errors:
+        return NO_ESTIMATE
+    try:
+        spec = (
+            revise(edit.audience.spec, edit=audience, special=edit.audience.special)
+            if audience is not None
+            else dict(edit.audience.spec)
+        )
+        reach = estimated_reach(campaign=edit.campaign, group=group, targeting=spec)
+    except (InvalidTargeting, ProviderError, NoAdAccount, ConnectionUnusable):
+        return NO_ESTIMATE
+    return {
+        "available": reach.available,
+        "ready": reach.ready,
+        "lower": reach.lower or 0,
+        "upper": reach.upper or 0,
+    }
 
 
 @router.post("/{campaign_id}/edit", responses={200: {"model": CampaignEditSaveOut}})

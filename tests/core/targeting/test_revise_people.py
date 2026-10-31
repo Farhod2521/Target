@@ -133,9 +133,7 @@ def test_excluded_places_are_replaced_and_can_be_cleared() -> None:
     found = revise(SPEC, edit=AudienceEdit(excluded_places=(place,)))
 
     assert found["excluded_geo_locations"] == {"cities": [{"key": "7"}]}
-    assert excluded_places_of(found) == (
-        GeoPlace(key="7", name="7", kind="city"),
-    )
+    assert excluded_places_of(found) == (GeoPlace(key="7", name="7", kind="city"),)
     assert "excluded_geo_locations" not in revise(
         found, edit=AudienceEdit(excluded_places=())
     )
@@ -150,9 +148,7 @@ def test_an_excluded_place_is_not_a_place_move() -> None:
 
 
 def test_a_pin_replaces_the_places_and_keeps_the_block_settings() -> None:
-    found = revise(
-        SPEC, edit=AudienceEdit(pin=("41.3", "69.2"), radius_km=8)
-    )
+    found = revise(SPEC, edit=AudienceEdit(pin=("41.3", "69.2"), radius_km=8))
 
     assert found["geo_locations"] == {
         "custom_locations": [

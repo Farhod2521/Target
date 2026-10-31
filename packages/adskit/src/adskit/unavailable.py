@@ -36,6 +36,7 @@ from adskit.dto import (
     LeadDTO,
     LeadEventDTO,
     LeadFormDTO,
+    LocaleDTO,
     LocationDTO,
     LookalikeSpecDTO,
     MemberUploadDTO,
@@ -199,6 +200,12 @@ class Unavailable:
     def find_traits(
         self, *, kind: TraitKind, names: list[str], token: str
     ) -> list[InterestDTO]:
+        raise self._refuse()
+
+    def search_detail(self, *, query: str, token: str) -> list[InterestDTO]:
+        raise self._refuse()
+
+    def search_locales(self, *, query: str, token: str) -> list[LocaleDTO]:
         raise self._refuse()
 
     def find_locations(
