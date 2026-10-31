@@ -26,6 +26,11 @@ from app.modules.accounts.services.register_user import (
     register_user,
     sign_up,
 )
+from app.modules.accounts.services.reset_password import (
+    issue_password_reset,
+    reset_password,
+    reset_target,
+)
 from app.modules.accounts.services.save_account import (
     PHONE_SAVED,
     save_account,
@@ -46,6 +51,7 @@ __all__ = [
     "create_member_login",
     "email_in_use",
     "issue_handoff",
+    "issue_password_reset",
     "purge_owned_rows",
     "purge_preview",
     "purge_user",
@@ -53,6 +59,8 @@ __all__ = [
     "register_user",
     "remove_member_login",
     "rename_member_login",
+    "reset_password",
+    "reset_target",
     "safe_destination",
     "save_account",
     "save_phone",

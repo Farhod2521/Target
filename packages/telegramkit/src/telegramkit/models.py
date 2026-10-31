@@ -10,11 +10,13 @@ from telegramkit.updates import CALLBACK_DATA_MAX_BYTES
 class Button(BaseModel):
     """One inline button: what it says, and what happens when it is pressed.
 
-    Two kinds, and exactly one of them per button. ``data`` comes back to
+    Three kinds, and exactly one of them per button. ``data`` comes back to
     the webhook as a press; ``web_app`` opens a page inside Telegram and
-    sends nothing. A button with both would be a keyboard Telegram refuses
-    and a button with neither would be one nobody can use, so both are
-    caught here rather than in an API error about the whole request.
+    sends nothing; ``url`` opens an address in whatever browser the phone
+    uses for links, and sends nothing either. A button with two would be a
+    keyboard Telegram refuses and a button with none would be one nobody
+    can use, so both are caught here rather than in an API error about the
+    whole request.
 
     ``data`` is checked for length in the same place and for the same
     reason: Telegram rejects an over-long value with a message that names
@@ -31,18 +33,23 @@ class Button(BaseModel):
     text: str
     data: str = ""
     web_app: str = ""
+    # A plain link, for a page that must not live inside Telegram's WebView:
+    # a form whose result is a browser session the WebView would keep.
+    url: str = ""
     row: Literal["shared", "own"] = "shared"
     style: Literal["success", "danger", "primary"] | None = None
 
     def as_payload(self) -> dict[str, Any]:
-        if bool(self.data) == bool(self.web_app):
+        if sum(map(bool, (self.data, self.web_app, self.url))) != 1:
             raise ValueError(
-                f"a button carries either callback data or a web_app url, "
+                f"a button carries one of callback data, a web_app url or a url, "
                 f"not both and not neither: {self.text!r}"
             )
         styled: dict[str, Any] = {"style": self.style} if self.style else {}
         if self.web_app:
             return {"text": self.text, "web_app": {"url": self.web_app}, **styled}
+        if self.url:
+            return {"text": self.text, "url": self.url, **styled}
         if len(self.data.encode("utf-8")) > CALLBACK_DATA_MAX_BYTES:
             raise ValueError(
                 f"callback data is over {CALLBACK_DATA_MAX_BYTES} bytes: {self.data!r}"
@@ -52,7 +59,7 @@ class Button(BaseModel):
     @property
     def opens_a_page(self) -> bool:
         """Whether this button leads somewhere rather than answering something."""
-        return bool(self.web_app)
+        return bool(self.web_app or self.url)
 
 
 class SentMessage(BaseModel):

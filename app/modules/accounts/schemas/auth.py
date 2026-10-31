@@ -52,3 +52,20 @@ class HandoffOut(BaseModel):
 
 class HandedOff(TokenPair):
     next: str
+
+
+class ResetLinkOut(BaseModel):
+    """Where "Parolni unutdingizmi?" opens the bot; empty with no bot."""
+
+    bot_url: str
+
+
+class ResetTargetOut(BaseModel):
+    """The account a live new-password link replaces the password of."""
+
+    email: str
+
+
+class NewPasswordIn(BaseModel):
+    new_password1: str = Field(min_length=1, max_length=128)
+    new_password2: str = Field(min_length=1, max_length=128)

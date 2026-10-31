@@ -3,6 +3,7 @@ from typing import Any
 from app.common.db import utcnow
 from app.modules.notifications.services import (
     announce_feedback,
+    announce_password_changed,
     announce_referral,
     announce_support_answered,
     announce_support_reply,
@@ -81,6 +82,18 @@ def deliver_referral_notice_task(referrer_id: str, invited_id: str) -> bool:
         if referrer is None or invited is None:
             return False
         sent = announce_referral(db, referrer=referrer, invited=invited, now=utcnow())
+        db.commit()
+        return sent
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def deliver_password_changed_task(owner_id: str) -> bool:
+    """Tell the linked phone a password was just replaced through the bot."""
+    with task_session() as db:
+        owner = user_of(db, owner_id)
+        if owner is None:
+            return False
+        sent = announce_password_changed(db, owner=owner, now=utcnow())
         db.commit()
         return sent
 

@@ -6,6 +6,7 @@ from app.api.deps import CurrentUser, Db, client_address
 from app.common import throttle, tokens
 from app.common.config import settings
 from app.common.db import utcnow
+from app.common.exceptions import InputRefused
 from app.common.routes import reverse
 from app.modules.accounts import services
 from app.modules.accounts.constants import (
@@ -26,11 +27,15 @@ from app.modules.accounts.schemas import (
     HandoffIn,
     HandoffOut,
     LoginIn,
+    NewPasswordIn,
     RefreshIn,
+    ResetLinkOut,
+    ResetTargetOut,
     SignupIn,
     TokenPair,
     UserOut,
 )
+from app.modules.notifications.services import reset_bot_link
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -159,3 +164,29 @@ def handoff_redeem(token: str, db: Db) -> HandedOff:
         access_token=pair.access_token,
         refresh_token=pair.refresh_token,
     )
+
+
+@router.get("/reset", response_model=ResetLinkOut)
+def reset_link() -> ResetLinkOut:
+    """ "Parolni unutdingizmi?" opens the bot, which sends the link to the chat
+    a signed-in cabinet linked. Empty with no bot: the page names Support."""
+    return ResetLinkOut(bot_url=reset_bot_link())
+
+
+@router.get("/reset/{token}", response_model=ResetTargetOut)
+def reset_check(token: str, db: Db) -> ResetTargetOut:
+    """Whether the link still works, asked before the form is drawn; a dead
+    one is ``reset_link_invalid`` and spends nothing."""
+    return ResetTargetOut(email=services.reset_target(db, token=token).email)
+
+
+@router.post("/reset/{token}", response_model=TokenPair)
+def reset_save(token: str, body: NewPasswordIn, db: Db) -> TokenPair:
+    """The new password, typed twice. Every other device is signed out and
+    this one is signed in; the wrong guesses that brought the reader here
+    stop counting against the account."""
+    if body.new_password1 != body.new_password2:
+        raise InputRefused({"new_password2": "Parollar bir xil emas."})
+    user = services.reset_password(db, token=token, new_password=body.new_password2)
+    throttle.forget(bucket=LOGIN_BY_EMAIL, key=user.email.lower())
+    return token_pair(user)

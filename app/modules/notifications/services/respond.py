@@ -1,14 +1,14 @@
 """What the customer bot does when somebody writes to it.
 
-``/start`` with a code links an account, ``/stop`` unlinks it, ``/yordam``
-makes the next typed words a message to Support. A stranger and an unlinked
+``/start`` with a code links an account, ``/start parol`` sends a linked
+one its new-password link, ``/stop`` unlinks it, ``/yordam`` makes the next
+typed words a message to Support. A stranger and an unlinked
 chat get the one sentence about connecting.
 
 Not here yet, from Django: the assistant answering typed questions, the
-buttons under notices (suggestions, pauses, survey, daily report), the
-``/hisobot`` and ``/bugun`` reports, and the new-password link for
-``/start parol``. Until they are, those get the bot's help sentence, a
-press is answered "not available", and ``parol`` points at Support.
+buttons under notices (suggestions, pauses, survey, daily report), and the
+``/hisobot`` and ``/bugun`` reports. Until they are, those get the bot's
+help sentence and a press is answered "not available".
 """
 
 import logging
@@ -44,6 +44,7 @@ from app.modules.notifications.models import TelegramChat
 from app.modules.notifications.selectors import chat_by_id
 from app.modules.notifications.services.compose import escaped
 from app.modules.notifications.services.link import link_chat, stop_chat
+from app.modules.notifications.services.password_reset import answer_reset_request
 from app.modules.notifications.services.send import answer, send_to
 from app.modules.supportchat.services import write_from_telegram
 
@@ -123,15 +124,7 @@ def _start(
         _say(client=client, chat_id=command.chat_id, text=_hello(known))
         return "no_code"
     if command.argument == RESET_PAYLOAD:
-        _say(
-            client=client,
-            chat_id=command.chat_id,
-            text=(
-                "Parolni tiklash uchun yordam xizmatiga yozing - parolni "
-                "tiklashga yordam beramiz."
-            ),
-        )
-        return "reset_unported"
+        return answer_reset_request(client=client, chat_id=command.chat_id, known=known)
     try:
         chat = link_chat(
             db,

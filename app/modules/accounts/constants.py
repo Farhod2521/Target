@@ -109,4 +109,9 @@ PURGE_EXEMPT: frozenset[str] = frozenset({"public.DeletionRequest"})
 HANDOFF_TTL_SECONDS: Final = 300
 HANDOFF_TOKEN_BYTES: Final = 32
 HANDOFF_TOKEN_KEY: Final = "accounts:handoff:{token}"
+# The bot's new-password link: one change, within a quarter hour, and dead
+# once the password moves by any road.
+RESET_TTL_SECONDS: Final = 15 * 60
+RESET_TOKEN_BYTES: Final = 32
+RESET_TOKEN_KEY: Final = "accounts:reset:{token}"
 REGISTERED_PIXEL_KEY: Final = "accounts:registered_pixel"
