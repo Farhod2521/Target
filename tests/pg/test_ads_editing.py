@@ -1,5 +1,6 @@
 """Editing what already runs, against PostgreSQL: an advert's words, a campaign's settings, a preview."""
 
+import pytest
 from fastapi.testclient import TestClient
 from metaads import PROVIDER
 from sqlalchemy import select
@@ -299,3 +300,124 @@ def test_the_edit_form_is_saved_whole_and_only_changes_are_sent(
     assert raised.json()["action"]["status"] == "pending"
     log = db.scalar(select(ActionLog))
     assert log is not None and log.request_payload["daily_budget_minor"] == 1500
+
+
+def _signed_with_campaign(
+    client: TestClient, db: Session
+) -> tuple[dict[str, str], Campaign]:
+    headers = sign_up(client)
+    owner = db.scalar(select(User).order_by(User.date_joined.desc()))
+    assert owner is not None
+    account, page = _cabinet(db, owner)
+    page.is_current = page.is_active = True
+    account.is_active = account.is_current = True
+    db.commit()
+    start_trial(db, user=owner, now=utcnow())
+    db.commit()
+    return headers, _running(db, owner, account)
+
+
+def _tashkent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.modules.ads.services.locations._campaign_answer",
+        lambda *_a, **_k: [
+            {
+                "key": "111",
+                "name": "Toshkent",
+                "kind": "city",
+                "parent": "",
+                "country_code": "UZ",
+                "context": "Toshkent, Uzbekistan",
+            }
+        ],
+    )
+
+
+def _patch(campaign: Campaign, **changed: object) -> dict[str, object]:
+    return {
+        "dailyBudget": 10,
+        "ageMin": 25,
+        "ageMax": 45,
+        "gender": "all",
+        "audienceIds": [],
+        **changed,
+    }
+
+
+TASHKENT = {"id": "111", "name": "Toshkent", "type": "city"}
+
+
+def test_a_running_audience_moves_to_a_searched_place(
+    client: TestClient,
+    db: Session,
+    queued: list,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _tashkent(monkeypatch)
+    headers, campaign = _signed_with_campaign(client, db)
+
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers).json()
+    assert form["places"] == [{"id": "UZ", "name": "UZ", "type": "country"}]
+    found = client.get(
+        f"/api/v1/campaigns/{campaign.id}/locations?q=Tosh", headers=headers
+    )
+    assert found.json()[0]["id"] == "111"
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, places=[TASHKENT]),
+        headers=headers,
+    )
+
+    assert saved.status_code == 200, saved.text
+    log = db.scalars(select(ActionLog)).one()
+    assert log.request_payload["targeting"]["geo_locations"] == {
+        "cities": [{"key": "111"}]
+    }
+
+
+def test_a_place_nobody_searched_is_refused(
+    client: TestClient,
+    db: Session,
+    queued: list,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _tashkent(monkeypatch)
+    headers, campaign = _signed_with_campaign(client, db)
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, places=[{"id": "999", "name": "Yo'q", "type": "city"}]),
+        headers=headers,
+    )
+
+    assert saved.status_code == 422, saved.text
+    assert "places" in saved.text
+    assert db.scalars(select(ActionLog)).all() == []
+
+
+def test_while_it_learns_only_the_place_can_move(
+    client: TestClient,
+    db: Session,
+    queued: list,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _tashkent(monkeypatch)
+    headers, campaign = _signed_with_campaign(client, db)
+    group = db.scalars(select(AdSet)).one()
+    group.is_learning = True
+    db.commit()
+
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers).json()
+    assert (form["locks"]["audience"], form["canMove"]) == ("learning", True)
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, ageMin=30, places=[TASHKENT]),
+        headers=headers,
+    )
+
+    assert saved.status_code == 200, saved.text
+    log = db.scalars(select(ActionLog)).one()
+    assert log.request_payload["targeting"]["age_min"] == 25
+    assert "cities" in log.request_payload["targeting"]["geo_locations"]

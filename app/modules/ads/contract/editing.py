@@ -15,6 +15,7 @@ from app.common.contract import Camel, zero_or
 from app.common.money import provider_money
 from app.modules.accounts.models import User
 from app.modules.ads import selectors
+from app.modules.ads.constants import MAX_GEO_PLACES
 from app.modules.ads.contract.listing import figures_of
 from app.modules.ads.contract.words import goal_of, kind_of, network_of, place_of
 
@@ -28,11 +29,18 @@ FORM_FIELDS: Final[dict[str, str]] = {
     "spend_cap": "limit",
     "budget": "dailyBudget",
     "audience": "ageMin",
+    "places": "places",
     "limits": "endsAt",
 }
 GENDERS: Final[dict[str, list[int]]] = {"male": [1], "female": [2], "all": []}
 # Steps up from today's budget, offered as one-press amounts.
 PRESET_STEPS: Final = (1, 1.2, 1.5, 2)
+
+
+class PlacePatch(Camel):
+    id: str
+    name: str
+    type: Literal["city", "region", "country"]
 
 
 class CampaignPatch(Camel):
@@ -43,6 +51,9 @@ class CampaignPatch(Camel):
     ends_at: date | None = None
     limit: float | None = Field(None, description="The spending limit, major units.")
     audience_ids: list[str] = Field(default_factory=list)
+    places: list[PlacePatch] | None = Field(
+        None, description="Where it reaches, whole; left out, it stays as it is."
+    )
     group: str | None = Field(None, description="Split campaigns: the group edited.")
 
 
@@ -80,6 +91,14 @@ def changed_sections(
                 else None,
                 "keep_interests": True,
             }
+    if audience and audience["can_move"] and patch.places is not None:
+        wanted = [row.model_dump() for row in patch.places]
+        if _spots(wanted) != _spots(audience["places"]):
+            out["audience"] = out.get("audience") or {
+                "age_min": audience["age_min"],
+                "age_max": audience["age_max"],
+            }
+            out["audience"]["places"] = wanted
     limits = sections.get("limits")
     if limits and limits["can_change"]:
         cap = float(limits["spend_cap"]) if limits["spend_cap"] else None
@@ -91,6 +110,10 @@ def changed_sections(
                 else None,
             }
     return out or None
+
+
+def _spots(places: list[dict[str, str]]) -> set[tuple[str, str]]:
+    return {(row["type"], row["id"]) for row in places}
 
 
 def edit_form(
@@ -165,6 +188,10 @@ def edit_form(
         "spent_total": zero_or(settings.spending_minor, currency, provider=provider),
         "unit_cost": figures["unit_cost"] if figures else None,
         "place": place_of(sketch),
+        "places": (audience or {}).get("places", []),
+        "place_limit": MAX_GEO_PLACES,
+        "can_move": bool((audience or {}).get("can_move")),
+        "learning": bool((audience or {}).get("is_learning")),
         "age_min": (audience or {}).get("age_min", 18),
         "age_max": (audience or {}).get("age_max", 65),
         "age_bounds": (audience or {}).get("age_bounds", [18, 65]),

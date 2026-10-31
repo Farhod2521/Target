@@ -125,6 +125,26 @@ def _without_overlap(places: tuple[GeoPlace, ...]) -> list[GeoPlace]:
     return kept
 
 
+def chosen_places(spec: Mapping[str, Any]) -> tuple[GeoPlace, ...]:
+    """The cities, regions and countries one spec is aimed at."""
+    block = spec.get("geo_locations")
+    if not isinstance(block, Mapping):
+        return ()
+    found: list[GeoPlace] = []
+    for kind, key in _ARRAYS.items():
+        for item in block.get(key) or ():
+            row = item if isinstance(item, Mapping) else {"key": item, "name": item}
+            if row.get("key"):
+                found.append(
+                    GeoPlace(
+                        key=str(row["key"]),
+                        name=str(row.get("name") or row["key"]),
+                        kind=kind,
+                    )
+                )
+    return tuple(found)
+
+
 def fallback(*, country_code: str) -> GeoChoice:
     """Everywhere, because nothing narrower was known."""
     return GeoChoice(mode="country", country_code=country_code, origin="derived")

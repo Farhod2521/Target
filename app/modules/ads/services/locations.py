@@ -3,6 +3,7 @@ and seed the regions and cities the geography question offers."""
 
 import hashlib
 import logging
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -22,6 +23,7 @@ from app.modules.ads.constants import (
     MIN_GEO_SEARCH,
     DraftSection,
     GeoAreaKind,
+    ManagedLevel,
 )
 from app.modules.ads.exceptions import (
     ConnectionUnusable,
@@ -29,9 +31,12 @@ from app.modules.ads.exceptions import (
     PlaceSearchFailed,
 )
 from app.modules.ads.geo_catalogue import CATALOGUES, SeedName, key_for
-from app.modules.ads.models import CampaignLaunch, GeoArea
+from app.modules.ads.models import Campaign, CampaignLaunch, GeoArea
 from app.modules.ads.rows import fresh
-from app.modules.ads.services.access import launch_account_and_token
+from app.modules.ads.services.access import (
+    launch_account_and_token,
+    target_account_and_token,
+)
 from app.modules.ads.services.interests import request_estimate
 from app.modules.ads.services.targeting import rebuild_targeting
 from app.modules.businesses.models import Business
@@ -87,15 +92,79 @@ def confirmed_places(
 def _found_places(
     db: Session, *, launch: CampaignLaunch, query: str
 ) -> list[dict[str, str]]:
+    return _answer(
+        db,
+        provider=launch.provider,
+        owner=launch.owner,
+        account=launch.ad_account,
+        credentials=lambda: launch_account_and_token(db, launch=launch),
+        query=query,
+    )
+
+
+def campaign_places(
+    db: Session, *, campaign: Campaign, query: str, country_code: str
+) -> list[dict[str, str]]:
+    """The place search for what already runs: the given country's rows first."""
+    wanted = country_code.upper()
+    return sorted(
+        _campaign_answer(db, campaign=campaign, query=query),
+        key=lambda row: row["country_code"].upper() != wanted,
+    )
+
+
+def confirmed_for_campaign(
+    db: Session, *, campaign: Campaign, picked: Sequence[Mapping[str, str]]
+) -> tuple[GeoPlace, ...] | None:
+    """What the search offered under these names; ``None`` when one was not."""
+    places: list[GeoPlace] = []
+    for pick in picked:
+        query = place_query(pick["name"])
+        hits = _campaign_answer(db, campaign=campaign, query=query) if query else []
+        hit = next((row for row in hits if row["key"] == pick["id"]), None)
+        if hit is None:
+            return None
+        places.append(
+            GeoPlace(
+                key=hit["key"], name=hit["name"], kind=hit["kind"], parent=hit["parent"]
+            )
+        )
+    return tuple(places)
+
+
+def _campaign_answer(
+    db: Session, *, campaign: Campaign, query: str
+) -> list[dict[str, str]]:
+    return _answer(
+        db,
+        provider=campaign.provider,
+        owner=campaign.owner,
+        account=campaign.ad_account,
+        credentials=lambda: target_account_and_token(
+            target=campaign, level=ManagedLevel.CAMPAIGN
+        ),
+        query=query,
+    )
+
+
+def _answer(
+    db: Session,
+    *,
+    provider: str,
+    owner: Any,
+    account: Any,
+    credentials: Callable[[], tuple[Any, str]],
+    query: str,
+) -> list[dict[str, str]]:
     """One word's answer, kept whole: the save reads the search's own rows."""
     language = get_language()
-    key = _search_key(provider=launch.provider, language=language, query=query)
+    key = _search_key(provider=provider, language=language, query=query)
     kept = _kept_search(key)
     if kept is not None:
         return kept
     try:
-        _account, token = launch_account_and_token(db, launch=launch)
-        found = registry.get(launch.provider).audiences.find_locations(
+        _account, token = credentials()
+        found = registry.get(provider).audiences.find_locations(
             query=query, country_code="", token=token, language=language
         )
     except ProviderError as exc:
@@ -105,11 +174,7 @@ def _found_places(
         if exc.retryable:
             raise PlaceSearchFailed from exc
         raise refused(
-            db,
-            owner=launch.owner,
-            exc=exc,
-            operation="place",
-            account=launch.ad_account,
+            db, owner=owner, exc=exc, operation="place", account=account
         ) from exc
     rows = [
         {

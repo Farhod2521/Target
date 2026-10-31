@@ -5,7 +5,7 @@ services the switches use, so every guardrail and audit row is the same.
 """
 
 import uuid
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Literal
@@ -15,13 +15,20 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
+from app.common import throttle
 from app.common.contract import Camel
 from app.common.db import utcnow
 from app.common.money import provider_money
 from app.modules.accounts.models import User
 from app.modules.ads import actions, selectors, services
-from app.modules.ads.constants import ManagedLevel
+from app.modules.ads.constants import (
+    GEO_SEARCHES_PER_MINUTE,
+    MAX_GEO_PLACES,
+    MAX_GEO_SEARCH,
+    ManagedLevel,
+)
 from app.modules.ads.contract.editing import CampaignPatch
+from app.modules.ads.contract.launch.shapes import PlaceFound
 from app.modules.ads.contract.shapes import (
     AdEdit,
     AdPreview,
@@ -35,8 +42,15 @@ from app.modules.ads.routers import _target, router
 from app.modules.ads.schemas import (
     CampaignEditSaveOut,
 )
-from core.targeting import MAX_AGE, MIN_AGE
+from app.modules.ads.services.locations import (
+    campaign_places,
+    confirmed_for_campaign,
+    place_query,
+)
+from core.targeting import MAX_AGE, MIN_AGE, AudienceEdit
+from core.targeting.geo import GeoPlace, chosen_places
 
+GEO_SEARCH_BUCKET = "geo-search"
 SENT_SETTINGS = "O'zgarish yuborildi. Bir necha soniyada ko'rinadi."
 HEADLINE_LIMIT = 255
 MESSAGE_LIMIT = 2000
@@ -218,6 +232,11 @@ def _sections(
         sections["audience"] = {
             "external_id": edit.audience.external_id,
             "can_change": edit.audience.can_change,
+            "can_move": edit.audience.can_move,
+            "places": [
+                {"id": place.key, "name": place.name, "type": place.kind}
+                for place in chosen_places(edit.audience.spec)
+            ],
             "is_learning": edit.audience.is_learning,
             "allows_gender": edit.audience.allows_gender,
             "age_min": sketch.age_min or MIN_AGE,
@@ -283,6 +302,12 @@ class BudgetSectionIn(BaseModel):
     daily_budget: Decimal = Field(gt=0)
 
 
+class PlaceIn(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=200)
+    type: Literal["city", "region", "country"]
+
+
 class AudienceSectionIn(BaseModel):
     age_min: int = Field(ge=MIN_AGE, le=MAX_AGE)
     age_max: int = Field(ge=MIN_AGE, le=MAX_AGE)
@@ -291,6 +316,9 @@ class AudienceSectionIn(BaseModel):
     )
     radius_km: int | None = None
     keep_interests: bool = True
+    places: list[PlaceIn] | None = Field(
+        default=None, description="Where it reaches, whole; none leaves it as it is."
+    )
 
 
 class LimitsSectionIn(BaseModel):
@@ -314,7 +342,7 @@ def _save(
     """Every section checked together, then written one by one; what each became is said."""
     from zoneinfo import ZoneInfo
 
-    from core.targeting import MAX_RADIUS_KM, AudienceEdit
+    from core.targeting import MAX_RADIUS_KM
 
     edit = _editable(db, user, campaign_id, group)
     errors: dict[str, str] = {}
@@ -363,6 +391,17 @@ def _save(
             radius_km=radius,
             keep_interests=wanted.keep_interests if sketch.interests else True,
         )
+    if (
+        body.audience is not None
+        and body.audience.places is not None
+        and edit.audience is not None
+        and edit.audience.can_move
+    ):
+        places = _wanted_places(db, edit=edit, picked=body.audience.places)
+        if places is None:
+            errors["places"] = "Joylardan birini qidiruvdan qayta tanlang."
+        else:
+            audience = replace(audience or AudienceEdit(), places=places)
     if body.limits is not None and edit.limits is not None and edit.limits.can_change:
         zone = ZoneInfo(_zone(db, user))
         if body.limits.end_date is not None and edit.limits.offers_end_time:
@@ -403,6 +442,63 @@ def _save(
         "adjustments": [asdict(note) for note in outcome.adjustments],
         "message": SENT_SETTINGS if outcome.queued else "O'zgarish kiritilmadi.",
     }
+
+
+def _wanted_places(
+    db: Session, *, edit: Any, picked: list[PlaceIn]
+) -> tuple[GeoPlace, ...] | None:
+    """What the form names: a place the audience has stays, a new one was searched."""
+    held = {
+        (place.kind, place.key): place for place in chosen_places(edit.audience.spec)
+    }
+    new = [row for row in picked if (row.type, row.id) not in held]
+    found = confirmed_for_campaign(
+        db, campaign=edit.campaign, picked=[row.model_dump() for row in new]
+    )
+    if found is None or not picked or len(picked) > MAX_GEO_PLACES:
+        return None
+    fresh = {(place.kind, place.key): place for place in found}
+    return tuple(
+        held.get((row.type, row.id)) or fresh[(row.type, row.id)] for row in picked
+    )
+
+
+@router.get("/{campaign_id}/locations", response_model=list[PlaceFound])
+def campaign_locations(
+    campaign_id: uuid.UUID,
+    db: Db,
+    user: CurrentUser,
+    q: str = Query("", max_length=MAX_GEO_SEARCH),
+    country: str = Query("", pattern="^([A-Za-z]{2})?$"),
+) -> list[PlaceFound]:
+    """The place search for a running audience, as the launch's editor has it."""
+    campaign = selectors.campaign_detail(db, owner=user, campaign_id=campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Kampaniya topilmadi.")
+    query = place_query(q)
+    if not query:
+        return []
+    if not throttle.hit(
+        bucket=GEO_SEARCH_BUCKET,
+        key=str(user.id),
+        limit=GEO_SEARCHES_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.",
+        )
+    rows = campaign_places(db, campaign=campaign, query=query, country_code=country)
+    return [
+        PlaceFound(
+            id=row["key"],
+            name=row["name"],
+            type=row["kind"],
+            context=row["context"],
+            country_code=row["country_code"],
+        )
+        for row in rows
+    ]
 
 
 @router.post("/{campaign_id}/edit", responses={200: {"model": CampaignEditSaveOut}})

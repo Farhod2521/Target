@@ -216,7 +216,9 @@ def check_creative_swap(*, state: ObjectState, parent: AdContext) -> GuardrailVe
     return ALLOWED
 
 
-def check_targeting_change(*, state: ObjectState) -> GuardrailVerdict:
+def check_targeting_change(
+    *, state: ObjectState, only_place: bool = False
+) -> GuardrailVerdict:
     """Whether this object's audience may be replaced.
 
     Learning refuses, for the same reason it refuses a budget edit and more
@@ -233,10 +235,14 @@ def check_targeting_change(*, state: ObjectState) -> GuardrailVerdict:
     Nothing else is checked here. Whether a wider audience is a *good* idea
     is a question about numbers, and it was answered before this was called
     - see ``core.agent.rules.delivery``.
+
+    **Where it reaches is the owner's call even so** (``only_place``): a shop
+    that moved cannot wait out the learning, so the screen warns and the
+    owner decides. Every other part of an audience still waits.
     """
     if state.delivery == FINISHED:
         return GuardrailVerdict(allowed=False, reason=REFUSED_FINISHED)
-    if state.is_learning:
+    if state.is_learning and not only_place:
         return GuardrailVerdict(allowed=False, reason=REFUSED_LEARNING)
     return ALLOWED
 

@@ -432,6 +432,12 @@ class EditLocks(Camel):
     limits: Literal["ended"] | None
 
 
+class EditPlace(Camel):
+    id: str
+    name: str
+    type: Literal["city", "region", "country"]
+
+
 class EditAudience(Camel):
     id: str
     name: str
@@ -451,6 +457,10 @@ class CampaignEdit(Camel):
     spent_total: Money
     unit_cost: Money | None
     place: str
+    places: list[EditPlace]
+    place_limit: int
+    can_move: bool = Field(description="Places can change, even while it learns.")
+    learning: bool
     age_min: int
     age_max: int
     age_bounds: list[int]
