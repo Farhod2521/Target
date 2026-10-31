@@ -61,6 +61,8 @@ def save_audience(
     added: list[str],
     area_keys: tuple[str, ...] | list[str] = (),
     pin: tuple[str, str] = ("", ""),
+    picked: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+    address: str = "",
 ) -> bool:
     """The numbers, the mode and the geography, as corrected."""
     from app.modules.businesses.services import remember_location
@@ -78,6 +80,8 @@ def save_audience(
         added=added,
         area_keys=list(area_keys),
         pin=pin,
+        picked=list(picked),
+        address=address,
     )
     draft_field.choose(
         draft,
@@ -120,6 +124,8 @@ def _geo_answer(
     added: list[str],
     area_keys: list[str],
     pin: tuple[str, str],
+    picked: list[dict[str, str]],
+    address: str,
 ) -> tuple[dict[str, Any], bool]:
     """One geography answer, and whether it still needs the provider."""
     areas = picked_areas(
@@ -134,8 +140,9 @@ def _geo_answer(
     taken = {(area["kind"], area["key"]) for area in areas if area["key"]}
     kept = [
         row
-        for row in known
-        if row.get("key") in keys and (row.get("kind"), row.get("key")) not in taken
+        for row in [*known, *picked]
+        if (row.get("key") in keys or row in picked)
+        and (row.get("kind"), row.get("key")) not in taken
     ][: MAX_GEO_PLACES - len(areas)]
     queries = _fresh_queries(added=added, known=known)
     carried = geo_field.stored(previous)
@@ -152,6 +159,7 @@ def _geo_answer(
         "lng": placed[1],
         "country_code": business.country_code,
         "origin": "chosen",
+        "address": address,
         geo_field.PARENTS_KEY: carried.get(geo_field.PARENTS_KEY) or [],
     }
     pending = (

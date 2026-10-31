@@ -52,7 +52,7 @@ class GoogleAudiences:
         self._http = http
 
     def find_locations(
-        self, *, query: str, country_code: str, token: str
+        self, *, query: str, country_code: str, token: str, language: str = ""
     ) -> list[LocationDTO]:
         body: dict[str, Any] = {
             "locale": _LOCALE,

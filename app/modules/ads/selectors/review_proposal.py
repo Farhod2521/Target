@@ -89,6 +89,7 @@ from core.targeting.modes import (
     AUTOMATIC_MAX_AGE_MIN,
     DEFAULT_TARGETING_MODE,
 )
+from core.targeting.validators import MIN_RADIUS_KM, SPECIAL_MIN_RADIUS_KM
 
 
 def offered_interests(
@@ -253,6 +254,7 @@ def _audience(
         "geo_areas": area_options(db, country_code=launch_country(db, launch=launch)),
         "geo_chosen_areas": [row["area"] for row in geo_field.areas(audience)],
         "geo_limit": MAX_GEO_PLACES,
+        "geo_radius_min": SPECIAL_MIN_RADIUS_KM if special else MIN_RADIUS_KM,
         "targets": _targets(db, launch=launch, special=special),
     }
 

@@ -21,6 +21,7 @@ def empty_geo() -> dict[str, Any]:
         "lng": "",
         "country_code": "",
         "origin": "derived",
+        "address": "",
         AREAS_KEY: [],
         PARENTS_KEY: [],
     }

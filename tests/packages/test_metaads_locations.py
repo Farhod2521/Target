@@ -178,3 +178,22 @@ def test_an_unlabelled_row_does_not_sink() -> None:
     terse = {"key": "9", "name": "Tashkent", "type": "city"}
 
     assert found([terse], country="")[0].ref.id == "9"
+
+
+# --- The reader's language -----------------------------------------------
+def test_a_search_is_asked_in_the_readers_language_when_meta_has_it() -> None:
+    client, seen = recording({"data": []})
+    search_locations(query="Ташкент", token="t", language="ru", client=client)
+    assert seen[0].url.params["locale"] == "ru_RU"
+
+
+def test_a_language_without_a_row_stays_on_the_pinned_english() -> None:
+    client, seen = recording({"data": []})
+    search_locations(query="Toshkent", token="t", language="uz", client=client)
+    assert seen[0].url.params["locale"] == "en_US"
+
+
+def test_every_other_call_keeps_the_pin() -> None:
+    client, seen = recording({"data": []})
+    search_locations(query="Tashkent", token="t", client=client)
+    assert seen[0].url.params["locale"] == "en_US"

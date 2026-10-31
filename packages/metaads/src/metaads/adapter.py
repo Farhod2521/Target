@@ -1050,7 +1050,7 @@ class MetaAudiences:
         ]
 
     def find_locations(
-        self, *, query: str, country_code: str, token: str
+        self, *, query: str, country_code: str, token: str, language: str = ""
     ) -> list[LocationDTO]:
         """One word in, the places Meta would accept it as, out.
 
@@ -1074,7 +1074,9 @@ class MetaAudiences:
             return []
 
         with session(token) as graph:
-            rows = search_locations(query=query, token=token, client=graph)
+            rows = search_locations(
+                query=query, token=token, language=language, client=graph
+            )
 
         wanted = country_code.strip().upper()
         found = [self._location(row) for row in rows]

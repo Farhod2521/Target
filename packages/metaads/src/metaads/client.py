@@ -292,7 +292,9 @@ class GraphClient:
         # the access token along with it. Not on a write whose object has a
         # ``locale`` of its own either - see ``OWN_LOCALE_EDGES``.
         pinned = not following and not _creates_own_locale(method, path_or_url)
-        query = {**(params or {}), "locale": API_LOCALE} if pinned else params
+        # A place search names its own: the reader's language, for rows only
+        # ever matched by key - see ``metaads.discovery.search_locations``.
+        query = {"locale": API_LOCALE, **(params or {})} if pinned else params
 
         # ``timeout`` is passed only when overridden: httpx reads an
         # explicit None as "wait forever", not as "use the client's".

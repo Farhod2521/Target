@@ -7,8 +7,11 @@ whole is never sent back empty over the AI's answer.
 
 from typing import Any, Final
 
+from app.common.exceptions import InputRefused
+from app.modules.ads.constants import MAX_GEO_PLACES
 from app.modules.ads.contract.launch.review import ad, number, text
 from app.modules.ads.inputs.proposal_body import ProposalIn
+from core.targeting import MAX_RADIUS_KM, MIN_RADIUS_KM
 
 WHO_IN: Final = {"automatic": "auto", "interests": "interests", "broad": "broad"}
 WHO_OUT: Final = {value: key for key, value in WHO_IN.items()}
@@ -106,6 +109,41 @@ FINDINGS: Final[dict[str, dict[str, str]]] = {
 def _same(left: Any, right: Any) -> bool:
     """Equal by value: the screen's 12 and the model's 12.0 are one radius."""
     return bool(left == right)
+
+
+def _degrees(value: Any) -> float | None:
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _place_kind(row: dict[str, Any]) -> str:
+    kind = row.get("kind")
+    return kind if kind in ("region", "country") else "city"
+
+
+def _geo_changed(now: dict[str, Any], was: dict[str, Any]) -> bool:
+    """What the owner can move; a place compared by id, a pin only when sent."""
+    fields = ("mode", "km", "address")
+    if any(not _same(now[name], was[name]) for name in fields):
+        return True
+    if [row["id"] for row in now["places"]] != [row["id"] for row in was["places"]]:
+        return True
+    return any(
+        now[name] is not None and not _same(now[name], was[name])
+        for name in ("lat", "lng")
+    )
+
+
+def _check_km(geo: dict[str, Any], was: dict[str, Any]) -> None:
+    """A radius the owner moved; one the proposal already holds is not theirs."""
+    if geo["mode"] != "map" or not geo["km"] or _same(geo["km"], was["km"]):
+        return
+    if not was["min_km"] <= geo["km"] <= was["max_km"]:
+        raise InputRefused(
+            {"geo.km": f"Masofa {was['min_km']}–{was['max_km']} km bo'lsin."}
+        )
 
 
 def edit_ad(variant: dict[str, Any]) -> dict[str, Any]:
@@ -324,9 +362,9 @@ def edit_from(answer: dict[str, Any]) -> dict[str, Any]:
         {
             "id": text(row.get("key")),
             "name": text(row.get("name")),
-            "type": "region" if row.get("kind") == "region" else "city",
+            "type": _place_kind(row),
         }
-        for row in audience.get("geo_places") or []
+        for row in geo.get("places") or []
     ] + [
         {"id": f"{AREA}{key}", "name": areas.get(key) or key, "type": "region"}
         for key in audience.get("geo_chosen_areas") or []
@@ -370,6 +408,11 @@ def edit_from(answer: dict[str, Any]) -> dict[str, Any]:
             "places": places,
             "km": radius,
             "address": text(geo.get("address")),
+            "lat": _degrees(geo.get("lat")),
+            "lng": _degrees(geo.get("lng")),
+            "min_km": audience.get("geo_radius_min") or MIN_RADIUS_KM,
+            "max_km": MAX_RADIUS_KM,
+            "place_limit": audience.get("geo_limit") or MAX_GEO_PLACES,
         },
         "interests": (found.get("interests") or {}).get("chosen_queries") or [],
         "habits": (found.get("traits") or {}).get("chosen_queries") or [],
@@ -490,8 +533,9 @@ def proposal_patch(edit: dict[str, Any], answer: dict[str, Any]) -> ProposalIn:
         audience["audiences"] = {
             row["id"]: row["mode"] for row in now_aud["lists"] if row["mode"] != "off"
         }
-    if not _same(edit["geo"], was["geo"]):
+    if _geo_changed(edit["geo"], was["geo"]):
         geo = edit["geo"]
+        _check_km(geo, was["geo"])
         known = {row.get("key") for row in found["audience"].get("geo_places") or []}
         kept = [row for row in geo["places"] if not row["id"].startswith(AREA)]
         audience |= {
@@ -501,15 +545,22 @@ def proposal_patch(edit: dict[str, Any], answer: dict[str, Any]) -> ProposalIn:
             if geo["places"]
             else "country",
             "places": [row["id"] for row in kept if row["id"] in known],
-            "added": [row["name"] for row in kept if row["id"] not in known],
+            "picked": [
+                {"key": row["id"], "name": row["name"]}
+                for row in kept
+                if row["id"] not in known
+            ],
             "areas": [
                 row["id"].removeprefix(AREA)
                 for row in geo["places"]
                 if row["id"].startswith(AREA)
             ],
+            "address": geo["address"],
         }
+        if geo["lat"] is not None and geo["lng"] is not None:
+            audience |= {"lat": geo["lat"], "lng": geo["lng"]}
         if geo["mode"] == "map" and geo["km"]:
-            audience["radius_km"] = max(1, min(80, round(geo["km"])))
+            audience["radius_km"] = max(1, round(geo["km"]))
     if audience:
         out["audience"] = audience
 

@@ -122,6 +122,10 @@ GEO_MODE_CHOICES: tuple[tuple[str, Any], ...] = (
 )
 MAX_GEO_PLACES = 10
 MAX_GEO_LOOKUPS = 5
+MIN_GEO_SEARCH = 2
+MAX_GEO_SEARCH = 100
+MAX_GEO_ADDRESS = 300
+GEO_SEARCHES_PER_MINUTE = 60
 
 
 class GeoAreaKind(Choices):

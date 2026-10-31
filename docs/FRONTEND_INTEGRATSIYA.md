@@ -260,6 +260,33 @@ Qayerlarda:
 | Lid forma | `GET/POST .../form`, `POST .../form/auto`, `.../form/new`, `.../form/refresh`, `.../forms/refresh`, `GET/POST .../form-depth/{depth}` |
 | Yakun | `POST .../create` (pul sarflaydi), `.../start`, `.../retry`, `.../discard`, `.../clean-up` |
 
+### Reklama joyi — `/launch/drafts/{id}` (faqat Meta)
+
+Google draft bu API'lardan 404 oladi: Google'ning joylari alohida (`GET .../areas`).
+
+**Qidiruv:** `GET /launch/drafts/{id}/locations?q=&country=`
+
+- `q` 2 belgidan qisqa bo'lsa `[]` qaytadi va Meta'ga so'rov ketmaydi.
+- `country` (ISO-2, ixtiyoriy) o'sha mamlakat qatorlarini birinchi qo'yadi,
+  boshqalari qoladi. Berilmasa biznes mamlakati olinadi.
+- Javob: `[{id, name, type, context, countryCode}]`, `type`: `city`, `region`, `country`.
+- Nomlar `ru`, `en` foydalanuvchilariga o'z tilida, `uz` uchun inglizcha.
+- Foydalanuvchiga daqiqasiga 60 ta so'rov: `429`. Meta javob bermasa: `503`,
+  `code: place_search_failed`.
+
+**Saqlash:** `PUT /launch/drafts/{id}/edit`, `geo` bo'limi
+
+| Maydon | Ma'nosi |
+|---|---|
+| `mode` | `list` (joylar) yoki `map` (nuqta + radius). Bir vaqtda bittasi ishlaydi |
+| `places` | Tanlangan qatorlar. Qidiruvdan kelgan qator `id` va `name` bilan o'zgarmasdan yuboriladi |
+| `lat`, `lng`, `km`, `address` | `map` rejimi uchun |
+| `minKm`, `maxKm`, `placeLimit` | Faqat o'qish: chegaralar shu yerdan olinadi. Maxsus kategoriyada `minKm` 24 |
+
+Xatolar (`422`, `problems`): qidiruv bermagan joy yoki joylar soni oshsa
+`audience.places`; radius chegaradan tashqarida bo'lsa `geo.km`; nuqta yo'q bo'lsa
+`audience.geo_mode`.
+
 ### Google Ads — `/google`
 
 `GET /google`, `POST /google/switch`, `/google/budget`, `/google/delete`,

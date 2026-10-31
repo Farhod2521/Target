@@ -7,10 +7,12 @@ editor, as the cabinet's calls expect (``packages/api/src/launch.ts``).
 import uuid
 from typing import Any, Final
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.api.deps import CurrentUser, Db
+from app.common import throttle
 from app.common.exceptions import DomainError, InputRefused, NotFound
+from app.modules.ads.constants import GEO_SEARCHES_PER_MINUTE, MAX_GEO_SEARCH
 from app.modules.ads.contract.launch import taps as kept
 from app.modules.ads.contract.launch.draft import text_in
 from app.modules.ads.contract.launch.edit import edit_from, proposal_patch
@@ -30,6 +32,7 @@ from app.modules.ads.contract.launch.shapes import (
     LeadFormPanel,
     LeadFormSave,
     NameIn,
+    PlaceFound,
     ProposalEdit,
 )
 from app.modules.ads.inputs.media import MediaContinueIn
@@ -51,12 +54,15 @@ from app.modules.ads.routers.drafts_google import (
 )
 from app.modules.ads.routers.launch_forms import AutoIn
 from app.modules.ads.routers.launch_review import CreateIn
+from app.modules.ads.selectors.review_proposal import launch_country
 from app.modules.ads.selectors.variants import launch_variants
+from app.modules.ads.services.locations import place_query, search_places
 
 router = APIRouter(prefix="/launch/drafts", tags=["launch"])
 
 # An upload's tile before the network takes it in: its position names it.
 UPLOAD_TILE: Final = "upload-"
+GEO_SEARCH_BUCKET: Final = "geo-search"
 # A lead form refusal's fields, as the layer names them.
 FORM_FIELDS: Final[dict[str, str]] = {
     "lead_form": "formId",
@@ -220,6 +226,47 @@ def save_edit(
     if patch.model_fields_set:
         review_routes.save_edit(draft_id, patch, db, user)
     return _draft(db, user, draft_id)
+
+
+@router.get("/{draft_id}/locations", response_model=list[PlaceFound])
+def locations(
+    draft_id: uuid.UUID,
+    db: Db,
+    user: CurrentUser,
+    q: str = Query("", max_length=MAX_GEO_SEARCH),
+    country: str = Query("", pattern="^([A-Za-z]{2})?$"),
+) -> list[PlaceFound]:
+    """The place search: anywhere in the world, the given country's rows first."""
+    launch = launch_of(db, user=user, draft_id=draft_id)
+    query = place_query(q)
+    if not query:
+        return []
+    if not throttle.hit(
+        bucket=GEO_SEARCH_BUCKET,
+        key=str(user.id),
+        limit=GEO_SEARCHES_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.",
+        )
+    rows = search_places(
+        db,
+        launch=launch,
+        query=query,
+        country_code=country or launch_country(db, launch=launch),
+    )
+    return [
+        PlaceFound(
+            id=row["key"],
+            name=row["name"],
+            type=row["kind"],
+            context=row["context"],
+            country_code=row["country_code"],
+        )
+        for row in rows
+    ]
 
 
 @router.post("/{draft_id}/edit/forms/refresh", response_model=list[ExistingForm])

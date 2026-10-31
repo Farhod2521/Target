@@ -171,6 +171,7 @@ class ProposalAudienceOut(Shape):
     geo_areas: list[dict[str, str]]
     geo_chosen_areas: list[str]
     geo_limit: int
+    geo_radius_min: int
     targets: list[TargetRowOut]
 
 

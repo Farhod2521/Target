@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import Field
 
 from app.common.contract import Camel, Money
+from app.modules.ads.constants import MAX_GEO_ADDRESS, MAX_GEO_PLACES
 from app.modules.ads.contract.launch.words import (
     LaunchErrorCode,
     LaunchGoal,
@@ -14,6 +15,7 @@ from app.modules.ads.contract.launch.words import (
     ResultKind,
     Step,
 )
+from core.targeting import MAX_RADIUS_KM, MIN_RADIUS_KM
 
 By = Literal["ai", "me"]
 ChatChannel = Literal["messenger", "instagram"]
@@ -367,14 +369,26 @@ class EditAudience(Camel):
 class Place(Camel):
     id: str
     name: str
-    type: Literal["city", "region"]
+    type: Literal["city", "region", "country"]
+
+
+class PlaceFound(Place):
+    """A row of the place search; ``context`` tells two Tashkents apart."""
+
+    context: str
+    country_code: str
 
 
 class EditGeo(Camel):
     mode: Literal["list", "map"]
     places: list[Place]
     km: float
-    address: str
+    address: str = Field("", max_length=MAX_GEO_ADDRESS)
+    lat: float | None = Field(None, ge=-90, le=90)
+    lng: float | None = Field(None, ge=-180, le=180)
+    min_km: int = MIN_RADIUS_KM
+    max_km: int = MAX_RADIUS_KM
+    place_limit: int = MAX_GEO_PLACES
 
 
 class AdCheck(Camel):

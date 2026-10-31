@@ -172,12 +172,18 @@ LOCATION_FIELDS: Final = (
 # twelve presets targets at that grain.
 LOCATION_TYPES: Final[tuple[str, ...]] = ("city", "region", "country")
 
+# The reader's language in Meta's words. Uzbek is left out until a live call
+# has shown Meta takes ``uz_UZ`` here: without a row the search stays on the
+# client's English, which is known to answer.
+LOCATION_LOCALES: Final[dict[str, str]] = {"ru": "ru_RU", "en": "en_US"}
+
 
 def search_locations(
     *,
     query: str,
     token: str,
     location_types: tuple[str, ...] = LOCATION_TYPES,
+    language: str = "",
     client: GraphClient | None = None,
 ) -> list[dict[str, Any]]:
     """Places whose name matches ``query``.
@@ -193,7 +199,11 @@ def search_locations(
     answer into an empty result, and the caller has the country anyway -
     every row carries its own, so narrowing where the answer is *read* keeps
     the near-miss visible instead of swallowing it.
+
+    ``language`` is the one exception to the pinned English: these names are
+    read by a person and matched by key, so a Russian name costs nothing.
     """
+    locale = LOCATION_LOCALES.get(language)
     with _session(client, token) as graph:
         payload = graph.get(
             "search",
@@ -202,6 +212,7 @@ def search_locations(
             location_types=_json_list(list(location_types)),
             limit=SEARCH_LIMIT,
             fields=LOCATION_FIELDS,
+            **({"locale": locale} if locale else {}),
         )
     return list(payload.get("data", []))
 

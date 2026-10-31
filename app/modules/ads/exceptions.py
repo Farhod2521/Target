@@ -19,6 +19,13 @@ class ConnectionUnusable(DomainError):
         super().__init__("Meta ruxsati tugagan. Akkauntni qayta ulang.")
 
 
+class PlaceSearchFailed(DomainError):
+    status_code = 503
+
+    def __init__(self) -> None:
+        super().__init__("Joylarni qidirib bo'lmadi. Birozdan keyin qayta urining.")
+
+
 class SyncFailed(DomainError):
     def __init__(self, *, cause: str = "") -> None:
         super().__init__(

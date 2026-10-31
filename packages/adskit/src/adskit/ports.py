@@ -477,7 +477,7 @@ class AudiencePort(Protocol):
         ...
 
     def find_locations(
-        self, *, query: str, country_code: str, token: str
+        self, *, query: str, country_code: str, token: str, language: str = ""
     ) -> list[LocationDTO]:
         """The places the provider recognises under this word.
 
@@ -502,6 +502,9 @@ class AudiencePort(Protocol):
         shows the rows to a person and lets them choose; a match picked
         automatically from a fuzzy search is how a campaign for a shop in
         Tashkent ends up delivering in another country.
+
+        ``language`` is the reader's, for the names shown. A provider without
+        a word for it answers in its own; the keys are the same either way.
         """
         ...
 

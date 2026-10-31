@@ -10,12 +10,19 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.modules.ads.constants import LAUNCH_NAME_MAX
+from app.modules.ads.constants import LAUNCH_NAME_MAX, MAX_GEO_ADDRESS
 from app.modules.ads.inputs.ending import EndingIn
 from app.modules.ads.inputs.questions import QuestionRow
 from core.targeting import MAX_AGE, MAX_RADIUS_KM, MIN_AGE, MIN_RADIUS_KM
 
 Role = Literal["include", "exclude"]
+
+
+class PlacePick(BaseModel):
+    """A row of the place search, as it was offered."""
+
+    key: str = Field(min_length=1)
+    name: str = Field(min_length=1)
 
 
 class AudienceIn(BaseModel):
@@ -30,10 +37,14 @@ class AudienceIn(BaseModel):
     geo_mode: str = ""
     places: list[str] = Field(default_factory=list)
     added: list[str] = Field(default_factory=list, description="Place names typed in.")
+    picked: list[PlacePick] = Field(
+        default_factory=list, description="Rows chosen from the place search."
+    )
     areas: list[str] = Field(default_factory=list)
     radius_km: int | None = Field(None, ge=MIN_RADIUS_KM, le=MAX_RADIUS_KM)
     lat: Decimal | None = Field(None, ge=-90, le=90)
     lng: Decimal | None = Field(None, ge=-180, le=180)
+    address: str = Field("", max_length=MAX_GEO_ADDRESS)
     audiences: dict[str, Role] = Field(default_factory=dict)
 
 

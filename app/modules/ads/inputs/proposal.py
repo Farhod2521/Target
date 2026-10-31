@@ -21,6 +21,7 @@ from app.modules.ads.constants import (
     FREQUENCY_CAP,
     GEO_AROUND,
     GEO_MODE_CHOICES,
+    MAX_GEO_PLACES,
     PRIMARY_TEXT_MAX,
     DraftSection,
     FormDepth,
@@ -56,6 +57,7 @@ from app.modules.ads.selectors.variants import (
     same_words,
 )
 from app.modules.ads.services.advanced import AdvancedEdit, CreativeEdit
+from app.modules.ads.services.locations import confirmed_places
 from app.modules.businesses.models import Business
 from app.modules.integrations.selectors.audiences import targets_for
 from core.targeting import MAX_AGE, MIN_AGE, GeoChoice
@@ -192,6 +194,7 @@ def _audience_now(launch: CampaignLaunch) -> dict[str, Any]:
         "radius_km": chosen.get("radius_km"),
         "lat": _degrees(geo.get("lat")),
         "lng": _degrees(geo.get("lng")),
+        "address": str(geo.get("address") or ""),
         "audiences": audience_field.roles(chosen),
     }
 
@@ -249,6 +252,13 @@ def _audience(
     areas |= {row["area"] for row in geo_field.areas(chosen)}
     if any(key not in areas for key in body.areas):
         problems.add("audience.areas", "Ro'yxatdan tanlang.")
+    picked = confirmed_places(
+        db, launch=launch, picked=[pick.model_dump() for pick in body.picked]
+    )
+    if picked is None:
+        problems.add("audience.places", "Ro'yxatdan tanlang.")
+    elif picked and len(body.places) + len(picked) + len(body.areas) > MAX_GEO_PLACES:
+        problems.add("audience.places", f"Ko'pi bilan {MAX_GEO_PLACES} ta joy.")
     if body.age_min > body.age_max:
         problems.add("audience", "Yosh oralig'i teskari kiritilgan.")
     pin = ("", "")
@@ -282,8 +292,10 @@ def _audience(
         "geo_mode": body.geo_mode,
         "place_keys": list(body.places),
         "added": [line.strip() for line in body.added if line.strip()],
+        "picked": picked or [],
         "area_keys": list(body.areas),
         "pin": pin,
+        "address": body.address.strip(),
     }
 
 

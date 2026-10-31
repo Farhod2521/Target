@@ -1,6 +1,7 @@
 """Turn the place names somebody typed into places a provider will target,
 and seed the regions and cities the geography question offers."""
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -12,15 +13,21 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.cache import cache
+from app.common.i18n import get_language
 from app.modules.ads import draft as draft_field
 from app.modules.ads import geo as geo_field
 from app.modules.ads.constants import (
     MAX_GEO_LOOKUPS,
     MAX_GEO_PLACES,
+    MIN_GEO_SEARCH,
     DraftSection,
     GeoAreaKind,
 )
-from app.modules.ads.exceptions import ConnectionUnusable, NoAdAccount
+from app.modules.ads.exceptions import (
+    ConnectionUnusable,
+    NoAdAccount,
+    PlaceSearchFailed,
+)
 from app.modules.ads.geo_catalogue import CATALOGUES, SeedName, key_for
 from app.modules.ads.models import CampaignLaunch, GeoArea
 from app.modules.ads.rows import fresh
@@ -33,6 +40,101 @@ from core.targeting import GeoPlace
 logger = logging.getLogger(__name__)
 PARENTS_LOCK_PREFIX = "geo-parents:"
 PARENTS_LOCK_SECONDS = 120
+SEARCH_CACHE_PREFIX = "geo-search:"
+SEARCH_CACHE_SECONDS = 86400
+
+
+def place_query(typed: str) -> str:
+    """What is worth asking the provider; empty while too little is typed."""
+    query = " ".join(typed.split())
+    return query if len(query) >= MIN_GEO_SEARCH else ""
+
+
+def search_places(
+    db: Session, *, launch: CampaignLaunch, query: str, country_code: str
+) -> list[dict[str, str]]:
+    """The places this word means, the given country's first, none dropped."""
+    wanted = country_code.upper()
+    return sorted(
+        _found_places(db, launch=launch, query=query),
+        key=lambda row: row["country_code"].upper() != wanted,
+    )
+
+
+def confirmed_places(
+    db: Session, *, launch: CampaignLaunch, picked: list[dict[str, str]]
+) -> list[dict[str, str]] | None:
+    """The rows behind what the search offered; ``None`` when one was not offered.
+
+    A key from the browser reaches a targeting spec only after the provider
+    has answered it under that name again.
+    """
+    rows: list[dict[str, str]] = []
+    for pick in picked:
+        query = place_query(pick["name"])
+        hits = _found_places(db, launch=launch, query=query) if query else []
+        hit = next((row for row in hits if row["key"] == pick["key"]), None)
+        if hit is None:
+            return None
+        rows.append(
+            geo_field.place_row(
+                key=hit["key"], name=hit["name"], kind=hit["kind"], parent=hit["parent"]
+            )
+        )
+    return rows
+
+
+def _found_places(
+    db: Session, *, launch: CampaignLaunch, query: str
+) -> list[dict[str, str]]:
+    """One word's answer, kept whole: the save reads the search's own rows."""
+    language = get_language()
+    key = _search_key(provider=launch.provider, language=language, query=query)
+    kept = _kept_search(key)
+    if kept is not None:
+        return kept
+    try:
+        _account, token = launch_account_and_token(db, launch=launch)
+        found = registry.get(launch.provider).audiences.find_locations(
+            query=query, country_code="", token=token, language=language
+        )
+    except ProviderError as exc:
+        logger.warning("place search failed: %s", exc)
+        raise PlaceSearchFailed from exc
+    rows = [
+        {
+            "key": place.ref.id,
+            "name": place.name,
+            "kind": place.kind,
+            "parent": place.parent_id,
+            "country_code": place.country_code,
+            "context": place.context,
+        }
+        for place in found
+        if place.ref.id and place.kind in geo_field.KINDS
+    ]
+    _keep_search(key, rows)
+    return rows
+
+
+def _search_key(*, provider: str, language: str, query: str) -> str:
+    digest = hashlib.sha256(query.casefold().encode()).hexdigest()
+    return f"{SEARCH_CACHE_PREFIX}{provider}:{language}:{digest}"
+
+
+def _kept_search(key: str) -> list[dict[str, str]] | None:
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("place search cache unreadable")
+        return None
+
+
+def _keep_search(key: str, rows: list[dict[str, str]]) -> None:
+    try:
+        cache.set(key, rows, SEARCH_CACHE_SECONDS)
+    except Exception:
+        logger.warning("place search cache unavailable")
 
 
 def request_locations(db: Session, launch: CampaignLaunch) -> None:
