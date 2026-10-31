@@ -21,13 +21,14 @@ from app.common.money import provider_money
 from app.modules.accounts.models import User
 from app.modules.ads import actions, selectors, services
 from app.modules.ads.constants import ManagedLevel
+from app.modules.ads.contract.editing import CampaignPatch
+from app.modules.ads.contract.shapes import CampaignEdit, ControlState
 from app.modules.ads.inputs import Problems
 from app.modules.ads.inputs.budget import budget_minor as checked_budget
 from app.modules.ads.inputs.budget import cap_minor as checked_cap
 from app.modules.ads.routers import _target, router
 from app.modules.ads.schemas import (
     AdEditOut,
-    CampaignEditOut,
     CampaignEditSaveOut,
     DeletedOut,
     PreviewOut,
@@ -192,10 +193,9 @@ def _zone(db: Session, user: User) -> str:
     return business_timezone(db, owner=user) or DEFAULT_ZONE
 
 
-@router.get("/{campaign_id}/edit", responses={200: {"model": CampaignEditOut}})
-def campaign_edit(
-    campaign_id: uuid.UUID, db: Db, user: CurrentUser, group: str = GROUP_Q
-) -> dict[str, Any]:
+def _sections(
+    db: Session, user: User, campaign_id: uuid.UUID, group: str
+) -> tuple[Any, dict[str, Any]]:
     """Every section this campaign has, and which of them may be changed right now."""
     from zoneinfo import ZoneInfo
 
@@ -261,20 +261,29 @@ def campaign_edit(
         if edit.group is not None
         else (edit.campaign, ManagedLevel.CAMPAIGN)
     )
-    return jsonable_encoder(
-        {
-            "campaign": {"id": str(edit.campaign.id), "name": edit.campaign.name},
-            "groups": edit.groups,
-            "sections": sections,
-            "early_hours": selectors.hours_to_wait(
-                db,
-                owner=user,
-                level=level,
-                external_id=str(target.external_id),
-                now=utcnow(),
-            ),
-        }
-    )
+    return edit, {
+        "campaign": {"id": str(edit.campaign.id), "name": edit.campaign.name},
+        "groups": edit.groups,
+        "sections": sections,
+        "early_hours": selectors.hours_to_wait(
+            db,
+            owner=user,
+            level=level,
+            external_id=str(target.external_id),
+            now=utcnow(),
+        ),
+    }
+
+
+@router.get("/{campaign_id}/edit", response_model=CampaignEdit)
+def campaign_edit(
+    campaign_id: uuid.UUID, db: Db, user: CurrentUser, group: str = GROUP_Q
+) -> dict[str, Any]:
+    """The edit form as it is drawn: today's values, the bounds, and what is locked."""
+    from app.modules.ads.contract.editing import edit_form
+
+    edit, form = _sections(db, user, campaign_id, group)
+    return edit_form(db, owner=user, edit=edit, form=form)
 
 
 class BudgetSectionIn(BaseModel):
@@ -302,13 +311,12 @@ class CampaignEditIn(BaseModel):
     limits: LimitsSectionIn | None = None
 
 
-@router.post("/{campaign_id}/edit", responses={200: {"model": CampaignEditSaveOut}})
-def campaign_edit_save(
+def _save(
+    db: Session,
+    user: User,
     campaign_id: uuid.UUID,
+    group: str,
     body: CampaignEditIn,
-    db: Db,
-    user: CurrentUser,
-    group: str = GROUP_Q,
 ) -> dict[str, Any]:
     """Every section checked together, then written one by one; what each became is said."""
     from zoneinfo import ZoneInfo
@@ -402,6 +410,70 @@ def campaign_edit_save(
         "adjustments": [asdict(note) for note in outcome.adjustments],
         "message": SENT_SETTINGS if outcome.queued else "O'zgarish kiritilmadi.",
     }
+
+
+@router.post("/{campaign_id}/edit", responses={200: {"model": CampaignEditSaveOut}})
+def campaign_edit_save(
+    campaign_id: uuid.UUID,
+    body: CampaignEditIn,
+    db: Db,
+    user: CurrentUser,
+    group: str = GROUP_Q,
+) -> dict[str, Any]:
+    return _save(db, user, campaign_id, group, body)
+
+
+@router.patch("/{campaign_id}", response_model=ControlState | None)
+def campaign_patch(
+    campaign_id: uuid.UUID, body: CampaignPatch, db: Db, user: CurrentUser
+) -> Any:
+    """The edit form saved whole: only what changed and may change is sent.
+
+    Answers the edited object's state, followed like any press; nothing to
+    send is a 204.
+    """
+    from fastapi import Response
+
+    from app.common.exceptions import InputRefused
+    from app.modules.ads.contract.editing import FORM_FIELDS, changed_sections
+    from app.modules.ads.exceptions import PressRefused
+    from app.modules.ads.routers import control_state
+
+    group = body.group or ""
+    edit, form = _sections(db, user, campaign_id, group)
+    sections = changed_sections(form["sections"], body)
+    if sections is None:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        saved = _save(db, user, campaign_id, group, CampaignEditIn(**sections))
+    except HTTPException as exc:
+        errors = exc.detail.get("errors", {}) if isinstance(exc.detail, dict) else {}
+        raise InputRefused(
+            {FORM_FIELDS.get(key, key): words for key, words in errors.items()}
+        ) from None
+    if saved["refused"]:
+        raise PressRefused.on(
+            {
+                FORM_FIELDS.get(key, key): words
+                for key, words in saved["refused"].items()
+            },
+            message=saved["message"],
+        )
+    level, external_id = _followed(form["sections"], sent=sections, edit=edit)
+    return control_state(db, user, level=level, external_id=external_id)
+
+
+def _followed(
+    sections: dict[str, Any], *, sent: dict[str, Any], edit: Any
+) -> tuple[str, str]:
+    """The object a saved form changed, whose state the row follows."""
+    if "budget" in sent:
+        return sections["budget"]["level"], sections["budget"]["external_id"]
+    if "audience" in sent:
+        return ManagedLevel.ADSET, sections["audience"]["external_id"]
+    if edit.group is not None:
+        return ManagedLevel.ADSET, str(edit.group.external_id)
+    return ManagedLevel.CAMPAIGN, str(edit.campaign.external_id)
 
 
 @router.get("/manage/ad/{external_id}/preview", responses={200: {"model": PreviewOut}})

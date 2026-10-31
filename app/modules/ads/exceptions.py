@@ -752,3 +752,11 @@ class PressRefused(DomainError):
     def __init__(self, message: str, *, field: str = "") -> None:
         super().__init__(message)
         self.problems = {field: message} if field else {}
+
+    @classmethod
+    def on(cls, problems: dict[str, str], *, message: str = "") -> "PressRefused":
+        """Several fields refused at once, each under its own sentence."""
+        first = next(iter(problems.values()), "")
+        refused = cls(first or message)
+        refused.problems = dict(problems)
+        return refused

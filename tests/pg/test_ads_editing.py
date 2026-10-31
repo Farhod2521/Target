@@ -1,5 +1,6 @@
 """Editing what already runs, against PostgreSQL: an advert's words, a campaign's settings, a preview."""
 
+from fastapi.testclient import TestClient
 from metaads import PROVIDER
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -106,11 +107,10 @@ def test_edit_a_campaigns_settings_and_an_adverts_words(
 
     shown = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers)
     assert shown.status_code == 200, shown.text
-    sections = shown.json()["sections"]
-    assert sections["budget"]["level"] == "adset"
-    assert sections["budget"]["current"] == "10.00"
-    assert sections["audience"]["age_min"] == 25
-    assert "limits" in sections
+    form = shown.json()
+    assert form["dailyBudget"] == 10.0
+    assert form["ageMin"] == 25
+    assert form["locks"]["budget"] is None and form["locks"]["limits"] is None
 
     wrong = client.post(
         f"/api/v1/campaigns/{campaign.id}/edit",
@@ -266,3 +266,37 @@ def test_a_running_audience_obeys_the_launchs_rules(
     assert log is not None
     sent = log.request_payload["targeting"]
     assert sent["age_min"] == 22 and "age_max" not in sent
+
+
+def test_the_edit_form_is_saved_whole_and_only_changes_are_sent(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers = sign_up(client)
+    owner = db.scalar(select(User).order_by(User.date_joined.desc()))
+    assert owner is not None
+    account, page = _cabinet(db, owner)
+    page.is_current = page.is_active = True
+    account.is_active = account.is_current = True
+    db.commit()
+    start_trial(db, user=owner, now=utcnow())
+    db.commit()
+    campaign = _running(db, owner, account)
+    path = f"/api/v1/campaigns/{campaign.id}"
+    form = client.get(f"{path}/edit", headers=headers).json()
+    unchanged = {
+        key: form[key] for key in ("dailyBudget", "ageMin", "ageMax", "gender")
+    } | {"endsAt": form["endsAt"], "limit": form["limit"], "audienceIds": []}
+
+    same = client.patch(path, json=unchanged, headers=headers)
+    upside_down = client.patch(
+        path, json=unchanged | {"ageMin": 50, "ageMax": 30}, headers=headers
+    )
+    raised = client.patch(path, json=unchanged | {"dailyBudget": 15}, headers=headers)
+
+    assert same.status_code == 204
+    assert upside_down.status_code == 422
+    assert "ageMin" in upside_down.json()["problems"]
+    assert raised.status_code == 200, raised.text
+    assert raised.json()["action"]["status"] == "pending"
+    log = db.scalar(select(ActionLog))
+    assert log is not None and log.request_payload["daily_budget_minor"] == 1500

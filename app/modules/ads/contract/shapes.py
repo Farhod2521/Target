@@ -417,11 +417,59 @@ class ControlState(Camel):
     refused: str | None = Field(None, description="Not sent at all: the sentence why.")
 
 
+class EditGroup(Camel):
+    external_id: str
+    name: str
+
+
+EditLock = Literal["learning", "closed"]
+
+
+class EditLocks(Camel):
+    budget: EditLock | None
+    audience: EditLock | None
+    limits: Literal["ended"] | None
+
+
+class EditAudience(Camel):
+    id: str
+    name: str
+    on: bool
+
+
+class CampaignEdit(Camel):
+    id: str
+    name: str
+    kind: Kind
+    network: NetworkRef
+    currency: str
+    daily_budget: float = Field(description="Major units, as the input shows them.")
+    min_budget: float
+    presets: list[int]
+    spent7d: Money = Field(alias="spent7d")
+    spent_total: Money
+    unit_cost: Money | None
+    place: str
+    age_min: int
+    age_max: int
+    age_bounds: list[int]
+    gender: Literal["all", "female", "male"]
+    audiences: list[EditAudience]
+    reach: list[int]
+    ends_at: str | None
+    limit: float | None
+    group: EditGroup | None
+    split: bool
+    locks: EditLocks
+    early_hours: int
+
+
 __all__ = [
     "Access",
     "AdGroup",
     "CampaignAd",
     "CampaignDetail",
+    "CampaignEdit",
     "CampaignList",
     "CampaignRow",
     "CampaignTree",
