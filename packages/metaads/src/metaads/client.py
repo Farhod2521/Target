@@ -14,6 +14,8 @@ retry, and a write that spends money must not run twice on a timeout.
 """
 
 import json
+import logging
+import os
 import time
 from collections.abc import Mapping
 from types import TracebackType
@@ -36,6 +38,8 @@ from metaads.errors import (
     first_blamed,
     user_words,
 )
+
+logger = logging.getLogger(__name__)
 
 # The one place the API version is written. Bumping Meta versions is a
 # one-line change plus a changelog read, never a grep across the codebase.
@@ -69,6 +73,13 @@ USAGE_HEADER: Final = "X-Business-Use-Case-Usage"
 APP_USAGE_HEADER: Final = "X-App-Usage"
 USAGE_STOP_PERCENT: Final = 80
 
+# The third report, on ``/insights`` answers only: how much of the app's and
+# of the ad account's insights capacity is gone. Most of what this product
+# reads goes through that one endpoint, and Meta's own advice is to back off
+# on these two figures.
+INSIGHTS_USAGE_HEADER: Final = "X-FB-Ads-Insights-Throttle"
+INSIGHTS_USAGE_FIGURES: Final = ("app_id_util_pct", "acc_id_util_pct")
+
 # Paging ceiling, with one job: it bounds a cursor that points at itself.
 # Hitting the ceiling raises :class:`PagesExhausted`, so a truncated
 # answer cannot be mistaken for a complete one - a short list handed back
@@ -99,6 +110,35 @@ API_LOCALE: Final = "en_US"
 OWN_LOCALE_EDGES: Final = frozenset({"leadgen_forms"})
 
 
+# One pool per process, shared by every conversation in it.
+#
+# A conversation lasts one read, so a client of its own opened a new TLS
+# connection per read: measured against Meta, 0.33s for a first request and
+# 0.125s on a reused connection, on sweeps that make nine reads a task. The
+# token travels in the query, so nothing of one customer's stays on the pool.
+#
+# Keyed by process because a socket must not cross a fork, and Celery's
+# prefork workers are built by forking.
+_shared: tuple[int, httpx.Client] | None = None
+
+
+def _shared_client() -> httpx.Client:
+    global _shared
+    if _shared is None or _shared[0] != os.getpid():
+        _shared = (
+            os.getpid(),
+            httpx.Client(
+                timeout=httpx.Timeout(
+                    connect=CONNECT_TIMEOUT_SECONDS,
+                    read=READ_TIMEOUT_SECONDS,
+                    write=READ_TIMEOUT_SECONDS,
+                    pool=CONNECT_TIMEOUT_SECONDS,
+                )
+            ),
+        )
+    return _shared[1]
+
+
 def _creates_own_locale(method: str, path: str) -> bool:
     """Whether this request creates an object whose ``locale`` is a field."""
     edge = path.rstrip("/").rsplit("/", 1)[-1]
@@ -110,9 +150,10 @@ class GraphClient:
 
     Holds a token because every call in a conversation uses the same one,
     and holds an ``httpx.Client`` because connection reuse is most of the
-    latency on a burst of small calls. Both are the caller's to supply and
-    the caller's to close - the package reads no configuration and no
-    environment.
+    latency on a burst of small calls. Both are the caller's to supply, and
+    a client the caller supplied is the caller's to close; left out, the
+    process's shared pool is used - see ``_shared_client``. The package
+    reads no configuration and no environment.
     """
 
     def __init__(
@@ -124,15 +165,7 @@ class GraphClient:
     ) -> None:
         self._token = token
         self._base_url = base_url.rstrip("/")
-        self._client = client or httpx.Client(
-            timeout=httpx.Timeout(
-                connect=CONNECT_TIMEOUT_SECONDS,
-                read=READ_TIMEOUT_SECONDS,
-                write=READ_TIMEOUT_SECONDS,
-                pool=CONNECT_TIMEOUT_SECONDS,
-            )
-        )
-        self._owns_client = client is None
+        self._client = client or _shared_client()
         self._brake = _Brake()
 
     # --- Lifecycle -------------------------------------------------------
@@ -146,8 +179,7 @@ class GraphClient:
         the account token is also valid, and Meta's answer names a missing
         permission rather than the wrong credential.
 
-        The clone borrows the pool and so must never be closed, which it
-        cannot be: ``_owns_client`` is false for anything built this way.
+        The clone borrows the pool and has nothing of its own to close.
         """
         if token == self._token:
             return self
@@ -169,9 +201,7 @@ class GraphClient:
         self.close()
 
     def close(self) -> None:
-        """Only closes what it opened. A borrowed client stays open."""
-        if self._owns_client:
-            self._client.close()
+        """Nothing to do: the pool outlives the conversation."""
 
     # --- Requests --------------------------------------------------------
     def get(self, path: str, **params: Any) -> dict[str, Any]:
@@ -476,6 +506,8 @@ class GraphClient:
             self._check_usage(response)
         except RateLimitApproaching as stop:
             self._brake.stop = stop
+            # The path alone: the full URL carries the access token.
+            logger.warning("%s on %s", stop, response.url.path)
 
     @staticmethod
     def _check_usage(response: httpx.Response) -> None:
@@ -499,6 +531,7 @@ class GraphClient:
         worst = max(
             _worst_business_usage(response.headers.get(USAGE_HEADER)),
             _worst_app_usage(response.headers.get(APP_USAGE_HEADER)),
+            _worst_insights_usage(response.headers.get(INSIGHTS_USAGE_HEADER)),
         )
         if worst >= USAGE_STOP_PERCENT:
             raise RateLimitApproaching(
@@ -542,6 +575,14 @@ def _worst_app_usage(raw: str | None) -> float:
     if not isinstance(usage, dict):
         return 0.0
     return max((_number(usage.get(name)) for name in USAGE_FIGURES), default=0.0)
+
+
+def _worst_insights_usage(raw: str | None) -> float:
+    """The insights budget: the app's share and the ad account's, flat."""
+    usage = _parsed(raw)
+    if not isinstance(usage, dict):
+        return 0.0
+    return max(_number(usage.get(name)) for name in INSIGHTS_USAGE_FIGURES)
 
 
 def _worst_business_usage(raw: str | None) -> float:

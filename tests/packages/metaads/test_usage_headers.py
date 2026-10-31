@@ -86,3 +86,45 @@ def test_a_figure_sent_as_a_string_still_counts() -> None:
     """Meta has sent these as strings before now."""
     with pytest.raises(RateLimitApproaching):
         check(a_response(**{"X-App-Usage": json.dumps({"call_count": "97"})}))
+
+
+def test_the_insights_budget_is_read() -> None:
+    """Meta's own throttle report on ``/insights``, either share of it."""
+    header = json.dumps(
+        {"app_id_util_pct": 3, "acc_id_util_pct": 86, "ads_api_access_tier": "x"}
+    )
+
+    with pytest.raises(RateLimitApproaching) as caught:
+        check(a_response(**{"X-FB-Ads-Insights-Throttle": header}))
+
+    assert caught.value.percent == 86
+
+
+def test_a_stop_is_logged_without_the_token(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Usage is otherwise invisible in production, and URLs carry the token."""
+
+    def answered(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"X-App-Usage": json.dumps({"call_count": 90})}, json={}
+        )
+
+    graph = GraphClient(
+        token="secret", client=httpx.Client(transport=httpx.MockTransport(answered))
+    )
+
+    with caplog.at_level("WARNING", logger="metaads.client"):
+        graph.get("act_1/insights")
+
+    assert "90 percent" in caplog.text
+    assert "act_1/insights" in caplog.text
+    assert "secret" not in caplog.text
+
+
+def test_conversations_in_one_process_share_a_pool() -> None:
+    """A client per read is a TLS handshake per read."""
+    with GraphClient(token="a") as first, GraphClient(token="b") as second:
+        assert first._client is second._client
+
+    assert not first._client.is_closed

@@ -78,6 +78,7 @@ def answering(
         original(self, transport=httpx.MockTransport(handler), **kwargs)
 
     monkeypatch.setattr(httpx.Client, "__init__", patched)
+    monkeypatch.setattr("metaads.client._shared", None)
     return seen
 
 
