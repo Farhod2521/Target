@@ -613,6 +613,13 @@ class CampaignHoldsBudget(DomainError):
         )
 
 
+class LifetimeBudgetCampaign(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu kampaniya umumiy muddatli byudjetda ishlaydi. Yangi guruhni Ads Manager'da qo'shing."
+        )
+
+
 class CampaignFinished(DomainError):
     def __init__(self) -> None:
         super().__init__(

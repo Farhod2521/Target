@@ -21,7 +21,12 @@ from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
 from app.modules.accounts.models import User
-from app.modules.ads.constants import ManagedLevel
+from app.modules.ads.constants import (
+    BUDGET_AT_ADSET,
+    BUDGET_AT_CAMPAIGN,
+    BUDGET_LIFETIME,
+    ManagedLevel,
+)
 from app.modules.ads.exceptions import (
     AdditionNotOffered,
     BudgetBelowMinimum,
@@ -29,6 +34,7 @@ from app.modules.ads.exceptions import (
     CampaignHoldsBudget,
     CreativeNotEditable,
     GroupBudgetNeeded,
+    LifetimeBudgetCampaign,
     NothingToCopy,
     UnknownTarget,
 )
@@ -81,6 +87,15 @@ def source_group(*, campaign: Campaign, external_id: str = "") -> AdSet:
     return found
 
 
+def budget_holder(*, campaign: Campaign) -> str:
+    """Who pays a new group's way; neither holding a daily budget means a lifetime one."""
+    if campaign.daily_budget_minor is not None:
+        return BUDGET_AT_CAMPAIGN
+    if any(row.daily_budget_minor is not None for row in campaign.adsets):
+        return BUDGET_AT_ADSET
+    return BUDGET_LIFETIME
+
+
 def plan_new_group(
     db: Session,
     *,
@@ -101,7 +116,10 @@ def plan_new_group(
     )
     _addable(campaign)
     copied = source_group(campaign=campaign, external_id=source)
-    held = campaign.daily_budget_minor is not None
+    holder = budget_holder(campaign=campaign)
+    if holder == BUDGET_LIFETIME:
+        raise LifetimeBudgetCampaign
+    held = holder == BUDGET_AT_CAMPAIGN
     if held and daily_budget_minor:
         raise CampaignHoldsBudget
     if not held and not daily_budget_minor:
@@ -520,6 +538,7 @@ def _finish_ad(db: Session, job: Any, result: ActionResult) -> None:
 __all__ = [
     "apply_new_ad",
     "apply_new_group",
+    "budget_holder",
     "group_spec",
     "plan_new_ad",
     "plan_new_group",

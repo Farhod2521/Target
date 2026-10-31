@@ -518,7 +518,7 @@ class NewGroupForm(Camel):
 
     campaign: CampaignRef
     network: NetworkRef
-    budget_at: Literal["campaign", "adset"]
+    budget_at: Literal["campaign", "adset", "lifetime"]
     currency: str
     min_budget: float
     groups: list[GroupSource]

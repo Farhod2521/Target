@@ -206,6 +206,20 @@ def test_a_group_with_a_budget_of_its_own_must_say_how_much(
     assert refused.json()["code"] == "group_budget_needed"
 
 
+def test_a_lifetime_budget_is_not_mistaken_for_a_group_budget(
+    client: TestClient, db: Session, queued: list, fake: Fake
+) -> None:
+    headers, _owner, campaign = _signed_in(client, db)
+    campaign.adsets[0].daily_budget_minor = None
+    db.commit()
+    path = f"/api/v1/campaigns/{campaign.id}/adsets"
+
+    assert client.get(f"{path}/new", headers=headers).json()["budgetAt"] == "lifetime"
+    refused = client.post(path, json={"name": "G", "dailyBudget": 20}, headers=headers)
+
+    assert refused.json()["code"] == "lifetime_budget_campaign"
+
+
 def test_a_finished_campaign_takes_nothing_new(
     client: TestClient, db: Session, queued: list, fake: Fake
 ) -> None:

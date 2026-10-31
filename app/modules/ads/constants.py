@@ -545,6 +545,7 @@ BUDGET_LEVEL: Final = "budget_level"
 BUDGET_SHARING: Final = "budget_sharing"
 BUDGET_AT_CAMPAIGN: Final = "campaign"
 BUDGET_AT_ADSET: Final = "adset"
+BUDGET_LIFETIME: Final = "lifetime"
 
 
 class FormDepth(Choices):

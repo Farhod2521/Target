@@ -92,6 +92,7 @@ Ikkala `POST` ham o'zgarishni ochadi. Holat `GET /campaigns/actions/{actionId}` 
 | `invalid_input` | `problems.dailyBudget`: byudjet noto'g'ri yoki `minBudget`dan past |
 | `campaign_finished` | Kampaniya tugagan |
 | `addition_not_offered` | Tarmoq Meta emas: tugmani ko'rsatmang |
+| `lifetime_budget_campaign` | `budgetAt: "lifetime"`: guruh yaratilmaydi, formani ochmang. Reklama qo'shish ishlaydi |
 | `nothing_to_copy` | Kampaniyada guruh yo'q |
 | `creative_not_editable` | Kampaniyada nusxa olinadigan reklama yo'q, yoki `canSwap: false` bo'lganda matn, rasm yoki forma yuborilgan |
 | `change_in_flight` | Shu obyektda oldingi yaratish hali tugamagan |

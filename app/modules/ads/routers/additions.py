@@ -35,7 +35,12 @@ from app.modules.ads.routers.editing import (
     _ad_forms,
     _ad_library,
 )
-from app.modules.ads.services.additions import source_ad, source_group, story_of
+from app.modules.ads.services.additions import (
+    budget_holder,
+    source_ad,
+    source_group,
+    story_of,
+)
 from app.modules.ads.services.swap import NAME_SUFFIX
 
 
@@ -82,7 +87,7 @@ def new_group_form(campaign_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[st
     return {
         "campaign": {"id": str(campaign.id), "name": campaign.name},
         "network": network_of(campaign.provider),
-        "budget_at": "adset" if campaign.daily_budget_minor is None else "campaign",
+        "budget_at": budget_holder(campaign=campaign),
         "currency": source.currency,
         "min_budget": _major(
             selectors.budget_floor(target=source, level=ManagedLevel.ADSET), places
