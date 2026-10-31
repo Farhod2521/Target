@@ -8,6 +8,8 @@ from uuid import UUID
 from app.modules.notifications.constants import (
     CALLBACK_ANSWER,
     CALLBACK_APPROVE,
+    CALLBACK_DAILY_LIST,
+    CALLBACK_DAILY_PAIR,
     CALLBACK_FREQUENCY_FINE,
     CALLBACK_PAUSE,
     CALLBACK_PAUSE_ANYWAY,
@@ -25,6 +27,7 @@ from app.modules.notifications.constants import (
     CALLBACK_WATCH_RESUME,
     CALLBACK_WATCH_UP,
     CALLBACK_WATCH_WAIT,
+    DAILY_PAIR_DIGEST_CHARS,
     REJECTION_DIGEST_CHARS,
 )
 
@@ -66,8 +69,10 @@ def weekly_done_subject(*, since: date) -> str:
     return f"week:{since.isoformat()}"
 
 
-def daily_subject(*, day: date, pair: str) -> str:
-    return f"{day.isoformat()}:{pair or 'none'}"
+def daily_subject(*, day: date, part: int) -> str:
+    """One message of a day's list, sent once - Django's subject, so a day
+    it already sent is not sent again."""
+    return f"{day.isoformat()}:list:{part}"
 
 
 def daily_done_subject(*, day: date) -> str:
@@ -194,16 +199,58 @@ def read_survey_press(data: str) -> tuple[int, str, int] | None:
     return (int(step), action, int(value))
 
 
+_DIGEST: Final = re.compile(rf"[0-9a-f]{{{DAILY_PAIR_DIGEST_CHARS}}}")
+
+
+def pair_digest(pair: str) -> str:
+    """A pair key short enough for a button."""
+    return hashlib.sha256(pair.encode("utf-8")).hexdigest()[:DAILY_PAIR_DIGEST_CHARS]
+
+
+def daily_pair_data(*, day: date, pair: str) -> str:
+    """A pair's button under the daily message: ``dd:<day>:<pair digest>``."""
+    sep = CALLBACK_SEPARATOR
+    return f"{CALLBACK_DAILY_PAIR}{sep}{day:%Y%m%d}{sep}{pair_digest(pair)}"
+
+
+def daily_list_data(*, day: date, part: int) -> str:
+    """«Back to the list»: ``dl:<day>:<which message>``."""
+    sep = CALLBACK_SEPARATOR
+    return f"{CALLBACK_DAILY_LIST}{sep}{day:%Y%m%d}{sep}{part}"
+
+
+def read_daily_press(data: str) -> tuple[str, date, str] | None:
+    """``(action, day, pair digest or part)``, or None. Strict: callback data
+    is whatever the sender put in it."""
+    parts = data.split(CALLBACK_SEPARATOR)
+    if len(parts) != 3 or parts[0] not in (CALLBACK_DAILY_PAIR, CALLBACK_DAILY_LIST):
+        return None
+    action, day_text, value = parts
+    try:
+        day = datetime.strptime(day_text, "%Y%m%d").date()
+    except ValueError:
+        return None
+    if action == CALLBACK_DAILY_LIST and value.isdigit():
+        return action, day, value
+    if action == CALLBACK_DAILY_PAIR and _DIGEST.fullmatch(value):
+        return action, day, value
+    return None
+
+
 __all__ = [
     "ACTIONS",
     "SURVEY_ACTIONS",
     "WATCH_ACTIONS",
     "connection_subject",
     "daily_done_subject",
+    "daily_list_data",
+    "daily_pair_data",
     "daily_subject",
     "outcome_subject",
+    "pair_digest",
     "pause_data",
     "press_data",
+    "read_daily_press",
     "read_press",
     "read_reply_press",
     "read_support_press",

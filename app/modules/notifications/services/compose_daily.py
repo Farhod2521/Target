@@ -1,204 +1,186 @@
-from collections.abc import Mapping
+"""The daily report's list, as the message somebody reads on their phone.
+
+Up to five page and account pairs a message, each with what it spent, what
+it brought and what one result cost, and a button under it for every pair
+that spent. A press replaces the list in place with that pair's day in
+full - see :mod:`app.modules.notifications.services.compose_day_pair`.
+
+Figures only. Nothing here judges a day: no verdict, no warning, no reading
+by a model. Somebody who wants to know whether a figure is good asks the
+assistant, which reads the same figures.
+
+Built by :mod:`app.modules.notifications.services.compose`'s rules: HTML, every
+value escaped before it meets a tag, and the figures in the cabinet's own
+words - which arrive already translated on the report.
+"""
+
+from collections.abc import Sequence
 from typing import Final
 
-from telegramkit import MESSAGE_MAX_CHARS, message_units
+from telegramkit import Button
 
-from app.common.money import format_minor
-from app.common.routes import reverse
+from app.common.money import format_minor, number_format
+from app.modules.metrics.selectors.results import UNCOUNTED_LABEL
+from app.modules.notifications.constants import DAILY_PAIRS_PER_MESSAGE
+from app.modules.notifications.keys import daily_pair_data
 from app.modules.notifications.services.compose import (
     Message,
     _bold,
-    _folded,
     _italic,
-    _link,
-    _quote,
     escaped,
+    miniapp_button,
 )
-from core.chat.daily import NO_FIGURE, Census, DailyReport, DayCampaign
-from core.chat.day_review import DayReview
+from core.chat.day_report import DailyReport, Figure, Result
 
 SEPARATOR: Final = " · "
+# The longest a pair's name may run on its button before it is cut: a
+# phone draws a button one line high and clips the rest anyway.
+BUTTON_TITLE_CHARS: Final = 40
 
 
-def daily_message(*, report: DailyReport, review: DayReview | None) -> Message:
-    for count in range(len(report.campaigns), -1, -1):
-        text = _assembled(report=report, review=review, count=count)
-        if message_units(text) <= MESSAGE_MAX_CHARS:
-            return Message(text=text)
-    return Message(text=text)
+def part_count(reports: Sequence[DailyReport]) -> int:
+    """How many messages the day's list takes."""
+    return max(1, -(-len(reports) // DAILY_PAIRS_PER_MESSAGE))
 
 
-def _assembled(*, report: DailyReport, review: DayReview | None, count: int) -> str:
-    lines = _opening(report=report, review=review)
-    lines += census_lines(report.day_census)
-    lines += attention_lines(report.attention, said=_said(report, review))
-    if review is not None and review.advice:
-        lines += ["", _quote(review.advice)]
-    lines += _folded_list(report, count=count)
-    lines += _tail(report)
-    return "\n".join(lines)
+def list_message(*, reports: Sequence[DailyReport], part: int) -> Message:
+    """One message of the day's list: up to five pairs, numbered across all."""
+    first = part * DAILY_PAIRS_PER_MESSAGE
+    shown = reports[first : first + DAILY_PAIRS_PER_MESSAGE]
+    lines = [_bold(_title(reports, part=part))]
+    total = _total(reports)
+    if total and part == 0:
+        lines.append(f"{escaped('Jami sarflandi')}: {_bold(total)}")
+    if status := status_line(reports):
+        lines.append(status)
+    for number, report in enumerate(shown, start=first + 1):
+        lines += ["", _bold(f"{number}. {report.title}"), *pair_figures(report)]
+    if any(not report.is_quiet for report in shown):
+        lines += ["", _italic("Batafsil ko'rish uchun pastdagi tugmani bosing.")]
+    return Message(text="\n".join(lines))
 
 
-def _opening(*, report: DailyReport, review: DayReview | None) -> list[str]:
-    title = "Kunlik hisobot" if report.page else "Sahifasiz reklamalar"
-    named = SEPARATOR.join(
-        part for part in (str(title), report.page, report.day_text) if part
+def list_buttons(*, reports: Sequence[DailyReport], part: int) -> tuple[Button, ...]:
+    """A button for each pair on this message that spent, and the cabinet."""
+    first = part * DAILY_PAIRS_PER_MESSAGE
+    shown = reports[first : first + DAILY_PAIRS_PER_MESSAGE]
+    return (
+        *(
+            Button(
+                text=_button_title(number, report),
+                data=daily_pair_data(day=report.day, pair=report.pair),
+                row="own",
+            )
+            for number, report in enumerate(shown, start=first + 1)
+            if not report.is_quiet
+        ),
+        *miniapp_button(route="metrics:dashboard", label="Kabinetda ochish"),
     )
-    said = review.summary if review is not None else ""
-    lines = [_bold(said), escaped(named)] if said else [_bold(named)]
-    lines += ["", _figures(report)]
-    if not report.final:
-        lines.append(_italic("Raqamlar hali yakuniy emas — kun to'liq o'qilmagan."))
+
+
+def _title(reports: Sequence[DailyReport], *, part: int) -> str:
+    day = reports[0].day_text if reports else ""
+    name = "Bugun" if reports and reports[0].ongoing else "Kunlik hisobot"
+    title = SEPARATOR.join(bit for bit in (str(name), day) if bit)
+    parts = part_count(reports)
+    return f"{title}{SEPARATOR}{part + 1}/{parts}" if parts > 1 else title
+
+
+def _total(reports: Sequence[DailyReport]) -> str:
+    """The day's money across every pair, where there is one figure for it.
+
+    Nothing where the pairs pay in two currencies, or where there is only
+    one pair and its own line already says it: nothing here converts
+    money, and a total that repeats the line under it is noise.
+    """
+    spent = [report for report in reports if report.spend_minor > 0]
+    if len(spent) < 2 or len({report.currency for report in spent}) > 1:
+        return ""
+    return format_minor(
+        amount_minor=sum(report.spend_minor for report in spent),
+        currency=spent[0].currency,
+    )
+
+
+def status_line(reports: Sequence[DailyReport]) -> str:
+    """Whether these figures are the day's own, or empty when they are.
+
+    Said before anything else about the day: somebody who reads two lines
+    and puts the phone down should not act on an afternoon's figures
+    believing they are the day's.
+    """
+    if any(report.ongoing for report in reports):
+        return _italic("Kun hali tugamagan — raqamlar shu paytgacha.")
+    if any(not report.final for report in reports):
+        return _italic("Raqamlar hali yakuniy emas — kun to'liq o'qilmagan.")
+    return ""
+
+
+def pair_figures(report: DailyReport) -> list[str]:
+    """Spent, results, and what one cost - three lines, or one when quiet."""
+    lines = []
+    if report.spend_minor > 0:
+        lines += _figure_lines(report.figure)
+    elif not report.other_currency:
+        lines.append(_italic("Sarf bo'lmagan"))
+    if report.other_currency:
+        lines.append(
+            escaped(
+                "Boshqa valyutada: %(spend)s"
+                % {"spend": SEPARATOR.join(report.other_currency)}
+            )
+        )
     return lines
 
 
-def _figures(report: DailyReport) -> str:
-    parts = [f"{escaped('Sarflandi')}: {_bold(report.spend)}"]
-    census = report.day_census
-    if census.result_label:
-        parts.append(f"{escaped(census.result_label)}: {_bold(str(census.results))}")
-    return SEPARATOR.join(parts)
-
-
-def census_lines(census: Census) -> list[str]:
-    if census.spenders < 2:
-        return []
-    ran = "%(count)d ta kampaniya ishladi" % {"count": census.spenders}
-    if census.all_fine:
-        return ["", escaped(f"{ran} — {'hammasi joyida'}")]
-    parts = []
-    if census.fine:
-        parts.append("%(count)d joyida" % {"count": census.fine})
-    if census.watch:
-        parts.append("%(count)d kuzatishda" % {"count": census.watch})
-    if census.burning:
-        parts.append("%(count)d pul yoqyapti" % {"count": census.burning})
-    return ["", escaped(f"{ran}: {', '.join(parts)}")]
-
-
-def attention_lines(
-    rows: tuple[DayCampaign, ...],
-    *,
-    usual: str = "",
-    said: Mapping[DayCampaign, str] | None = None,
-) -> list[str]:
-    if not rows:
-        return []
-    lines = ["", _bold("E'tibor talab qiladi")]
-    for row in rows:
-        lines.append(campaign_row(row, usual=usual))
-        if row.cause_label:
-            lines.append(_italic(cause_said(row)))
-        if line := (said or {}).get(row, ""):
-            lines.append(escaped(line))
+def _figure_lines(figure: Figure) -> list[str]:
+    lines = [f"{escaped('Sarflandi')}: {_bold(figure.spend)}"]
+    if not figure.counted:
+        lines.append(f"{escaped('Natija')}: {escaped(str(UNCOUNTED_LABEL))}")
+        return lines
+    alone = len(figure.results) == 1
+    counts = SEPARATOR.join(_counted(result, alone=alone) for result in figure.results)
+    lines.append(f"{escaped('Natija')}: {_bold(counts)}")
+    priced = [result for result in figure.results if result.count > 0]
+    if len(priced) == 1 and len(figure.results) == 1:
+        label = "Mingtasining narxi" if priced[0].per_thousand else "Bittasining narxi"
+        lines.append(f"{escaped(label)}: {_bold(priced[0].cost)}")
+    elif priced:
+        costs = SEPARATOR.join(_priced(result) for result in priced)
+        lines.append(f"{escaped('Bittasining narxi')}: {_bold(costs)}")
     return lines
 
 
-def _said(report: DailyReport, review: DayReview | None) -> dict[DayCampaign, str]:
-    if review is None:
-        return {}
-    return {
-        report.campaigns[note.index]: note.line
-        for note in review.notes
-        if note.index < len(report.campaigns) and note.line
+def _counted(result: Result, *, alone: bool) -> str:
+    """«41 ta murojaat». Nothing of the only kind is «natija yo'q»; nothing
+    of one of two kinds keeps its word, or the line stops saying which."""
+    if result.count == 0 and alone:
+        return "natija yo'q"
+    return "%(count)s ta %(word)s" % {
+        "count": number_format(result.count),
+        "word": result.word,
     }
 
 
-def _folded_list(report: DailyReport, *, count: int) -> list[str]:
-    rows = [campaign_row(item) for item in report.campaigns[:count]]
-    if not rows:
-        return []
-    dropped = report.campaigns[count:]
-    missing = report.spenders - count
-    missing_minor = report.rest_minor + sum(row.spend_minor for row in dropped)
-    if missing > 0 and missing_minor > 0:
-        rows.append(
-            escaped(
-                "Yana %(count)d ta kampaniya %(spend)s sarfladi."
-                % {
-                    "count": missing,
-                    "spend": format_minor(
-                        amount_minor=missing_minor, currency=report.currency
-                    ),
-                }
-            )
-        )
-    return ["", _folded("Barcha kampaniyalar", rows)]
+def _priced(result: Result) -> str:
+    word = (
+        "ming %(word)s" % {"word": result.word} if result.per_thousand else result.word
+    )
+    return f"{word} {result.cost}"
 
 
-def _tail(report: DailyReport) -> list[str]:
-    lines = []
-    if report.idle:
-        lines.append(
-            _italic(
-                "Hozir yoqilgan %(count)d ta kampaniya kecha pul sarflamagan."
-                % {"count": report.idle}
-            )
-        )
-    if report.open_proposals:
-        lines.append(
-            _italic(
-                "Javob kutayotgan takliflar: %(count)d"
-                % {"count": report.open_proposals}
-            )
-        )
-    if report.elsewhere:
-        lines.append(
-            _italic(
-                "Ads Manager'da yaratilgan reklamalaringiz yana %(spend)s sarfladi. Ular bu hisobotga kirmaydi."
-                % {"spend": report.elsewhere}
-            )
-        )
-    if report.other_currency:
-        lines.append(
-            _italic(
-                "Boshqa valyutada ham to'langan: %(spend)s. U yuqoridagi raqamlarga qo'shilmagan."
-                % {"spend": " · ".join(report.other_currency)}
-            )
-        )
-    if lines:
-        lines.insert(0, "")
-    opened = _link(path=reverse("metrics:dashboard"), label="Kabinetda ochish")
-    return [*lines, "", opened]
-
-
-def campaign_row(row: DayCampaign, *, usual: str = "") -> str:
-    return f"{_bold(f'«{row.name}»')} — {escaped(_outcome(row, usual=usual))}"
-
-
-def _outcome(row: DayCampaign, *, usual: str) -> str:
-    parts = [row.spend]
-    if row.kind != "none":
-        if row.results == 0:
-            parts.append("natija yo'q")
-        else:
-            parts.append(f"{row.result_label}: {row.results}")
-            if row.cost != NO_FIGURE:
-                said = row.cost
-                if row.usual_cost != NO_FIGURE:
-                    said += (
-                        f" ({usual % {'value': row.usual_cost}})"
-                        if usual
-                        else f" ({'odatda'} {row.usual_cost})"
-                    )
-                parts.append(said)
-    if row.learning:
-        parts.append("o'rganmoqda")
-    return SEPARATOR.join(parts)
-
-
-def cause_said(row: DayCampaign) -> str:
-    if not row.cause_line:
-        return row.cause_label
-    if row.cause_line.startswith(row.cause_label):
-        return row.cause_line
-    return f"{row.cause_label} — {row.cause_line}"
+def _button_title(number: int, report: DailyReport) -> str:
+    title = f"{number} · {report.title}"
+    if len(title) <= BUTTON_TITLE_CHARS:
+        return title
+    return title[: BUTTON_TITLE_CHARS - 1].rstrip() + "…"
 
 
 __all__ = [
-    "attention_lines",
-    "campaign_row",
-    "cause_said",
-    "census_lines",
-    "daily_message",
+    "SEPARATOR",
+    "list_buttons",
+    "list_message",
+    "pair_figures",
+    "part_count",
+    "status_line",
 ]

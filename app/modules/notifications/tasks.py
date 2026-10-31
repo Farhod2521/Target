@@ -182,3 +182,72 @@ def deliver_lapse_notices_task() -> int:
         sent = deliver_lapse_notices(db, now=utcnow())
         db.commit()
         return sent
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def deliver_daily_reports_task() -> str:
+    """Every hour: hand the owners whose finished day is ready to their own
+    task, so one account whose figures raise does not take the rest down."""
+    from app.modules.notifications.services.announce_reports import (
+        daily_report_audience,
+    )
+
+    with task_session() as db:
+        owners = daily_report_audience(db, now=utcnow())
+    for owner_id in owners:
+        deliver_daily_report_task.delay(owner_id)
+    return f"queued:{len(owners)}"
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def deliver_daily_report_task(owner_id: str) -> str:
+    """One account's finished day. The journal holds one list per day."""
+    from app.modules.notifications.services.announce_reports import (
+        deliver_daily_report_for,
+    )
+
+    with task_session() as db:
+        owner = user_of(db, owner_id)
+        if owner is None:
+            return "gone"
+        sent = deliver_daily_report_for(db, owner=owner, now=utcnow())
+        return "sent" if sent else "quiet"
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def deliver_weekly_reports_task() -> str:
+    """Every hour: the owners whose Monday morning it is, a task each."""
+    from app.modules.notifications.services.announce_reports import report_audience
+
+    with task_session() as db:
+        owners = report_audience(db, now=utcnow())
+    for owner_id in owners:
+        deliver_report_task.delay(owner_id)
+    return f"queued:{len(owners)}"
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def deliver_report_task(owner_id: str) -> str:
+    """One account's completed week."""
+    from app.modules.notifications.services.announce_reports import deliver_report_for
+
+    with task_session() as db:
+        owner = user_of(db, owner_id)
+        if owner is None:
+            return "gone"
+        return "sent" if deliver_report_for(db, owner=owner, now=utcnow()) else "quiet"
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def deliver_frequency_task(owner_id: str) -> str:
+    """One owner's new frequency levels, once the agent has written them."""
+    from app.modules.notifications.services.announce_frequency import (
+        deliver_frequency_for,
+    )
+
+    with task_session() as db:
+        owner = user_of(db, owner_id)
+        if owner is None:
+            return "gone"
+        sent = deliver_frequency_for(db, owner=owner, now=utcnow())
+        return "sent" if sent else "quiet"

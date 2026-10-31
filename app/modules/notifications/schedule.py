@@ -29,6 +29,18 @@ SCHEDULE: Final = [
         f"{TASKS}.deliver_lapse_notices_task",
         "10,25,40,55",
     ),
+    # A minute past every hour: the report's hour is seven on the owner's
+    # clock, and the weekly one a minute behind it on their Monday.
+    Periodic(
+        "Kunlik xisobotni Telegramga yuborish",
+        f"{TASKS}.deliver_daily_reports_task",
+        "1",
+    ),
+    Periodic(
+        "Haftalik xisobotni Telegramga yuborish",
+        f"{TASKS}.deliver_weekly_reports_task",
+        "2",
+    ),
     Periodic(
         "Kabinetdagi muammolar haqida xabar berish",
         f"{TASKS}.deliver_trouble_notices_task",

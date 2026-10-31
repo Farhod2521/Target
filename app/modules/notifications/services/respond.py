@@ -2,13 +2,13 @@
 
 ``/start`` with a code links an account, ``/start parol`` sends a linked
 one its new-password link, ``/stop`` unlinks it, ``/yordam`` makes the next
-typed words a message to Support. A stranger and an unlinked
-chat get the one sentence about connecting.
+typed words a message to Support, ``/hisobot`` and ``/bugun`` send the day's
+list, and the buttons under that list open a pair's day. A stranger and an
+unlinked chat get the one sentence about connecting.
 
-Not here yet, from Django: the assistant answering typed questions, the
-buttons under notices (suggestions, pauses, survey, daily report), and the
-``/hisobot`` and ``/bugun`` reports. Until they are, those get the bot's
-help sentence and a press is answered "not available".
+Not here yet, from Django: the assistant answering typed questions and the
+buttons under ad notices and surveys. Until they are, typed words get the
+bot's help sentence and such a press is answered "not available".
 """
 
 import logging
@@ -32,8 +32,10 @@ from app.common.i18n import DEFAULT, override
 from app.modules.notifications.bot import bot
 from app.modules.notifications.constants import (
     COMMAND_HELP,
+    COMMAND_REPORT,
     COMMAND_START,
     COMMAND_STOP,
+    COMMAND_TODAY,
     PRIVATE_CHAT,
     RESET_PAYLOAD,
     SUPPORT_WAIT_KEY,
@@ -42,6 +44,12 @@ from app.modules.notifications.constants import (
 from app.modules.notifications.exceptions import ChatTakenByAnother, LinkTokenInvalid
 from app.modules.notifications.models import TelegramChat
 from app.modules.notifications.selectors import chat_by_id
+from app.modules.notifications.services.commands import (
+    handle_daily_press,
+    is_daily_press,
+    send_today,
+    send_yesterday,
+)
 from app.modules.notifications.services.compose import escaped
 from app.modules.notifications.services.link import link_chat, stop_chat
 from app.modules.notifications.services.password_reset import answer_reset_request
@@ -61,6 +69,8 @@ def handle_update(db: Session, *, payload: dict[str, Any], now: datetime) -> str
     known = chat_by_id(db, chat_id=update.chat_id)
     with bot() as client, override(_language(known)):
         if isinstance(update, ButtonPress):
+            if is_daily_press(update.data):
+                return handle_daily_press(db, client=client, press=update, now=now)
             answer(
                 client=client,
                 query_id=update.query_id,
@@ -104,8 +114,13 @@ def _command(
             ),
         )
         return "stopped"
-    if command.name == COMMAND_HELP and known is not None and _linked(known):
-        return _start_support(db, client=client, chat=known, now=now)
+    if known is not None and _linked(known):
+        if command.name == COMMAND_HELP:
+            return _start_support(db, client=client, chat=known, now=now)
+        if command.name == COMMAND_REPORT:
+            return send_yesterday(db, client=client, chat=known, now=now)
+        if command.name == COMMAND_TODAY:
+            return send_today(db, client=client, chat=known, now=now)
     _say(client=client, chat_id=command.chat_id, text=_hello(known))
     return "unknown"
 
@@ -246,8 +261,8 @@ def _hello(known: TelegramChat | None) -> str:
     if not _linked(known):
         return _instructions()
     return (
-        "Siz ulangansiz.\n\n/yordam — yordam xizmatiga yozish\n"
-        "/stop — xabarlarni to'xtatish"
+        "Siz ulangansiz.\n\n/hisobot — kechagi hisobot\n/bugun — bugungi raqamlar\n"
+        "/yordam — yordam xizmatiga yozish\n/stop — xabarlarni to'xtatish"
     )
 
 

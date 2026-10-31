@@ -169,9 +169,28 @@ def owners_with_rejected_ads(db: Session) -> set[UUID]:
     )
 
 
+def has_been_announced(db: Session, *, owner: User, kind: str, subject: str) -> bool:
+    """Whether this exact thing is finished with - delivered or given up on,
+    not merely claimed, so a report that never left is still sent."""
+    return (
+        db.scalar(
+            select(TelegramNotice.id)
+            .where(
+                TelegramNotice.owner_id == owner.id,
+                TelegramNotice.kind == str(kind),
+                TelegramNotice.subject == subject,
+                settled(),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
 __all__ = [
     "NEWS_OUTCOMES",
     "announced",
+    "has_been_announced",
     "owners_with_fresh_outcomes",
     "owners_with_open_suggestions",
     "owners_with_rejected_ads",
