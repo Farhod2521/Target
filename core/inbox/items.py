@@ -72,6 +72,12 @@ ADVICE: Final[dict[str, str]] = {
     "meta_hold": "Meta'da shaxsingizni tasdiqlang, o'zgarishlar yana qabul qilinadi.",
     "account_blocked": "Meta'da akkaunt holatini tekshiring: bu faqat u yerda tuzatiladi.",
     "checkup": "Agent tarixini ko'rib chiqing yoki AI dan so'rang.",
+    "watch": "Rasm yoki formani yangilang, keyin reklamani qayta yoqing.",
+    "frequency": "Yangi rasm qo'shing, reklama yangi odamlarga yetadi.",
+    "ranking": "Rasm va matnni yangilang, baho shundan ko'tariladi.",
+    "creative": "Rasm yoki matnni almashtiring.",
+    "audience": "Auditoriyani kengaytiring yoki o'zgartiring.",
+    "landing": "Reklama ochadigan sahifa yoki formani tekshiring.",
 }
 
 # What says which network without a subject: these lines are Meta's own.

@@ -65,67 +65,9 @@ marta ishlatiladi.
 
 ## 2. Ishlayotgan reklamada joylashuvni o'zgartirish
 
-Kampaniya tahriri endi auditoriya joylarini ham ko'rsatadi va almashtiradi.
-Launch'dagi joy qidiruvi bilan bir xil ishlaydi:
-[FRONTEND_GEOLOCATION.md](FRONTEND_GEOLOCATION.md).
-
-### Forma
-
-`GET /campaigns/{id}/edit` javobiga qo'shildi:
-
-```json
-{
-  "places": [{"id": "UZ", "name": "UZ", "type": "country"}],
-  "placeLimit": 10,
-  "canMove": true,
-  "learning": false
-}
-```
-
-- `canMove: false` — joyni o'zgartirib bo'lmaydi, maydonni faqat o'qish uchun
-  ko'rsating.
-- `learning: true` — guruh o'rganish bosqichida. Bu holatda ham `canMove: true`
-  bo'lishi mumkin: `locks.audience` `"learning"` bo'lsa ham joy o'zgaradi,
-  auditoriyaning boshqa qismlari (yosh, jins) esa o'zgarmaydi.
-- `learning: true` va `canMove: true` bo'lsa, saqlashdan oldin ogohlantiring:
-  joyni o'zgartirish o'rganishga ta'sir qilishi mumkin. Qarorni ega qiladi.
-
-### Qidiruv
-
-```http
-GET /campaigns/{id}/locations?q=tosh&country=UZ
-```
-
-`country` ixtiyoriy. `q` 2 belgidan qisqa bo'lsa `[]` qaytadi. Javob:
-
-```json
-[{"id": "111", "name": "Toshkent", "type": "city", "context": "...", "countryCode": "UZ"}]
-```
-
-`context` bir xil nomli joylarni ajratadi, ro'yxatda ko'rsating. Daqiqasiga 60 ta
-qidiruvdan oshsa `429` keladi.
-
-### Saqlash
-
-`PATCH /campaigns/{id}` body'siga `places` qo'shildi:
-
-```json
-{
-  "dailyBudget": 10,
-  "ageMin": 25,
-  "ageMax": 45,
-  "gender": "all",
-  "audienceIds": [],
-  "places": [{"id": "111", "name": "Toshkent", "type": "city"}]
-}
-```
-
-`places` ro'yxati **to'liq** yuboriladi: u eskisini butunlay almashtiradi. Joy
-o'zgarmasa, maydonni yubormang.
-
-Yangi joy faqat `/locations` qidiruvidan olingan bo'lishi kerak. Aks holda, yoki
-ro'yxat bo'sh yoki 10 tadan ko'p bo'lsa, `422` keladi va xato `places` maydoniga
-biriktiriladi.
+Bajarildi: frontendning `feat/audience-and-center` branch'ida. Tahrir oynasi
+joylar, xarita, qiziqishlar, istisnolar, o'z auditoriyalar, tillar va qamrovni
+ko'rsatadi. Bu ishni qayta boshlamang.
 
 ---
 
@@ -148,6 +90,5 @@ Hammasi backend deploy qilingandan keyin ishlaydi. Eski front buzilmaydi.
    birinchi navbatda.
 2. Parolni tiklash.
 3. Meta xatolari, 2-qism.
-4. Joylashuvni o'zgartirish.
-5. Ofis: yo'nalishlar.
-6. API v2 ga o'tish.
+4. Ofis: yo'nalishlar.
+5. API v2 ga o'tish.

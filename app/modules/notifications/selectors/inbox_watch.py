@@ -134,6 +134,9 @@ def _item(row: Watched) -> InboxItem:
         level=LEVEL_OF[row.watch.stage],
         title=watch_title(row),
         body=watch_body(row),
+        advice=move_label(row, row.watch.advised)
+        if row.watch.stage != "stopped"
+        else "",
         actions=tuple(
             action for move in row.watch.moves if (action := _action(row, move)).label
         ),
