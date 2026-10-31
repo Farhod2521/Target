@@ -3,6 +3,13 @@
 Semantik versiyalash. Meta API versiyasi (`v26.0`) paket versiyasidan
 alohida — u `client.py` dagi konstantada.
 
+## 0.44.0 — 2026-11-01
+
+### O'zgardi
+- `200/2490592` va `200/4841021` endi `AccountNotWritable`, `200/2490585`
+  `AdvertiserRoleMissing`, `100/1487202` `PageAccessDenied`. Meta bularni
+  huquq xatosi yoki noto'g'ri parametr deb yuboradi, lekin yechimi boshqa.
+
 ## 0.43.0 — 2026-10-30
 
 ### Qo'shildi

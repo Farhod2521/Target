@@ -16,14 +16,23 @@ from app.common.routes import reverse
 from app.modules.accounts.models import User
 from app.modules.ads.constants import Delivery
 from app.modules.ads.models import Ad, AdSet, Campaign
+from app.modules.ads.selectors.actions import account_of
 from app.modules.ads.selectors.creatives import with_content
-from app.modules.ads.selectors.failures import feedback_text
+from app.modules.ads.selectors.delivery_issues import (
+    AUDIENCE,
+    CAMPAIGNS,
+    RESEND,
+    SWAP,
+    TROUBLES,
+    Trouble,
+)
+from app.modules.ads.selectors.failures import feedback_text, fix_link
 from core.agent.refusal_cause import RefusalCause, refusal_cause
 
 # An advert that shows an existing page post: its words are changed on the network.
 POST_KINDS: Final = frozenset({"post", "page_post", "existing_post", "boost"})
 TITLE: Final = "Meta reklamani rad etdi"
-RESEND: Final = "Reklamani saqlang: Meta uni qayta ko'rib chiqadi."
+NOT_RUNNING: Final = "Meta reklamani ishga tushirmayapti"
 SWAP_LABEL: Final = "Matn va rasmni almashtirish"
 GUIDES: Final[dict[RefusalCause, tuple[str, tuple[str, ...]]]] = {
     "words": (
@@ -58,6 +67,24 @@ GUIDES: Final[dict[RefusalCause, tuple[str, tuple[str, ...]]]] = {
         ("Pastda Meta yozgan sababni o'qing.", "Shu qismni tuzating.", RESEND),
     ),
 }
+# Refused with nothing said: the review's note is only in Meta's own screens.
+SILENT: Final = Trouble(
+    title=TITLE,
+    cause="Meta bu reklamani rad etdi, lekin sababini bizga yozmadi.",
+    steps=(
+        "Ads Manager'da reklamani oching va Meta ko'rsatgan qoidani o'qing.",
+        "Shu qismni tuzating yoki xato deb hisoblasangiz, qayta ko'rib chiqishni so'rang.",
+    ),
+    fix="ads_manager",
+)
+# An issue that is not a review: nothing says a new advert would cure it.
+ISSUE_STEPS: Final = (
+    "Pastda Meta yozgan sababni o'qing.",
+    "Shu qismni tuzating.",
+    "Yordam kerak bo'lsa, supportga yozing.",
+)
+# The parts a swap of words and picture can reach.
+SWAPPABLE: Final = frozenset({"words", "picture", "site"})
 # Causes a new advert cannot cure keep their own steps.
 STANDING: Final = frozenset({"offer", "account"})
 # A post cannot be swapped in place: the way out is another advert.
@@ -88,14 +115,26 @@ def complaint_of(ad: Any) -> str:
     return "\n".join(said) or ad.issue_summary or ad.adset.issue_summary
 
 
+def known_trouble(ad: Any) -> Trouble | None:
+    """The written reason this advert does not run, unless a review refused it.
+
+    A policy Meta named is the review's: an issue beside it is what followed.
+    """
+    if ad.provider != "meta" or feedback_text(ad.review_feedback):
+        return None
+    codes = ad.issue_codes or ad.adset.issue_codes or ()
+    return next((TROUBLES[code] for code in codes if code in TROUBLES), None)
+
+
 def review_key(ad: Any) -> str:
     """One name for one complaint: the policy, else what the issue says.
 
     The name is hashed because Meta words it in the token's language and at
-    any length, and a key is short.
+    any length, and a key is short. A complaint already written for has none:
+    it never costs a question.
     """
     said = complaint_of(ad)
-    if not said:
+    if not said or known_trouble(ad) is not None:
         return ""
     codes = [code for code in (ad.issue_codes or ()) if code]
     feedback = feedback_text(ad.review_feedback)
@@ -118,24 +157,50 @@ def rejection_of(ad: Any) -> dict[str, Any] | None:
     if ad is None or not turned_down(ad):
         return None
     said = complaint_of(ad)
+    post = (getattr(getattr(ad, "content", None), "kind", "") or "") in POST_KINDS
+    trouble = known_trouble(ad) or (None if said else SILENT)
+    if trouble is not None:
+        steps = trouble.steps if trouble.fix != SWAP or not post else POST_STEPS
+        return Refusal(
+            title=trouble.title,
+            cause=trouble.cause,
+            steps=list(steps),
+            provider_words=said or None,
+            fix=_fix(ad, trouble.fix, post=post),
+        ).model_dump(by_alias=True)
     cause = refusal_cause(said)
     sentence, steps = GUIDES[cause]
-    post = (getattr(getattr(ad, "content", None), "kind", "") or "") in POST_KINDS
+    reviewed = bool(feedback_text(ad.review_feedback))
+    if post and cause not in STANDING:
+        steps = POST_STEPS
+    elif not reviewed and cause == "unknown":
+        steps = ISSUE_STEPS
     key = review_key(ad)
     return Refusal(
         key=key or None,
-        title=TITLE,
+        title=TITLE if reviewed else NOT_RUNNING,
         cause=sentence,
-        steps=list(POST_STEPS if post and cause not in STANDING else steps),
+        steps=list(steps),
         provider_words=said or None,
         explaining=bool(key),
-        fix=None
-        if post
-        else RefusalFix(
-            label=SWAP_LABEL,
-            url=reverse("ads:ad_edit", kwargs={"external_id": ad.external_id}),
-        ),
+        fix=_fix(ad, SWAP, post=post) if reviewed or cause in SWAPPABLE else None,
     ).model_dump(by_alias=True)
+
+
+def _fix(ad: Any, kind: str, *, post: bool) -> RefusalFix | None:
+    """The one button: this advert's page, or the place the fault really is."""
+    if kind == SWAP:
+        if post:
+            return None
+        url = reverse("ads:ad_edit", kwargs={"external_id": ad.external_id})
+        return RefusalFix(label=SWAP_LABEL, url=url)
+    if kind == AUDIENCE:
+        url = reverse("ads:campaign_edit", kwargs={"pk": ad.adset.campaign_id})
+        return RefusalFix(label="Auditoriyani tahrirlash", url=url)
+    if kind == CAMPAIGNS:
+        return RefusalFix(label="Reklamalarni ochish", url=reverse("ads:campaigns"))
+    label, url = fix_link(kind, account_of(target=ad, level="ad").external_id)
+    return RefusalFix(label=label, url=url) if url else None
 
 
 def first_turned_down(ads: Any) -> Any:
@@ -169,6 +234,7 @@ __all__ = [
     "POST_KINDS",
     "complaint_of",
     "first_turned_down",
+    "known_trouble",
     "rejection_of",
     "review_key",
     "turned_down",

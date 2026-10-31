@@ -9,6 +9,11 @@ buzadi — kamdan-kam va ogohlantirish bilan.
 | Yangi port, yangi metod, ixtiyoriy maydon | MINOR |
 | Xato tuzatish, ichki refactoring | PATCH |
 
+## 0.26.0 — 2026-11-01
+
+MINOR: `AccountNotWritable`, `AdvertiserRoleMissing` (`PermissionDenied`
+avlodlari), `PageAccessDenied` (`InvalidRequest` avlodi).
+
 ## 0.25.0 — 2026-10-30
 
 MINOR: `AudiencePort.read_targeting`, `AudiencePort.same_targeting`.

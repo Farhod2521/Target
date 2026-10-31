@@ -47,6 +47,17 @@ TITLES: Final[dict[str, str]] = {
     "connect": "Meta ulanishni rad etdi",
     "review": "Meta reklamani rad etdi",
 }
+# What a missing object is, by what was pressed: the sentence for a change speaks of an advert.
+MISSING: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
+    "media": (
+        "Bu fayl Meta kutubxonasida topilmadi. U Ads Manager'da o'chirilgan bo'lishi mumkin.",
+        ("Sahifani yangilang.", "Faylni qayta tanlang yoki qayta yuklang."),
+    ),
+    "audience": (
+        "Bu auditoriya Meta'da topilmadi. U Ads Manager'da o'chirilgan bo'lishi mumkin.",
+        ("Sahifani yangilang.", "Kerak bo'lsa, auditoriyani qayta yarating."),
+    ),
+}
 BUSY_TITLE: Final = "Meta hozir javob bermadi"
 NO_REASON: Final = "Meta aniq sababini aytmadi."
 
@@ -66,7 +77,7 @@ def refusal_for(
         fix_link,
         guide_of,
     )
-    from app.modules.ads.services.manage import PROVIDER_FAILURES
+    from app.modules.ads.services.manage import provider_failure
 
     words = _words(exc)
     if exc.retryable:
@@ -79,12 +90,14 @@ def refusal_for(
             retry_after_seconds=getattr(exc, "retry_after_seconds", 0) or None,
         )
     title = TITLES[operation]
-    code = PROVIDER_FAILURES.get(type(exc).__name__, "")
+    code = provider_failure(exc, account)
     if code in SENTENCES:
         link = fix_link(
             SENTENCES[code][1], account.external_id if account is not None else ""
         )
-        cause, steps = guide_of(code)
+        cause, steps = (code == "not_found" and MISSING.get(operation)) or guide_of(
+            code
+        )
         return Refusal(
             title=title,
             cause=cause,
