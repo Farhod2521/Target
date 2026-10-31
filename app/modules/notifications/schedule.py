@@ -41,6 +41,8 @@ SCHEDULE: Final = [
         f"{TASKS}.deliver_weekly_reports_task",
         "2",
     ),
+    # Eleven past the hour, a minute no other hourly job uses.
+    Periodic("So'rovnomani Telegramda so'rash", f"{TASKS}.deliver_surveys_task", "11"),
     Periodic(
         "Kabinetdagi muammolar haqida xabar berish",
         f"{TASKS}.deliver_trouble_notices_task",

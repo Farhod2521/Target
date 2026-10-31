@@ -228,7 +228,11 @@ def test_the_customer_bot_links_and_passes_words_to_support(
     )
     asked = db.scalar(select(SupportMessage))
     assert asked is not None and asked.body == "Pul yechildi"
-    assert handle_update(db, payload=_text("800", "Yana"), now=utcnow()) == "unknown"
+    # The wait ends with the first message: the next words are a question for
+    # the assistant, which an account with no subscription is not answered.
+    assert handle_update(db, payload=_text("800", "Yana"), now=utcnow()) == (
+        "not_entitled"
+    )
 
 
 def test_the_webhooks_check_their_own_secret(

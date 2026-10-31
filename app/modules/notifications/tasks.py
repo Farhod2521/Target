@@ -251,3 +251,54 @@ def deliver_frequency_task(owner_id: str) -> str:
             return "gone"
         sent = deliver_frequency_for(db, owner=owner, now=utcnow())
         return "sent" if sent else "quiet"
+
+
+@celery_app.task(queue="chat", ignore_result=True)
+def answer_for_telegram(turn_id: str, chat_id: str, reply_to: int) -> str:
+    """Write the answer to one question asked in Telegram, and send it. On
+    ``chat``, where the cabinet's own answers stream: a Meta lead callback
+    must not wait behind a model."""
+    from app.modules.notifications.services.converse import answer_and_send
+
+    with task_session() as db:
+        return answer_and_send(
+            db, turn_id=turn_id, chat_id=chat_id, reply_to=reply_to, now=utcnow()
+        )
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def deliver_surveys_task() -> str:
+    """Every hour: the linked owners inside the asking hours, a task each."""
+    from app.modules.notifications.services.announce_survey import survey_audience
+
+    with task_session() as db:
+        owners = survey_audience(db, now=utcnow())
+    for owner_id in owners:
+        deliver_survey_task.delay(owner_id)
+    return f"queued:{len(owners)}"
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def deliver_survey_task(owner_id: str) -> str:
+    """Start the survey owed today in one account's bot."""
+    from app.modules.notifications.services.announce_survey import (
+        deliver_survey_for,
+    )
+
+    with task_session() as db:
+        owner = user_of(db, owner_id)
+        if owner is None:
+            return "gone"
+        return deliver_survey_for(db, owner=owner, now=utcnow())
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def resend_survey_task(owner_id: str, token: str) -> str:
+    """The question «Keyinroq» put off, asked again once the wait is up."""
+    from app.modules.notifications.services.announce_survey import resend_survey_for
+
+    with task_session() as db:
+        owner = user_of(db, owner_id)
+        if owner is None:
+            return "gone"
+        return resend_survey_for(db, owner=owner, token=token, now=utcnow())
