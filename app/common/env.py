@@ -109,7 +109,7 @@ class Env(BaseSettings):
         default="https://targetolog.ai/", alias="DEFAULT_AD_LINK"
     )
     ads_dry_run: bool = Field(default=True, alias="ADS_DRY_RUN")
-    ads_max_creatives: int = Field(default=6, ge=1, alias="ADS_MAX_CREATIVES")
+    ads_max_creatives: int = Field(default=10, ge=1, alias="ADS_MAX_CREATIVES")
     ads_per_group: int = Field(default=6, ge=1, alias="ADS_PER_GROUP")
     ads_per_group_min: int = Field(default=3, ge=1, alias="ADS_PER_GROUP_MIN")
     ads_max_adsets_per_campaign: int = Field(
