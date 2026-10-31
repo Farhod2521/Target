@@ -741,6 +741,25 @@ class CreatedOut(MessageOut):
     id: str
 
 
+class DirectionOut(BaseModel):
+    id: str
+    key: str = Field(description="What a profile sends; never edited.")
+    label_uz: str
+    label_ru: str
+    label_en: str
+    preset_key: str = Field(description="The catalogue its adverts are built from.")
+    preset_label: str
+    position: int
+    is_active: bool
+    businesses: int = Field(description="Profiles on this direction now.")
+    created_at: datetime
+
+
+class DirectionsOut(BaseModel):
+    rows: list[DirectionOut]
+    presets: list[ChoiceOut] = Field(description="Every `preset_key` allowed.")
+
+
 class PromoPlanOut(BaseModel):
     code: str
     name: str

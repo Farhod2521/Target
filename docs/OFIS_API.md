@@ -357,6 +357,26 @@ Boshqa turning maydonlari e'tiborsiz qoldiriladi. Xatolar `422` + `problems`
 
 ---
 
+## 5a. Biznes yo'nalishlari — `/directions`
+
+Faqat super admin (`can.superuser`). Owner roli ham kirolmaydi: `404`.
+
+Yo'nalish — mijoz profilda tanlaydigan nom. U `preset_key` orqali mavjud
+katalogga bog'lanadi, reklama o'sha katalogdan quriladi. `GET /directions`
+javobidagi `presets` ruxsat etilgan qiymatlar ro'yxati: forma shu ro'yxatdan
+tanlaydi, erkin matn `422` oladi.
+
+| Yozish | Natija |
+|---|---|
+| `POST /directions` | `is_active: true` bo'lsa, mijoz formasida darhol chiqadi. `key` faqat shu yerda beriladi |
+| `PUT /directions/{id}` | `key` o'zgarmaydi. `preset_key` o'zgarsa, shu yo'nalishdagi profillar ham yangi katalogga o'tadi |
+| `DELETE /directions/{id}` | Biznes ishlatayotgan yo'nalish `400 direction_in_use` oladi: uni `is_active: false` qiling |
+
+`is_active: false` yo'nalish yangi mijozlarga ko'rinmaydi, uni tanlab bo'lgan
+mijozda esa qoladi. Xatolar `422` + `problems`, har bir yozish jurnalga tushadi.
+
+---
+
 ## 6. Chat (yordam) — `/support`
 
 Faqat Support va Owner (`can.answer_support`). Suhbatni o'qish va fayl
@@ -643,6 +663,16 @@ ekrani yo'q: raqamni havolasiz ko'rsating.
 | DELETE | `/promo/codes/{code_id}` | Finance, Owner | — | — | 200 MessageOut |
 | POST | `/promo/requests/{request_id}/approve` | Support, Finance, Owner | — | — | 200 MessageOut |
 | POST | `/promo/requests/{request_id}/refuse` | Support, Finance, Owner | — | RefuseIn | 200 MessageOut |
+
+### Yo'nalishlar
+
+| Metod | Yo'l | Rol | Query | Body | Javob |
+|---|---|---|---|---|---|
+| GET | `/directions` | Super admin | — | — | 200 DirectionsOut |
+| POST | `/directions` | Super admin | — | NewDirectionIn | 200 CreatedOut |
+| GET | `/directions/{direction_id}` | Super admin | — | — | 200 DirectionOut |
+| PUT | `/directions/{direction_id}` | Super admin | — | DirectionIn | 200 MessageOut |
+| DELETE | `/directions/{direction_id}` | Super admin | — | — | 200 MessageOut |
 
 ### Sotuv
 

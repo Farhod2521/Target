@@ -87,6 +87,9 @@ class ActionKind(Choices):
     PROMO_CODE_CREATED = "promo_code_created"
     PROMO_CODE_UPDATED = "promo_code_updated"
     PROMO_CODE_DELETED = "promo_code_deleted"
+    DIRECTION_CREATED = "direction_created"
+    DIRECTION_UPDATED = "direction_updated"
+    DIRECTION_DELETED = "direction_deleted"
     SALES_VIEW = "sales_view"
     SALES_CLAIMED = "sales_claimed"
     SALES_RETURNED = "sales_returned"
@@ -127,6 +130,9 @@ ACTION_KIND_LABELS = {
     ActionKind.PROMO_CODE_CREATED: "Promo kod yaratildi",
     ActionKind.PROMO_CODE_UPDATED: "Promo kod o'zgartirildi",
     ActionKind.PROMO_CODE_DELETED: "Promo kod o'chirildi",
+    ActionKind.DIRECTION_CREATED: "Yo'nalish yaratildi",
+    ActionKind.DIRECTION_UPDATED: "Yo'nalish o'zgartirildi",
+    ActionKind.DIRECTION_DELETED: "Yo'nalish o'chirildi",
     ActionKind.SALES_VIEW: "Sotuv kartasi ochildi",
     ActionKind.SALES_CLAIMED: "Sotuvga olindi",
     ActionKind.SALES_RETURNED: "Sotuvdan qaytarildi",

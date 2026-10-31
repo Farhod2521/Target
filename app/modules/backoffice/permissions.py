@@ -59,3 +59,10 @@ def staff_required(*roles: Role) -> Callable[..., User]:
         return user
 
     return guard
+
+
+def superuser_required(user: User = Depends(current_user)) -> User:
+    """A dependency for the superuser alone: no role opens this door."""
+    if not (user.is_active and user.is_staff and user.is_superuser):
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return user

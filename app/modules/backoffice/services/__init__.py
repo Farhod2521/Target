@@ -3,6 +3,11 @@ from app.modules.backoffice.services.accounts import (
     delete_account,
     set_customer_password,
 )
+from app.modules.backoffice.services.directions import (
+    create_direction,
+    delete_direction,
+    update_direction,
+)
 from app.modules.backoffice.services.entitlement import (
     Payment,
     add_days,
@@ -49,8 +54,10 @@ __all__ = [
     "attach_old_receipts",
     "change_page_account",
     "create_code",
+    "create_direction",
     "delete_account",
     "delete_code",
+    "delete_direction",
     "free_hold",
     "give_plan",
     "holds_any_role",
@@ -70,5 +77,6 @@ __all__ = [
     "take_payment",
     "take_slots",
     "update_code",
+    "update_direction",
     "void_withdrawal",
 ]

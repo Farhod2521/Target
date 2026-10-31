@@ -18,6 +18,14 @@ class RefusalAnswerEmpty(DomainError):
         super().__init__("Kamida bitta tilda javob yozing.")
 
 
+class DirectionInUse(DomainError):
+    def __init__(self, *, count: int) -> None:
+        super().__init__(
+            "Bu yo'nalishni %(count)s ta biznes ishlatmoqda, uni o'chirib bo'lmaydi. O'chirish o'rniga uni nofaol qiling."
+            % {"count": count}
+        )
+
+
 class EmailMismatch(DomainError):
     def __init__(self) -> None:
         super().__init__("Email mos kelmadi — akkaunt o'chirilmadi.")
