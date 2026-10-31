@@ -17,6 +17,8 @@ STATE_EN: Final[dict[str, str]] = {
 }
 
 NO_FIGURE: Final = "\u2014"
+# The states a group or its campaign shows nothing in.
+OFF_STATES: Final = frozenset({"paused", "paused_above", "finished"})
 
 CAUSE_EN: Final[dict[str, str]] = {
     "provider_stopped": "the platform has stopped showing it",
@@ -280,6 +282,7 @@ __all__ = [
     "CAUSE_EN",
     "FINE",
     "NO_FIGURE",
+    "OFF_STATES",
     "STATE_EN",
     "WATCH",
     "Census",

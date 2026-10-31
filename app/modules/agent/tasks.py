@@ -176,19 +176,18 @@ def stop_all_fruitless() -> int:
 
 @celery_app.task(queue="agent", ignore_result=True)
 def check_frequency_task(owner_id: str) -> int:
-    """One owner's frequency levels for the morning. Returns how many were raised.
-
-    The Django project calls this from the notifications app, which then
-    sends what was raised; here the raise is the agent's and the message is
-    left to whoever reads the ``agent.frequency_alerted`` events.
-    """
+    """One owner's frequency levels for the morning, then the Telegram message
+    about them - Django's order. Returns how many were raised."""
     from app.modules.billing.selectors.subscription import has_live_subscription
+    from app.modules.notifications.tasks import deliver_frequency_task
 
     with task_session() as db:
         owner = _owner(db, owner_id)
         if owner is None or not has_live_subscription(db, owner=owner):
             return 0
-        return len(check_frequency(db, owner=owner, now=utcnow()))
+        raised = len(check_frequency(db, owner=owner, now=utcnow()))
+    deliver_frequency_task.delay(owner_id)
+    return raised
 
 
 @celery_app.task(queue="agent", ignore_result=True)

@@ -113,3 +113,15 @@ class HandoffBlocked(DomainError):
 
     def __init__(self) -> None:
         super().__init__("Kirish mumkin emas.")
+
+
+class ResetLinkInvalid(DomainError):
+    """The new-password link is unknown, over a quarter hour old, already
+    used, or the password moved since it was issued. Not told apart: each is
+    the same next move, and naming which would tell whoever holds the link
+    how close they got."""
+
+    code = "reset_link_invalid"
+
+    def __init__(self) -> None:
+        super().__init__("Havola eskirgan yoki ishlatilgan. Botdan yangi havola oling.")

@@ -286,6 +286,16 @@ def test_a_web_app_button_carries_the_url_telegram_expects() -> None:
     }
 
 
+def test_a_link_button_opens_the_address_and_sits_with_the_pages() -> None:
+    """A plain link, for a page whose session must land in the real browser."""
+    link = Button(text="Ochish", url="https://example.test/p/")
+
+    assert link.as_payload() == {"text": "Ochish", "url": "https://example.test/p/"}
+    assert link.opens_a_page
+    with pytest.raises(ValueError, match="not both and not neither"):
+        Button(text="ha", data="a:1", url="https://example.test/").as_payload()
+
+
 def test_a_styled_button_carries_its_colour_and_a_plain_one_does_not() -> None:
     """Older clients ignore the field; a plain button must not send it."""
     assert Button(text="Ha", data="a:1", style="success").as_payload() == {

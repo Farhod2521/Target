@@ -75,6 +75,15 @@ CALLBACK_WAIT: Final = "pw"
 CALLBACK_ANSWER: Final = "c"
 CALLBACK_REPLY: Final = "q"
 CALLBACK_SEPARATOR: Final = ":"
+# The daily report's buttons: a pair's day, and back to the list.
+CALLBACK_DAILY_PAIR: Final = "dd"
+CALLBACK_DAILY_LIST: Final = "dl"
+# Five pairs a message; a pair key on a button is cut to a digest this long.
+DAILY_PAIRS_PER_MESSAGE: Final = 5
+DAILY_PAIR_DIGEST_CHARS: Final = 10
+# A final day's reports, kept for the buttons under its message.
+DAILY_REPORTS_KEY: Final = "notifications:daily:{owner}:{day}:{language}"
+DAILY_REPORTS_TTL_SECONDS: Final = 3 * 24 * 60 * 60
 CALLBACK_WATCH_UP: Final = "wu"
 CALLBACK_WATCH_DOWN: Final = "wd"
 CALLBACK_WATCH_PAUSE: Final = "wp"
@@ -97,6 +106,9 @@ REJECTION_DIGEST_CHARS: Final = 8
 MAX_REJECTIONS_PER_SWEEP: Final = 3
 MAX_TROUBLES_PER_SWEEP: Final = 3
 DAILY_REPORT_HOUR: Final = 7
+# The cabinet's troubles are said once a day, at this hour on the owner's
+# clock: after the daily report and the frequency message, never at night.
+TROUBLE_HOUR: Final = 10
 DAILY_REPORT_LATEST_HOUR: Final = 9
 WEEKLY_REPORT_HOUR: Final = 8
 WEEKLY_REPORT_LATEST_HOUR: Final = 10
@@ -110,6 +122,8 @@ __all__ = [
     "ASKED_TTL_SECONDS",
     "CALLBACK_ANSWER",
     "CALLBACK_APPROVE",
+    "CALLBACK_DAILY_LIST",
+    "CALLBACK_DAILY_PAIR",
     "CALLBACK_PAUSE",
     "CALLBACK_PAUSE_ANYWAY",
     "CALLBACK_REJECT",
@@ -128,6 +142,10 @@ __all__ = [
     "CALLBACK_WATCH_WAIT",
     "COMMAND_START",
     "COMMAND_STOP",
+    "DAILY_PAIRS_PER_MESSAGE",
+    "DAILY_PAIR_DIGEST_CHARS",
+    "DAILY_REPORTS_KEY",
+    "DAILY_REPORTS_TTL_SECONDS",
     "DAILY_REPORT_HOUR",
     "DAILY_REPORT_LATEST_HOUR",
     "ERROR_BLOCKED",
@@ -150,6 +168,7 @@ __all__ = [
     "SURVEY_LAST_HOUR",
     "SURVEY_STATE_KEY",
     "SURVEY_STATE_TTL_SECONDS",
+    "TROUBLE_HOUR",
     "UNDELIVERED_DAYS",
     "WEEKLY_REPORT_HOUR",
     "WEEKLY_REPORT_LATEST_HOUR",

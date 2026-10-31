@@ -10,6 +10,7 @@ from app.modules.chat.selectors.choices import (
 from app.modules.chat.selectors.context import chat_context
 from app.modules.chat.selectors.daily import (
     cabinet_clock,
+    current_day,
     daily_reports,
     night_has_passed,
     report_day,
@@ -36,6 +37,7 @@ __all__ = [
     "answer_of",
     "cabinet_clock",
     "chat_context",
+    "current_day",
     "daily_reports",
     "focus_for",
     "history",

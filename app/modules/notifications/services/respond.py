@@ -1,14 +1,16 @@
 """What the customer bot does when somebody writes to it.
 
-``/start`` with a code links an account, ``/stop`` unlinks it, ``/yordam``
-makes the next typed words a message to Support. A stranger and an unlinked
-chat get the one sentence about connecting.
+``/start`` with a code links an account, ``/start parol`` sends a linked
+one its new-password link, ``/stop`` unlinks it, ``/yordam`` makes the next
+typed words a message to Support, ``/hisobot`` and ``/bugun`` send the day's
+list, and the buttons under that list open a pair's day. A stranger and an
+unlinked chat get the one sentence about connecting.
 
-Not here yet, from Django: the assistant answering typed questions, the
-buttons under notices (suggestions, pauses, survey, daily report), the
-``/hisobot`` and ``/bugun`` reports, and the new-password link for
-``/start parol``. Until they are, those get the bot's help sentence, a
-press is answered "not available", and ``parol`` points at Support.
+Anything else typed in a linked chat is a question for the assistant, or the
+answer to the survey question waiting there; the survey's buttons answer it.
+Not here yet, from Django: the buttons under ad notices and under the
+assistant's answers. Until they are, such a press is answered "not
+available" and the answer links to the cabinet's chat.
 """
 
 import logging
@@ -32,8 +34,10 @@ from app.common.i18n import DEFAULT, override
 from app.modules.notifications.bot import bot
 from app.modules.notifications.constants import (
     COMMAND_HELP,
+    COMMAND_REPORT,
     COMMAND_START,
     COMMAND_STOP,
+    COMMAND_TODAY,
     PRIVATE_CHAT,
     RESET_PAYLOAD,
     SUPPORT_WAIT_KEY,
@@ -42,9 +46,22 @@ from app.modules.notifications.constants import (
 from app.modules.notifications.exceptions import ChatTakenByAnother, LinkTokenInvalid
 from app.modules.notifications.models import TelegramChat
 from app.modules.notifications.selectors import chat_by_id
+from app.modules.notifications.services.commands import (
+    handle_daily_press,
+    is_daily_press,
+    send_today,
+    send_yesterday,
+)
 from app.modules.notifications.services.compose import escaped
+from app.modules.notifications.services.converse import begin_conversation
 from app.modules.notifications.services.link import link_chat, stop_chat
+from app.modules.notifications.services.password_reset import answer_reset_request
 from app.modules.notifications.services.send import answer, send_to
+from app.modules.notifications.services.survey_bot import handle_survey_text
+from app.modules.notifications.services.survey_press import (
+    handle_survey_press,
+    is_survey_press,
+)
 from app.modules.supportchat.services import write_from_telegram
 
 logger = logging.getLogger(__name__)
@@ -60,6 +77,10 @@ def handle_update(db: Session, *, payload: dict[str, Any], now: datetime) -> str
     known = chat_by_id(db, chat_id=update.chat_id)
     with bot() as client, override(_language(known)):
         if isinstance(update, ButtonPress):
+            if is_daily_press(update.data):
+                return handle_daily_press(db, client=client, press=update, now=now)
+            if is_survey_press(update.data):
+                return handle_survey_press(db, client=client, press=update, now=now)
             answer(
                 client=client,
                 query_id=update.query_id,
@@ -103,8 +124,13 @@ def _command(
             ),
         )
         return "stopped"
-    if command.name == COMMAND_HELP and known is not None and _linked(known):
-        return _start_support(db, client=client, chat=known, now=now)
+    if known is not None and _linked(known):
+        if command.name == COMMAND_HELP:
+            return _start_support(db, client=client, chat=known, now=now)
+        if command.name == COMMAND_REPORT:
+            return send_yesterday(db, client=client, chat=known, now=now)
+        if command.name == COMMAND_TODAY:
+            return send_today(db, client=client, chat=known, now=now)
     _say(client=client, chat_id=command.chat_id, text=_hello(known))
     return "unknown"
 
@@ -123,15 +149,7 @@ def _start(
         _say(client=client, chat_id=command.chat_id, text=_hello(known))
         return "no_code"
     if command.argument == RESET_PAYLOAD:
-        _say(
-            client=client,
-            chat_id=command.chat_id,
-            text=(
-                "Parolni tiklash uchun yordam xizmatiga yozing - parolni "
-                "tiklashga yordam beramiz."
-            ),
-        )
-        return "reset_unported"
+        return answer_reset_request(client=client, chat_id=command.chat_id, known=known)
     try:
         chat = link_chat(
             db,
@@ -186,7 +204,12 @@ def _typed(
     message: TextMessage,
     now: datetime,
 ) -> str:
-    """Private chats only: a group can never be linked to an account."""
+    """Private chats only: a group can never be linked to an account.
+
+    Words for Support after /yordam first, then a typed answer to the survey
+    question waiting in this chat, and anything else is a question for the
+    assistant. An unlinked chat gets the sentence about connecting.
+    """
     if message.chat_type != PRIVATE_CHAT:
         return "ignored"
     if known is not None and _linked(known):
@@ -195,6 +218,14 @@ def _typed(
         )
         if passed:
             return passed
+        answered = handle_survey_text(
+            db, client=client, chat=known, message=message, now=now
+        )
+        if answered:
+            return answered
+    asked = begin_conversation(db, client=client, message=message, now=now)
+    if asked:
+        return asked
     _say(client=client, chat_id=message.chat_id, text=_hello(known))
     return "unknown"
 
@@ -253,8 +284,8 @@ def _hello(known: TelegramChat | None) -> str:
     if not _linked(known):
         return _instructions()
     return (
-        "Siz ulangansiz.\n\n/yordam — yordam xizmatiga yozish\n"
-        "/stop — xabarlarni to'xtatish"
+        "Siz ulangansiz.\n\n/hisobot — kechagi hisobot\n/bugun — bugungi raqamlar\n"
+        "/yordam — yordam xizmatiga yozish\n/stop — xabarlarni to'xtatish"
     )
 
 

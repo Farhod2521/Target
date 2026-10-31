@@ -7,7 +7,6 @@ from app.modules.chat.services.ask import (
     start_turn,
     turn_payload,
 )
-from app.modules.chat.services.daily import review_day
 from app.modules.chat.services.frames import sweep_old_sessions, sweep_stuck_answers
 from app.modules.chat.services.quota import (
     Allowance,
@@ -41,7 +40,6 @@ __all__ = [
     "questions_left_for",
     "remaining_for",
     "request_comment",
-    "review_day",
     "scope_for",
     "start_refusal_turn",
     "start_turn",

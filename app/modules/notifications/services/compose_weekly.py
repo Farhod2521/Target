@@ -15,7 +15,7 @@ from app.modules.notifications.services.compose import (
     _quote,
     escaped,
 )
-from app.modules.notifications.services.compose_daily import (
+from app.modules.notifications.services.compose_campaigns import (
     attention_lines,
     campaign_row,
     census_lines,

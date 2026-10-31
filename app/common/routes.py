@@ -14,6 +14,7 @@ ROUTES: dict[str, str] = {
     "accounts:language": "/accounts/language/",
     "accounts:login": "/accounts/login/",
     "accounts:logout": "/accounts/logout/",
+    "accounts:password_reset": "/accounts/parol/<str:token>/",
     "accounts:signup": "/accounts/signup/",
     "actions:bell": "/app/amallar/bell/",
     "actions:counts": "/app/amallar/counts/",
