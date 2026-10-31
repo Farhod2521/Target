@@ -48,6 +48,7 @@ class Card:
 
     pk: str
     kind: str
+    network: str
     kind_label: Any
     action_label: Any
     rule_label: Any
@@ -221,6 +222,7 @@ def _card(
     return Card(
         pk=str(row.id),
         kind=row.kind,
+        network=row.target_provider,
         kind_label=SuggestionKind(row.kind).label,
         action_label=ACTION_LABELS.get(row.kind, ""),
         rule_label=RULE_LABELS.get(row.rule, row.rule),

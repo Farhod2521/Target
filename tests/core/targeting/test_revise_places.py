@@ -53,3 +53,22 @@ def test_the_places_a_spec_reads_back() -> None:
         GeoPlace(key="111", name="Toshkent", kind="city"),
         GeoPlace(key="UZ", name="UZ", kind="country"),
     )
+
+
+def test_a_country_goes_as_its_bare_code_and_a_city_as_an_object() -> None:
+    uzbekistan = GeoPlace(key="UZ", name="UZ", kind="country")
+    almaty = GeoPlace(key="222", name="Almaty", kind="city")
+
+    found = revise(SPEC, edit=AudienceEdit(places=(uzbekistan, almaty)))
+
+    assert found["geo_locations"]["countries"] == ["UZ"]
+    assert found["geo_locations"]["cities"] == [{"key": "222"}]
+    assert {place.key for place in chosen_places(found)} == {"UZ", "222"}
+
+
+def test_an_excluded_country_goes_as_its_bare_code() -> None:
+    kazakhstan = GeoPlace(key="KZ", name="KZ", kind="country")
+
+    found = revise(SPEC, edit=AudienceEdit(excluded_places=(kazakhstan,)))
+
+    assert found["excluded_geo_locations"] == {"countries": ["KZ"]}

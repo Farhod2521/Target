@@ -34,6 +34,14 @@ FORM_FIELDS: Final[dict[str, str]] = {
     "lists": "audiences",
     "limits": "endsAt",
 }
+# What a save moved on its own, as the owner is told it.
+ADJUSTED: Final[dict[str, str]] = {
+    "special_ad_category": "Maxsus toifa qoidasi bilan moslandi.",
+    "age_out_of_range": "Yosh ruxsat etilgan oraliqqa moslandi.",
+    "radius_out_of_range": "Masofa ruxsat etilgan oraliqqa moslandi.",
+    "automatic_targeting": "Avtomatik auditoriya qoidasi bilan moslandi.",
+    "audience_on_both_sides": "Bir auditoriya ikki tomonda edi: u chiqarilganlarda qoldi.",
+}
 GENDERS: Final[dict[str, list[int]]] = {"male": [1], "female": [2], "all": []}
 # Steps up from today's budget, offered as one-press amounts.
 PRESET_STEPS: Final = (1, 1.2, 1.5, 2)
@@ -262,9 +270,7 @@ def edit_form(
         "detailed": (audience or {}).get("detailed", []),
         "excluded_detailed": (audience or {}).get("excluded_detailed", []),
         "detail_open": bool((audience or {}).get("detail_open")),
-        "locales": [
-            {"id": key, "name": ""} for key in (audience or {}).get("locales", [])
-        ],
+        "locales": _locales(campaign, (audience or {}).get("locales", [])),
         "age_min": (audience or {}).get("age_min", 18),
         "age_max": (audience or {}).get("age_max", 65),
         "age_bounds": (audience or {}).get("age_bounds", [18, 65]),
@@ -288,6 +294,13 @@ def edit_form(
         },
         "early_hours": early,
     }
+
+
+def _locales(campaign: Any, keys: list[int]) -> list[dict[str, Any]]:
+    from app.modules.ads.services.audience_search import locale_names
+
+    names = locale_names(campaign=campaign, keys=keys)
+    return [{"id": key, "name": names.get(key, "")} for key in keys]
 
 
 def _pin(audience: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -338,10 +351,25 @@ def _lists(
     ]
 
 
+def adjusted_sentences(notes: list[dict[str, str]]) -> list[str]:
+    """Each thing the rules moved once, in words."""
+    return list(
+        dict.fromkeys(
+            ADJUSTED[note["reason"]] for note in notes if note["reason"] in ADJUSTED
+        )
+    )
+
+
 def _lock(open_now: bool, learning: bool) -> str | None:
     if open_now:
         return None
     return "learning" if learning else "closed"
 
 
-__all__ = ["FORM_FIELDS", "CampaignPatch", "changed_sections", "edit_form"]
+__all__ = [
+    "FORM_FIELDS",
+    "CampaignPatch",
+    "adjusted_sentences",
+    "changed_sections",
+    "edit_form",
+]

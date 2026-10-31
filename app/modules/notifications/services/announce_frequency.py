@@ -20,10 +20,12 @@ from app.modules.billing.selectors import has_live_subscription
 from app.modules.chat.selectors import cabinet_clock
 from app.modules.notifications.bot import bot, is_configured
 from app.modules.notifications.constants import FREQUENCY_MAX_ITEMS, NoticeKind
-from app.modules.notifications.selectors import chat_for
+from app.modules.notifications.selectors import chat_for, left_keys
+from app.modules.notifications.selectors.inbox_frequency import frequency_key
 from app.modules.notifications.services.compose import _bold, center_button, escaped
 from app.modules.notifications.services.journal import claim, stamp
 from app.modules.notifications.services.send import send_to
+from core.inbox import left_key
 
 
 def deliver_frequency_for(db: Session, *, owner: User, now: datetime) -> bool:
@@ -33,7 +35,12 @@ def deliver_frequency_for(db: Session, *, owner: User, now: datetime) -> bool:
     chat = chat_for(db, owner=owner)
     if chat is None or not chat.notify_suggestions or not is_configured():
         return False
-    rows = unsent(db, owner=owner, now=now)[:FREQUENCY_MAX_ITEMS]
+    left = left_keys(db, owner=owner, now=now)
+    rows = [
+        row
+        for row in unsent(db, owner=owner, now=now)
+        if left_key(frequency_key(row)) not in left
+    ][:FREQUENCY_MAX_ITEMS]
     clock = cabinet_clock(db, owner=owner)
     if not rows or clock is None:
         return False

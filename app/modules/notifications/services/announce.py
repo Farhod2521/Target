@@ -34,7 +34,7 @@ from app.modules.notifications.keys import (
     suggestion_subject,
 )
 from app.modules.notifications.models import TelegramChat, TelegramNotice
-from app.modules.notifications.selectors import chat_for, chats_wanting
+from app.modules.notifications.selectors import chat_for, chats_wanting, left_keys
 from app.modules.notifications.selectors.inbox_page import inbox_pages
 from app.modules.notifications.selectors.inbox_stops import stop_item
 from app.modules.notifications.selectors.inbox_watch import watch_key
@@ -53,6 +53,7 @@ from app.modules.notifications.services.compose import (
 from app.modules.notifications.services.compose_watch import watch_message
 from app.modules.notifications.services.journal import claim, stamp
 from app.modules.notifications.services.send import send_to
+from core.inbox import left_key
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def announce_suggestions(
                 kind=NoticeKind.SUGGESTION,
                 subject=suggestion_subject(pk=suggestion.id),
                 text=suggestion_notice(card=card).text,
-                buttons=center_button(),
+                buttons=center_button(item_key=f"suggestion:{suggestion.id}"),
                 now=now,
             )
             if told is None:
@@ -274,6 +275,7 @@ def _watched(db: Session, *, owner: User, now: datetime) -> list[tuple[Watched, 
     """Each watched group once, under the page it runs from."""
     seen: set[str] = set()
     found: list[tuple[Watched, str]] = []
+    left = left_keys(db, owner=owner, now=now)
     for view in inbox_pages(db, owner=owner):
         for row in watched_groups(
             db,
@@ -282,7 +284,7 @@ def _watched(db: Session, *, owner: User, now: datetime) -> list[tuple[Watched, 
             now=now,
             hidden_adsets=view.scope.outside,
         ):
-            if row.adset_id not in seen:
+            if row.adset_id not in seen and left_key(watch_key(row)) not in left:
                 seen.add(row.adset_id)
                 found.append((row, view.page_name))
     return found

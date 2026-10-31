@@ -11,6 +11,7 @@ from app.modules.accounts.models import User
 from app.modules.ads.models import Ad, AdCreative, AdSet, Campaign, MediaAsset
 from app.modules.audit.models import ActionLog
 from app.modules.billing.services import start_trial
+from app.modules.integrations.models import CustomAudience
 from tests.pg.conftest import sign_up
 from tests.pg.test_cabinet_flows import _cabinet
 
@@ -629,3 +630,172 @@ def test_reach_is_asked_of_the_form_as_it_stands_and_nothing_is_written(
     }
     assert asked[0]["age_min"] == 30
     assert db.scalars(select(ActionLog)).all() == []
+
+
+def test_excluded_places_and_interests_are_saved(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _tashkent(monkeypatch)
+    _searches(monkeypatch)
+    headers, campaign = _signed_with_campaign(client, db)
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, excludedPlaces=[TASHKENT], excludedDetailed=[COFFEE]),
+        headers=headers,
+    )
+
+    assert saved.status_code == 200, saved.text
+    targeting = db.scalars(select(ActionLog)).one().request_payload["targeting"]
+    assert targeting["excluded_geo_locations"] == {"cities": [{"key": "111"}]}
+    assert targeting["exclusions"] == {"interests": [{"id": "11", "name": "Coffee"}]}
+
+
+def test_while_it_learns_exclusions_wait(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _tashkent(monkeypatch)
+    headers, campaign = _signed_with_campaign(client, db)
+    group = db.scalars(select(AdSet)).one()
+    group.is_learning = True
+    db.commit()
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, excludedPlaces=[TASHKENT]),
+        headers=headers,
+    )
+
+    assert saved.status_code == 204
+    assert db.scalars(select(ActionLog)).all() == []
+
+
+def _own_list(db: Session, campaign: Campaign, **extra: object) -> CustomAudience:
+    row = CustomAudience(
+        owner_id=campaign.owner_id,
+        provider=campaign.provider,
+        external_id="700",
+        ad_account_id=campaign.ad_account_id,
+        name="Mijozlar",
+        is_ready=True,
+        **extra,
+    )
+    db.add(row)
+    db.commit()
+    return row
+
+
+def test_an_own_list_of_this_account_is_offered_and_chosen(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+    _own_list(db, campaign)
+
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers).json()
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, includedLists=["700"]),
+        headers=headers,
+    )
+
+    [offered] = form["audiences"]
+    assert (offered["id"], offered["name"], offered["side"]) == (
+        "700",
+        "Mijozlar",
+        "off",
+    )
+    assert saved.status_code == 200, saved.text
+    targeting = db.scalars(select(ActionLog)).one().request_payload["targeting"]
+    assert targeting["custom_audiences"] == [{"id": "700"}]
+
+
+def test_the_rules_moving_a_save_are_said(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+    _with_spec(db, custom_audiences=[{"id": "500"}])
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, includedLists=["500"], excludedLists=["500"]),
+        headers=headers,
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["notes"] == [
+        "Bir auditoriya ikki tomonda edi: u chiqarilganlarda qoldi."
+    ]
+
+
+def test_the_language_search_and_its_names(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.modules.ads.services.audience_search._kept",
+        lambda _key, _ask: [{"id": 6, "name": "English"}],
+    )
+    headers, campaign = _signed_with_campaign(client, db)
+    _with_spec(db, locales=[6, 9])
+
+    found = client.get(
+        f"/api/v1/campaigns/{campaign.id}/languages?q=eng", headers=headers
+    )
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers).json()
+
+    assert found.json() == [{"id": 6, "name": "English"}]
+    assert form["locales"] == [{"id": 6, "name": "English"}, {"id": 9, "name": ""}]
+
+
+def test_a_failed_language_read_leaves_the_form_with_the_numbers(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.ads.exceptions import PlaceSearchFailed
+
+    def down(*_a: object, **_k: object) -> None:
+        raise PlaceSearchFailed
+
+    monkeypatch.setattr("app.modules.ads.services.audience_search.search_locales", down)
+    headers, campaign = _signed_with_campaign(client, db)
+    _with_spec(db, locales=[6])
+
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers)
+
+    assert form.status_code == 200, form.text
+    assert form.json()["locales"] == [{"id": 6, "name": ""}]
+
+
+def test_too_many_searches_are_refused(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _searches(monkeypatch)
+    headers, campaign = _signed_with_campaign(client, db)
+    monkeypatch.setattr(
+        "app.modules.ads.routers.editing.throttle.hit", lambda **_k: False
+    )
+
+    for path in ("targeting-search", "languages"):
+        answer = client.get(
+            f"/api/v1/campaigns/{campaign.id}/{path}?q=coffee", headers=headers
+        )
+        assert answer.status_code == 429
+
+
+def test_a_network_that_will_not_size_it_is_said_not_zero(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from adskit.errors import TemporaryFailure
+
+    def down(**_k: object) -> None:
+        raise TemporaryFailure("meta is down")
+
+    monkeypatch.setattr("app.modules.ads.routers.editing.estimated_reach", down)
+    headers, campaign = _signed_with_campaign(client, db)
+
+    answer = client.post(
+        f"/api/v1/campaigns/{campaign.id}/reach",
+        json=_patch(campaign),
+        headers=headers,
+    )
+
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["available"] is False

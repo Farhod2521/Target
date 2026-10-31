@@ -21,5 +21,6 @@ class InboxSeen(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     key: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    note: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
     # -- django extras --
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821

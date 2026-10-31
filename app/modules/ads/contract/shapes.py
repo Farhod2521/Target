@@ -436,6 +436,10 @@ class ControlState(Camel):
     gone: bool | None = Field(
         None, description="The object is no more: its delete went through."
     )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="What the rules changed of what was asked, as sentences.",
+    )
 
 
 class EditGroup(Camel):

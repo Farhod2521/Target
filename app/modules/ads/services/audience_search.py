@@ -25,6 +25,7 @@ from core.targeting.revise import Detail
 
 logger = logging.getLogger(__name__)
 SEARCH_CACHE_SECONDS: Final = 86400
+LOCALE_SWEEP: Final = ("a", "e", "i", "o", "u")
 DETAIL_KEYS: Final[dict[str, str]] = {
     "interest": "interests",
     "behaviour": "behaviors",
@@ -78,9 +79,7 @@ def search_detail(
     return _searched(lambda: _kept(_key("detail", campaign.provider, query), ask))
 
 
-def search_locales(
-    db: Session, *, campaign: Campaign, query: str
-) -> list[dict[str, Any]]:
+def search_locales(*, campaign: Campaign, query: str) -> list[dict[str, Any]]:
     """The languages the network targets by, under this word."""
 
     def ask() -> list[dict[str, Any]]:
@@ -90,6 +89,26 @@ def search_locales(
         return [{"id": row.key, "name": row.name} for row in found]
 
     return _searched(lambda: _kept(_key("locale", campaign.provider, query), ask))
+
+
+def locale_names(*, campaign: Campaign, keys: Sequence[int]) -> dict[int, str]:
+    """The names of the languages an audience holds, which its spec gives as numbers.
+
+    Meta has no read by number, so the catalogue is searched a vowel at a time
+    and kept. A failure only costs the names: the form goes on with the numbers.
+    """
+    wanted = set(keys)
+    names: dict[int, str] = {}
+    for letter in LOCALE_SWEEP:
+        if wanted <= set(names):
+            break
+        try:
+            rows = search_locales(campaign=campaign, query=letter)
+        except Exception as exc:
+            logger.info("language names unavailable: %s", exc)
+            break
+        names |= {row["id"]: row["name"] for row in rows}
+    return {key: names[key] for key in wanted if key in names}
 
 
 def _searched(read: Callable[[], list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -146,6 +165,7 @@ def estimated_reach(
 __all__ = [
     "confirmed_detail",
     "estimated_reach",
+    "locale_names",
     "search_detail",
     "search_locales",
 ]

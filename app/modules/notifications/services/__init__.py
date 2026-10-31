@@ -27,6 +27,7 @@ from app.modules.notifications.services.notices import (
     queue_referral_notice,
     queue_withdrawal_notice,
     save_preferences,
+    take_back,
 )
 from app.modules.notifications.services.password_reset import (
     announce_password_changed,
@@ -65,9 +66,9 @@ __all__ = [
     "handle_update",
     "issue_link_token",
     "issue_staff_link_token",
+    "leave_item",
     "link_chat",
     "link_staff_chat",
-    "leave_item",
     "mark_seen",
     "queue_feedback_notice",
     "queue_password_changed",
@@ -85,6 +86,7 @@ __all__ = [
     "stamp",
     "stop_chat",
     "stop_staff_chat",
+    "take_back",
     "unlink_chat",
     "unlink_staff_chat",
 ]

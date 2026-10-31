@@ -160,6 +160,7 @@ def _suggestions(
             level="decision",
             title=SuggestionKind(row.kind).label,
             body=str(RULE_LABELS.get(row.rule, "")),
+            advice=str(SuggestionKind(row.kind).label),
             since=row.created_at,
             subject=Subject(ref=row.to_ref()),
         )

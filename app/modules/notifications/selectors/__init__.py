@@ -144,17 +144,23 @@ def seen_keys(db: Session, *, owner: User) -> frozenset[str]:
     )
 
 
-def left_keys(db: Session, *, owner: User, now: datetime) -> frozenset[str]:
-    """The lines this owner left as they are, while that still holds."""
-    return frozenset(
+def left_rows(db: Session, *, owner: User, now: datetime) -> list[InboxSeen]:
+    """The lines this owner left as they are, while that still holds, newest first."""
+    return list(
         db.scalars(
-            select(InboxSeen.key).where(
+            select(InboxSeen)
+            .where(
                 InboxSeen.owner_id == owner.id,
                 InboxSeen.key.startswith(LEFT_PREFIX),
                 InboxSeen.created_at >= now - timedelta(days=LEFT_DAYS),
             )
+            .order_by(InboxSeen.created_at.desc())
         )
     )
+
+
+def left_keys(db: Session, *, owner: User, now: datetime) -> frozenset[str]:
+    return frozenset(row.key for row in left_rows(db, owner=owner, now=now))
 
 
 def cached_inbox(db: Session, *, owner: User, now: datetime) -> tuple[Any, ...]:
@@ -173,6 +179,8 @@ __all__ = [
     "chats_wanting",
     "deadline_text",
     "last_chat_for",
+    "left_keys",
+    "left_rows",
     "seen_keys",
     "staff_chat_by_id",
     "staff_chat_for",

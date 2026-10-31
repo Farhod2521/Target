@@ -217,12 +217,16 @@ def search_locations(
     return list(payload.get("data", []))
 
 
+# Every language a word can match: the list is short, and read to name them too.
+LOCALE_LIMIT: Final = 500
+
+
 def search_locales(
     *, query: str, token: str, client: GraphClient | None = None
 ) -> list[dict[str, Any]]:
     """Languages whose name matches ``query``: a ``key`` number and a ``name``."""
     with _session(client, token) as graph:
-        payload = graph.get("search", type="adlocale", q=query, limit=SEARCH_LIMIT)
+        payload = graph.get("search", type="adlocale", q=query, limit=LOCALE_LIMIT)
     return list(payload.get("data", []))
 
 

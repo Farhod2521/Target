@@ -78,6 +78,9 @@ ADVICE: Final[dict[str, str]] = {
     "creative": "Rasm yoki matnni almashtiring.",
     "audience": "Auditoriyani kengaytiring yoki o'zgartiring.",
     "landing": "Reklama ochadigan sahifa yoki formani tekshiring.",
+    "wait": "Hozircha tegmang, natija chiqishini kuting.",
+    "burn": "Natija bermayotgan reklamani to'xtating yoki yangilang.",
+    "attribution": "Natija hisobi to'g'ri sozlanganini tekshiring.",
 }
 
 # What says which network without a subject: these lines are Meta's own.

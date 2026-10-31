@@ -103,7 +103,7 @@ def spend_guard_message(*, item: InboxItem, page: str = "") -> Message:
     lines = [*page_line(page), _bold(item.title)]
     if item.body:
         lines += ["", escaped(item.body)]
-    lines += ["", _center_link(item_key=item.key)]
+    lines += ["", center_link(item_key=item.key)]
     return Message(text="\n".join(lines))
 
 
@@ -166,7 +166,7 @@ def rejection_message(
     lines += [
         "",
         "Qaysi qoida buzilganini Meta'ning Business Support Home sahifasi aniq ko'rsatadi. U yerda qayta ko'rib chiqishni ham so'rash mumkin. Sabab rasm, video yoki matnda bo'lishi mumkin.",
-        _center_link(),
+        center_link(),
     ]
     return Message(text="\n".join(lines))
 
@@ -203,7 +203,7 @@ def trouble_message(*, item: InboxItem, page: str = "") -> Message:
         lines.append(escaped(item.subject.name))
     if item.body:
         lines += ["", escaped(item.body)]
-    lines += ["", _center_link(item_key=item.key)]
+    lines += ["", center_link(item_key=item.key)]
     return Message(text="\n".join(lines))
 
 
@@ -217,7 +217,7 @@ def connection_message() -> Message:
                     "Yangi mijozlar ro'yxatga tushmayapti va sarf-xarajat raqamlari yangilanmayapti. Reklamangiz Facebook'da ishlashda davom etadi."
                 ),
                 "",
-                _center_link(),
+                center_link(),
             ]
         )
     )
@@ -244,6 +244,7 @@ def action_required_message(*, person: str, manager_url: str) -> Message:
     if manager_url:
         label = escaped("Ads Manager'ni ochish")
         lines += ["", f'<a href="{escape(manager_url)}">{label}</a>']
+    lines += ["", center_link(item_key="meta_hold")]
     return Message(text="\n".join(lines))
 
 
@@ -389,15 +390,16 @@ def miniapp_button(*, route: str, label: str, query: str = "") -> tuple[Button, 
     return (Button(text=label, web_app=door_url(destination=destination)),)
 
 
-def _center_link(*, item_key: str = "") -> str:
+def center_link(*, item_key: str = "") -> str:
     """The way to the center: Telegram says what happened, the center answers it."""
     query = f"?{urlencode({'item': item_key})}" if item_key else ""
     return _link(path=f"{reverse('actions:home')}{query}", label="Kabinetda ochish")
 
 
-def center_button() -> tuple[Button, ...]:
+def center_button(*, item_key: str = "") -> tuple[Button, ...]:
     """The way to the cabinet's center, where every ad notice is answered."""
-    return miniapp_button(route="actions:home", label="Batafsil")
+    query = urlencode({"item": item_key}) if item_key else ""
+    return miniapp_button(route="actions:home", label="Batafsil", query=query)
 
 
 def ask_button(*, suggestion_id: str = "", item_key: str = "") -> tuple[Button, ...]:
@@ -441,6 +443,7 @@ __all__ = [
     "Message",
     "ask_button",
     "center_button",
+    "center_link",
     "decided_message",
     "early_touch_message",
     "escaped",

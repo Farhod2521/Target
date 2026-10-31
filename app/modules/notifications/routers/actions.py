@@ -7,7 +7,8 @@ status line and advice, and the first page of answered proposals.
 is a POST. ``GET /actions/counts`` is the two badges.
 """
 
-from datetime import UTC, datetime
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -32,6 +33,7 @@ from app.modules.agent.selectors.summary import (
     agent_summary,
     proposals,
 )
+from app.modules.notifications.models import InboxSeen
 from app.modules.notifications.schemas import (
     ActionsOut,
     BellOut,
@@ -40,7 +42,7 @@ from app.modules.notifications.schemas import (
     MessageOut,
     ProposalsOut,
 )
-from app.modules.notifications.selectors import seen_keys
+from app.modules.notifications.selectors import left_rows, seen_keys
 from app.modules.notifications.selectors.bell import (
     PANEL_ITEMS,
     counted,
@@ -52,8 +54,16 @@ from app.modules.notifications.selectors.bell import (
 )
 from app.modules.notifications.selectors.inbox import inbox
 from app.modules.notifications.selectors.inbox_page import inbox_page
-from app.modules.notifications.services import leave_item, mark_seen
-from core.inbox import InboxItem, keys, leavable, of_level, unseen, without_kind
+from app.modules.notifications.services import leave_item, mark_seen, take_back
+from core.inbox import (
+    LEFT_DAYS,
+    InboxItem,
+    keys,
+    leavable,
+    of_level,
+    unseen,
+    without_kind,
+)
 
 router = APIRouter(prefix="/actions", tags=["actions"])
 
@@ -67,6 +77,15 @@ def item_out(item: InboxItem) -> dict[str, Any]:
             else "AI dan so'rash",
             "href": f"{reverse('chat:chat')}?item={quote(item.key, safe='/')}",
         }
+    }
+
+
+def _left(row: InboxSeen) -> dict[str, Any]:
+    return {
+        "id": str(row.id),
+        "title": row.note,
+        "left_at": row.created_at,
+        "back_at": row.created_at + timedelta(days=LEFT_DAYS),
     }
 
 
@@ -160,6 +179,7 @@ def actions_screen(db: Db, user: CurrentUser) -> dict[str, Any]:
                 for card in advice_cards(db, owner=user, run=run, page_id=view.page_id)
             ],
             "counts": {"new": counts.new, "waiting": counts.waiting},
+            "left": [_left(row) for row in left_rows(db, owner=user, now=now)],
         }
         | history_page(db, owner=user)
     )
@@ -205,10 +225,22 @@ def leave(body: LeaveIn, db: Db, user: CurrentUser) -> dict[str, str]:
         raise NotFound("Bu yozuv endi yo'q.")
     if not leavable(item):
         raise Conflict("Bu muammoni qoldirib bo'lmaydi: uni tuzatish kerak.")
-    leave_item(db, owner=user, key=item.key, now=now)
+    named = item.subject.name if item.subject is not None else ""
+    note = f"{item.title} · {named}" if named else item.title
+    leave_item(db, owner=user, key=item.key, note=note, now=now)
     db.commit()
     forget(owner=user)
     return {"message": "Qoldirildi. Muammo saqlansa, bir haftadan keyin qaytadi."}
+
+
+@router.post("/left/{row_id}/back", responses={200: {"model": MessageOut}})
+def take_left_back(row_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, str]:
+    """The owner changed their mind: the line is waiting again."""
+    if not take_back(db, owner=user, row_id=row_id):
+        raise NotFound("Bu yozuv endi yo'q.")
+    db.commit()
+    forget(owner=user)
+    return {"message": "Yozuv qaytarildi."}
 
 
 @router.get("/counts", responses={200: {"model": CountsOut}})

@@ -102,9 +102,11 @@ def geo_locations(choice: GeoChoice) -> dict[str, Any]:
         }
 
     if choice.mode == "places":
-        grouped: dict[str, list[dict[str, str]]] = {}
+        grouped: dict[str, list[Any]] = {}
         for place in _without_overlap(choice.usable_places):
-            grouped.setdefault(_ARRAYS[place.kind], []).append({"key": place.key})
+            # A country is its bare code; the rest are objects with a key.
+            row = place.key if place.kind == "country" else {"key": place.key}
+            grouped.setdefault(_ARRAYS[place.kind], []).append(row)
         return dict(grouped)
 
     return {"countries": [choice.country_code]}

@@ -18,12 +18,14 @@ from app.modules.notifications.selectors.inbox_watch import (
     delete_question,
     move_label,
     watch_body,
+    watch_key,
     watch_title,
 )
 from app.modules.notifications.services.compose import (
     Message,
     _bold,
     _link,
+    center_link,
     escaped,
     page_line,
 )
@@ -51,7 +53,7 @@ def watch_message(*, row: Watched, page: str = "") -> Message:
     if row.watch.stage != "stopped":
         advice = escaped(move_label(row, row.watch.advised))
         lines += [f"{_bold('Tavsiya')}: {advice}", ""]
-    lines.append(_link(path=reverse("actions:home"), label="Kabinetda ochish"))
+    lines.append(center_link(item_key=watch_key(row)))
     return Message(text="\n".join(lines))
 
 

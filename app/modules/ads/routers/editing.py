@@ -805,7 +805,7 @@ def campaign_language_search(
     if not query:
         return []
     campaign = _searched_campaign(db, user=user, campaign_id=campaign_id)
-    return search_locales(db, campaign=campaign, query=query)
+    return search_locales(campaign=campaign, query=query)
 
 
 NO_ESTIMATE: dict[str, Any] = {
@@ -897,7 +897,11 @@ def campaign_patch(
     from fastapi import Response
 
     from app.common.exceptions import InputRefused
-    from app.modules.ads.contract.editing import FORM_FIELDS, changed_sections
+    from app.modules.ads.contract.editing import (
+        FORM_FIELDS,
+        adjusted_sentences,
+        changed_sections,
+    )
     from app.modules.ads.exceptions import PressRefused
     from app.modules.ads.routers import control_state
 
@@ -922,7 +926,8 @@ def campaign_patch(
             message=saved["message"],
         )
     level, external_id = _followed(form["sections"], sent=sections, edit=edit)
-    return control_state(db, user, level=level, external_id=external_id)
+    state = control_state(db, user, level=level, external_id=external_id)
+    return state | {"notes": adjusted_sentences(saved["adjustments"])}
 
 
 def _followed(

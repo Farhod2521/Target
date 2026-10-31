@@ -143,6 +143,13 @@ class AdviceOut(BaseModel):
     blocked_by: list[str]
 
 
+class LeftOut(BaseModel):
+    id: str
+    title: str = Field(description="What the line said when it was left.")
+    left_at: datetime
+    back_at: datetime = Field(description="When it returns, if it still holds.")
+
+
 class ActionsOut(ProposalsOut):
     urgent: list[InboxItemOut]
     decisions: list[InboxItemOut]
@@ -150,6 +157,7 @@ class ActionsOut(ProposalsOut):
     summary: SummaryOut
     advice: list[AdviceOut]
     counts: CountsOut
+    left: list[LeftOut]
 
 
 class BellItemOut(InboxItemOut):

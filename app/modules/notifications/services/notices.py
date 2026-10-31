@@ -79,15 +79,28 @@ def mark_seen(db: Session, *, owner: User, keys: frozenset[str]) -> int:
     return len(fresh)
 
 
-def leave_item(db: Session, *, owner: User, key: str, now: datetime) -> None:
+def leave_item(db: Session, *, owner: User, key: str, note: str, now: datetime) -> None:
     """This line stays as it is: it goes for a week, and returns if it still holds."""
+    said = note[: InboxSeen.note.type.length]
     db.execute(
         insert(InboxSeen)
-        .values(owner_id=owner.id, key=left_key(key), created_at=now)
+        .values(owner_id=owner.id, key=left_key(key), note=said, created_at=now)
         .on_conflict_do_update(
-            index_elements=["owner_id", "key"], set_={"created_at": now}
+            index_elements=["owner_id", "key"], set_={"created_at": now, "note": said}
         )
     )
+
+
+def take_back(db: Session, *, owner: User, row_id: uuid.UUID) -> bool:
+    """A left line is waiting again. False when there is no such left line."""
+    gone = db.execute(
+        delete(InboxSeen).where(
+            InboxSeen.id == row_id,
+            InboxSeen.owner_id == owner.id,
+            InboxSeen.key.startswith(LEFT_PREFIX),
+        )
+    )
+    return bool(gone.rowcount)
 
 
 def _deliver(

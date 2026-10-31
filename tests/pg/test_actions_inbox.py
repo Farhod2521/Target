@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 from metaads import PROVIDER
 from sqlalchemy import select
@@ -350,3 +351,59 @@ def test_a_line_that_is_gone_cannot_be_left(client: TestClient, db: Session) -> 
     left = client.post(f"{URL}/leave", json={"key": "nope"}, headers=auth)
 
     assert left.status_code == 404
+
+
+def test_a_left_line_is_in_the_record_and_can_be_taken_back(
+    client: TestClient, db: Session
+) -> None:
+    auth, _user = _owner(client, db, prepared=False)
+    line = next(
+        row
+        for row in _all(client.get(URL, headers=auth).json())
+        if row["kind"] == "setup"
+    )
+    client.post(f"{URL}/leave", json={"key": line["key"]}, headers=auth)
+
+    [left] = client.get(URL, headers=auth).json()["left"]
+    assert left["title"] == line["title"]
+    assert left["back_at"] > left["left_at"]
+
+    back = client.post(f"{URL}/left/{left['id']}/back", headers=auth)
+
+    assert back.status_code == 200, back.text
+    assert client.get(URL, headers=auth).json()["left"] == []
+    assert line["key"] in _keys(client, auth)
+
+
+def test_another_owners_left_line_cannot_be_taken_back(
+    client: TestClient, db: Session
+) -> None:
+    auth, _user = _owner(client, db)
+
+    back = client.post(
+        f"{URL}/left/00000000-0000-0000-0000-000000000000/back", headers=auth
+    )
+
+    assert back.status_code == 404
+
+
+def test_a_watched_group_left_as_it_is_is_not_told(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from app.modules.notifications.services import announce, leave_item
+
+    _auth, user = _owner(client, db)
+    row = SimpleNamespace(adset_id="s_1", watch=SimpleNamespace(stage="idle", tag=""))
+    view = SimpleNamespace(accounts=[], scope=SimpleNamespace(outside=()), page_name="")
+    monkeypatch.setattr(announce, "inbox_pages", lambda *_a, **_k: [view])
+    monkeypatch.setattr(announce, "watched_groups", lambda *_a, **_k: [row])
+    now = utcnow()
+
+    assert announce._watched(db, owner=user, now=now) == [(row, "")]
+
+    leave_item(db, owner=user, key="watch:s_1:idle", note="t", now=now)
+    db.commit()
+
+    assert announce._watched(db, owner=user, now=now) == []

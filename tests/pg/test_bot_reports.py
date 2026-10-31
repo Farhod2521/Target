@@ -232,6 +232,35 @@ def test_the_frequency_levels_are_said_short_with_the_center(
     assert not deliver_frequency_for(db, owner=user, now=MORNING)
 
 
+def test_a_frequency_line_left_as_it_is_is_not_told(
+    client: TestClient, db: Session, phone: FakeBot
+) -> None:
+    from app.modules.notifications.selectors.inbox_frequency import frequency_key
+    from app.modules.notifications.services import leave_item
+
+    user = _cabinet(client, db)
+    _linked(db, user)
+    account = db.scalar(select(AdAccount).where(AdAccount.owner_id == user.id))
+    assert account is not None
+    alert = FrequencyAlert(
+        owner_id=user.id,
+        provider=PROVIDER,
+        ad_account_id=account.id,
+        adset_external_id="s_1",
+        name="Guruh",
+        level=FrequencyLevel.WARNING,
+        frequency=340,
+        currency="USD",
+    )
+    db.add(alert)
+    db.commit()
+    leave_item(db, owner=user, key=frequency_key(alert), note="t", now=MORNING)
+    db.commit()
+
+    assert not deliver_frequency_for(db, owner=user, now=MORNING)
+    assert _sent(phone) == []
+
+
 def test_a_final_day_is_kept_for_its_buttons_and_comes_back_the_same(
     client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
