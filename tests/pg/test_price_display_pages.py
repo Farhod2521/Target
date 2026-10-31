@@ -1,12 +1,17 @@
 """The landing page and the billing screens say which currency to show prices in."""
 
+from datetime import timedelta
+
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.db import utcnow
+from app.modules.accounts.models import User
 from app.modules.billing.models import Plan
-
 from app.modules.billing.selectors import display
+from app.modules.billing.services import start_trial
 from tests.pg.conftest import sign_up
 
 
@@ -80,3 +85,40 @@ def test_abroad_the_pages_say_dollars_and_at_home_som(
         client.get("/api/v1/billing", headers=auth).json()["display"]["currency"]
         == "UZS"
     )
+
+
+def test_a_lapsed_owner_is_offered_the_plans_on_the_wall(
+    client: TestClient, db: Session
+) -> None:
+    db.add(
+        Plan(
+            code="standart",
+            name="Standart",
+            tagline="",
+            features="",
+            price=490000,
+            currency="UZS",
+            period_days=30,
+            max_adsets=20,
+            daily_chat_requests=20,
+            llm_cost_limit_minor=1000,
+            included_pages=3,
+            included_google_accounts=0,
+            extra_page_price=249000,
+            is_one_time=False,
+        )
+    )
+    db.commit()
+    auth = sign_up(client)
+    owner = db.scalar(select(User).order_by(User.date_joined.desc()))
+    assert owner is not None
+    subscription = start_trial(db, user=owner, now=utcnow())
+    db.commit()
+    assert client.get("/api/v1/billing/paywall", headers=auth).json()["already_open"]
+
+    subscription.expires_at = utcnow() - timedelta(days=1)
+    db.commit()
+    wall = client.get("/api/v1/billing/paywall", headers=auth)
+    assert wall.status_code == 200, wall.text
+    assert [plan["code"] for plan in wall.json()["plans"]] == ["standart"]
+    assert not wall.json().get("already_open")

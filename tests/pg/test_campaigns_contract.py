@@ -133,6 +133,7 @@ def test_a_campaign_page_comes_in_one_answer(client: TestClient, db: Session) ->
     assert body["controls"]["canPause"] is True
     assert {"hasChoice", "hasFigures", "periods"} <= set(body["panel"])
     assert body["access"]["readOnly"] in (True, False)
+    assert body["settings"]["limit"] is None, "no limit is not a limit of zero"
 
 
 def test_a_campaign_is_switched_by_its_own_id(

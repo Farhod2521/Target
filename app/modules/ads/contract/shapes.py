@@ -342,7 +342,7 @@ class DetailSettings(Camel):
     result_event: str
     place: str
     starts_at: str | None
-    limit: Money
+    limit: Money | None = Field(description="None: no spending limit.")
     form: str | None
 
 

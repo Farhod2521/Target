@@ -8,7 +8,7 @@ from typing import Any, Final
 
 from sqlalchemy.orm import Session
 
-from app.common.contract import zero_or
+from app.common.contract import money, zero_or
 from app.modules.accounts.models import User
 from app.modules.ads.contract.listing import access_of
 from app.modules.ads.contract.tree import campaign_tree
@@ -329,7 +329,9 @@ def campaign_detail(
             "result_event": (event.provider_label or str(event.label)) if event else "",
             "place": place_of(audience),
             "starts_at": starts.isoformat() if starts else None,
-            "limit": zero_or(campaign.spend_cap_minor, currency, provider=provider),
+            "limit": money(
+                campaign.spend_cap_minor or None, currency, provider=provider
+            ),
             "form": None,
         },
         "groups": [

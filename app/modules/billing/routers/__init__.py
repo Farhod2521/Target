@@ -394,7 +394,7 @@ def plans(
 def paywall(
     db: Db, user: CurrentUser, shown: Shown, plan: str = PLAN_Q, promo: str = PROMO_Q
 ) -> dict[str, Any]:
-    if selectors.has_ever_subscribed(db, owner=user):
+    if selectors.live_subscription(db, owner=user) is not None:
         return {"already_open": True}
     now = utcnow()
     offered = selectors.sellable_plans(db, owner=user)

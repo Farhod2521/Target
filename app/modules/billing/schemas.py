@@ -231,7 +231,7 @@ class PlansOut(PricedChoice):
 
 class PaywallOut(PricedChoice):
     already_open: bool = Field(
-        False, description="Has subscribed before; then nothing else comes with it."
+        False, description="A plan is running; then nothing else comes with it."
     )
     plans: list[PlanOut] = []
     featured: str = ""
