@@ -316,9 +316,195 @@ class GoalPress(Camel):
     pick: LaunchGoal | None = None
 
 
+ListMode = Literal["include", "exclude", "off"]
+
+
+class AudienceList(Camel):
+    id: str
+    name: str
+    sub: str
+    mode: ListMode
+
+
+class EditAudience(Camel):
+    who: Literal["auto", "interests", "broad"]
+    apps: Literal["auto", "fbig"]
+    optimize: Literal["all", "quality"]
+    age: list[int]
+    ai_age: list[int]
+    genders: list[Literal["m", "f"]]
+    lists: list[AudienceList]
+
+
+class Place(Camel):
+    id: str
+    name: str
+    type: Literal["city", "region"]
+
+
+class EditGeo(Camel):
+    mode: Literal["list", "map"]
+    places: list[Place]
+    km: float
+    address: str
+
+
+class AdCheck(Camel):
+    id: str
+    level: Literal["danger", "info"]
+    title: str
+    text: str
+    fix: Literal["remove_phone", "rewrite"]
+
+
+class EditAd(Camel):
+    id: str
+    tone: int
+    art: str
+    name: str
+    text: str
+    headline: str
+    desc: str
+    by: By
+    instagram: bool
+    checks: list[AdCheck]
+    thumb: str | None = None
+    video: bool | None = None
+
+
+class ExistingForm(Camel):
+    id: str
+    name: str
+    leads: int
+    questions: int
+    date: str
+    archived: bool
+
+
+class FormQuestion(Camel):
+    id: str
+    text: str
+    options: list[str]
+
+
+class LeadFormEdit(Camel):
+    existing: list[ExistingForm]
+    choice: str
+    name: str
+    depth: Literal["short", "deep"] | None = None
+    fields: dict[FormField, bool]
+    questions: list[FormQuestion]
+    end: Literal["none", "site", "telegram", "call"]
+    end_target: str
+    end_button: str
+    end_title: str
+    end_text: str
+    privacy: str
+
+
+class AdvRow(Camel):
+    key: str
+    en: str = Field(description="The network's own name for the setting.")
+    value: str
+    mode: Literal["ro", "me", "", "sw"]
+    options: list[str]
+    on: bool | None = None
+
+
+class ProposalEdit(Camel):
+    say: dict[EditSection, str]
+    aud: EditAudience
+    geo: EditGeo
+    interests: list[str]
+    habits: list[str]
+    ads: list[EditAd]
+    form: LeadFormEdit
+    adv: list[AdvRow]
+
+
+class FormVariant(Camel):
+    """The questions the AI writes for one form depth; pending until written."""
+
+    state: Literal["pending", "ready", "failed"]
+    questions: list[FormQuestion]
+
+
+class NameIn(Camel):
+    name: str = ""
+
+
+class FormEnding(Camel):
+    kind: Literal["none", "website", "telegram", "call"]
+    website: str
+    telegram: str
+    phone: str
+    button: str
+    title: str
+    body: str
+
+
+class PageForm(Camel):
+    id: str
+    name: str
+    questions: list[str]
+    typed_contacts: list[str] = Field(
+        description="Contact questions asked as free text: the network refuses such a form."
+    )
+    ending: EndingLine | None
+    leads: int | None
+    created: str | None
+
+
+class TypedQuestion(Camel):
+    label: str
+    options: list[str]
+
+
+class StandardQuestion(Camel):
+    kind: FormField
+    checked: bool
+
+
+class LeadFormPanel(Camel):
+    forms: list[PageForm]
+    chosen: str = Field(description="The chosen form's id; empty builds a new one.")
+    name: str
+    standard: list[StandardQuestion]
+    typed: list[TypedQuestion]
+    ending: FormEnding
+    synced_at: str | None
+    max_questions: int
+    max_options: int
+
+
+class LeadFormSave(Camel):
+    form_id: str
+    name: str
+    kinds: list[FormField]
+    typed: list[TypedQuestion]
+    ending: FormEnding
+
+
+class DepthIn(Camel):
+    depth: Literal["short", "deep"] = "short"
+
+
+class ChatQuestionReading(Camel):
+    state: Literal["idle", "pending", "done", "failed"]
+    questions: list[str]
+
+
 __all__ = [
+    "ChatQuestionReading",
+    "DepthIn",
     "DraftPatch",
     "DraftStart",
+    "ExistingForm",
+    "FormVariant",
     "GoalPress",
     "LaunchDraft",
+    "LeadFormPanel",
+    "LeadFormSave",
+    "NameIn",
+    "ProposalEdit",
 ]

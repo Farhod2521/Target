@@ -76,7 +76,7 @@ def renamed(refusal: InputRefused, names: dict[str, str]) -> InputRefused:
     return InputRefused(problems, refusal.message, hints=refusal.hints)
 
 
-def _launch(db: Session, *, user: User, draft_id: uuid.UUID) -> CampaignLaunch:
+def launch_of(db: Session, *, user: User, draft_id: uuid.UUID) -> CampaignLaunch:
     return owned_launch(db, user=user, launch_id=draft_id)
 
 
@@ -209,16 +209,16 @@ def start(body: DraftStart, db: Db, user: CurrentUser) -> LaunchDraft:
     if body.flow == "google":
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Google hali ulanmagan.")
     opened = plan_routes.start(db, user)
-    launch = _launch(db, user=user, draft_id=uuid.UUID(opened["id"]))
+    launch = launch_of(db, user=user, draft_id=uuid.UUID(opened["id"]))
     return read_draft(db, user=user, launch=launch)
 
 
 @router.get("/{draft_id}", response_model=LaunchDraft)
 def read(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> LaunchDraft:
-    return read_draft(db, user=user, launch=_launch(db, user=user, draft_id=draft_id))
+    return read_draft(db, user=user, launch=launch_of(db, user=user, draft_id=draft_id))
 
 
-def _text_taps(launch: CampaignLaunch, taps: dict[str, Any]) -> dict[str, Any]:
+def text_taps(launch: CampaignLaunch, taps: dict[str, Any]) -> dict[str, Any]:
     """The texts as the screen shows them: a part it did not touch keeps what is saved."""
     answers = launch.answers or {}
     saved = {
@@ -234,7 +234,7 @@ def patch(
 ) -> LaunchDraft:
     """A tap. The plan's answers wait here until «Davom etish» (the patch with
     ``step``) sends them together: the plan takes every answer at once."""
-    launch = _launch(db, user=user, draft_id=draft_id)
+    launch = launch_of(db, user=user, draft_id=draft_id)
     sent = body.model_fields_set
     taps = kept.read(launch.id)
     for field in KEPT:
@@ -266,7 +266,7 @@ def patch(
         taps["step"] = body.step
     kept.write(launch.id, taps)
     if sent & {"text_mode", "offer", "offers"}:
-        media_routes.media_text(launch.id, text_in(_text_taps(launch, taps)), db, user)
+        media_routes.media_text(launch.id, text_in(text_taps(launch, taps)), db, user)
     db.refresh(launch)
     return read_draft(db, user=user, launch=launch)
 
@@ -286,7 +286,7 @@ def read_goal(
     draft_id: uuid.UUID, body: GoalPress, db: Db, user: CurrentUser
 ) -> LaunchDraft:
     """The words, a ready phrase or a pick; the AI's reading is waited for here."""
-    launch = _launch(db, user=user, draft_id=draft_id)
+    launch = launch_of(db, user=user, draft_id=draft_id)
     taps = kept.read(launch.id)
     plan = read_plan(db, user=user, launch=launch, taps=taps, reuse=False)
     offered = goal_keys(plan)
@@ -343,4 +343,11 @@ def read_goal(
     return read_draft(db, user=user, launch=launch)
 
 
-__all__ = ["read_draft", "router"]
+__all__ = [
+    "launch_of",
+    "read_draft",
+    "renamed",
+    "router",
+    "tapped_goal",
+    "text_taps",
+]
