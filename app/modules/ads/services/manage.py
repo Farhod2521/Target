@@ -59,6 +59,7 @@ from app.modules.ads.selectors import (
     shared_campaign_ids,
 )
 from app.modules.audit.constants import ActionStatus, ActionType, ActorType, EventName
+from core.targeting.revise import only_place_moved
 from app.modules.audit.models import ActionLog
 from app.modules.audit.services import emit
 from app.modules.integrations.models import AdAccount
@@ -705,7 +706,11 @@ def plan_targeting(
     target = target_for(
         db, user=user, level="adset", external_id=external_id, aspect=TARGETING
     )
-    verdict = check_targeting_change(state=state_of(target))
+    stored = getattr(target, "targeting_raw", None)
+    verdict = check_targeting_change(
+        state=state_of(target),
+        only_place=isinstance(stored, dict) and only_place_moved(stored, targeting),
+    )
     if not verdict.allowed:
         raise {
             REFUSED_FINISHED: CampaignFinished,
@@ -923,7 +928,13 @@ def _refused(
             db, log=log, state=state, target=target, port=port, token=token
         )
     if log.action == ActionType.TARGETING_SWAP:
-        verdict = check_targeting_change(state=state)
+        verdict = check_targeting_change(
+            state=state,
+            only_place=only_place_moved(
+                log.previous_state.get("targeting") or {},
+                log.request_payload.get("targeting") or {},
+            ),
+        )
     elif log.action in LIMIT_ACTIONS:
         verdict = check_limit_change(state=state)
     elif log.action in BUDGET_ACTIONS:

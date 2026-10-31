@@ -13,7 +13,7 @@ from typing import Any, Final
 
 from core.targeting.adjustments import Adjustment
 from core.targeting.exceptions import InvalidTargeting
-from core.targeting.geo import DISTANCE_UNIT, pins
+from core.targeting.geo import DISTANCE_UNIT, GeoChoice, GeoPlace, geo_locations, pins
 from core.targeting.modes import AUTOMATIC_AGE_MAX, fit_automatic_ages, is_automatic
 from core.targeting.validators import MAX_AGE, MIN_AGE, clamp_age, clamp_radius
 
@@ -21,6 +21,8 @@ MALE: Final = 1
 FEMALE: Final = 2
 
 _DETAILED_KEY: Final = "flexible_spec"
+_WHERE_KEY: Final = "geo_locations"
+_WHERE_SETTINGS: Final = frozenset({"location_types", "location_cluster_ids"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +34,7 @@ class AudienceEdit:
     genders: tuple[int, ...] | None = None
     radius_km: int | None = None
     keep_interests: bool = True
+    places: tuple[GeoPlace, ...] | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -42,6 +45,7 @@ class AudienceEdit:
             and self.genders is None
             and self.radius_km is None
             and self.keep_interests
+            and self.places is None
         )
 
 
@@ -65,6 +69,7 @@ def revised(
     _genders(result, notes, edit=edit, special=special)
     _radius(result, notes, edit=edit, special=special)
     _interests(result, edit=edit)
+    _places(result, edit=edit)
     return result, tuple(notes)
 
 
@@ -166,6 +171,28 @@ def _radius(
     clamp_radius({"geo_locations": {"custom_locations": ours}}, notes, special=special)
 
 
+def only_place_moved(before: Mapping[str, Any], after: Mapping[str, Any]) -> bool:
+    """Whether two specs differ in where they reach and in nothing else."""
+    rest = [
+        {key: value for key, value in spec.items() if key != _WHERE_KEY}
+        for spec in (before, after)
+    ]
+    return rest[0] == rest[1] and before.get(_WHERE_KEY) != after.get(_WHERE_KEY)
+
+
+def _places(spec: dict[str, Any], *, edit: AudienceEdit) -> None:
+    """Where it reaches, replaced whole; the block's own settings stay."""
+    if edit.places is None:
+        return
+    kept = {
+        key: value
+        for key, value in (spec.get(_WHERE_KEY) or {}).items()
+        if key in _WHERE_SETTINGS
+    }
+    choice = GeoChoice(mode="places", places=edit.places)
+    spec[_WHERE_KEY] = geo_locations(choice) | kept
+
+
 def _interests(spec: dict[str, Any], *, edit: AudienceEdit) -> None:
     """Stop narrowing by interest at all, when that is what was asked."""
     if edit.keep_interests:
@@ -173,4 +200,12 @@ def _interests(spec: dict[str, Any], *, edit: AudienceEdit) -> None:
     spec.pop(_DETAILED_KEY, None)
 
 
-__all__ = ["FEMALE", "MALE", "AudienceEdit", "changed", "revise", "revised"]
+__all__ = [
+    "FEMALE",
+    "MALE",
+    "AudienceEdit",
+    "changed",
+    "only_place_moved",
+    "revise",
+    "revised",
+]

@@ -44,6 +44,7 @@ class AudienceTarget:
     allows_gender: bool
     min_radius_km: int
     special: bool = False
+    can_move: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +155,7 @@ def _audience(*, campaign: Campaign, groups: list[AdSet]) -> AudienceTarget | No
         spec=stored,
         sketch=describe(stored),
         can_change=check_targeting_change(state=state).allowed,
+        can_move=check_targeting_change(state=state, only_place=True).allowed,
         is_learning=bool(group.is_learning),
         allows_gender=not special,
         min_radius_km=SPECIAL_MIN_RADIUS_KM if special else MIN_RADIUS_KM,
