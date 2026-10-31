@@ -268,7 +268,7 @@ def _page_out(row: PageRow) -> dict[str, Any]:
     }
 
 
-def _invoice_out(invoice: Invoice) -> dict[str, Any]:
+def invoice_out(invoice: Invoice) -> dict[str, Any]:
     return {
         "number": invoice.number,
         "kind": invoice.kind,
@@ -437,9 +437,9 @@ def customer(customer_id: uuid.UUID, db: Db, user: Admin) -> dict[str, Any]:
         ),
         "money": {
             "paid": amounts(card.paid),
-            "invoices": [_invoice_out(invoice) for invoice in card.invoices],
+            "invoices": [invoice_out(invoice) for invoice in card.invoices],
             "history": [_history_out(row) for row in card.history],
-            "old_receipts": [_invoice_out(invoice) for invoice in card.old_receipts],
+            "old_receipts": [invoice_out(invoice) for invoice in card.old_receipts],
         },
         "referral": {
             "mode": card.referral_mode,

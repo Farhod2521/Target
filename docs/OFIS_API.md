@@ -70,6 +70,8 @@ yangi juftlik beradi. U ham `401` bersa — login sahifasiga.
 | `GET /support/{id}` | — | — | — | `page`, bo'sh = eng yangi sahifa |
 | `GET /dashboard` | — | `period`, `since`, `until` | — | yo'q |
 | `GET /dashboard/takings` | — | `period`, `since`, `until`, `bar` | — | yo'q |
+| `GET /payments/invoices` | `q` | `state` | yangisi birinchi | `offset`, 50 tadan |
+| `GET /payments/subscriptions` | `q` | `state` | eng tez tugaydigani birinchi | `offset`, 50 tadan |
 | `GET /sales` va doska yo'llari | `q` | `g`, `m` | qo'lda: `POST /sales/order` | ustun 40 tagacha |
 | `GET /sales/pool` | `q` | `g`, `m` | — | `offset` = `pool_next`, 40 tadan |
 | `GET /sales/holds` | — | — | — | `page`, 50 tadan |
@@ -121,9 +123,9 @@ Har ekran ochilishida. Menyu va tugmalar shundan chiziladi.
   "roles": [{"value": "Support", "label": "Qo'llab-quvvatlash"}],
   "can": {
     "give": true,            // tarif, kun, o'rin, to'lov, referal
-    "grant": false,          // pul: hamyon, to'lov bo'shatish, promo kodlar
-    "owner": false,          // jamoa, jurnal, sahifa qo'shish, mijozni o'chirish
-    "superuser": false,      // mijoz parolini o'rnatish
+    "grant": false,          // pul: hamyon, promo kodlar
+    "owner": false,          // jamoa, jurnal, To'lovlar, sahifa qo'shish, mijozni o'chirish
+    "superuser": false,      // mijoz parolini o'rnatish, hisobni bo'shatish
     "engineer": false,
     "answer_support": true,
     "answer_feedback": false,
@@ -435,6 +437,36 @@ Faqat pul kartasi (filtr yoki ustun bosilganda shuni qayta o'qing).
 
 ---
 
+## 7a. To'lovlar — `/payments`
+
+Faqat **Owner va super admin** ko'radi, boshqa rollarga `404` (Finance ham
+kirmaydi). Menyuni `can.owner` bilan ko'rsating. Owner uchun ekran faqat
+o'qish uchun: "Bo'shatish" tugmasi faqat `can.superuser` bo'lsa chiziladi.
+
+| Yo'l | |
+|---|---|
+| `GET /payments/summary` | Yuqoridagi raqamlar, qotgan hisoblar, 7 kunda tugaydigan obunalar |
+| `GET /payments/invoices?state=&q=&offset=` | Hisoblar, yangisi birinchi. `state`: `open`, `paid`, `closed` (`states[]`). `q`: hisob raqami, email, ism, telefon |
+| `GET /payments/subscriptions?state=&q=&offset=` | Jonli obunalar, eng tez tugaydigani birinchi. `state`: `unpaid` — pullik tarifda, lekin birorta to'lov yozilmagan. `q`: email, ism, telefon |
+| `POST /payments/holds/{id}/release` | Faqat super admin. Body: `reason`. `id` — `holds[].id`. Hisob yana to'lanadigan bo'ladi (muddati o'tmagan bo'lsa). Urinish endi hisobni ushlamayotgan bo'lsa `400` |
+
+`summary.totals`: `earned` (shu oy tushgan pul, valyuta bo'yicha), `unpaid` (soni),
+`unpaid_sums` (valyuta bo'yicha), `stuck` (12 soatdan ortiq qotgan), `refunded`
+(shu oy qaytarilgan, soni).
+
+`invoices.rows[]`: karta hisobi maydonlari + `id`, `customer` (o'chirilgan
+akkauntda `null`), `email`, `transaction` — oxirgi to'lov urinishi: `id`,
+`provider`, `external_id`, `state`. Qo'lda yozilgan to'lovda `null`.
+
+Ro'yxatda o'chirish yo'q. Test to'lovi serverda buyruq bilan o'chiriladi:
+
+```bash
+python -m tools.erase_payment <transaction.id yoki hisob raqami>        # faqat ko'rsatadi
+python -m tools.erase_payment <transaction.id yoki hisob raqami> --yes  # o'chiradi
+```
+
+---
+
 ## 8. Sotuv doskasi — `/sales`
 
 Rollar: `Sales`, `SalesLead`, `Owner` (`can.sell`). Sozlamalar, jamoa natijalari
@@ -495,7 +527,6 @@ Bu yo'llar **hali yo'q**, menyuda ularni ko'rsatmang yoki "tez orada" deb yozing
 | Ekran | Holat |
 |---|---|
 | Hamyon (pul yechish navbati, to'lash, rad etish) | Yo'q. Faqat qo'lda yozish bor: `POST /customers/{id}/payout` |
-| To'lovlar ro'yxati, qotib qolgan hisobni bo'shatish | Yo'q |
 | So'rovnomalar (yaratish, javoblar, Excel) | Yo'q |
 | Fikrlar va testimonial'lar | Yo'q |
 | Statistika (platforma bo'yicha) | Yo'q |
@@ -550,6 +581,10 @@ ekrani yo'q: raqamni havolasiz ko'rsating.
 |---|---|---|---|---|---|
 | GET | `/dashboard` | Support, Finance, Owner | `period`, `since`, `until` | — | 200 DashboardOut |
 | GET | `/dashboard/takings` | Finance, Owner | `period`, `since`, `until`, `bar` | — | 200 TakingsOut |
+| GET | `/payments/summary` | Owner | — | — | 200 PaymentsSummaryOut |
+| GET | `/payments/invoices` | Owner | `state`, `q`, `offset` | — | 200 PaymentInvoicesOut |
+| GET | `/payments/subscriptions` | Owner | `state`, `q`, `offset` | — | 200 PaymentSubscriptionsOut |
+| POST | `/payments/holds/{attempt_id}/release` | Super admin | — | ReasonIn | 200 MessageOut |
 
 ### Jurnal
 

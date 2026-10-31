@@ -29,10 +29,15 @@ class CanOut(BaseModel):
         "(Support, Finance, Owner)."
     )
     grant: bool = Field(
-        description="Money: payouts, holds, promo codes (Finance, Owner)."
+        description="Money: payouts, promo codes (Finance, Owner)."
     )
-    owner: bool = Field(description="The roster, the journal, adding a page, deleting.")
-    superuser: bool = Field(description="Setting a customer's password.")
+    owner: bool = Field(
+        description="The roster, the journal, the payments screen, adding a page, "
+        "deleting."
+    )
+    superuser: bool = Field(
+        description="Setting a customer's password, releasing a held bill."
+    )
     engineer: bool = Field(description="The faults console.")
     answer_support: bool = Field(description="The support chat queue.")
     answer_feedback: bool = Field(description="The feedback queue.")
@@ -976,3 +981,75 @@ class DashboardOut(BaseModel):
     problems: DashProblemsOut
     payments: list[DashPaymentOut] | None = Field(description="Money roles only.")
     sales: list[DashSalesOut]
+
+
+class PaymentTotalsOut(BaseModel):
+    earned: list[dict[str, Any]] = Field(
+        description="Paid this month, per currency: `currency`, `amount_minor`."
+    )
+    unpaid: int = Field(description="Open bills, every currency.")
+    unpaid_sums: list[dict[str, Any]] = Field(description="The same, per currency.")
+    stuck: int = Field(description="Attempts holding a bill for over 12 hours.")
+    refunded: int = Field(description="Bills refunded this month.")
+
+
+class PaymentHoldOut(BaseModel):
+    id: str = Field(description="The attempt; `POST /payments/holds/{id}/release`.")
+    number: str
+    customer: PersonOut | None = Field(description="Gone when the account was deleted.")
+    email: str
+    provider: str
+    amount_minor: int
+    currency: str
+    created_at: datetime
+
+
+class PaymentSubscriptionOut(BaseModel):
+    id: str
+    customer: PersonOut
+    plan: PlanLineOut
+    status: str
+    status_label: str
+    expires_at: datetime
+
+
+class PaymentsSummaryOut(BaseModel):
+    totals: PaymentTotalsOut
+    holds: list[PaymentHoldOut]
+    running_out: list[PaymentSubscriptionOut] = Field(
+        description="Live subscriptions ending within 7 days, soonest first."
+    )
+
+
+class PaymentTransactionOut(BaseModel):
+    id: str = Field(description="What `tools/erase_payment.py` takes.")
+    provider: str
+    external_id: str
+    state: str
+
+
+class PaymentInvoiceOut(CardInvoiceOut):
+    id: str
+    customer: PersonOut | None = Field(description="Gone when the account was deleted.")
+    email: str
+    transaction: PaymentTransactionOut | None = Field(
+        description="The last attempt to pay; `null` for a bill written by hand."
+    )
+
+
+class PaymentInvoicesOut(BaseModel):
+    rows: list[PaymentInvoiceOut]
+    total: int
+    offset: int
+    next_offset: int
+    has_more: bool
+    states: list[ChoiceOut]
+
+
+class PaymentSubscriptionsOut(BaseModel):
+    rows: list[PaymentSubscriptionOut]
+    total: int
+    offset: int
+    next_offset: int
+    has_more: bool
+    states: list[ChoiceOut]

@@ -12,6 +12,7 @@ from app.modules.backoffice.services.entitlement import (
     take_payment,
     take_slots,
 )
+from app.modules.backoffice.services.holds import free_hold
 from app.modules.backoffice.services.journal import record, seen
 from app.modules.backoffice.services.pages import (
     add_page,
@@ -50,6 +51,7 @@ __all__ = [
     "create_code",
     "delete_account",
     "delete_code",
+    "free_hold",
     "give_plan",
     "holds_any_role",
     "may_answer_support",
