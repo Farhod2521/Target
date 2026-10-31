@@ -9,6 +9,11 @@ buzadi — kamdan-kam va ogohlantirish bilan.
 | Yangi port, yangi metod, ixtiyoriy maydon | MINOR |
 | Xato tuzatish, ichki refactoring | PATCH |
 
+## 0.27.0 — 2026-11-01
+
+MINOR: `AudiencePort.search_detail`, `AudiencePort.search_locales`, `LocaleDTO`.
+Odam tanlaydigan qidiruvlar: `find_interests` faqat aniq nomni tasdiqlaydi.
+
 ## 0.26.0 — 2026-11-01
 
 MINOR: `AccountNotWritable`, `AdvertiserRoleMissing` (`PermissionDenied`

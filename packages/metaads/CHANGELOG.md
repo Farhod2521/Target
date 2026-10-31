@@ -3,6 +3,12 @@
 Semantik versiyalash. Meta API versiyasi (`v26.0`) paket versiyasidan
 alohida — u `client.py` dagi konstantada.
 
+## 0.45.0 — 2026-11-01
+
+### Qo'shildi
+- `search_detail`: qiziqish, xulq va hayot voqealari qidiruvi.
+- `search_locales`: `adlocale` qidiruvi.
+
 ## 0.44.0 — 2026-11-01
 
 ### O'zgardi

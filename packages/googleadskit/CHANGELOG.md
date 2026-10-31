@@ -3,6 +3,11 @@
 Semantik versiyalash. Google Ads API versiyasi (`v25`) paket versiyasidan
 alohida — u `client.py` dagi `API_VERSION` konstantasida.
 
+## 0.9.0 — 2026-11-01
+
+### O'zgardi
+- `search_detail` va `search_locales` portda bor, Google uchun hali `PortNotAvailable`.
+
 ## 0.8.0 — 2026-10-30
 
 ### Qo'shildi
