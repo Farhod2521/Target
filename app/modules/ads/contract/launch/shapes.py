@@ -356,9 +356,30 @@ class AudienceList(Camel):
     mode: ListMode
 
 
+class PositionOption(Camel):
+    """One place an advert can show; ``needs``: one of these must run beside it."""
+
+    value: str
+    label: str
+    needs: list[str]
+
+
+class EditPositions(Camel):
+    instagram: list[str]
+    facebook: list[str]
+
+
+class EditPositionOptions(Camel):
+    instagram: list[PositionOption]
+    facebook: list[PositionOption]
+
+
 class EditAudience(Camel):
     who: Literal["auto", "interests", "broad"]
-    apps: Literal["auto", "fbig"]
+    apps: Literal["auto", "fbig", "instagram", "facebook"]
+    # Left out on save: the positions stay as they are.
+    positions: EditPositions | None = None
+    position_options: EditPositionOptions | None = None
     optimize: Literal["all", "quality"]
     age: list[int]
     ai_age: list[int]

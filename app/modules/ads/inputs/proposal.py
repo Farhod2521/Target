@@ -22,6 +22,7 @@ from app.modules.ads.constants import (
     GEO_AROUND,
     GEO_MODE_CHOICES,
     MAX_GEO_PLACES,
+    PLACEMENT_POSITION_LABELS,
     PRIMARY_TEXT_MAX,
     DraftSection,
     FormDepth,
@@ -64,6 +65,13 @@ from core.targeting import MAX_AGE, MIN_AGE, GeoChoice
 from core.targeting.attribution import windows_for
 from core.targeting.campaign_types import types_for
 from core.targeting.modes import DEFAULT_TARGETING_MODE
+from core.targeting.placements import (
+    OFFERED_POSITIONS,
+    POSITION_NEEDS,
+    chosen_positions,
+    lonely_position,
+    platforms_of,
+)
 
 PIN_PRECISION = Decimal("0.000001")
 NO_FORM: Final = "Bu maqsadning reklamasida lid-forma yo'q."
@@ -178,6 +186,7 @@ def _audience_now(launch: CampaignLaunch) -> dict[str, Any]:
     return {
         "targeting_mode": str(chosen.get("targeting_mode") or DEFAULT_TARGETING_MODE),
         "placement_mode": str(chosen.get("placement_mode") or ""),
+        "placement_positions": chosen.get("placement_positions") or None,
         "lead_buying": LeadBuying.QUALITY
         if launch.buy_qualified_leads
         else LeadBuying.VOLUME,
@@ -210,6 +219,44 @@ def _choice(value: str, allowed: list[str], *, field: str, problems: Problems) -
     if value and value not in allowed:
         problems.add(field, "Ro'yxatdan tanlang.")
     return value
+
+
+def _positions(body: AudienceIn, *, problems: Problems) -> dict[str, list[str]]:
+    """The positions ticked for the apps of the mode sent; another app's are not kept."""
+    field = "audience.placement_positions"
+    mode = body.placement_mode
+    apps = platforms_of(mode)
+    sent = {
+        app: items
+        for app, items in (body.placement_positions or {}).items()
+        if app in apps
+    }
+    if not all(sent.values()):
+        problems.add(field, "Kamida bitta joy tanlang.")
+        return {}
+    if any(
+        item not in OFFERED_POSITIONS[app]
+        for app, items in sent.items()
+        for item in items
+    ):
+        problems.add(field, "Ro'yxatdan tanlang.")
+        return {}
+    lonely = lonely_position(sent, mode=mode)
+    if lonely is not None:
+        app, item = lonely
+        needed = " yoki ".join(
+            f"«{PLACEMENT_POSITION_LABELS[other][position]}»"
+            for other, position in POSITION_NEEDS[lonely]
+        )
+        problems.add(
+            field,
+            f"«{PLACEMENT_POSITION_LABELS[app][item]}» yolg'iz ishlamaydi: "
+            f"{needed} ham tanlang.",
+        )
+        return {}
+    return {
+        app: list(items) for app, items in chosen_positions(sent, mode=mode).items()
+    }
 
 
 def _audience(
@@ -287,6 +334,7 @@ def _audience(
         "radius_km": body.radius_km,
         "targeting_mode": body.targeting_mode or TargetingMode.AUTOMATIC,
         "placement_mode": body.placement_mode or PlacementMode.AUTOMATIC,
+        "placement_positions": _positions(body, problems=problems),
         "lead_buying": body.lead_buying,
         "audiences": audience_field.from_roles(roles, labels=labels),
         "geo_mode": body.geo_mode,

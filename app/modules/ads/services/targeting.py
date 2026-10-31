@@ -77,6 +77,7 @@ from core.targeting import (
     fallback,
     suggested_greeting,
 )
+from core.targeting.placements import chosen_positions
 from core.targeting.quality import QUALITY_WINDOW_DAYS
 
 WELCOME_KEY = "welcome_text"
@@ -295,6 +296,10 @@ def launch_answers(
         interests=chosen_interests(db, launch=launch) + chosen_traits(launch=launch),
         targeting_mode=_mode(audience.get("targeting_mode")),
         placement_mode=_placement(audience.get("placement_mode")),
+        placement_positions=chosen_positions(
+            audience.get("placement_positions"),
+            mode=_placement(audience.get("placement_mode")),
+        ),
         chat_channel=_channel(launch.answers.get("chat_channel")),
         campaign_type=chosen_campaign_type(launch=launch),
         conversion_event=chosen_conversion_event(launch=launch),

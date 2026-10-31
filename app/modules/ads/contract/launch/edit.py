@@ -8,14 +8,24 @@ whole is never sent back empty over the AI's answer.
 from typing import Any, Final
 
 from app.common.exceptions import InputRefused
-from app.modules.ads.constants import MAX_GEO_PLACES
+from app.modules.ads.constants import MAX_GEO_PLACES, PLACEMENT_POSITION_LABELS
 from app.modules.ads.contract.launch.review import ad, number, text
 from app.modules.ads.inputs.proposal_body import ProposalIn
 from core.targeting import MAX_RADIUS_KM, MIN_RADIUS_KM
+from core.targeting.placements import (
+    OFFERED_POSITIONS,
+    POSITION_NEEDS,
+    shown_positions,
+)
 
 WHO_IN: Final = {"automatic": "auto", "interests": "interests", "broad": "broad"}
 WHO_OUT: Final = {value: key for key, value in WHO_IN.items()}
-APPS_IN: Final = {"automatic": "auto", "standard": "fbig"}
+APPS_IN: Final = {
+    "automatic": "auto",
+    "standard": "fbig",
+    "instagram": "instagram",
+    "facebook": "facebook",
+}
 APPS_OUT: Final = {value: key for key, value in APPS_IN.items()}
 # The editor's fields, as the backend's question kinds name them.
 KIND_OF: Final[dict[str, str]] = {
@@ -344,6 +354,27 @@ def _advanced(found: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _position_options() -> dict[str, list[dict[str, Any]]]:
+    return {
+        app: [
+            {
+                "value": item,
+                "label": PLACEMENT_POSITION_LABELS[app][item],
+                "needs": [
+                    f"{other}.{position}"
+                    for other, position in POSITION_NEEDS.get((app, item), ())
+                ],
+            }
+            for item in items
+        ]
+        for app, items in OFFERED_POSITIONS.items()
+    }
+
+
+def _ticked(positions: dict[str, list[str]]) -> dict[str, list[str]]:
+    return {app: sorted(items) for app, items in positions.items()}
+
+
 def edit_from(answer: dict[str, Any]) -> dict[str, Any]:
     """The editor's tabs, from the review."""
     found = answer.get("proposal")
@@ -385,6 +416,14 @@ def edit_from(answer: dict[str, Any]) -> dict[str, Any]:
         "aud": {
             "who": WHO_IN.get(text(audience.get("mode")), "auto"),
             "apps": APPS_IN.get(text(audience.get("placement_mode")), "auto"),
+            "positions": {
+                app: list(items)
+                for app, items in shown_positions(
+                    chosen.get("placement_positions"),
+                    mode=text(audience.get("placement_mode")),
+                ).items()
+            },
+            "position_options": _position_options(),
             "optimize": "quality"
             if audience.get("lead_buying") == "quality"
             else "all",
@@ -516,6 +555,16 @@ def proposal_patch(edit: dict[str, Any], answer: dict[str, Any]) -> ProposalIn:
         audience["targeting_mode"] = WHO_OUT[now_aud["who"]]
     if now_aud["apps"] != was_aud["apps"]:
         audience["placement_mode"] = APPS_OUT[now_aud["apps"]]
+    positions = now_aud.get("positions")
+    if (
+        positions is not None
+        and now_aud["apps"] != "auto"
+        and (
+            now_aud["apps"] != was_aud["apps"]
+            or _ticked(positions) != _ticked(was_aud["positions"])
+        )
+    ):
+        audience["placement_positions"] = positions
     if now_aud["optimize"] != was_aud["optimize"]:
         audience["lead_buying"] = (
             "quality" if now_aud["optimize"] == "quality" else "volume"

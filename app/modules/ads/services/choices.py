@@ -63,6 +63,7 @@ def save_audience(
     pin: tuple[str, str] = ("", ""),
     picked: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
     address: str = "",
+    placement_positions: dict[str, list[str]] | None = None,
 ) -> bool:
     """The numbers, the mode and the geography, as corrected."""
     from app.modules.businesses.services import remember_location
@@ -93,6 +94,7 @@ def save_audience(
             "radius_km": radius_km,
             "targeting_mode": targeting_mode,
             "placement_mode": placement_mode,
+            "placement_positions": placement_positions or {},
             audience_field.AUDIENCES_KEY: audiences,
             geo_field.GEO_KEY: geo,
             "reason": previous.get("reason", ""),

@@ -107,6 +107,7 @@ def build(
         currency=currency,
         targeting_mode=mode,
         placement_mode=answers.placement_mode,
+        placement_positions=answers.placement_positions,
         audiences=chosen_audiences,
     )
     if preset.opens_profile:

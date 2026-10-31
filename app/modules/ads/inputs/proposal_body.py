@@ -28,6 +28,9 @@ class PlacePick(BaseModel):
 class AudienceIn(BaseModel):
     targeting_mode: str = ""
     placement_mode: str = ""
+    placement_positions: dict[str, list[str]] | None = Field(
+        None, description="`instagram` and `facebook`, each its Meta positions."
+    )
     lead_buying: str = ""
     age_min: int = Field(MIN_AGE, ge=MIN_AGE, le=MAX_AGE)
     age_max: int = Field(MAX_AGE, ge=MIN_AGE, le=MAX_AGE)

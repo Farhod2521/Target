@@ -368,6 +368,24 @@ PLACEMENT_MODE_NOTES = {
     PlacementMode.FACEBOOK: "Reklama faqat Facebook lentasi, Stories va Reels'da ko'rsatiladi. Instagram'ga va boshqa ilovalarga chiqmaydi.",
     PlacementMode.STANDARD: "Reklama faqat Facebook lentasida, Instagram lentasi, Stories va Reels'da ko'rsatiladi. Boshqa ilovalarga chiqmaydi.",
 }
+PLACEMENT_POSITION_LABELS: Final[dict[str, dict[str, str]]] = {
+    "instagram": {
+        "stream": "Instagram lentasi",
+        "story": "Instagram Stories",
+        "reels": "Instagram Reels",
+        "profile_feed": "Instagram profil lentasi",
+        "profile_reels": "Instagram profil Reels'i",
+        "ig_search": "Instagram qidiruvi",
+    },
+    "facebook": {
+        "feed": "Facebook lentasi",
+        "story": "Facebook Stories",
+        "facebook_reels": "Facebook Reels",
+        "marketplace": "Facebook Marketplace",
+        "search": "Facebook qidiruvi",
+        "profile_feed": "Facebook profil lentasi",
+    },
+}
 
 
 class LeadBuying(Choices):

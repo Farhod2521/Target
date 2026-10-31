@@ -23,9 +23,12 @@ from core.targeting import (
 )
 from core.targeting.placements import (
     DEFAULT_PLACEMENT_MODE,
+    OFFERED_POSITIONS,
     PLACEMENT_KEYS,
+    POSITION_NEEDS,
     fit,
     keep_chat_reachable,
+    lonely_position,
     names_a_placement,
     strip_retired,
 )
@@ -355,3 +358,91 @@ def test_every_state_produces_a_spec_the_budget_still_governs(
     )
 
     assert built.daily_budget_minor == 700
+
+
+# --- The positions an owner ticked ----------------------------------------
+
+
+def test_positions_replace_the_block_of_their_app() -> None:
+    spec, _ = validate_structure(
+        BASE,
+        placement_mode="instagram",
+        placement_positions={"instagram": ("story",)},
+    )
+    assert _placements(spec) == {
+        "publisher_platforms": ["instagram"],
+        "instagram_positions": ["story"],
+    }
+
+
+def test_positions_of_an_app_the_mode_skips_are_not_written() -> None:
+    spec, _ = validate_structure(
+        BASE,
+        placement_mode="instagram",
+        placement_positions={"facebook": ("feed",)},
+    )
+    assert "facebook_positions" not in spec
+    assert spec["instagram_positions"] == ["stream", "story", "reels"]
+
+
+def test_no_positions_leave_the_saved_launches_as_they_were() -> None:
+    for mode in ("instagram", "facebook", "standard"):
+        plain, _ = validate_structure(BASE, placement_mode=mode)  # type: ignore[arg-type]
+        none, _ = validate_structure(
+            BASE,
+            placement_mode=mode,  # type: ignore[arg-type]
+            placement_positions={},
+        )
+        assert plain == none
+
+
+def test_automatic_ignores_positions() -> None:
+    spec, _ = validate_structure(
+        BASE,
+        placement_mode="automatic",
+        placement_positions={"instagram": ("story",)},
+    )
+    assert _placements(spec) == {}
+
+
+def test_a_position_never_offered_is_not_written() -> None:
+    spec, _ = validate_structure(
+        BASE,
+        placement_mode="instagram",
+        placement_positions={"instagram": ("explore", "story")},
+    )
+    assert spec["instagram_positions"] == ["story"]
+
+
+def test_every_needed_position_is_one_an_owner_can_tick() -> None:
+    for (app, item), needs in POSITION_NEEDS.items():
+        assert item in OFFERED_POSITIONS[app]
+        for other, position in needs:
+            assert position in OFFERED_POSITIONS[other]
+
+
+@pytest.mark.parametrize(
+    ("mode", "ticked", "lonely"),
+    [
+        ("facebook", {"facebook": ("story",)}, ("facebook", "story")),
+        ("facebook", {"facebook": ("feed", "story")}, None),
+        ("standard", {"facebook": ("story",), "instagram": ("story",)}, None),
+        (
+            "standard",
+            {"facebook": ("story",), "instagram": ("stream",)},
+            ("facebook", "story"),
+        ),
+        ("instagram", {"instagram": ("profile_feed",)}, ("instagram", "profile_feed")),
+        ("instagram", {"instagram": ("story", "ig_search")}, None),
+        ("automatic", {"facebook": ("story",)}, None),
+    ],
+)
+def test_a_position_that_cannot_run_alone_is_found(
+    mode: str, ticked: dict[str, tuple[str, ...]], lonely: tuple[str, str] | None
+) -> None:
+    assert lonely_position(ticked, mode=mode) == lonely
+
+
+def test_the_default_blocks_break_no_rule() -> None:
+    for mode in PLACEMENT_MODES:
+        assert lonely_position(None, mode=mode) is None

@@ -1,9 +1,14 @@
 from dataclasses import dataclass
 from typing import Any
 
-from app.modules.ads.constants import PlacementMode, TargetingMode
+from app.modules.ads.constants import (
+    PLACEMENT_POSITION_LABELS,
+    PlacementMode,
+    TargetingMode,
+)
 from core.leads.ending import EndingLine
 from core.targeting import resolve_mode, sent_ages
+from core.targeting.placements import chosen_positions
 
 MAX_NAMES = 3
 
@@ -44,8 +49,19 @@ def audience_summary(
         ages=_ages(audience),
         genders=_genders(audience.get("genders")),
         mode=_label(TargetingMode, mode),
-        placement=_label(PlacementMode, placement),
+        placement=_placement(audience, placement=placement),
     )
+
+
+def _placement(audience: dict[str, Any], *, placement: str) -> str:
+    label = _label(PlacementMode, placement)
+    ticked = chosen_positions(audience.get("placement_positions"), mode=placement)
+    names = [
+        PLACEMENT_POSITION_LABELS[app][item]
+        for app, items in ticked.items()
+        for item in items
+    ]
+    return f"{label}: {', '.join(names)}" if names else label
 
 
 def interests_summary(*, chosen: list[dict[str, Any]]) -> NameList:

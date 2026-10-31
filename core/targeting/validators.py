@@ -40,6 +40,7 @@ def validate_structure(
     currency: str = "",
     targeting_mode: TargetingMode = DEFAULT_TARGETING_MODE,
     placement_mode: PlacementMode = DEFAULT_PLACEMENT_MODE,
+    placement_positions: Mapping[str, tuple[str, ...]] | None = None,
     audiences: AudienceChoice | None = None,
 ) -> tuple[dict[str, Any], tuple[Adjustment, ...]]:
     """Check a rendered spec, correcting what can be corrected."""
@@ -54,7 +55,7 @@ def validate_structure(
         _apply_special_category(spec, notes, category=special_ad_category)
     fit_mode(spec, notes, mode=targeting_mode)
     fit_audiences(spec, notes, choice=audiences or AudienceChoice())
-    fit_placements(spec, notes, mode=placement_mode)
+    fit_placements(spec, notes, mode=placement_mode, positions=placement_positions)
     _drop_empty(spec)
 
     return spec, tuple(notes)

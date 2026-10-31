@@ -73,6 +73,7 @@ KEPT_ON_REGENERATE: tuple[str, ...] = (
     geo_field.GEO_KEY,
     "targeting_mode",
     "placement_mode",
+    "placement_positions",
     audience_field.AUDIENCES_KEY,
 )
 OPTIONS_PROMPT = "form_options"

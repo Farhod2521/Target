@@ -98,6 +98,7 @@ class OnboardingAnswers:
     interests: tuple[Interest, ...] = ()
     targeting_mode: TargetingMode = DEFAULT_TARGETING_MODE
     placement_mode: PlacementMode = DEFAULT_PLACEMENT_MODE
+    placement_positions: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     chat_channel: ChatChannel = DEFAULT_CHAT_CHANNEL
     campaign_type: str = ""
     conversion_event: str = ""
