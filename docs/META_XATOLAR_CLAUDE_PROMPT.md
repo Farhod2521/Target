@@ -97,7 +97,7 @@ Qo'lda ulanadigan to'rttasi:
 
 ## 5. Eski kod
 
-- `LaunchErrorCode` 30 ta qiymatga ko'paydi. `Record<LaunchErrorCode, ...>` bo'lsa to'ldir.
+- `LaunchErrorCode` 31 ta qiymatga ko'paydi. `Record<LaunchErrorCode, ...>` bo'lsa to'ldir.
 - `Failure.raw` endi ichki kod emas, Meta'ning so'zlari yoki `null`.
 - Auditoriya xatosi `502` emas, `422`.
 - `explanationHtml`, `explaining`, `guide` maydonlari hozircha qoladi, ularni olib tashlama.

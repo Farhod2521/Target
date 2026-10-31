@@ -166,7 +166,7 @@ Eski frontend yangi backend bilan ishlaydi, lekin mana bularni hisobga oling:
 
 | Nima | Oldin | Hozir |
 |---|---|---|
-| `Failure.code` | 7 ta qiymat | 30 ta qiymat. `Record<LaunchErrorCode, ...>` bo'lsa to'ldiring |
+| `Failure.code` | 7 ta qiymat | 31 ta qiymat. `Record<LaunchErrorCode, ...>` bo'lsa to'ldiring |
 | `Failure.raw` | Ichki kod (`refused`) | Meta'ning so'zlari yoki `null` |
 | Auditoriya xatosi | `502`, faqat `detail` | `422`, `provider_refused` va `refusal` |
 | Meta'ni ulash xatosi | `?error=` | `?error=` va ba'zan `?refusal_key=` |
