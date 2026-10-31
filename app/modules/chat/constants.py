@@ -87,6 +87,17 @@ REFUSAL_EVERY_LANGUAGE: Final = (
     "each of Uzbek (Latin script), Russian and English, one whole answer to each field"
 )
 REFUSAL_STALE_VERSIONS: Final = frozenset({"v1"})
+# What ``prompt_version`` says once a person has written the answer.
+REFUSAL_OFFICE_VERSION: Final = "office"
+# The first word of a key says what the owner was doing; a launch has none.
+REFUSAL_OPERATION_LABELS: Final[dict[str, str]] = {
+    "launch": "Reklama yaratish",
+    "change": "Reklamani o'zgartirish",
+    "media": "Media kutubxonasi",
+    "audience": "Auditoriya",
+    "place": "Joy qidirish",
+    "connect": "Meta ulanishi",
+}
 OUR_FAULT_KEYS: Final = frozenset({"meta:100/1885624", "meta:100/1815614"})
 CHANGE_REFUSAL_PROMPT_NAME: Final = "change_refusal"
 # Kept apart from the launch prompt's versions, which REFUSAL_STALE_VERSIONS retires.

@@ -93,6 +93,7 @@ class ActionKind(Choices):
     SALES_LOST = "sales_lost"
     SALES_HOLD_LIFTED = "sales_hold_lifted"
     SALES_SETTINGS_CHANGED = "sales_settings"
+    REFUSAL_EDITED = "refusal_edited"
 
 
 ACTION_KIND_LABELS = {
@@ -132,6 +133,7 @@ ACTION_KIND_LABELS = {
     ActionKind.SALES_LOST: "Sotuvda rad etdi",
     ActionKind.SALES_HOLD_LIFTED: "Qo'ng'iroq taqiqi olindi",
     ActionKind.SALES_SETTINGS_CHANGED: "Sotuv sozlamalari o'zgardi",
+    ActionKind.REFUSAL_EDITED: "Meta xatosi javobi tahrirlandi",
 }
 READ_KINDS = (
     ActionKind.VIEW,

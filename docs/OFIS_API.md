@@ -467,6 +467,32 @@ python -m tools.erase_payment <transaction.id yoki hisob raqami> --yes  # o'chir
 
 ---
 
+## 7b. Meta xatolari javoblari — `/refusals`
+
+Meta reklamani rad etganda userga chiqadigan matnlar. Birinchi matnni AI
+yozadi, shu yerda ofis tuzatadi. Saqlangan zahoti keyingi userlar yangi matnni
+ko'radi. Barcha ofis rollari o'qiydi va tahrirlaydi. Saqlash jurnalga
+`refusal_edited` bo'lib yoziladi.
+
+| Yo'l | |
+|---|---|
+| `GET /refusals?tab=&q=&offset=` | Ro'yxat, ko'p uchragani birinchi. `tab`: `held`, `untranslated`, `retired` (`tabs[]`). `q`: kalit, Meta so'zlari, javob matni. Menyu nishoni uchun `held` |
+| `GET /refusals/{id}` | Bitta javob |
+| `PATCH /refusals/{id}` | Body: `answer_uz`, `answer_ru`, `answer_en`, faqat o'zgarganlari. Uchalasi bo'sh bo'lsa `400` |
+
+Holatlar:
+
+- `held: true` — AI javobida raqam bor, userga ko'rsatilmaydi. Tekshirib saqlang.
+- `retired: true` — Django davridagi eski javob, userga ko'rsatilmaydi.
+  Saqlansa, yana ko'rinadi.
+- Bir tilda matn bo'lmasa, user boshqa tildagi matnni o'qiydi. AI qayta chaqirilmaydi.
+
+Matn Markdown: birinchi gap sabab, keyin `1.`, `2.` qadamlar. `[[tolov]]` kabi
+nomlar userning o'z havolasiga aylanadi, ro'yxati javobdagi `links[]`da. Matnga
+to'liq manzil yozmang: u barcha userlarga bir xil ko'rinadi.
+
+---
+
 ## 8. Sotuv doskasi — `/sales`
 
 Rollar: `Sales`, `SalesLead`, `Owner` (`can.sell`). Sozlamalar, jamoa natijalari
@@ -551,6 +577,14 @@ ekrani yo'q: raqamni havolasiz ko'rsating.
 
 `*` — majburiy parametr. Yo'llar `/api/v1/office` ostida. Javob va so'rov turlari B-ilovada.
 
+
+### Meta xatolari
+
+| Metod | Yo'l | Rol | Query | Body | Javob |
+|---|---|---|---|---|---|
+| GET | `/refusals` | Barcha ofis rollari | `tab`, `q`, `offset` | — | 200 RefusalAnswersOut |
+| GET | `/refusals/{answer_id}` | Barcha ofis rollari | — | — | 200 RefusalAnswerOut |
+| PATCH | `/refusals/{answer_id}` | Barcha ofis rollari | — | RefusalAnswerIn | 200 RefusalAnswerOut |
 
 ### Mijozlar
 
