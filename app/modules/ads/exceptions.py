@@ -495,6 +495,13 @@ class LaunchMediaBlocked(DomainError):
         )
 
 
+class FileInUse(DomainError):
+    """A file running adverts use: the grid's tile shows «delete_failed»."""
+
+    status_code = 409
+    code = "in_use"
+
+
 class MediaAskedRecently(DomainError):
     def __init__(self) -> None:
         super().__init__(

@@ -13,6 +13,7 @@ from app.modules.ads.routers import drafts
 from app.modules.ads.selectors.variants import launch_variants
 from tests.pg.conftest import sign_up
 from tests.pg.test_launch_api import _ready
+from tests.pg.test_launch_media_uploads import _picture, media_root  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -215,3 +216,77 @@ def test_the_chat_questions_are_read_where_they_come(
     read = client.get(f"/api/v1/launch/drafts/{draft_id}/chat-questions", headers=auth)
     assert read.status_code == 200, read.text
     assert read.json() == {"state": "done", "questions": ["Narxi qancha?"]}
+
+
+@pytest.mark.usefixtures("media_root")
+def test_the_pictures_step_reads_both_grids_and_takes_uploads(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, draft_id = _opened(client, db)
+    path = f"/api/v1/launch/drafts/{draft_id}"
+    floor = client.get(path, headers=auth).json()["minBudget"]
+    client.patch(
+        path,
+        json={
+            "goal": "click",
+            "linkUrl": "bahor.example",
+            "dailyBudget": floor | {"minor": 500},
+            "step": "media",
+        },
+        headers=auth,
+    )
+    launch = db.get(CampaignLaunch, uuid.UUID(draft_id))
+    assert launch is not None
+    picture = MediaAsset(
+        owner_id=launch.owner_id,
+        ad_account_id=launch.ad_account_id,
+        provider=launch.provider,
+        kind=MediaKind.IMAGE,
+        external_id="hash_1",
+        name="osh.jpg",
+        width=1080,
+        height=1080,
+    )
+    db.add(picture)
+    db.commit()
+
+    shown = client.get(f"{path}/media", headers=auth)
+    assert shown.status_code == 200, shown.text
+    grid = shown.json()
+    assert [tile["id"] for tile in grid["library"]] == [str(picture.id)]
+    assert grid["held"] == {} and grid["maxImageMb"] > 0
+
+    data = _picture()
+    whole = client.post(
+        f"{path}/media/upload",
+        files={"file": ("tort.jpg", data, "image/jpeg")},
+        headers=auth,
+    )
+    assert whole.status_code == 200, whole.text
+    assert whole.json()["id"].startswith("upload-")
+    assert any(name.endswith("upload_to_library_task") for name, _ in queued)
+
+    upload_id = str(uuid.uuid4())
+    piece = client.post(
+        f"{path}/media/upload/chunk",
+        content=data,
+        headers=auth
+        | {
+            "X-Upload-Id": upload_id,
+            "X-Upload-Size": str(len(data)),
+            "X-Upload-Offset": "0",
+        },
+    )
+    assert piece.status_code == 200 and piece.json()["offset"] == len(data)
+    done = client.post(
+        f"{path}/media/upload/finish",
+        json={"uploadId": upload_id, "total": len(data), "name": "non.jpg"},
+        headers=auth,
+    )
+    assert done.status_code == 200, done.text
+    held = client.get(f"{path}/media", headers=auth).json()
+    assert len(held["uploads"]) == 2 and len(held["held"]) == 2
+
+    released = client.delete(f"{path}/media/held/0", headers=auth)
+    assert released.status_code == 200, released.text
+    assert len(released.json()["held"]) == 1

@@ -494,6 +494,67 @@ class ChatQuestionReading(Camel):
     questions: list[str]
 
 
+class MediaAsset(Camel):
+    id: str
+    tone: int
+    art: str
+    caption: str
+    video: str | None = Field(
+        None, description='"0:31", or "" when unknown; absent for pictures.'
+    )
+    post: bool | None = None
+    blocked: bool | None = Field(None, description="Instagram refuses to advertise it.")
+    small: bool | None = None
+    permalink: str | None = None
+    state: (
+        Literal["ready", "uploading", "upload_failed", "deleting", "delete_failed"]
+        | None
+    ) = None
+    progress: float | None = None
+    size_mb: int | None = None
+    text: str | None = None
+    date: str | None = None
+    used_in: int | None = Field(
+        None, description="Running adverts using it: it cannot be deleted."
+    )
+    thumb: str | None = None
+    error: str | None = None
+
+
+class InstagramProfile(Camel):
+    handle: str
+    initials: str
+    sub: str
+    posts: int
+    followers: int
+    following: int
+
+
+class MediaLibrary(Camel):
+    say: str
+    instagram: InstagramProfile | None
+    page_name: str
+    currency: str
+    posts: list[MediaAsset]
+    library: list[MediaAsset]
+    synced_at: str | None
+    held: dict[str, int] = Field(
+        description="Tiles already in the launch, by id: their position."
+    )
+    uploads: list[MediaAsset] = Field(
+        description="Uploads the network has not taken in yet."
+    )
+    max_image_mb: int | None = None
+    max_video_mb: int | None = None
+    accept: str | None = None
+
+
+class UploadDone(Camel):
+    upload_id: str
+    total: int
+    name: str
+
+
 __all__ = [
     "ChatQuestionReading",
     "DepthIn",
@@ -505,6 +566,9 @@ __all__ = [
     "LaunchDraft",
     "LeadFormPanel",
     "LeadFormSave",
+    "MediaAsset",
+    "MediaLibrary",
     "NameIn",
     "ProposalEdit",
+    "UploadDone",
 ]
