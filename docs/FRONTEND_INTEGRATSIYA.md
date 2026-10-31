@@ -467,7 +467,6 @@ Bu ekranlar uchun endpoint **hozircha yo'q** — UI'da yashiring yoki
 
 | Ekran | Holat |
 |---|---|
-| Parolni tiklash ("Parolni unutdim") | ❌ |
 | Telegram'dan brauzerga o'tish (handoff) | ❌ endpoint yo'q |
 | Akkaunt sozlamalari ro'yxati (`/app/account/settings`) | ❌ |
 | Video montaj | ❌ |
