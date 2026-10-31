@@ -102,6 +102,7 @@ PEOPLE_LEVELS: Final[tuple[MetricLevel, ...]] = (
     MetricLevel.ADSET,
     MetricLevel.AD,
 )
+PEOPLE_ROLLING_DAYS: Final[tuple[int, ...]] = (14, 28)
 PEOPLE_REFRESH_SECONDS: Final = 25 * 60
 PEOPLE_ASKED_SECONDS: Final = 2 * 60
 DEFAULT_PERIOD: Final = Period.THIRTY

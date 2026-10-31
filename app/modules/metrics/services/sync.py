@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 from logging import Logger
 
 from adskit import registry
-from adskit.dto import MetricsDTO, SegmentMetricsDTO
+from adskit.dto import MetricsDTO, PeopleCountDTO, SegmentMetricsDTO
 from adskit.errors import (
     AuthFailed,
     PermissionDenied,
@@ -47,6 +47,7 @@ from app.modules.metrics.constants import (
     NIGHTLY_BREAKDOWNS,
     PEOPLE_LEVELS,
     PEOPLE_REFRESH_SECONDS,
+    PEOPLE_ROLLING_DAYS,
     PERIOD_LENGTHS,
     RESTATE_DAYS,
     MetricLevel,
@@ -559,17 +560,54 @@ def people_ranges(today: date) -> list[tuple[date, date]]:
     return ranges
 
 
+def extra_people_ranges(today: date) -> list[tuple[date, date]]:
+    """The date picker's other presets, beyond the periods every screen reads."""
+    week = today - timedelta(days=today.weekday())
+    month = today.replace(day=1)
+    last_month_end = month - timedelta(days=1)
+    wanted = [
+        *((today - timedelta(days=days - 1), today) for days in PEOPLE_ROLLING_DAYS),
+        (week, today),
+        (week - timedelta(days=7), week - timedelta(days=1)),
+        (month, today),
+        (last_month_end.replace(day=1), last_month_end),
+    ]
+    known = set(people_ranges(today))
+    return [one for one in dict.fromkeys(wanted) if one not in known]
+
+
+def _read_people(
+    db: Session,
+    ad_account: AdAccount,
+    *,
+    ranges: list[tuple[date, date]],
+    level: str,
+) -> list[PeopleCountDTO]:
+    bundle = registry.get(ad_account.provider)
+    with provider_failures(db, ad_account, doing=f"people:{level}", logger=logger):
+        return bundle.metrics.fetch_people(
+            account=account_ref_for(ad_account),
+            ranges=ranges,
+            level=level,
+            token=token_for(ad_account=ad_account),
+        )
+
+
 def sync_people(db: Session, *, ad_account: AdAccount, today: date) -> int:
     ranges = people_ranges(today)
-    bundle = registry.get(ad_account.provider)
+    extra = extra_people_ranges(today)
     written = 0
     for level in PEOPLE_LEVELS:
-        with provider_failures(db, ad_account, doing=f"people:{level}", logger=logger):
-            rows = bundle.metrics.fetch_people(
-                account=account_ref_for(ad_account),
-                ranges=ranges,
-                level=str(level),
-                token=token_for(ad_account=ad_account),
+        rows = _read_people(db, ad_account, ranges=ranges, level=str(level))
+        # A request of its own: the periods above must survive a refusal of these.
+        try:
+            rows += _read_people(db, ad_account, ranges=extra, level=str(level))
+        except SyncFailed as exc:
+            logger.info(
+                "extra people ranges for %s at %s stopped (%s)",
+                ad_account.external_id,
+                level,
+                exc.cause,
             )
         written += replace_people(
             db, ad_account=ad_account, level=str(level), rows=rows, now=utcnow()

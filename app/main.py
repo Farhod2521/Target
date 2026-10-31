@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import models as _models  # noqa: F401
-from app.api.router import api_router, public_router
+from app.api.router import api_router, api_v2_router, public_router
 from app.bootstrap import register_providers
 from app.common.config import settings
 from app.common.exceptions import DomainError
@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(api_router)
+    app.include_router(api_v2_router)
     app.include_router(public_router)
     return app
 

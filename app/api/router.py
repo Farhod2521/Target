@@ -11,6 +11,7 @@ from app.modules.ads.routers.launch import router as launch
 from app.modules.ads.routers.launch_forms import router as launch_forms
 from app.modules.ads.routers.launch_media import router as launch_media
 from app.modules.ads.routers.launch_review import router as launch_review
+from app.modules.ads.routers.v2 import router as campaigns_v2
 from app.modules.agent.routers import router as agent
 from app.modules.backoffice.routers import router as office
 from app.modules.billing.routers import router as billing
@@ -35,6 +36,9 @@ from app.modules.referrals.routers import router as referrals
 from app.modules.sales.routers import router as sales
 from app.modules.supportchat.routers import router as support
 from app.modules.surveys.routers import router as surveys
+
+api_v2_router = APIRouter(prefix="/api/v2")
+api_v2_router.include_router(campaigns_v2)
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(accounts)
