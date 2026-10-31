@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from app.modules.ads.contract.launch.failures import failure
+from app.modules.ads.contract.launch.media import library
 from app.modules.ads.services.creation import FAILURE_CODES
 from core.chat.preparations import TROUBLE_WORDS
 
@@ -92,3 +93,31 @@ def test_what_meta_wrote_for_the_advertiser_is_shown() -> None:
 
     assert found["raw"] == "Byudjet kam — Kamida 1$ kiriting."
     assert "Kamida 1$ kiriting." in found["guide"]["cause"]
+
+
+def test_a_refused_file_carries_its_refusal_to_the_grid() -> None:
+    refusal = {"title": "Meta faylni qabul qilmadi", "cause": "x", "key": "media:meta:1"}
+    page = {
+        "tiles": [
+            {
+                "asset": {"id": "a1", "name": "rasm.jpg", "kind": "image"},
+                "delete_failed": True,
+                "delete_refusal": refusal,
+            }
+        ],
+        "variants": [
+            {
+                "position": 0,
+                "is_upload": True,
+                "upload_name": "video.mp4",
+                "upload_failed": True,
+                "upload_refusal": refusal,
+            }
+        ],
+    }
+
+    grid = library(None, page)
+
+    assert grid["library"][0]["state"] == "delete_failed"
+    assert grid["library"][0]["refusal"] == refusal
+    assert [tile["refusal"] for tile in grid["uploads"]] == [refusal]

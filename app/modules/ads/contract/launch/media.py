@@ -45,6 +45,8 @@ def asset(tile: dict[str, Any]) -> dict[str, Any]:
         out["permalink"] = tile["permalink_url"]
     if tile.get("state") in STATES:
         out["state"] = tile["state"]
+    if tile.get("refusal"):
+        out["refusal"] = tile["refusal"]
     if tile.get("progress") is not None:
         out["progress"] = tile["progress"]
     if tile.get("size"):
