@@ -208,10 +208,12 @@ _DELIVERY: dict[str, Delivery] = {
     "ADSET_PAUSED": "paused_above",
     "PENDING_REVIEW": "pending",
     "PREAPPROVED": "pending",
+    # Not a review: Meta is still applying a change. ``delivery_of`` answers
+    # with the object's own switch; this line is for a read that has none.
+    "IN_PROCESS": "pending",
     # Held until the account is paid for - its own word, because the fix
     # is a card and not a wait.
     "PENDING_BILLING_INFO": "billing",
-    "IN_PROCESS": "pending",
     # Refused, or running with a policy problem. Both need the advertiser
     # to do something, which is the distinction the domain cares about.
     "DISAPPROVED": "rejected",
@@ -224,6 +226,8 @@ _DELIVERY: dict[str, Delivery] = {
     "ARCHIVED": "finished",
     "DELETED": "finished",
 }
+
+_IN_PROCESS = "IN_PROCESS"
 
 # Meta's error codes for "you may not do that", as opposed to "your token is
 # no good". The difference decides whether the customer reconnects or the
@@ -410,14 +414,21 @@ _GEO_KINDS: dict[str, GeoKind] = {
 _SETTABLE: dict[str, str] = {"active": STATUS_ACTIVE, "paused": STATUS_PAUSED}
 
 
-def delivery_of(effective_status: str) -> Delivery:
+def delivery_of(effective_status: str, status: str = "") -> Delivery:
     """Meta's effective status in domain words.
 
     Unknown values return ``unknown`` rather than guessing. Meta adds
     statuses between versions, and a wrong guess here is a screen telling
     somebody their ads are fine when they are not.
+
+    ``IN_PROCESS`` says only that a change is still being applied, for a
+    moment, so the object's own switch answers: Ads Manager shows such an ad
+    as Active, and calling it under review sends its owner to wait for nothing.
     """
-    return _DELIVERY.get(effective_status.upper(), "unknown")
+    word = effective_status.upper()
+    if word == _IN_PROCESS and status:
+        word = status.upper()
+    return _DELIVERY.get(word, "unknown")
 
 
 def translate_error(exc: MetaError) -> ProviderError:
@@ -636,7 +647,7 @@ class MetaCampaigns:
             ref=ref,
             status=payload.get("status", ""),
             effective_status=effective,
-            delivery=delivery_of(effective),
+            delivery=delivery_of(effective, payload.get("status", "")),
             learning_status=learning,
             is_learning=learning.upper() == _LEARNING,
             # Absent, not zero, on an object whose budget lives one level
@@ -852,7 +863,7 @@ class MetaCampaigns:
             name=row.name,
             status=row.status,
             effective_status=row.effective_status,
-            delivery=delivery_of(row.effective_status),
+            delivery=delivery_of(row.effective_status, row.status),
             objective_raw=row.objective,
             daily_budget_minor=MinorUnits(budget) if budget is not None else None,
             spend_cap_minor=MinorUnits(cap) if cap is not None else None,
@@ -876,7 +887,7 @@ class MetaCampaigns:
             name=row.name,
             status=row.status,
             effective_status=row.effective_status,
-            delivery=delivery_of(row.effective_status),
+            delivery=delivery_of(row.effective_status, row.status),
             optimization_goal_raw=row.optimization_goal,
             billing_event_raw=row.billing_event,
             destination_type_raw=row.destination_type,
@@ -900,7 +911,7 @@ class MetaCampaigns:
             name=row.name,
             status=row.status,
             effective_status=row.effective_status,
-            delivery=delivery_of(row.effective_status),
+            delivery=delivery_of(row.effective_status, row.status),
             creative_external_id=row.creative_external_id,
             creative=cls._creative(row.creative),
             lead_form_external_id=row.lead_form_external_id,

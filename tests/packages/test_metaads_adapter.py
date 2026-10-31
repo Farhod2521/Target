@@ -98,6 +98,19 @@ def test_metas_status_becomes_a_domain_word(
     assert delivery_of(effective_status) == expected
 
 
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        pytest.param("ACTIVE", "active", id="switched-on"),
+        pytest.param("PAUSED", "paused", id="switched-off"),
+        pytest.param("", "pending", id="no-switch-read"),
+    ],
+)
+def test_a_change_being_applied_is_not_a_review(status: str, expected: str) -> None:
+    """Ads Manager shows ACTIVE over IN_PROCESS as Active, so the screen must too."""
+    assert delivery_of("IN_PROCESS", status) == expected
+
+
 def test_a_status_meta_invents_next_year_is_unknown_not_active() -> None:
     """A wrong guess tells somebody their ads are fine when they are not."""
     assert delivery_of("SOME_NEW_STATE") == "unknown"
