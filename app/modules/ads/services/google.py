@@ -279,6 +279,18 @@ def _phone(phone: str) -> str:
     return phone
 
 
+def change_google_site(
+    db: Session, *, user: User, launch: GoogleLaunch, final_url: str
+) -> GoogleLaunch:
+    """The site changed on the words step: the words already written stay. Commits."""
+    launch = _locked(db, owner=user, launch_id=launch.id)
+    if launch.status not in OPEN_STATUSES:
+        raise GoogleLaunchClosed
+    launch.final_url = _website(final_url)
+    db.commit()
+    return launch
+
+
 # -- the words step --------------------------------------------------------------------
 
 

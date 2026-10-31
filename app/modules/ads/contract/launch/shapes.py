@@ -235,6 +235,34 @@ class Delivery(Camel):
     reason: str
 
 
+class GoogleKeyword(Camel):
+    text: str
+    volume: int
+
+
+class UrlCheck(Camel):
+    ok: bool
+    seconds: float
+
+
+class GoogleWords(Camel):
+    say: str
+    keywords: list[GoogleKeyword]
+    minus: list[str]
+    headlines: list[str]
+    descriptions: list[str]
+    url: str
+    url_check: UrlCheck | None
+    paths: list[str]
+    places: list[str]
+
+
+class Area(Camel):
+    key: str
+    name: str
+    parent: str | None = None
+
+
 class LaunchDraft(Camel):
     id: str
     flow: Literal["campaigns", "google"]
@@ -263,7 +291,7 @@ class LaunchDraft(Camel):
     first_launch: bool
     campaign_id: str | None
     review_eta: Literal["hour", "hours"]
-    google: dict[str, object] | None
+    google: GoogleWords | None
     link_url: str
     phone: str
     chat_channel: ChatChannel
@@ -556,6 +584,7 @@ class UploadDone(Camel):
 
 
 __all__ = [
+    "Area",
     "ChatQuestionReading",
     "DepthIn",
     "DraftPatch",
@@ -563,6 +592,7 @@ __all__ = [
     "ExistingForm",
     "FormVariant",
     "GoalPress",
+    "GoogleWords",
     "LaunchDraft",
     "LeadFormPanel",
     "LeadFormSave",

@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.modules.accounts.routers import router as accounts
 from app.modules.ads.routers import router as campaigns
 from app.modules.ads.routers.drafts import router as launch_drafts
+from app.modules.ads.routers.drafts_google import router as launch_drafts_google
 from app.modules.ads.routers.drafts_media import router as launch_drafts_media
 from app.modules.ads.routers.drafts_review import router as launch_drafts_review
 from app.modules.ads.routers.google import router as google_ads
@@ -56,6 +57,7 @@ api_router.include_router(campaigns)
 api_router.include_router(launch_drafts)
 api_router.include_router(launch_drafts_review)
 api_router.include_router(launch_drafts_media)
+api_router.include_router(launch_drafts_google)
 api_router.include_router(launch)
 api_router.include_router(launch_review)
 api_router.include_router(launch_media)

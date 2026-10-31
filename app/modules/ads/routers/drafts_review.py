@@ -44,6 +44,11 @@ from app.modules.ads.routers.drafts import (
     tapped_goal,
     text_taps,
 )
+from app.modules.ads.routers.drafts_google import (
+    create_google,
+    google_of,
+    retry_google,
+)
 from app.modules.ads.routers.launch_forms import AutoIn
 from app.modules.ads.routers.launch_review import CreateIn
 from app.modules.ads.selectors.variants import launch_variants
@@ -146,6 +151,9 @@ def start_delivery(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> LaunchDraf
 @router.post("/{draft_id}/create", response_model=LaunchDraft)
 def create(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> LaunchDraft:
     """Create the campaign at the network. This is the press that spends."""
+    google = google_of(db, user=user, draft_id=draft_id)
+    if google is not None:
+        return create_google(db, user=user, launch=google)
     review_routes.create(draft_id, CreateIn(confirmed=False), db, user)
     _restart_poll(draft_id)
     return _draft(db, user, draft_id)
@@ -154,6 +162,9 @@ def create(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> LaunchDraft:
 @router.post("/{draft_id}/retry", response_model=LaunchDraft)
 def retry(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> LaunchDraft:
     """«Qayta urinish»: a refused creation is created again; a proposal never written is asked again."""
+    google = google_of(db, user=user, draft_id=draft_id)
+    if google is not None:
+        return retry_google(db, user=user, launch=google)
     state = review_routes.review_poll(draft_id, db, user, tries=0, shown="")["state"]
     if review_status(state) == "failed":
         review_routes.create(draft_id, CreateIn(confirmed=False), db, user)

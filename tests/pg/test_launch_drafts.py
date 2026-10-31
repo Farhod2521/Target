@@ -4,13 +4,18 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.config import settings
+from app.common.db import utcnow
+from app.modules.accounts.models import User
 from app.modules.ads import draft as draft_field
 from app.modules.ads.constants import DraftSection, MediaKind
-from app.modules.ads.models import CampaignLaunch, MediaAsset
+from app.modules.ads.models import Campaign, CampaignLaunch, GoogleLaunch, MediaAsset
 from app.modules.ads.routers import drafts
 from app.modules.ads.selectors.variants import launch_variants
+from app.modules.integrations.models import AdAccount
 from tests.pg.conftest import sign_up
 from tests.pg.test_launch_api import _ready
 from tests.pg.test_launch_media_uploads import _picture, media_root  # noqa: F401
@@ -290,3 +295,133 @@ def test_the_pictures_step_reads_both_grids_and_takes_uploads(
     released = client.delete(f"{path}/media/held/0", headers=auth)
     assert released.status_code == 200, released.text
     assert len(released.json()["held"]) == 1
+
+
+def _google(
+    db: Session, monkeypatch: pytest.MonkeyPatch, user: User
+) -> tuple[AdAccount, GoogleLaunch]:
+    monkeypatch.setattr(settings, "google_oauth_client_id", "id")
+    monkeypatch.setattr(settings, "google_ads_enabled", True)
+    account = db.scalar(select(AdAccount).where(AdAccount.owner_id == user.id))
+    assert account is not None
+    account.provider = "google"
+    account.currency = "USD"
+    launch = GoogleLaunch(
+        owner_id=user.id,
+        ad_account_id=account.id,
+        currency="USD",
+        final_url="https://bahor.example",
+        phone="",
+        places=[],
+        keywords=[],
+        negative_keywords=[],
+        headlines=[],
+        descriptions=[],
+        volumes={},
+        created_refs={},
+    )
+    db.add(launch)
+    db.commit()
+    return account, launch
+
+
+def test_the_google_wizard_through_the_same_draft(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, user = _ready(client, db)
+    _account, launch = _google(db, monkeypatch, user)
+    path = f"/api/v1/launch/drafts/{launch.id}"
+    first = client.get(path, headers=auth)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert (body["flow"], body["networkId"]) == ("google", "google")
+    assert (body["status"], body["step"]) == ("draft", "plan")
+    assert client.get(f"{path}/areas", headers=auth).status_code == 200
+
+    money = {"minor": 500, "currency": "USD", "exponent": 2}
+    tapped = client.patch(
+        path, json={"goal": "call", "dailyBudget": money}, headers=auth
+    )
+    assert tapped.json()["goal"] == "call" and tapped.json()["dailyBudget"] == money
+    no_phone = client.patch(path, json={"step": "words"}, headers=auth)
+    assert no_phone.status_code == 422, no_phone.text
+    assert "phone" in no_phone.json()["problems"]
+    assert no_phone.json()["code"] == "google_phone_required"
+
+    went = client.patch(path, json={"goal": "click", "step": "words"}, headers=auth)
+    assert went.status_code == 200, went.text
+    assert (went.json()["status"], went.json()["step"]) == ("building", "words")
+    db.refresh(launch)
+    assert launch.goal == "visits" and launch.daily_budget_minor == 500
+    prepared = [
+        name for name, _ in queued if name.endswith("prepare_google_launch_task")
+    ]
+    assert len(prepared) == 1
+
+    launch.status = "ready"
+    launch.ai_written_at = utcnow()
+    launch.keywords = [{"text": "osh"}]
+    launch.volumes = {"osh": 90}
+    launch.headlines = ["Bahor osh", "Yangi osh", "Issiq osh"]
+    launch.descriptions = ["Mazali osh yetkazib beramiz", "Bugun buyurtma bering"]
+    db.commit()
+    words = client.get(path, headers=auth).json()
+    assert (words["status"], words["step"]) == ("draft", "words")
+    assert words["google"]["keywords"] == [{"text": "osh", "volume": 90}]
+
+    back = client.patch(path, json={"step": "words"}, headers=auth)
+    assert back.status_code == 200, back.text
+    db.refresh(launch)
+    assert launch.status == "ready", "going back must not write the words over"
+
+    saved = client.put(
+        f"{path}/google",
+        json=words["google"] | {"url": "https://yangi.example", "minus": ["bepul"]},
+        headers=auth,
+    )
+    assert saved.status_code == 200, saved.text
+    assert (saved.json()["status"], saved.json()["step"]) == ("ready", "review")
+    assert saved.json()["linkUrl"] == "https://yangi.example"
+    assert saved.json()["proposal"]["goal"]["site"] == "yangi.example"
+
+    made = client.post(f"{path}/create", headers=auth)
+    assert made.status_code == 200, made.text
+    assert made.json()["status"] == "creating"
+    assert made.json()["creation"]["stage"] == 1
+
+
+def test_the_google_screen_answers_the_cabinets_shape(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, user = _ready(client, db)
+    account, _launch = _google(db, monkeypatch, user)
+    db.add(
+        Campaign(
+            owner_id=user.id,
+            provider="google",
+            external_id="111",
+            ad_account_id=account.id,
+            name="Qidiruv",
+            delivery="paused",
+            status="PAUSED",
+            currency="USD",
+            daily_budget_minor=700,
+            synced_at=utcnow(),
+        )
+    )
+    db.commit()
+    shown = client.get("/api/v1/google/screen?period=30", headers=auth)
+    assert shown.status_code == 200, shown.text
+    screen = shown.json()["screen"]
+    assert screen["period"] == "30" and screen["anyPending"] is False
+    row = screen["campaigns"][0]
+    assert (row["id"], row["delivery"]) == ("111", "paused")
+    assert row["dailyBudget"]["minor"] == 700
+    assert row["figures"]["costPerResult"] is None
+    pressed = client.post(
+        "/api/v1/google/switch",
+        json={"level": "campaign", "id": "111", "wanted": "resume"},
+        headers=auth,
+    )
+    assert pressed.status_code == 200, pressed.text
+    assert pressed.json()["message"]

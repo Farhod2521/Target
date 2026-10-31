@@ -1,9 +1,10 @@
 """The Google Ads screen and its Search wizard.
 
 Everything here is not found for an owner Google Ads is not switched on
-for. The screen lists one account's campaigns for a period; a press
-(``/switch``, ``/budget``, ``/delete``, ``/refresh``) is queued and the
-screen read again shows where it got to.
+for, except the screen, which answers ``null``. ``/screen`` lists one
+account's campaigns for a period in the cabinet's shape; a press
+(``/switch``, ``/budget``, ``/delete``, ``/refresh``, ``/account``) is queued
+and answers a sentence, and the screen read again shows where it got to.
 
 The wizard is three steps on one preparation: answers (goal, site, phone,
 places, budget), words (keywords and texts the AI wrote, as edited), and
@@ -19,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
+from app.common.contract import Camel, Money
 from app.common.exceptions import NotFound
 from app.common.money import provider_money
 from app.modules.accounts.models import User
@@ -29,6 +31,7 @@ from app.modules.ads.constants import (
     GoogleGoal,
     ManagedLevel,
 )
+from app.modules.ads.contract.google import GoogleScreenAnswer, screen_of
 from app.modules.ads.exceptions import GoogleBudgetRequired
 from app.modules.ads.models import GoogleLaunch
 from app.modules.ads.routers.launch_common import committed, encoded
@@ -47,25 +50,29 @@ from app.modules.integrations.selectors.google import (
     current_google_account,
     google_ads_on,
 )
+from app.modules.integrations.services import select_google_account
 
 router = APIRouter(prefix="/google", tags=["google ads"])
-PERIOD_LABELS = (("today", "Bugun"), ("7", "7 kun"), ("30", "30 kun"))
 LEVELS = frozenset({ManagedLevel.CAMPAIGN, ManagedLevel.ADSET})
 
 
-class SwitchIn(BaseModel):
+class SwitchIn(Camel):
     level: Literal["campaign", "adset"]
-    external_id: str
+    id: str
     wanted: Literal["pause", "resume"]
 
 
-class BudgetIn(BaseModel):
-    external_id: str
-    budget: str = Field(description="Whole currency units, as typed.")
+class GoogleBudgetIn(Camel):
+    id: str
+    budget: Money
 
 
-class DeleteIn(BaseModel):
-    external_id: str
+class GoogleIdIn(Camel):
+    id: str
+
+
+class Said(Camel):
+    message: str
 
 
 class AnswersIn(BaseModel):
@@ -85,7 +92,7 @@ class WordsIn(BaseModel):
     path2: str = Field("", max_length=15)
 
 
-def _switched_on(user: User) -> None:
+def switched_on(user: User) -> None:
     if not google_ads_on(user=user):
         raise NotFound("Sahifa topilmadi.")
 
@@ -102,45 +109,42 @@ def typed_budget(*, provider: str, currency: str, typed: str) -> int:
     return int(rules.to_minor(amount=amount, currency=currency))
 
 
-def _screen(db: Session, *, user: User, period: str) -> dict[str, Any]:
-    chosen = period if period in PERIODS else DEFAULT_PERIOD
-    return encoded(
-        {
-            "period": chosen,
-            "periods": [{"value": key, "label": label} for key, label in PERIOD_LABELS],
-            "screen": google_screen(db, owner=user, period=chosen),
-        }
-    )
-
-
-@router.get("")
+@router.get("/screen", response_model=GoogleScreenAnswer)
 def screen(
     db: Db, user: CurrentUser, period: str = Query(DEFAULT_PERIOD)
-) -> dict[str, Any]:
-    """One account's campaigns and groups, with their figures for the period."""
-    _switched_on(user)
-    return _screen(db, user=user, period=period)
+) -> GoogleScreenAnswer:
+    """One account's campaigns and groups; null without a Google Ads account here."""
+    found = (
+        google_screen(
+            db, owner=user, period=period if period in PERIODS else DEFAULT_PERIOD
+        )
+        if google_ads_on(user=user)
+        else None
+    )
+    return GoogleScreenAnswer(screen=screen_of(found) if found is not None else None)
 
 
-@router.post("/switch")
-def switch(body: SwitchIn, db: Db, user: CurrentUser) -> dict[str, str]:
+@router.post("/switch", response_model=Said)
+def switch(body: SwitchIn, db: Db, user: CurrentUser) -> Said:
     """Stop or start one campaign or group."""
-    _switched_on(user)
+    switched_on(user)
     kind = actions.Pause if body.wanted == "pause" else actions.Resume
-    ask = kind(level=body.level, external_id=body.external_id)
+    ask = kind(level=body.level, external_id=body.id)
     committed(db, lambda: actions.request(db, user=user, ask=ask))
-    return {"detail": "Google'ga yuborildi. Holat bir necha soniyada yangilanadi."}
+    return Said(message="Google'ga yuborildi. Holat bir necha soniyada yangilanadi.")
 
 
-@router.post("/budget")
-def budget(body: BudgetIn, db: Db, user: CurrentUser) -> dict[str, str]:
+@router.post("/budget", response_model=Said)
+def budget(body: GoogleBudgetIn, db: Db, user: CurrentUser) -> Said:
     """A campaign's daily figure. Google keeps a budget on campaigns only."""
-    _switched_on(user)
+    switched_on(user)
     account = current_google_account(db, owner=user)
     if account is None:
         raise NotFound("Google Ads akkaunti ulanmagan.")
     amount = typed_budget(
-        provider=account.provider, currency=account.currency, typed=body.budget
+        provider=account.provider,
+        currency=account.currency,
+        typed=str(Decimal(body.budget.minor).scaleb(-body.budget.exponent)),
     )
     committed(
         db,
@@ -149,36 +153,45 @@ def budget(body: BudgetIn, db: Db, user: CurrentUser) -> dict[str, str]:
             user=user,
             ask=actions.Budget(
                 level=ManagedLevel.CAMPAIGN,
-                external_id=body.external_id,
+                external_id=body.id,
                 daily_budget_minor=amount,
             ),
         ),
     )
-    return {"detail": "Google'ga yuborildi. Byudjet tez orada yangilanadi."}
+    return Said(message="Google'ga yuborildi. Byudjet tez orada yangilanadi.")
 
 
-@router.post("/delete")
-def delete(body: DeleteIn, db: Db, user: CurrentUser) -> dict[str, str]:
+@router.post("/delete", response_model=Said)
+def delete(body: GoogleIdIn, db: Db, user: CurrentUser) -> Said:
     """Remove a campaign for good, after the dialog has asked."""
-    _switched_on(user)
-    ask = actions.Delete(level=ManagedLevel.CAMPAIGN, external_id=body.external_id)
+    switched_on(user)
+    ask = actions.Delete(level=ManagedLevel.CAMPAIGN, external_id=body.id)
     committed(db, lambda: actions.request(db, user=user, ask=ask))
-    return {"detail": "Google'ga yuborildi. Kampaniya o'chiriladi."}
+    return Said(message="Google'ga yuborildi. Kampaniya o'chiriladi.")
 
 
-@router.post("/refresh")
-def refresh(db: Db, user: CurrentUser) -> dict[str, str]:
+@router.post("/refresh", response_model=Said)
+def refresh(db: Db, user: CurrentUser) -> Said:
     """Read the account from Google again."""
-    _switched_on(user)
+    switched_on(user)
     committed(db, lambda: google_services.request_google_refresh(db, user=user))
-    return {"detail": "Yangilanmoqda. Bir daqiqada tayyor bo'ladi."}
+    return Said(message="Yangilanmoqda. Bir daqiqada tayyor bo'ladi.")
+
+
+@router.post("/account", response_model=Said)
+def account(body: GoogleIdIn, db: Db, user: CurrentUser) -> Said:
+    """Which of the subscription's Google Ads accounts the screen shows."""
+    switched_on(user)
+    chosen = select_google_account(db, user=user, external_id=body.id)
+    db.commit()
+    return Said(message="Google Ads akkaunti tanlandi: %(name)s" % {"name": chosen})
 
 
 # -- the Search wizard -----------------------------------------------------------------
 
 
-def _launch(db: Session, *, user: User, launch_id: uuid.UUID) -> GoogleLaunch:
-    _switched_on(user)
+def google_launch(db: Session, *, user: User, launch_id: uuid.UUID) -> GoogleLaunch:
+    switched_on(user)
     found = google_launch_for(db, owner=user, launch_id=launch_id)
     if found is None:
         raise NotFound("Tayyorlash topilmadi.")
@@ -208,7 +221,7 @@ def _common(launch: GoogleLaunch) -> dict[str, Any]:
 @router.post("/launch", status_code=status.HTTP_201_CREATED)
 def start_launch(db: Db, user: CurrentUser) -> dict[str, Any]:
     """«Reklama berish» on the Google screen."""
-    _switched_on(user)
+    switched_on(user)
     launch = committed(db, lambda: google_services.start_google_launch(db, user=user))
     return encoded(_common(launch))
 
@@ -216,7 +229,7 @@ def start_launch(db: Db, user: CurrentUser) -> dict[str, Any]:
 @router.get("/launch/{launch_id}/answers")
 def answers(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     """Step one: goal, site, phone, places, budget."""
-    launch = _launch(db, user=user, launch_id=launch_id)
+    launch = google_launch(db, user=user, launch_id=launch_id)
     profile = launch_profile(db, launch=launch)
     country = profile.country_code if profile else ""
     places = provider_money(provider=launch.ad_account.provider).decimal_places(
@@ -242,7 +255,7 @@ def answers(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
 def save_answers(
     launch_id: uuid.UUID, body: AnswersIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
-    launch = _launch(db, user=user, launch_id=launch_id)
+    launch = google_launch(db, user=user, launch_id=launch_id)
     profile = launch_profile(db, launch=launch)
     amount = typed_budget(
         provider=launch.ad_account.provider, currency=launch.currency, typed=body.budget
@@ -267,7 +280,7 @@ def save_answers(
 @router.get("/launch/{launch_id}/words")
 def words(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     """Step two: keywords and texts, as the AI wrote them and the owner edits."""
-    launch = _launch(db, user=user, launch_id=launch_id)
+    launch = google_launch(db, user=user, launch_id=launch_id)
     return encoded(_common(launch) | _words(launch) | {"step": 2})
 
 
@@ -287,7 +300,7 @@ def _words(launch: GoogleLaunch) -> dict[str, Any]:
 def save_words(
     launch_id: uuid.UUID, body: WordsIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
-    launch = _launch(db, user=user, launch_id=launch_id)
+    launch = google_launch(db, user=user, launch_id=launch_id)
     committed(
         db,
         lambda: google_services.save_google_words(
@@ -308,14 +321,14 @@ def save_words(
 @router.get("/launch/{launch_id}/review")
 def review(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     """Step three: everything on one page."""
-    launch = _launch(db, user=user, launch_id=launch_id)
+    launch = google_launch(db, user=user, launch_id=launch_id)
     return encoded(_common(launch) | _words(launch) | {"step": 3})
 
 
 @router.post("/launch/{launch_id}/create")
 def create(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     """«Yaratish»: queue the campaign's creation at Google."""
-    launch = _launch(db, user=user, launch_id=launch_id)
+    launch = google_launch(db, user=user, launch_id=launch_id)
     committed(
         db,
         lambda: google_services.request_google_creation(db, user=user, launch=launch),

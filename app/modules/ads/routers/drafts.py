@@ -11,7 +11,7 @@ import time
 import uuid
 from typing import Any, Final
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -46,6 +46,12 @@ from app.modules.ads.models import Campaign, CampaignLaunch
 from app.modules.ads.routers import launch as plan_routes
 from app.modules.ads.routers import launch_media as media_routes
 from app.modules.ads.routers import launch_review as review_routes
+from app.modules.ads.routers.drafts_google import (
+    google_of,
+    patch_google,
+    read_google,
+    start_google,
+)
 from app.modules.ads.routers.launch import GoalReadingIn
 from app.modules.ads.routers.launch_common import encoded, launch_head, owned_launch
 from app.modules.ads.selectors.variants import launch_variants
@@ -207,7 +213,7 @@ def read_draft(db: Session, *, user: User, launch: CampaignLaunch) -> LaunchDraf
 def start(body: DraftStart, db: Db, user: CurrentUser) -> LaunchDraft:
     """Open a draft, or carry on the preparation already open."""
     if body.flow == "google":
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Google hali ulanmagan.")
+        return start_google(db, user)
     opened = plan_routes.start(db, user)
     launch = launch_of(db, user=user, draft_id=uuid.UUID(opened["id"]))
     return read_draft(db, user=user, launch=launch)
@@ -215,6 +221,9 @@ def start(body: DraftStart, db: Db, user: CurrentUser) -> LaunchDraft:
 
 @router.get("/{draft_id}", response_model=LaunchDraft)
 def read(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> LaunchDraft:
+    google = google_of(db, user=user, draft_id=draft_id)
+    if google is not None:
+        return read_google(db, google)
     return read_draft(db, user=user, launch=launch_of(db, user=user, draft_id=draft_id))
 
 
@@ -234,6 +243,9 @@ def patch(
 ) -> LaunchDraft:
     """A tap. The plan's answers wait here until «Davom etish» (the patch with
     ``step``) sends them together: the plan takes every answer at once."""
+    google = google_of(db, user=user, draft_id=draft_id)
+    if google is not None:
+        return patch_google(db, user=user, launch=google, body=body)
     launch = launch_of(db, user=user, draft_id=draft_id)
     sent = body.model_fields_set
     taps = kept.read(launch.id)

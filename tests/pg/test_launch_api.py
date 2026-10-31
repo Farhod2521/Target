@@ -198,15 +198,21 @@ def test_google_screen_is_hidden_until_switched_on(
 
     auth, _user = _ready(client, db)
     monkeypatch.setattr(settings, "google_oauth_client_id", "")
-    assert client.get("/api/v1/google", headers=auth).status_code == 404
+    hidden = client.get("/api/v1/google/screen", headers=auth)
+    assert hidden.status_code == 200 and hidden.json()["screen"] is None
+    refused = client.post(
+        "/api/v1/google/refresh",
+        headers=auth,
+    )
+    assert refused.status_code == 404
     monkeypatch.setattr(settings, "google_oauth_client_id", "id")
     monkeypatch.setattr(settings, "google_ads_enabled", True)
-    shown = client.get("/api/v1/google?period=30", headers=auth)
+    shown = client.get("/api/v1/google/screen?period=30", headers=auth)
     assert shown.status_code == 200, shown.text
-    assert shown.json()["period"] == "30" and shown.json()["screen"] is None
+    assert shown.json() == {"screen": None}
     refused = client.post(
         "/api/v1/google/budget",
-        json={"external_id": "1", "budget": "abc"},
+        json={"id": "1", "budget": {"minor": 100, "currency": "USD", "exponent": 2}},
         headers=auth,
     )
     assert refused.status_code == 404
