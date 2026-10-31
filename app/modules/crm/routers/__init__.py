@@ -1,10 +1,10 @@
 import uuid
 from dataclasses import asdict
-from datetime import date, datetime
-from typing import Any
+from datetime import date
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db, current_user
@@ -58,6 +58,15 @@ PAIR_Q = Query(
     description="The pair's CRM, as `page id:ad account id` from `pairs`; the "
     "cabinet's current pair when empty or unknown. A manager always gets their own.",
 )
+
+
+class WrittenIn(BaseModel):
+    """A body of typed text: PostgreSQL refuses a NUL in a string."""
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def no_nul(cls, value: Any) -> Any:
+        return value.replace("\x00", "") if isinstance(value, str) else value
 
 
 class Closed(HTTPException):
@@ -132,6 +141,11 @@ def team_out(db: Session, viewer: Viewer) -> list[dict[str, Any]]:
     ]
 
 
+def one_member_out(db: Session, viewer: Viewer, member: CrmMember) -> dict[str, Any]:
+    seated = selectors.seated_ids(db, owner=viewer.owner, at=utcnow())
+    return member_out(member, seated=member.id in seated)
+
+
 def _user(user: User | None) -> dict[str, Any] | None:
     if user is None:
         return None
@@ -181,7 +195,7 @@ def card_out(card: CrmCard, *, ads: dict[str, str] | None = None) -> dict[str, A
     }
 
 
-def member_out(member: CrmMember, *, seated: bool = True) -> dict[str, Any]:
+def member_out(member: CrmMember, *, seated: bool) -> dict[str, Any]:
     return {
         "id": str(member.id),
         "user": _user(member.user),
@@ -210,13 +224,12 @@ def column_out(column: selectors.Column, ads: dict[str, str]) -> dict[str, Any]:
 
 @router.get("/nav", responses={200: {"model": NavOut}})
 def nav(db: Db, user: CurrentUser, pair: str = PAIR_Q) -> dict[str, Any]:
-    if user.crm_owner_id is not None or not selectors.crm_open(owner=user):
+    if not selectors.crm_open(owner=user):
         return {"url": "/app/leads/", "attention": 0}
+    viewer = selectors.viewer_for(db, user=user, wanted=pair)
     count = 0
-    if selectors.is_running(db, owner=user):
-        count = selectors.attention_count(
-            db, viewer=selectors.viewer_for(db, user=user, wanted=pair), now=utcnow()
-        )
+    if viewer.may_work and selectors.is_running(db, owner=viewer.owner):
+        count = selectors.attention_count(db, viewer=viewer, now=utcnow())
     return {"url": "/app/crm/", "attention": count}
 
 
@@ -312,6 +325,7 @@ def card(
     view = selectors.card_view(db, viewer=viewer, card_id=str(pk))
     if view is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
+    seated = selectors.seated_ids(db, owner=viewer.owner, at=utcnow())
     return {
         "card": card_out(view.card),
         "answers": [asdict(a) for a in view.answers],
@@ -326,7 +340,7 @@ def card(
             for line in view.history
         ],
         "stages": [stage_out(s) for s in view.stages],
-        "members": [member_out(m) for m in view.members],
+        "members": [member_out(m, seated=m.id in seated) for m in view.members],
         "pair": viewer.pair.key if viewer.pair is not None else None,
         "reasons": [{"id": str(r.id), "name": r.name} for r in view.reasons],
         "currency": view.currency,
@@ -344,21 +358,21 @@ class MoveIn(BaseModel):
     to: str
 
 
-class TextIn(BaseModel):
+class TextIn(WrittenIn):
     text: str = ""
 
 
-class DueIn(BaseModel):
-    due: datetime
+class DueIn(WrittenIn):
+    due: AwareDatetime
     note: str = ""
 
 
-class WinIn(BaseModel):
+class WinIn(WrittenIn):
     amount: str
     note: str = ""
 
 
-class LoseIn(BaseModel):
+class LoseIn(WrittenIn):
     reason: str
     note: str = ""
 
@@ -520,6 +534,10 @@ def _settings(db: Session, viewer: Viewer) -> dict[str, Any]:
         ],
         "colors": list(COLORS),
         "custom_slots": MAX_CUSTOM_STAGES,
+        "seat_open": viewer.pair is not None
+        and selectors.seat_open(
+            db, owner=owner, page_id=viewer.pair.page.id, at=utcnow()
+        ),
         "since_choices": [{"value": k, "label": v} for k, v in SINCE_LABELS.items()],
         "distribution_choices": [
             {"value": k, "label": v} for k, v in DISTRIBUTION_LABELS.items()
@@ -544,6 +562,22 @@ class SetupStepIn(BaseModel):
     offered: list[str] = []
     take_new_ads: bool = False
     quality: list[str] = []
+
+
+# Before ``/setup/{step}``, which would otherwise take this path for a step.
+@router.post("/setup/skip-members", responses={200: {"model": DetailOut}})
+def skip_members(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, Any]:
+    services.require_pair(viewer)
+    setup = selectors.setup_of(db, scope=viewer.scope)
+    if setup is None or setup.step < 2:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={"step": 1})
+    services.save_distribution(
+        db, viewer=viewer, distribution=Distribution.MANUAL, advance_to=3
+    )
+    db.commit()
+    return {
+        "detail": "Hamma lid sizda bo'ladi. Menejerni keyin ham qo'shsangiz bo'ladi."
+    }
 
 
 @router.post("/setup/{step}", responses={200: {"model": SetupStepOut}})
@@ -594,19 +628,8 @@ def setup_step(
     return {"next": min(step + 1, 5), "placed": placed} | _settings(db, viewer)
 
 
-@router.post("/setup/skip-members", responses={200: {"model": DetailOut}})
-def skip_members(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, Any]:
-    services.save_distribution(
-        db, viewer=viewer, distribution=Distribution.MANUAL, advance_to=3
-    )
-    db.commit()
-    return {
-        "detail": "Hamma lid sizda bo'ladi. Menejerni keyin ham qo'shsangiz bo'ladi."
-    }
-
-
 class StateIn(BaseModel):
-    state: str
+    state: Literal["on", "off"]
 
 
 @router.post("/settings/state", responses={200: {"model": PlacedOut}})
@@ -622,7 +645,7 @@ def state(
     return {"placed": placed}
 
 
-class StageIn(BaseModel):
+class StageIn(WrittenIn):
     name: str = Field(max_length=48)
     color: str = ""
 
@@ -671,7 +694,7 @@ def stage_delete(
     return {"cards_moved": moved}
 
 
-class MemberIn(BaseModel):
+class MemberIn(WrittenIn):
     name: str
     email: str = ""
     password: str = ""
@@ -696,10 +719,7 @@ def member_add(
         kpi_percent=body.kpi_percent,
     )
     db.commit()
-    return member_out(
-        member,
-        seated=member.id in selectors.seated_ids(db, owner=viewer.owner, at=utcnow()),
-    )
+    return one_member_out(db, viewer, member)
 
 
 @router.put("/settings/members/{pk}", responses={200: {"model": MemberOut}})
@@ -716,7 +736,7 @@ def member_update(
         kpi_percent=body.kpi_percent,
     )
     db.commit()
-    return member_out(member)
+    return one_member_out(db, viewer, member)
 
 
 class MemberPasswordIn(BaseModel):
@@ -734,7 +754,7 @@ def member_password(
         db, viewer=viewer, member_id=str(pk), password=body.password
     )
     db.commit()
-    return member_out(member)
+    return one_member_out(db, viewer, member)
 
 
 @router.delete("/settings/members/{pk}", responses={200: {"model": CardsReleasedOut}})
@@ -786,7 +806,7 @@ def quality(
     return _settings(db, viewer)
 
 
-class ReasonIn(BaseModel):
+class ReasonIn(WrittenIn):
     name: str = Field(max_length=64)
 
 

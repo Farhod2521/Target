@@ -7,6 +7,8 @@ MAX_MEMBERS: Final = 10
 CARDS_PER_COLUMN: Final = 40
 CLOSED_DAYS_ON_BOARD: Final = 30
 BACKFILL_LIMIT: Final = 2000
+# Major units; anything past it would overflow the bigint the minor amount lives in.
+MAX_AMOUNT: Final = 10**15
 SWEEP_WINDOW_HOURS: Final = 6
 SWEEP_LIMIT: Final = 200
 LOST_REASONS_SHOWN: Final = 5

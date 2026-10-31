@@ -203,6 +203,11 @@ class SettingsOut(PairsOut):
     presets: list[PresetOut]
     colors: list[str]
     custom_slots: int = Field(description="How many custom columns may be added.")
+    seat_open: bool = Field(
+        description="Whether a manager added to this pair now would sit in a seat; "
+        "when false they are added with `seated: false` and cannot sign in to the "
+        "board."
+    )
     since_choices: list[Choice]
     distribution_choices: list[Choice]
 

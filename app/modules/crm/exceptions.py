@@ -31,6 +31,11 @@ class UseTheDialog(DomainError):
         super().__init__("Natijani dialogda belgilang.")
 
 
+class AmountTooBig(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Summa juda katta. Tekshirib qayta kiriting.")
+
+
 class ReasonRequired(DomainError):
     def __init__(self) -> None:
         super().__init__("Rad etish sababini tanlang.")
@@ -71,6 +76,11 @@ class EmailTaken(DomainError):
         super().__init__("Bu email bilan akkaunt bor. Boshqa email kiriting.")
 
 
+class BadEmail(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Email manzilini to'g'ri kiriting.")
+
+
 class PasswordTooWeak(DomainError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
@@ -89,6 +99,11 @@ class NameRequired(DomainError):
 class UnknownMember(DomainError):
     def __init__(self) -> None:
         super().__init__("Menejer topilmadi.")
+
+
+class MemberNotSeated(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu menejerda o'rin yo'q: u kartani ocha olmaydi.")
 
 
 class EmptyNote(DomainError):

@@ -263,6 +263,29 @@ def _free_seating(
     return seated, waiting
 
 
+def seat_open(db: Session, *, owner: User, page_id: uuid.UUID, at: datetime) -> bool:
+    """Whether a manager added to ``page_id`` now would sit in a seat."""
+    from app.modules.billing.constants import SubscriptionStatus
+    from app.modules.billing.selectors import live_subscription
+    from app.modules.billing.selectors.seats import paid_seats
+    from app.modules.integrations.selectors import enabled_pages
+
+    subscription = live_subscription(db, owner=owner)
+    seated, waiting = _free_seating(db, owner=owner, subscription=subscription)
+    if len(waiting) < paid_seats(db, owner=owner, at=at):
+        return True
+    if subscription is None or subscription.status == SubscriptionStatus.TRIAL:
+        return False
+    if page_id not in {page.id for page in enabled_pages(db, owner=owner)}:
+        return False
+    taken = db.scalar(
+        select(CrmMember.id)
+        .where(CrmMember.id.in_(seated), CrmMember.page_id == page_id)
+        .limit(1)
+    )
+    return taken is None
+
+
 def crm_open(db: Session | None = None, *, owner: User) -> bool:
     return True
 
@@ -501,10 +524,11 @@ NO_FILTERS = BoardFilters()
 def read_filters(
     *, q: str = "", m: str = "", ad: str = "", f: str = ""
 ) -> BoardFilters:
+    # PostgreSQL refuses a NUL in a string, so it cannot match anything anyway.
     return BoardFilters(
-        query=q.strip()[:80],
-        member=m[:40],
-        ad=ad[:64],
+        query=q.replace("\x00", "").strip()[:80],
+        member=m.replace("\x00", "")[:40],
+        ad=ad.replace("\x00", "")[:64],
         flag=f if f in {item.value for item in Flag} else "",
     )
 

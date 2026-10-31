@@ -114,8 +114,9 @@ Chiqish (`logout`) endpointi yo'q: tokenlarni frontend o'chiradi.
 
 Menejer ham `POST /auth/login` bilan kiradi, lekin unga **faqat**
 `/crm`, `/auth` va `/account/language` ochiq. Boshqa hamma joyda
-`403 {"detail": "Faqat CRM doskasi."}`. Menejer ekanini `GET /crm/nav` yoki
-istalgan boshqa endpointdan kelgan `403`dan bilish mumkin. Batafsil:
+`403 {"detail": "Faqat CRM doskasi."}`. Menejer ekanini `GET /account` →
+`crm_owner_id` yoki istalgan boshqa endpointdan kelgan `403`dan bilish mumkin.
+Batafsil:
 [CRM_API.md](CRM_API.md).
 
 ---

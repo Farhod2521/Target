@@ -38,8 +38,11 @@ Menejer alohida login bilan kiradi (`POST /auth/login`), unga faqat `/crm`,
   bepul o'rin yo'q.
 - Qo'shimcha o'rinlar sotib olinadi (⚠️ sotib olish endpointi FastAPI'da
   hali yo'q).
-- O'ringa sig'magan menejer `seated: false` — u kira olmaydi va unga lid
-  berilmaydi.
+- O'ringa sig'magan menejer `seated: false` — u kira olmaydi, unga lid
+  berilmaydi va kartani ham berib bo'lmaydi (`member_not_seated`).
+- `GET /crm/settings` → `seat_open`: hozir qo'shiladigan menejer shu juftlikda
+  o'ringa sig'adimi. `false` bo'lsa menejer baribir qo'shiladi, lekin
+  `seated: false` bo'ladi — buni qo'shishdan oldin ayting.
 - Bitta juftlikda ko'pi bilan **10 ta** faol menejer.
 
 ### Ustun turlari (`stage.kind`)
@@ -69,14 +72,15 @@ Ko'pi bilan 12 ta ustun, shundan 6 tasi o'zi yozgan.
 
 ### `GET /crm/nav`
 
-Menyudagi "CRM" bandi uchun. Har qanday foydalanuvchi chaqira oladi.
+Menyudagi "CRM" bandi uchun. Har qanday foydalanuvchi chaqira oladi, menejer
+ham: unga o'z juftligi kartalari sanaladi.
 
 ```json
 {"url": "/app/crm/", "attention": 3}
 ```
 
-`attention` — e'tibor kerak kartalar soni (badge). CRM yo'q bo'lsa
-`url` lidlar sahifasiga ishora qiladi.
+`attention` — e'tibor kerak kartalar soni (badge). CRM o'chiq bo'lsa yoki
+menejer doskaga kira olmasa `0`.
 
 ### CRM yopiq bo'lsa — `409`
 
@@ -241,7 +245,9 @@ Karta oynasi.
 }
 ```
 
-`can_work: false` — faqat ko'rish (masalan, boshqa menejerning kartasi).
+`can_work: false` — karta yopilgan. Uni ochish uchun `move`, natijasini
+almashtirish uchun qarama-qarshi `win`/`lose`, egasi uchun `assign` ishlaydi;
+qolgan amallar `card_is_closed` qaytaradi.
 
 `history[].kind`: `arrived`, `returned`, `assigned`, `taken`, `moved`,
 `note`, `no_answer`, `due_set`, `due_done`, `qualified`, `won`, `lost`,
@@ -257,9 +263,9 @@ Hammasi `POST`, javob — yangilangan karta.
 | `/cards/{id}/move` | `{"to": "<stage_id>"}` | Faqat `new`/`open` ustunga. `won`/`lost`ga → `use_the_dialog` xatosi |
 | `/cards/{id}/note` | `{"text": "..."}` | Izoh |
 | `/cards/{id}/no-answer` | — | "Javob bermadi" (`attempts` +1) |
-| `/cards/{id}/due` | `{"due": "<ISO vaqt>", "note": ""}` | Muddat qo'yish. O'tgan vaqt — xato |
+| `/cards/{id}/due` | `{"due": "<ISO vaqt>", "note": ""}` | Muddat qo'yish. Vaqt zonasi majburiy (`Z` yoki `+05:00`), bo'lmasa `422`. O'tgan vaqt — xato |
 | `/cards/{id}/due/done` | — | Muddat bajarildi |
-| `/cards/{id}/win` | `{"amount": "1500000", "note": ""}` | Sotildi. Summa majburiy |
+| `/cards/{id}/win` | `{"amount": "1500000", "note": ""}` | Sotildi. Summa majburiy, ko'pi bilan 10^15 |
 | `/cards/{id}/lose` | `{"reason": "<reason_id>", "note": ""}` | Rad etildi. Sabab majburiy |
 | `/cards/{id}/assign` | `{"assignee": "<user_id>"}` | **Faqat ega.** Bo'sh — menejerdan olish |
 | `/leads/{lead_id}/add` | — | **Faqat ega.** Doskada yo'q lidni qo'shish |
@@ -272,12 +278,14 @@ Yopilgan kartani `move` bilan `open` ustunga qaytarsa — u qayta ochiladi
 | `code` | Matn |
 |---|---|
 | `already_taken` | Bu lidni boshqa menejer oldi. |
-| `card_is_closed` | Bu karta yopilgan. Avval uni boshqa ustunga o'tkazing. |
+| `card_is_closed` | Bu karta yopilgan. Avval uni boshqa ustunga o'tkazing. (`take`, `note`, `no-answer`, `due`, `due/done`; sotilganga `win`, rad etilganga `lose`) |
 | `use_the_dialog` | Natijani dialogda belgilang. |
 | `reason_required` | Rad etish sababini tanlang. |
 | `amount_required` | Sotuv summasini kiriting. |
+| `amount_too_big` | Summa juda katta. Tekshirib qayta kiriting. |
 | `due_in_past` | Muddat o'tib ketgan vaqt bo'lishi mumkin emas. |
 | `empty_note` | Izoh bo'sh. |
+| `member_not_seated` | Bu menejerda o'rin yo'q: u kartani ocha olmaydi. |
 | `unknown_card` | Karta topilmadi. Doskani yangilang. |
 | `already_on_board` | Bu lid allaqachon CRM doskasida. |
 | `not_on_pair` | Bu lid shu juftlik reklamasidan kelmagan. |
@@ -340,8 +348,10 @@ Presetlar (`GET /crm/settings` → `presets`):
 | `claim` | Kim birinchi «Olish» bossa |
 | `manual` | Men o'zim beraman |
 
-Menejersiz davom etish: `POST /crm/setup/skip-members` (`manual` qo'yadi
-va 3-qadamga o'tkazadi) → `{"detail": "Hamma lid sizda bo'ladi. ..."}`.
+Menejersiz davom etish: `POST /crm/setup/skip-members` (body kerak emas,
+`manual` qo'yadi va 3-qadamga o'tkazadi) →
+`{"detail": "Hamma lid sizda bo'ladi. ..."}`. Ustunlar hali yaratilmagan bo'lsa
+`409 {"detail": {"step": 1}}`.
 
 Menejerlarni shu qadamda `POST /crm/settings/members` bilan qo'shish mumkin
 (7-bo'lim).
@@ -410,6 +420,7 @@ va 3-qadam bo'yicha lidlarni doskaga qo'yadi (`placed`).
   "colors": ["#0A64E0", "#7C6CFF", "#0891B2", "#B7791F", "#D9480F",
              "#C2255C", "#4A5878", "#0E7F5C", "#C2262E"],
   "custom_slots": 6,
+  "seat_open": true,
   "since_choices": [{"value": "new", "label": "Faqat yangilar"}, ...],
   "distribution_choices": [{"value": "round_robin", "label": "Navbat bilan, teng"}, ...]
 }
@@ -421,7 +432,7 @@ va 3-qadam bo'yicha lidlarni doskaga qo'yadi (`placed`).
 
 ```http
 POST /crm/settings/state
-{"state": "on"}     // yoki "off"
+{"state": "on"}     // yoki "off"; boshqa qiymat — 422
 ```
 
 → `{"placed": 12}` (yoqilganda doskaga qo'yilgan lidlar).
@@ -518,6 +529,7 @@ POST /crm/settings/members
 | `code` | Matn |
 |---|---|
 | `name_required` | Nomini kiriting. |
+| `bad_email` | Email manzilini to'g'ri kiriting. |
 | `email_taken` | Bu email bilan akkaunt bor. Boshqa email kiriting. |
 | `password_too_weak` | (parol talablari matni) |
 | `passwords_differ` | Ikki parol bir xil emas. |

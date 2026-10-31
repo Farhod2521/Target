@@ -6,6 +6,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
+from email_validator import EmailNotValidError, validate_email
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
@@ -27,6 +28,7 @@ from app.modules.crm.constants import (
     CLOSING_KINDS,
     COLORS,
     DEFAULT_LOST_REASONS,
+    MAX_AMOUNT,
     MAX_CUSTOM_STAGES,
     MAX_MEMBERS,
     MAX_STAGES,
@@ -44,11 +46,15 @@ from app.modules.crm.exceptions import (
     AlreadyOnBoard,
     AlreadyTaken,
     AmountRequired,
+    AmountTooBig,
+    BadEmail,
     BadKpi,
+    CardIsClosed,
     CrmClosed,
     DueInPast,
     EmailTaken,
     EmptyNote,
+    MemberNotSeated,
     NameRequired,
     NoAdsChosen,
     NoPair,
@@ -131,7 +137,7 @@ def read_fix(raw: str, *, currency: str) -> int | None:
     if not raw.strip():
         return None
     amount = read_amount(raw)
-    if amount is None or amount < 0:
+    if amount is None or not 0 <= amount <= MAX_AMOUNT:
         raise BadKpi
     return int(to_minor(amount=amount, currency=currency))
 
@@ -143,6 +149,13 @@ def read_percent(raw: str) -> int | None:
     if not text.isdigit() or not 0 <= int(text) <= 100:
         raise BadKpi
     return int(text)
+
+
+def check_email(email: str) -> None:
+    try:
+        validate_email(email.strip(), check_deliverability=False)
+    except EmailNotValidError as exc:
+        raise BadEmail from exc
 
 
 def check_password(*, password: str, email: str, full_name: str) -> None:
@@ -302,6 +315,11 @@ def card_for_write(
     if card.assignee_id is None and purpose == "take":
         return card
     raise NotYours
+
+
+def require_open_card(card: CrmCard) -> None:
+    if card.closed_at is not None:
+        raise CardIsClosed
 
 
 def _members(db: Session, scope: Scope) -> list[CrmMember]:
@@ -579,6 +597,7 @@ def add_member(
     name = name.strip()
     if not name:
         raise NameRequired
+    check_email(email)
     check_password(password=password, email=email.strip().lower(), full_name=name)
     active = db.scalar(
         select(func.count(CrmMember.id)).where(
@@ -1376,6 +1395,8 @@ def assign_card(db: Session, *, viewer: Viewer, card_id: str, user_id: str) -> C
         )
         if member is None:
             raise UnknownMember
+        if member.id not in seated_ids(db, owner=viewer.owner, at=utcnow()):
+            raise MemberNotSeated
         assignee = member.user
     if card.assignee_id == (assignee.id if assignee else None):
         return card
@@ -1408,8 +1429,14 @@ def win_card(
     value = read_amount(amount)
     if value is None or value <= 0:
         raise AmountRequired
+    if value > MAX_AMOUNT:
+        raise AmountTooBig
     minor = int(to_minor(amount=value, currency=currency))
     stage = _closing_stage(db, viewer=viewer, kind=StageKind.WON)
+    # A card dragged from the other closed column changes its outcome; only
+    # the same outcome pressed again is a mistake.
+    if card.stage_id == stage.id:
+        raise CardIsClosed
     now = utcnow()
     card.stage_id = stage.id
     card.assignee_id = card.assignee_id or viewer.user.id
@@ -1461,6 +1488,8 @@ def lose_card(
     if reason is None:
         raise ReasonRequired
     stage = _closing_stage(db, viewer=viewer, kind=StageKind.LOST)
+    if card.stage_id == stage.id:
+        raise CardIsClosed
     now = utcnow()
     card.stage_id = stage.id
     card.assignee_id = card.assignee_id or viewer.user.id
@@ -1491,6 +1520,7 @@ def set_due(
     db: Session, *, viewer: Viewer, card_id: str, due_at: datetime, note: str
 ) -> CrmCard:
     card = card_for_write(db, viewer=viewer, card_id=card_id)
+    require_open_card(card)
     now = utcnow()
     if due_at < now - GRACE:
         raise DueInPast
@@ -1507,6 +1537,7 @@ def set_due(
 
 def finish_due(db: Session, *, viewer: Viewer, card_id: str) -> CrmCard:
     card = card_for_write(db, viewer=viewer, card_id=card_id)
+    require_open_card(card)
     if card.due_at is None:
         return card
     now = utcnow()
@@ -1567,6 +1598,7 @@ def move_card(db: Session, *, viewer: Viewer, card_id: str, stage_id: str) -> Cr
 
 def note_card(db: Session, *, viewer: Viewer, card_id: str, text: str) -> CrmCard:
     card = card_for_write(db, viewer=viewer, card_id=card_id)
+    require_open_card(card)
     text = text.strip()
     if not text:
         raise EmptyNote
@@ -1582,6 +1614,7 @@ def note_card(db: Session, *, viewer: Viewer, card_id: str, text: str) -> CrmCar
 
 def mark_no_answer(db: Session, *, viewer: Viewer, card_id: str) -> CrmCard:
     card = card_for_write(db, viewer=viewer, card_id=card_id)
+    require_open_card(card)
     now = utcnow()
     card.attempts += 1
     db.flush()
@@ -1598,6 +1631,7 @@ def mark_no_answer(db: Session, *, viewer: Viewer, card_id: str) -> CrmCard:
 
 def take_card(db: Session, *, viewer: Viewer, card_id: str) -> CrmCard:
     card = card_for_write(db, viewer=viewer, card_id=card_id, purpose="take")
+    require_open_card(card)
     if card.assignee_id is not None and card.assignee_id != viewer.user.id:
         raise AlreadyTaken
     now = utcnow()
