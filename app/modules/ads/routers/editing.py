@@ -11,31 +11,32 @@ from decimal import Decimal
 from typing import Any, Literal
 
 from fastapi import HTTPException, Query, status
-from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
+from app.common.contract import Camel
 from app.common.db import utcnow
 from app.common.money import provider_money
 from app.modules.accounts.models import User
 from app.modules.ads import actions, selectors, services
 from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.contract.editing import CampaignPatch
-from app.modules.ads.contract.shapes import CampaignEdit, ControlState
+from app.modules.ads.contract.shapes import (
+    AdEdit,
+    AdPreview,
+    CampaignEdit,
+    ControlState,
+)
 from app.modules.ads.inputs import Problems
 from app.modules.ads.inputs.budget import budget_minor as checked_budget
 from app.modules.ads.inputs.budget import cap_minor as checked_cap
 from app.modules.ads.routers import _target, router
 from app.modules.ads.schemas import (
-    AdEditOut,
     CampaignEditSaveOut,
-    DeletedOut,
-    PreviewOut,
 )
 from core.targeting import MAX_AGE, MIN_AGE
 
-SENT_AD = "Yangi reklama yuborildi. Bir necha soniyada ko'rinadi."
 SENT_SETTINGS = "O'zgarish yuborildi. Bir necha soniyada ko'rinadi."
 HEADLINE_LIMIT = 255
 MESSAGE_LIMIT = 2000
@@ -84,55 +85,48 @@ def _ad_library(db: Session, user: User, ad: Any) -> list[Any]:
     )
 
 
-@router.get("/manage/ad/{external_id}/edit", responses={200: {"model": AdEditOut}})
+@router.get("/ads/{external_id}/edit", response_model=AdEdit)
 def ad_edit(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     """What this advert says now, the pictures it may be given, and the forms it may open."""
+    from app.modules.ads.contract.adverts import ad_edit_form
+
     ad = _target(db, user, ManagedLevel.AD, external_id)
     content = selectors.creative_of(db, owner=user, ad=ad)
-    return jsonable_encoder(
-        {
-            "ad": {
-                "external_id": ad.external_id,
-                "name": ad.name,
-                "delivery": ad.delivery,
-            },
-            "initial": {
-                "message": getattr(content, "message", ""),
-                "headline": getattr(content, "headline", ""),
-                "description": getattr(content, "description", ""),
-            },
-            "thumbnail_url": getattr(content, "thumbnail_url", ""),
-            "can_swap": bool(getattr(content, "story_raw", None)),
-            "library": [selectors.asset_row(row) for row in _ad_library(db, user, ad)],
-            "ad_forms": _ad_forms(db, user, ad),
-            "limits": {"headline": HEADLINE_LIMIT, "message": MESSAGE_LIMIT},
-            "early_hours": selectors.hours_to_wait(
-                db,
-                owner=user,
-                level=ManagedLevel.AD,
-                external_id=ad.external_id,
-                now=utcnow(),
-            ),
-        }
+    return ad_edit_form(
+        ad,
+        initial={
+            "message": getattr(content, "message", "") or "",
+            "headline": getattr(content, "headline", "") or "",
+            "description": getattr(content, "description", "") or "",
+        },
+        can_swap=bool(getattr(content, "story_raw", None)),
+        library=[selectors.asset_row(row) for row in _ad_library(db, user, ad)],
+        forms=_ad_forms(db, user, ad),
+        limits={"headline": HEADLINE_LIMIT, "message": MESSAGE_LIMIT},
+        early_hours=selectors.hours_to_wait(
+            db,
+            owner=user,
+            level=ManagedLevel.AD,
+            external_id=ad.external_id,
+            now=utcnow(),
+        ),
     )
 
 
-class AdEditIn(BaseModel):
+class AdEditIn(Camel):
     message: str = Field(default="", max_length=MESSAGE_LIMIT)
     headline: str = Field(default="", max_length=HEADLINE_LIMIT)
     description: str = Field(default="", max_length=HEADLINE_LIMIT)
-    asset_id: str = Field(
-        default="", description="A library row id; empty keeps the picture"
+    picture: str | None = Field(
+        default=None, description="A library row id; empty keeps the picture"
     )
-    lead_form_id: str = Field(
-        default="", description="A form id from ad_forms.options; empty keeps it"
+    lead_form: str | None = Field(
+        default=None, description="A form id from `forms.options`; empty keeps it"
     )
 
 
-@router.post("/manage/ad/{external_id}/edit", responses={200: {"model": DeletedOut}})
-def ad_edit_save(
-    external_id: str, body: AdEditIn, db: Db, user: CurrentUser
-) -> dict[str, Any]:
+@router.post("/ads/{external_id}/edit", status_code=status.HTTP_204_NO_CONTENT)
+def ad_edit_save(external_id: str, body: AdEditIn, db: Db, user: CurrentUser) -> None:
     """Build the next advert from this one, and switch this one off."""
     ad = _target(db, user, ManagedLevel.AD, external_id)
     if not any(
@@ -142,15 +136,15 @@ def ad_edit_save(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Reklama hech bo'lmasa bitta jumla aytishi kerak.",
         )
-    if body.asset_id and body.asset_id not in {
+    if (body.picture or "") and (body.picture or "") not in {
         str(row.id) for row in _ad_library(db, user, ad)
     }:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Bu rasm kutubxonada yo'q."
         )
-    if body.lead_form_id:
+    if body.lead_form or "":
         offered = _ad_forms(db, user, ad)
-        if offered is None or body.lead_form_id not in {
+        if offered is None or (body.lead_form or "") not in {
             row["external_id"] for row in offered["options"]
         }:
             raise HTTPException(
@@ -165,12 +159,11 @@ def ad_edit_save(
             message=body.message,
             headline=body.headline,
             description=body.description,
-            asset_id=body.asset_id,
-            lead_form_id=body.lead_form_id,
+            asset_id=(body.picture or ""),
+            lead_form_id=(body.lead_form or ""),
         ),
     )
     db.commit()
-    return {"message": SENT_AD, "campaign_id": str(ad.adset.campaign_id)}
 
 
 def _editable(db: Session, user: User, campaign_id: uuid.UUID, group: str) -> Any:
@@ -476,39 +469,25 @@ def _followed(
     return ManagedLevel.CAMPAIGN, str(edit.campaign.external_id)
 
 
-@router.get("/manage/ad/{external_id}/preview", responses={200: {"model": PreviewOut}})
-def preview(
-    external_id: str,
-    db: Db,
-    user: CurrentUser,
-    tries: int = Query(0, ge=0, description="The last answer's `tries`."),
-) -> dict[str, Any]:
+@router.get("/ads/{external_id}/preview", response_model=AdPreview)
+def preview(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     """What this advert looks like: the mirror's own card always, Meta's frame once it arrives."""
-    from app.modules.ads.constants import (
-        MAX_PREVIEW_POLLS,
-        PREVIEW_AD_FORMAT,
-        PREVIEW_POLL_SECONDS,
-    )
+    from app.modules.ads.constants import MAX_PREVIEW_POLLS, PREVIEW_AD_FORMAT
+    from app.modules.ads.contract.adverts import ad_preview, preview_tries
 
     ad = _target(db, user, ManagedLevel.AD, external_id)
     found = selectors.fresh_preview(db, owner=user, external_id=external_id)
-    waiting = found is None and tries < MAX_PREVIEW_POLLS
+    tries = preview_tries(user, external_id, settled=found is not None)
     if found is None and tries == 0:
         from app.modules.ads.tasks import fetch_preview_task
 
         fetch_preview_task.delay(str(user.id), external_id, PREVIEW_AD_FORMAT)
-    content = selectors.ad_content(db, owner=user, target=ad)
-    return jsonable_encoder(
-        {
-            "external_id": external_id,
-            "name": ad.name,
-            "content": asdict(content) if content is not None else None,
-            "preview": {"src": found.src, "width": found.width, "height": found.height}
-            if found is not None
-            else None,
-            "polling": waiting,
-            "tries": tries + 1,
-            "poll_seconds": PREVIEW_POLL_SECONDS,
-            "gave_up": found is None and not waiting,
-        }
+    selectors.with_content(db, owner=user, ads=[ad])
+    return ad_preview(
+        db,
+        owner=user,
+        ad=ad,
+        content=getattr(ad, "content", None),
+        frame=found,
+        loading=found is None and tries < MAX_PREVIEW_POLLS,
     )

@@ -464,9 +464,117 @@ class CampaignEdit(Camel):
     early_hours: int
 
 
+class CampaignRef(Camel):
+    id: str
+    name: str
+
+
+class LibraryItem(Camel):
+    id: str
+    name: str
+    kind: Literal["image", "video"]
+    thumb: str | None
+
+
+class FormOption(Camel):
+    id: str
+    name: str
+    questions: list[str]
+
+
+class AdForms(Camel):
+    current_name: str
+    options: list[FormOption]
+
+
+class WordLimits(Camel):
+    message: int
+    headline: int
+
+
+class AdEdit(Camel):
+    external_id: str
+    campaign: CampaignRef
+    network: NetworkRef
+    current: str
+    can_swap: bool = Field(description="False: the words live on the page's post.")
+    message: str
+    headline: str
+    description: str
+    limits: WordLimits
+    library: list[LibraryItem]
+    forms: AdForms | None
+    early_hours: int
+
+
+class PageName(Camel):
+    name: str
+    initials: str
+
+
+class PreviewAd(CampaignAd):
+    title: str
+    cta: str
+    file: str
+    site: str
+    tagline: str
+    offer: str
+    description: str
+    page: PageName
+
+
+class Sibling(Camel):
+    external_id: str
+    position: int
+
+
+class Frame(Camel):
+    state: Literal["loading", "ready", "gave_up"]
+    src: str | None = None
+    height: int | None = None
+
+
+class AdPreview(Camel):
+    campaign: CampaignRef
+    siblings: list[Sibling]
+    ad: PreviewAd
+    content: Literal["loaded", "post", "pending"]
+    frame: Frame
+
+
+class ManagerRow(Camel):
+    level: Literal["campaign", "adset", "ad"]
+    id: str = Field(description="The network's id of this row.")
+    campaign_id: str = Field(description="This product's id of the campaign.")
+    campaign_external_id: str
+    adset_external_id: str | None
+    name: str
+    status: Status
+    kind: Kind
+    network: NetworkRef
+    budget: Money | None
+    budget_at: Literal["campaign", "adset"]
+    results: int
+    unit_cost: Money | None
+    spent: Money | None
+    impressions: int
+    reach: int
+    clicks: int
+    controls: Controls
+    problem: str | None = None
+
+
+class ManagerData(Camel):
+    campaigns: list[ManagerRow]
+    adsets: list[ManagerRow]
+    ads: list[ManagerRow]
+
+
 __all__ = [
     "Access",
+    "AdEdit",
     "AdGroup",
+    "AdPreview",
     "CampaignAd",
     "CampaignDetail",
     "CampaignEdit",
@@ -480,6 +588,7 @@ __all__ = [
     "DayRange",
     "HistoryRow",
     "Learning",
+    "ManagerData",
     "NetworkRef",
     "Panel",
     "RowFigures",

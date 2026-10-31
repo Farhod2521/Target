@@ -22,7 +22,9 @@ from tests.pg.test_ads_manage import _mirror
 from tests.pg.test_cabinet_flows import _cabinet
 
 
-def _cabinet_with_figures(client: TestClient, db: Session) -> tuple[dict[str, str], Any]:
+def _cabinet_with_figures(
+    client: TestClient, db: Session
+) -> tuple[dict[str, str], Any]:
     headers = sign_up(client)
     owner = db.scalar(select(User).order_by(User.date_joined.desc()))
     assert owner is not None
@@ -64,7 +66,9 @@ def _cabinet_with_figures(client: TestClient, db: Session) -> tuple[dict[str, st
     return headers, campaign
 
 
-def test_the_list_carries_its_figures_as_numbers(client: TestClient, db: Session) -> None:
+def test_the_list_carries_its_figures_as_numbers(
+    client: TestClient, db: Session
+) -> None:
     headers, campaign = _cabinet_with_figures(client, db)
 
     body = client.get("/api/v1/campaigns?period=7d", headers=headers).json()
@@ -146,3 +150,39 @@ def test_a_campaign_is_switched_by_its_own_id(
     assert state["pending"] is True and state["action"]["status"] == "pending"
     assert again.status_code == 409
     assert again.json()["code"] == "refused"
+
+
+def test_targetolog_mode_shows_every_level(client: TestClient, db: Session) -> None:
+    headers, campaign = _cabinet_with_figures(client, db)
+
+    found = client.get("/api/v1/campaigns/manager?period=7d", headers=headers)
+
+    assert found.status_code == 200, found.text
+    body = found.json()
+    assert [row["id"] for row in body["campaigns"]] == ["c_1"]
+    assert body["campaigns"][0]["campaignId"] == str(campaign.id)
+    assert [row["id"] for row in body["adsets"]] == ["s_1"]
+    assert body["adsets"][0]["spent"]["minor"] == 1_500
+    assert [row["id"] for row in body["ads"]] == ["a_1"]
+    assert body["campaigns"][0]["budgetAt"] == "campaign"
+
+
+def test_the_bins_and_the_refresh_answer_no_content(
+    client: TestClient, db: Session, queued: list, monkeypatch: Any
+) -> None:
+    import app.modules.ads.routers as routers
+    from app.modules.billing.services import start_trial
+
+    monkeypatch.setattr(routers, "SYNC_WAIT_SECONDS", 0)
+    headers, campaign = _cabinet_with_figures(client, db)
+    start_trial(db, user=campaign.owner, now=utcnow())
+    db.commit()
+
+    ad = client.delete("/api/v1/campaigns/ads/a_1", headers=headers)
+    synced = client.post("/api/v1/campaigns/sync", headers=headers)
+    gone = client.delete("/api/v1/campaigns/adsets/nope", headers=headers)
+
+    assert ad.status_code == 204, ad.text
+    assert any(name.endswith("apply_delete_task") for name, _ in queued)
+    assert synced.status_code == 204, synced.text
+    assert gone.status_code == 404

@@ -28,12 +28,8 @@ from app.modules.accounts.models import User
 from app.modules.ads import actions, selectors, services
 from app.modules.ads.constants import (
     ACTION_POLL_SECONDS,
-    DEFAULT_SHOWN,
-    LIST_POLL_SECONDS,
     MAX_ACTION_POLLS,
-    MAX_SYNC_POLLS,
     ManagedLevel,
-    Shown,
 )
 from app.modules.ads.contract.shapes import (
     CampaignAd,
@@ -41,16 +37,13 @@ from app.modules.ads.contract.shapes import (
     CampaignList,
     CampaignTree,
     ControlState,
+    ManagerData,
 )
 from app.modules.ads.exceptions import NothingToRevert, PressRefused
 from app.modules.ads.schemas import (
     ActionStateOut,
     BudgetFormOut,
     CampaignHistoryOut,
-    CampaignPollOut,
-    DeletedOut,
-    MessageOut,
-    SyncOut,
 )
 from app.modules.ads.selectors.failures import failure_sentence
 from app.modules.audit.constants import ActionStatus
@@ -196,137 +189,6 @@ def campaign_out(
 # -- the list ---------------------------------------------------------------------------
 
 
-def _filters(user: User, *, show: str | None, source: str | None) -> tuple[str, str]:
-    from app.modules.metrics.constants import DEFAULT_SOURCE, Source
-
-    key = FILTERS_KEY.format(user=user.id)
-    kept = cache.get(key) or {}
-    shown = show if show is not None else kept.get("show", DEFAULT_SHOWN)
-    picked = source if source is not None else kept.get("source", DEFAULT_SOURCE)
-    shown = shown if shown in Shown.values else DEFAULT_SHOWN
-    picked = picked if picked in Source.values else DEFAULT_SOURCE
-    if show is not None or source is not None:
-        cache.set(key, {"show": shown, "source": picked}, timeout=FILTERS_SECONDS)
-    return shown, picked
-
-
-def campaigns_context(
-    db: Session,
-    user: User,
-    *,
-    show: str | None = None,
-    source: str | None = None,
-    syncing: bool = False,
-    tries: int = 0,
-    waited: int = 0,
-) -> dict[str, Any]:
-    from app.modules.businesses.selectors import business_for_page
-    from app.modules.integrations.selectors import is_connected
-    from app.modules.metrics.constants import Source
-    from app.modules.metrics.selectors import accounts_synced_at
-    from app.modules.metrics.selectors import has_cooled as figures_cooled
-
-    advertising = selectors.page_advertising(db, owner=user)
-    account = advertising.home
-    rows = selectors.campaigns_for(
-        db, owner=user, external_ids=advertising.campaign_ids
-    )
-    rows = selectors.with_switches(db, owner=user, campaigns=rows)
-    rows = selectors.with_settings(campaigns=rows)
-    rows = selectors.with_badges(db, owner=user, rows=rows)
-    shown, picked = _filters(user, show=show, source=source)
-    here = [row for row in rows if row.external_id in advertising.here]
-    elsewhere = [row for row in rows if row.external_id not in advertising.here]
-    running, stopped = selectors.split_running(campaigns=rows)
-    pool = {Source.HERE: here, Source.ELSEWHERE: elsewhere}.get(picked, rows)
-    source_fallback = not pool and picked != Source.ALL and bool(rows)
-    if source_fallback:
-        picked, pool = Source.ALL, rows
-    on_air, off_air = selectors.split_running(campaigns=pool)
-    total, currency = selectors.daily_total(
-        settings=[row.settings for row in on_air],
-        currency=account.currency if account else "",
-    )
-    listed = {Shown.RUNNING: on_air, Shown.STOPPED: off_air}.get(shown, pool)
-    business = (
-        business_for_page(db, owner=user, page=advertising.page)
-        if advertising.page is not None
-        else None
-    )
-    groups = selectors.by_goal(
-        db,
-        owner=user,
-        rows=listed,
-        category=business.category if business is not None else "",
-        provider=advertising.page.provider if advertising.page else "",
-    )
-    synced_at = selectors.last_synced_at(db, owner=user, accounts=advertising.accounts)
-    connected = is_connected(db, owner=user)
-    return {
-        "campaigns": [campaign_out(row, here=advertising.here) for row in listed],
-        "goal_groups": [
-            {
-                "goal": group.goal,
-                "label": str(group.label),
-                "campaign_ids": [str(row.id) for row in group.rows],
-            }
-            for group in groups
-        ],
-        "counts": {
-            "running": len(running),
-            "stopped": len(stopped),
-            "here": len(here),
-            "elsewhere": len(elsewhere),
-            "unplaced": advertising.unplaced,
-            "pool": len(pool),
-            "total": len(rows),
-        },
-        "shown": shown,
-        "source": picked,
-        "source_fallback": source_fallback,
-        "tabs": [{"key": k, "label": v} for k, v in Shown.choices],
-        "source_tabs": [{"key": k, "label": v} for k, v in Source.choices],
-        "daily_total_minor": total,
-        "daily_total_currency": currency,
-        "ad_account": (
-            {"id": str(account.id), "name": account.name, "currency": account.currency}
-            if account is not None
-            else None
-        ),
-        "shown_page": (
-            {"id": str(advertising.page.id), "name": advertising.page.name}
-            if advertising.page is not None
-            else None
-        ),
-        "is_connected": connected,
-        "synced_at": synced_at,
-        "is_stale": selectors.is_stale(synced_at=synced_at),
-        "since": synced_at.isoformat() if synced_at else "",
-        "syncing": syncing,
-        "sync_account_ids": [str(row.id) for row in advertising.accounts],
-        "auto_refresh": (
-            account is not None
-            and connected
-            and not syncing
-            and (
-                selectors.has_cooled(synced_at=synced_at)
-                or figures_cooled(
-                    synced_at=accounts_synced_at(
-                        db, owner=user, accounts=advertising.accounts
-                    )
-                )
-            )
-        ),
-        "tries": tries,
-        "retries_left": max(0, MAX_SYNC_POLLS - tries),
-        "watching": any(getattr(row, "pending", False) for row in rows)
-        and waited < MAX_ACTION_POLLS,
-        "waited": waited + 1,
-        "list_poll_seconds": LIST_POLL_SECONDS,
-        "trial_campaigns_left": selectors.trial_campaigns_left(db, owner=user),
-    }
-
-
 def _pick(value: str | None, allowed: tuple[str, ...], default: str) -> Any:
     return value if value in allowed else default
 
@@ -365,78 +227,80 @@ def campaign_list(
     return listed(db, owner=user, ask=ask)
 
 
-@router.get("/poll", responses={200: {"model": CampaignPollOut}})
-def campaign_poll(
+@router.get("/manager", response_model=ManagerData)
+def campaign_manager(
     db: Db,
     user: CurrentUser,
-    since: str | None = Query(
-        None, description="The list's `since` from before the refresh."
-    ),
-    accounts: str = Query(
-        "", description="The list's `sync_account_ids`, joined with commas."
-    ),
-    tries: int = TRIES_Q,
-    waited: int = WAITED_Q,
+    period: str | None = Query(None),
+    status_: str | None = Query(None, alias="status"),
+    source: str | None = Query(None),
+    network: str = Query("all"),
+    since: date | None = Query(None),
+    until: date | None = Query(None),
 ) -> dict[str, Any]:
-    """Asked after a refresh: ``waiting`` true until the mirror and today's figures land."""
-    if (
-        since is not None
-        and tries < MAX_SYNC_POLLS
-        and selectors.still_waiting(
-            db, owner=user, account_ids=accounts.split(","), since=since
-        )
-    ):
-        return {
-            "waiting": True,
-            "tries": tries + 1,
-            "retries_left": max(0, MAX_SYNC_POLLS - tries - 1),
-        }
-    context = campaigns_context(db, user, tries=tries + 1, waited=waited)
-    if since is not None:
-        ids = context["sync_account_ids"]
-        progress = selectors.sync_progress(ad_account_ids=ids)
-        waiting = (
-            since == context["since"] and (progress.in_flight or not progress.known)
-        ) or (selectors.today_in_flight(ad_account_ids=ids))
-        failure = progress.failure if not waiting and progress.known else ""
-        syncing = waiting and tries < MAX_SYNC_POLLS
-        context |= {
-            "syncing": syncing,
-            "gave_up": waiting and not syncing,
-            "still_running": waiting and not syncing and progress.in_flight,
-            "sync_failure": failure if not progress.succeeded else "",
-            "sync_partial": failure if progress.succeeded else "",
-        }
-    return {"waiting": False, **context}
+    """Targetolog mode: every campaign, group and advert the list's filters show."""
+    from app.modules.ads.contract.listing import ListAsk
+    from app.modules.ads.contract.manager import manager
+
+    ask = ListAsk(
+        period=_pick(period, ("today", "7d", "30d", "90d", "custom"), "7d"),
+        status=_pick(status_, ("running", "paused", "all"), "all"),
+        source=_pick(source, ("all", "here", "network", "other_account"), "all"),
+        network=network or "all",
+        since=since,
+        until=until,
+    )
+    return manager(db, owner=user, ask=ask)
 
 
-@router.post("/sync", responses={200: {"model": SyncOut}})
-def campaign_sync(
-    db: Db,
-    user: CurrentUser,
-    on_open: bool = Query(
-        False,
-        description="True when the list asked for it (`auto_refresh`): refreshes "
-        "only what has gone stale.",
-    ),
-) -> dict[str, Any]:
+# A refresh is waited for this long, as the list's own poll did before it.
+SYNC_WAIT_SECONDS = 20
+SYNC_POLL_SECONDS = 2
+
+
+@router.post("/sync", status_code=status.HTTP_204_NO_CONTENT)
+def campaign_sync(db: Db, user: CurrentUser) -> None:
+    """Read the account again, and wait a little for it to land.
+
+    Asked by the button, or by the list on arrival when it said
+    ``autoRefresh``; the second refreshes only what has gone stale. Not done
+    in the time: the list says it is late.
+    """
+    import time
+
+    from app.modules.ads.contract.listing import AUTO_KEY, LATE_KEY, LATE_SECONDS
     from app.modules.metrics.services import refresh_on_open, request_refresh
 
-    if on_open:
+    advertising = selectors.page_advertising(db, owner=user)
+    ids = [str(row.id) for row in advertising.accounts]
+    since = selectors.last_synced_at(db, owner=user, accounts=advertising.accounts)
+    cache.delete(LATE_KEY.format(user=user.id))
+    if cache.get(AUTO_KEY.format(user=user.id)):
+        cache.delete(AUTO_KEY.format(user=user.id))
         mirror = services.sync_on_open(db, user=user)
         today = refresh_on_open(db, user=user)
         db.commit()
         if not (mirror or today):
-            return {"queued": False}
-        return {"queued": True, **campaigns_context(db, user, syncing=True)}
-    services.request_sync(db, user=user)
-    request_refresh(db, user=user)
-    db.commit()
-    return {
-        "queued": True,
-        "message": "Yangilanish boshlandi.",
-        **campaigns_context(db, user, syncing=True),
-    }
+            return
+    else:
+        services.request_sync(db, user=user)
+        request_refresh(db, user=user)
+        db.commit()
+    stamp = since.isoformat() if since else ""
+    deadline = time.monotonic() + SYNC_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        db.expire_all()
+        progress = selectors.sync_progress(ad_account_ids=ids)
+        waiting = (
+            selectors.still_waiting(db, owner=user, account_ids=ids, since=stamp)
+            or progress.in_flight
+            or not progress.known
+            or selectors.today_in_flight(ad_account_ids=ids)
+        )
+        if not waiting:
+            return
+        time.sleep(SYNC_POLL_SECONDS)
+    cache.set(LATE_KEY.format(user=user.id), 1, LATE_SECONDS)
 
 
 # -- one campaign ---------------------------------------------------------------------------
@@ -564,10 +428,8 @@ def action_state_by_id(
     }
 
 
-@router.post("/{campaign_id}/delete", responses={200: {"model": MessageOut}})
-def campaign_delete(
-    campaign_id: uuid.UUID, db: Db, user: CurrentUser
-) -> dict[str, Any]:
+@router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
+def campaign_delete(campaign_id: uuid.UUID, db: Db, user: CurrentUser) -> None:
     campaign = _detail(db, user, campaign_id)
     actions.request(
         db,
@@ -577,7 +439,16 @@ def campaign_delete(
         ),
     )
     db.commit()
-    return {"message": "Kampaniyani o'chirish so'rovi yuborildi."}
+
+
+@router.post("/drafts/{launch_id}/discard", status_code=status.HTTP_204_NO_CONTENT)
+def draft_discard(launch_id: uuid.UUID, db: Db, user: CurrentUser) -> None:
+    """The list's bin on a launch never made: the preparation goes."""
+    from app.modules.ads.routers.launch_common import committed, writable_launch
+    from app.modules.ads.services import launch as launch_services
+
+    launch = writable_launch(db, user=user, launch_id=launch_id)
+    committed(db, lambda: launch_services.discard_launch(db, launch=launch))
 
 
 # -- the switches ----------------------------------------------------------------------------
@@ -869,36 +740,26 @@ def campaign_resume(
     return _switch_campaign(db, user, campaign_id, "resume")
 
 
-@router.post(
-    "/manage/adset/{external_id}/delete", responses={200: {"model": DeletedOut}}
-)
-def adset_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
-    adset = _target(db, user, ManagedLevel.ADSET, external_id)
+@router.delete("/adsets/{external_id}", status_code=status.HTTP_204_NO_CONTENT)
+def adset_delete(external_id: str, db: Db, user: CurrentUser) -> None:
+    _target(db, user, ManagedLevel.ADSET, external_id)
     actions.request(
         db,
         user=user,
         ask=actions.Delete(level=ManagedLevel.ADSET, external_id=external_id),
     )
     db.commit()
-    return {
-        "message": "Guruhni o'chirish so'rovi yuborildi.",
-        "campaign_id": str(adset.campaign.id),
-    }
 
 
-@router.post("/manage/ad/{external_id}/delete", responses={200: {"model": DeletedOut}})
-def ad_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
-    ad = _target(db, user, ManagedLevel.AD, external_id)
+@router.delete("/ads/{external_id}", status_code=status.HTTP_204_NO_CONTENT)
+def ad_delete(external_id: str, db: Db, user: CurrentUser) -> None:
+    _target(db, user, ManagedLevel.AD, external_id)
     actions.request(
         db,
         user=user,
         ask=actions.Delete(level=ManagedLevel.AD, external_id=external_id),
     )
     db.commit()
-    return {
-        "message": "Reklamani o'chirish so'rovi yuborildi.",
-        "campaign_id": str(ad.adset.campaign.id),
-    }
 
 
 from app.modules.ads.routers import editing as _editing  # noqa: E402, F401

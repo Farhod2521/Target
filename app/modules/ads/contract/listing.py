@@ -40,6 +40,9 @@ REASONS: Final = frozenset({"unusable", "rate_limited", "busy", "truncated"})
 # A refresh that outran its wait: said under the clock for this long.
 LATE_KEY: Final = "campaigns-sync-late:{user}"
 LATE_SECONDS: Final = 60
+# The list offered a refresh on arrival: the next one refreshes only what is stale.
+AUTO_KEY: Final = "campaigns-auto-refresh:{user}"
+AUTO_SECONDS: Final = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,16 +224,8 @@ def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
         ad_account_ids=[row.id for row in advertising.accounts]
     )
     reading = progress.known and progress.in_flight
-    return {
-        "state": "not_connected"
-        if not connected
-        else "reading"
-        if reading and not rows
-        else "ready",
-        "reading_from": network_of(rows[0].provider)["name"] if rows else "Meta",
-        "updated_at": (synced_at.isoformat() if synced_at else ""),
-        "sync": _sync(owner, synced_at=synced_at, progress=progress),
-        "auto_refresh": account is not None
+    auto = (
+        account is not None
         and connected
         and not reading
         and (
@@ -240,7 +235,20 @@ def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
                     db, owner=owner, accounts=advertising.accounts
                 )
             )
-        ),
+        )
+    )
+    if auto:
+        cache.set(AUTO_KEY.format(user=owner.id), 1, AUTO_SECONDS)
+    return {
+        "state": "not_connected"
+        if not connected
+        else "reading"
+        if reading and not rows
+        else "ready",
+        "reading_from": network_of(rows[0].provider)["name"] if rows else "Meta",
+        "updated_at": (synced_at.isoformat() if synced_at else ""),
+        "sync": _sync(owner, synced_at=synced_at, progress=progress),
+        "auto_refresh": auto,
         "access": access_of(db, owner=owner),
         "unplaced": advertising.unplaced,
         "source_fallback": fallback,

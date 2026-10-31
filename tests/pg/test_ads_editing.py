@@ -135,46 +135,45 @@ def test_edit_a_campaigns_settings_and_an_adverts_words(
     )
     assert nothing.json()["queued"] == []
 
-    advert = client.get("/api/v1/campaigns/manage/ad/a_1/edit", headers=headers)
+    advert = client.get("/api/v1/campaigns/ads/a_1/edit", headers=headers)
     assert advert.status_code == 200, advert.text
     body = advert.json()
-    assert body["initial"]["headline"] == "Bahorgi tort"
-    assert body["can_swap"] is True
-    assert [row["external_id"] for row in body["library"]] == ["hash_1"]
+    assert body["headline"] == "Bahorgi tort"
+    assert body["canSwap"] is True
+    assert body["campaign"]["id"] == str(campaign.id)
+    assert len(body["library"]) == 1
 
     empty = client.post(
-        "/api/v1/campaigns/manage/ad/a_1/edit", json={"message": " "}, headers=headers
+        "/api/v1/campaigns/ads/a_1/edit", json={"message": " "}, headers=headers
     )
     assert empty.status_code == 422
 
     foreign = client.post(
-        "/api/v1/campaigns/manage/ad/a_1/edit",
+        "/api/v1/campaigns/ads/a_1/edit",
         json={
             "message": "Yangi matn",
-            "asset_id": "00000000-0000-0000-0000-000000000000",
+            "picture": "00000000-0000-0000-0000-000000000000",
         },
         headers=headers,
     )
     assert foreign.status_code == 422
 
     swapped = client.post(
-        "/api/v1/campaigns/manage/ad/a_1/edit",
+        "/api/v1/campaigns/ads/a_1/edit",
         json={"message": "Yangi matn", "headline": "Bahorgi tort"},
         headers=headers,
     )
-    assert swapped.status_code == 200, swapped.text
+    assert swapped.status_code == 204, swapped.text
     assert queued[-1][0].endswith("apply_swap_task")
 
-    preview = client.get("/api/v1/campaigns/manage/ad/a_2/preview", headers=headers)
+    preview = client.get("/api/v1/campaigns/ads/a_2/preview", headers=headers)
     assert preview.status_code == 200, preview.text
-    assert preview.json()["polling"] is True
-    assert preview.json()["content"]["headline"] == "Bahorgi tort"
+    assert preview.json()["frame"]["state"] == "loading"
+    assert preview.json()["ad"]["headline"] == "Bahorgi tort"
     assert queued[-1][0].endswith("fetch_preview_task")
-    again = client.get(
-        "/api/v1/campaigns/manage/ad/a_2/preview?tries=3", headers=headers
-    )
+    again = client.get("/api/v1/campaigns/ads/a_2/preview", headers=headers)
     assert len([name for name, _ in queued if name.endswith("fetch_preview_task")]) == 1
-    assert again.json()["tries"] == 4
+    assert again.json()["frame"]["state"] == "loading"
 
 
 def test_money_finer_than_a_cent_and_an_under_age_audience_are_refused(
