@@ -195,11 +195,11 @@ def test_money_finer_than_a_cent_and_an_under_age_audience_are_refused(
     for amount in ("0.004", "12.345"):
         switch = client.post(
             "/api/v1/campaigns/manage/adset/s_1/budget",
-            json={"daily_budget": amount},
+            json={"dailyBudget": amount},
             headers=headers,
         )
         assert switch.status_code == 422, switch.text
-        assert "daily_budget" in switch.json()["problems"]
+        assert "dailyBudget" in switch.json()["problems"]
         dialog = client.post(
             edit, json={"budget": {"daily_budget": amount}}, headers=headers
         )

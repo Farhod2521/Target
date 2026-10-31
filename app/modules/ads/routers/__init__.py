@@ -14,13 +14,15 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
+from pydantic.alias_generators import to_camel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
 from app.common.cache import cache
+from app.common.contract import Camel
 from app.common.db import utcnow
-from app.common.exceptions import DomainError
+from app.common.exceptions import DomainError, InputRefused
 from app.common.money import format_minor, provider_money
 from app.modules.accounts.models import User
 from app.modules.ads import actions, selectors, services
@@ -38,14 +40,14 @@ from app.modules.ads.contract.shapes import (
     CampaignDetail,
     CampaignList,
     CampaignTree,
+    ControlState,
 )
-from app.modules.ads.exceptions import NothingToRevert
+from app.modules.ads.exceptions import NothingToRevert, PressRefused
 from app.modules.ads.schemas import (
     ActionStateOut,
     BudgetFormOut,
     CampaignHistoryOut,
     CampaignPollOut,
-    ControlStateOut,
     DeletedOut,
     MessageOut,
     SyncOut,
@@ -606,37 +608,49 @@ def control_state(
     tries: int = 0,
     refusal: str = "",
 ) -> dict[str, Any]:
+    """What became of the last press on one object, as its status line draws it.
+
+    Pending while a change on it, or on a row above or below it that it
+    moves, is still on its way.
+    """
     target = _target(db, user, level, external_id)
     beside = selectors.clusters_beside(db, owner=user, target=target, level=level)
-    actions = selectors.latest_actions(
+    latest = selectors.latest_actions(
         db,
         owner=user,
         external_ids=[external_id, *(obj.external_id for _at, obj in beside)],
     )
-    pending = any(row.status == ActionStatus.PENDING for row in actions.values())
-    action = actions.get(external_id)
+    pending = any(row.status == ActionStatus.PENDING for row in latest.values())
+    action = latest.get(external_id)
+    note = _failure(db, action=action, target=target, level=level)
     return {
         "level": level,
         "external_id": external_id,
-        "delivery": target.delivery,
-        "controls": asdict(selectors.controls_for(target=target, level=level)),
-        "action": _action(action),
-        "clusters": [
-            {
-                "level": at,
-                "external_id": obj.external_id,
-                "delivery": obj.delivery,
-                "controls": asdict(selectors.controls_for(target=obj, level=at)),
-                "action": _action(actions.get(obj.external_id)),
-            }
-            for at, obj in beside
-        ],
-        "polling": pending and tries < MAX_ACTION_POLLS,
+        "pending": pending and tries < MAX_ACTION_POLLS,
         "stalled": pending and tries >= MAX_ACTION_POLLS,
-        "failure": _note(_failure(db, action=action, target=target, level=level)),
+        "failure": {
+            "text": " ".join(
+                part for part in (note.sentence, note.provider_words) if part
+            ),
+            "fix": {"label": note.fix_label, "url": note.fix_url}
+            if note.fix_label and note.fix_url
+            else None,
+            "explanation_html": note.explanation_html or None,
+            "explaining": note.explaining or None,
+        }
+        if note is not None
+        else None,
+        "action": {
+            "id": str(action.id),
+            "status": action.status,
+            "dry_run": action.dry_run,
+            "revertible": actions.undoing(action) is not None,
+        }
+        if action is not None
+        else None,
         "tries": tries + 1,
         "poll_seconds": ACTION_POLL_SECONDS,
-        "refusal": refusal,
+        "refused": refusal or None,
     }
 
 
@@ -662,31 +676,38 @@ def _failure(db: Session, *, action: Any, target: Any, level: str) -> Any:
 
 
 def _changed(
-    db: Session, user: User, level: str, external_id: str, run: Any
+    db: Session,
+    user: User,
+    level: str,
+    external_id: str,
+    run: Any,
+    *,
+    field: str = "",
+    strict: bool = False,
 ) -> dict[str, Any]:
+    """Send the change and answer its state. ``strict``: a refusal is a 409, the
+    sentence under ``field``; otherwise it rides in the state as ``refused``."""
     try:
         refusal = run() or ""
         db.commit()
     except DomainError as exc:
         db.rollback()
         refusal = exc.message
+    if refusal and strict:
+        raise PressRefused(refusal, field=field)
     return control_state(
         db, user, level=level, external_id=external_id, refusal=refusal
     )
 
 
-@router.get(
-    "/manage/{level}/{external_id}/state", responses={200: {"model": ControlStateOut}}
-)
+@router.get("/manage/{level}/{external_id}/state", response_model=ControlState)
 def action_state(
     level: str, external_id: str, db: Db, user: CurrentUser, tries: int = TRIES_Q
 ) -> dict[str, Any]:
     return control_state(db, user, level=level, external_id=external_id, tries=tries)
 
 
-@router.post(
-    "/manage/{level}/{external_id}/pause", responses={200: {"model": ControlStateOut}}
-)
+@router.post("/manage/{level}/{external_id}/pause", response_model=ControlState)
 def pause(level: str, external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     _target(db, user, level, external_id)
     return _changed(
@@ -705,9 +726,7 @@ def pause(level: str, external_id: str, db: Db, user: CurrentUser) -> dict[str, 
     )
 
 
-@router.post(
-    "/manage/{level}/{external_id}/resume", responses={200: {"model": ControlStateOut}}
-)
+@router.post("/manage/{level}/{external_id}/resume", response_model=ControlState)
 def resume(level: str, external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     target = _target(db, user, level, external_id)
 
@@ -757,15 +776,13 @@ def budget_form(
     }
 
 
-class BudgetIn(BaseModel):
+class BudgetIn(Camel):
     daily_budget: Decimal = Field(
         gt=0, description="In the currency's main unit, e.g. 12.50"
     )
 
 
-@router.post(
-    "/manage/{level}/{external_id}/budget", responses={200: {"model": ControlStateOut}}
-)
+@router.post("/manage/{level}/{external_id}/budget", response_model=ControlState)
 def budget(
     level: str, external_id: str, body: BudgetIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -782,7 +799,12 @@ def budget(
         floor_minor=controls.floor_minor,
         problems=problems,
     )
-    problems.refuse()
+    try:
+        problems.refuse()
+    except InputRefused as exc:
+        raise InputRefused(
+            {to_camel(key): words for key, words in exc.problems.items()}
+        ) from None
     return _changed(
         db,
         user,
@@ -798,6 +820,8 @@ def budget(
             )
             and ""
         ),
+        field="dailyBudget",
+        strict=True,
     )
 
 
@@ -805,9 +829,7 @@ class RevertIn(BaseModel):
     log: str
 
 
-@router.post(
-    "/manage/{level}/{external_id}/revert", responses={200: {"model": ControlStateOut}}
-)
+@router.post("/manage/{level}/{external_id}/revert", response_model=ControlState)
 def revert(
     level: str, external_id: str, body: RevertIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
@@ -820,7 +842,31 @@ def revert(
             raise NothingToRevert from None
         return ""
 
-    return _changed(db, user, level, external_id, run)
+    return _changed(db, user, level, external_id, run, strict=True)
+
+
+def _switch_campaign(
+    db: Session, user: User, campaign_id: uuid.UUID, wanted: str
+) -> dict[str, Any]:
+    """The list and the campaign page switch a campaign by this product's id."""
+    campaign = _detail(db, user, campaign_id)
+    pressed = pause if wanted == "pause" else resume
+    state = pressed(ManagedLevel.CAMPAIGN, campaign.external_id, db, user)
+    if state["refused"]:
+        raise PressRefused(state["refused"])
+    return state
+
+
+@router.post("/{campaign_id}/pause", response_model=ControlState)
+def campaign_pause(campaign_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
+    return _switch_campaign(db, user, campaign_id, "pause")
+
+
+@router.post("/{campaign_id}/resume", response_model=ControlState)
+def campaign_resume(
+    campaign_id: uuid.UUID, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    return _switch_campaign(db, user, campaign_id, "resume")
 
 
 @router.post(

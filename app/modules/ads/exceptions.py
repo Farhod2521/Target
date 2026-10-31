@@ -737,3 +737,18 @@ class FormVariantNotReady(DomainError):
         super().__init__(
             "AI hali savollarni yozyapti. Bir necha soniyadan keyin saqlang."
         )
+
+
+class PressRefused(DomainError):
+    """A change the cabinet asked for and the rules refused, as a 409.
+
+    ``field`` names the input the sentence is drawn under; empty is the
+    press as a whole.
+    """
+
+    status_code = 409
+    code = "refused"
+
+    def __init__(self, message: str, *, field: str = "") -> None:
+        super().__init__(message)
+        self.problems = {field: message} if field else {}

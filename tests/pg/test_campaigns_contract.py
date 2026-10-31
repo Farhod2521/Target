@@ -129,3 +129,20 @@ def test_a_campaign_page_comes_in_one_answer(client: TestClient, db: Session) ->
     assert body["controls"]["canPause"] is True
     assert {"hasChoice", "hasFigures", "periods"} <= set(body["panel"])
     assert body["access"]["readOnly"] in (True, False)
+
+
+def test_a_campaign_is_switched_by_its_own_id(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _cabinet_with_figures(client, db)
+    path = f"/api/v1/campaigns/{campaign.id}/pause"
+
+    first = client.post(path, headers=headers)
+    again = client.post(path, headers=headers)
+
+    assert first.status_code == 200, first.text
+    state = first.json()
+    assert state["level"] == "campaign" and state["externalId"] == "c_1"
+    assert state["pending"] is True and state["action"]["status"] == "pending"
+    assert again.status_code == 409
+    assert again.json()["code"] == "refused"

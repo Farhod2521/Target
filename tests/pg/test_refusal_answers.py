@@ -175,12 +175,12 @@ def test_the_screen_shows_the_answer_where_the_change_failed(
     db.commit()
     shown = client.get(path, headers=headers).json()["failure"]
 
-    assert waiting["explaining"] is True and waiting["explanation_html"] == ""
-    assert shown["explaining"] is False
-    assert "Ads Manager&#x27;ni ochish" in shown["explanation_html"] or (
-        "Ads Manager'ni ochish" in shown["explanation_html"]
+    assert waiting["explaining"] is True and not waiting["explanationHtml"]
+    assert not shown["explaining"]
+    assert "Ads Manager&#x27;ni ochish" in shown["explanationHtml"] or (
+        "Ads Manager'ni ochish" in shown["explanationHtml"]
     )
-    assert "[[" not in shown["explanation_html"]
+    assert "[[" not in shown["explanationHtml"]
     assert db.get(ActionLog, log_id).error_code == "refused"
 
 

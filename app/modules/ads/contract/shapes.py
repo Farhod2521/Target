@@ -382,6 +382,41 @@ class CampaignDetail(Camel):
     creatives: CreativeReport | None
 
 
+class Fix(Camel):
+    label: str
+    url: str
+
+
+class ControlFailure(Camel):
+    text: str
+    fix: Fix | None
+    explanation_html: str | None = Field(
+        None, description="Why the network refused it and what to do, as HTML."
+    )
+    explaining: bool | None = Field(
+        None, description="That answer is being written: ask `/state` again."
+    )
+
+
+class ControlAction(Camel):
+    id: str
+    status: str
+    dry_run: bool
+    revertible: bool
+
+
+class ControlState(Camel):
+    level: Literal["campaign", "adset", "ad"]
+    external_id: str
+    pending: bool = Field(description="Still on its way: ask `/state` again.")
+    stalled: bool
+    failure: ControlFailure | None
+    action: ControlAction | None
+    tries: int
+    poll_seconds: int
+    refused: str | None = Field(None, description="Not sent at all: the sentence why.")
+
+
 __all__ = [
     "Access",
     "AdGroup",
@@ -390,6 +425,7 @@ __all__ = [
     "CampaignList",
     "CampaignRow",
     "CampaignTree",
+    "ControlState",
     "Controls",
     "Counts",
     "CreativeReport",

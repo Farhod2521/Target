@@ -159,14 +159,14 @@ def test_campaigns_api(client, db: Session, queued: list) -> None:  # type: igno
     paused = client.post("/api/v1/campaigns/manage/campaign/c_1/pause", headers=headers)
     assert paused.status_code == 200, paused.text
     state = paused.json()
-    assert state["refusal"] == "" and state["action"]["status"] == "pending"
-    assert state["polling"] is True
+    assert state["refused"] is None and state["action"]["status"] == "pending"
+    assert state["pending"] is True
     assert queued and queued[-1][0].endswith("apply_change_task")
 
     again = client.post(
         "/api/v1/campaigns/manage/campaign/c_1/pause", headers=headers
     ).json()
-    assert again["refusal"]
+    assert again["refused"]
 
     polled = client.get(
         "/api/v1/campaigns/manage/campaign/c_1/state?tries=3", headers=headers

@@ -302,8 +302,7 @@ def test_the_screen_says_why_a_delete_did_not_go_through(
 
     assert state.status_code == 200, state.text
     failure = state.json()["failure"]
-    assert failure["sentence"]
-    assert failure["provider_words"] == "Rol bering."
+    assert failure["text"].endswith("Rol bering.")
 
 
 # --- An audience is replaced only over the one that was edited ---------------
