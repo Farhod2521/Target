@@ -207,6 +207,62 @@ def test_the_pictures_then_the_proposal_and_its_editor(
     assert gone.status_code == 204, gone.text
 
 
+def test_the_goal_changes_from_the_pictures_step(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    """Back from the pictures: another goal goes in, the tiles ticked stay."""
+    auth, draft_id = _opened(client, db)
+    path = f"/api/v1/launch/drafts/{draft_id}"
+    floor = client.get(path, headers=auth).json()["minBudget"]
+    budget = floor | {"minor": 500}
+    went = client.patch(
+        path,
+        json={
+            "goal": "click",
+            "linkUrl": "bahor.example",
+            "dailyBudget": budget,
+            "step": "media",
+        },
+        headers=auth,
+    )
+    assert went.status_code == 200, went.text
+    launch = db.get(CampaignLaunch, uuid.UUID(draft_id))
+    assert launch is not None
+    asset = MediaAsset(
+        owner_id=launch.owner_id,
+        ad_account_id=launch.ad_account_id,
+        provider=launch.provider,
+        kind=MediaKind.IMAGE,
+        external_id="hash_back",
+        name="osh.jpg",
+        width=1080,
+        height=1080,
+    )
+    db.add(asset)
+    db.commit()
+    ticked = client.patch(path, json={"media": [str(asset.id)]}, headers=auth)
+    assert ticked.status_code == 200, ticked.text
+
+    tapped = client.patch(
+        path, json={"goalMode": "list", "goal": "view", "method": None}, headers=auth
+    )
+    assert tapped.status_code == 200, tapped.text
+    assert tapped.json()["goal"] == "view"
+    # The plan screen drew the saved answers again, and waits for «Davom etish».
+    assert tapped.json()["dailyBudget"] == budget
+    db.refresh(launch)
+    assert launch.answers["goal"] == "traffic"
+
+    again = client.patch(
+        path, json={"dailyBudget": budget, "step": "media"}, headers=auth
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["step"] == "media" and again.json()["goal"] == "view"
+    assert again.json()["media"] == [str(asset.id)]
+    db.refresh(launch)
+    assert launch.answers["goal"] != "traffic"
+
+
 def test_the_chat_questions_are_read_where_they_come(
     client: TestClient, db: Session
 ) -> None:
