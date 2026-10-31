@@ -187,3 +187,9 @@ def test_otherwise_the_first_by_id_speaks() -> None:
 
 def test_a_campaign_with_no_ad_set_has_no_goal() -> None:
     assert campaign_goal([]) == ("", None)
+
+
+def test_the_older_names_of_a_profile_visit_are_counted() -> None:
+    """Live ad sets under both report ``results`` equal to ``profile_visits``."""
+    assert outcome_of("VISIT_INSTAGRAM_PROFILE") == "profile"
+    assert outcome_of("PROFILE_AND_PAGE_ENGAGEMENT") == "profile"

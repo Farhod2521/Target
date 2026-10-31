@@ -27,6 +27,8 @@ OUTCOMES: Final[dict[str, Outcome]] = {
     "LINK_CLICKS": "click",
     "OFFSITE_CONVERSIONS": "none",
     "PROFILE_VISIT": "profile",
+    "VISIT_INSTAGRAM_PROFILE": "profile",
+    "PROFILE_AND_PAGE_ENGAGEMENT": "profile",
 }
 
 

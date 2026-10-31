@@ -65,7 +65,7 @@ CONVERSION_LABELS: Final[dict[str, str]] = {
     "SUBSCRIBE": "Obunalar",
 }
 CONVERSION_LABEL: Final = "Konversiyalar"
-# Goals the outcomes do not name, whose events Meta's results column does count.
+# Goals shown from Meta's results column rather than the outcome's own figure.
 COUNTED_GOALS: Final[dict[str, str]] = {"VISIT_INSTAGRAM_PROFILE": "profile"}
 CONVERSION_COST_LABEL: Final = "Bitta natija narxi"
 RESULT_CARD_KEY: Final = "leads"
