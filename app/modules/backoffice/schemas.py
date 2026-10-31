@@ -431,6 +431,7 @@ class DeletedOut(MessageOut):
 class AdRowOut(BaseModel):
     launch_id: str
     campaign_external_id: str
+    campaign_name: str
     started_at: datetime | None
     goal: str
     page: str
@@ -443,15 +444,292 @@ class AdRowOut(BaseModel):
     result_cost_minor: int | None
     result_cost_label: str
     note: str = Field(description="Instead of a figure this screen cannot count.")
+    impressions: int
+    reach: int | None = Field(description="Null when nobody counted this window.")
+    clicks: int
+    link_clicks: int
+    leads: int
+    ctr_percent: str = Field(description="Empty before the first impression.")
+    cpm_minor: int | None
+    cpc_minor: int | None
+
+
+class AdWindowOut(BaseModel):
+    period: str
+    since: date
+    until: date
+    refused: str = Field(description="Why a typed stretch was not read; else empty.")
+    periods: list[ChoiceOut]
+
+
+class AdCurrencyOut(BaseModel):
+    currency: str
+    spend_minor: int
+    impressions: int
+    clicks: int
+    link_clicks: int
+    leads: int
+    ctr_percent: str
+    cpm_minor: int | None
+    cpc_minor: int | None
+    lead_cost_minor: int | None
 
 
 class CustomerAdsOut(BaseModel):
     period: str
     periods: list[ChoiceOut]
+    window: AdWindowOut
     running: int = Field(description="Delivering now, whatever the window.")
     totals: list[AmountOut] = Field(description="Spend per currency, never summed.")
+    summary: list[AdCurrencyOut] = Field(description="All figures, one per currency.")
     hidden: int = Field(description="Adverts left out: quiet over this window.")
     rows: list[AdRowOut]
+
+
+class AdSumsOut(BaseModel):
+    spend_minor: int
+    impressions: int
+    clicks: int
+    link_clicks: int
+    landing_page_views: int
+    leads_reported: int = Field(description="The provider's count.")
+    results_reported: int
+    recallers: int
+    profile_visits: int
+    video_plays: int
+    video_thruplays: int
+    reactions: int
+    comments: int
+    shares: int
+    saves: int
+    ctr_percent: str
+    cpm_minor: int | None
+    cpc_minor: int | None
+
+
+class AdResultOut(BaseModel):
+    label: str = Field(description="Empty for a result this screen cannot count.")
+    count: int
+    cost_minor: int | None
+    cost_label: str
+    note: str
+
+
+class AdBarOut(BaseModel):
+    key: date
+    label: str
+    hint: str
+    sums: AdSumsOut
+    reach: int = Field(description="The widest day: at least this many people.")
+    leads: int
+    qualified: int
+    results: int
+    result_cost_minor: int | None
+
+
+class AdLifetimeLeadsOut(BaseModel):
+    total: int
+    tests: int
+    organic: int
+    first_at: datetime | None
+    last_at: datetime | None
+
+
+class AdFiguresOut(BaseModel):
+    sums: AdSumsOut
+    reach: int
+    reach_is_exact: bool = Field(description="False: at least this many people.")
+    result: AdResultOut
+    leads: int
+    qualified: int
+    synced_at: datetime | None
+    lifetime_leads: AdLifetimeLeadsOut
+
+
+class AdCampaignOut(BaseModel):
+    external_id: str
+    name: str
+    objective: str
+    delivery_label: str
+    is_running: bool
+    daily_budget_minor: int | None
+    spend_cap_minor: int | None
+    currency: str
+    created_at: datetime | None
+    problem: str
+
+
+class AudienceOut(BaseModel):
+    places: list[str]
+    excluded_places: list[str]
+    ages: str
+    genders: str
+    interests: list[list[str]] = Field(description="Blocks: AND between, OR within.")
+    excluded_interests: list[str]
+    placements: list[str] = Field(description="Empty: the provider chooses.")
+    devices: list[str]
+    own_lists: list[str]
+    excluded_lists: list[str]
+    is_automatic: bool
+
+
+class AdDecisionOut(BaseModel):
+    key: str = Field(
+        description="`campaign_type`, `conversion_event`, `audience`, `interests`, "
+        "`placement`, `form` or `button`."
+    )
+    label: str
+    value: str
+    by: str = Field(description="`ai`, `owner`, or empty when it was not recorded.")
+    by_label: str
+
+
+class LaunchAdOut(BaseModel):
+    id: str
+    position: int
+    name: str
+    headline: str
+    text: str
+    description: str
+    words_by: str = Field(description="`ai`, `owner`, or empty: no words of its own.")
+    words_by_label: str
+    picture: str
+    is_video: bool
+    video_url: str
+    media_kind_label: str
+    post_url: str = Field(description="The post it was built from; empty for none.")
+
+
+class AdSettingsOut(BaseModel):
+    goal: str
+    goal_text: str = Field(description="The customer's own words about the goal.")
+    offer_text: str
+    link_url: str
+    phone: str
+    campaign_name: str
+    created_at: datetime
+    page: str
+    currency: str
+    daily_budget_minor: int | None
+    daily_min_minor: int | None
+    daily_max_minor: int | None
+    total_cap_minor: int | None
+    max_result_cost_minor: int | None
+    start_date: date | None
+    end_date: date | None
+    audience_lower: int | None
+    audience_upper: int | None
+    audience: AudienceOut
+    button: str
+    conversion_event: str
+    url_tags: str
+    attribution: str
+    frequency_cap: dict[str, int] | None
+    buys_qualified_leads: bool
+    decisions: list[AdDecisionOut] = Field(description="Who settled each part.")
+    ads: list[LaunchAdOut]
+
+
+class AdPostOut(BaseModel):
+    external_id: str
+    url: str = Field(description="Empty when this post has no address we know.")
+    kind_label: str
+    text: str
+    picture: str
+
+
+class LiveAdOut(BaseModel):
+    external_id: str
+    name: str
+    delivery: str
+    delivery_label: str
+    problem: str
+    picture: str
+    is_video: bool
+    video_url: str
+    text: str
+    headline: str
+    description: str
+    link: str
+    button: str
+    post: AdPostOut | None
+
+
+class LiveFormOut(BaseModel):
+    external_id: str
+    is_synced: bool = Field(description="False: only the id is known so far.")
+    name: str
+    questions: list[str]
+    custom_questions: list[dict[str, Any]]
+    leads_count: int | None
+    collecting: bool
+    privacy_url: str
+    locale: str
+
+
+class AdLiveOut(BaseModel):
+    status: str
+    step: str
+    error: str
+    delivery_note: str
+    qualified: bool
+    ads: list[LiveAdOut]
+    forms: list[LiveFormOut]
+
+
+class AdLineOut(BaseModel):
+    external_id: str
+    name: str
+    delivery_label: str
+    quality_ranking: str
+    sums: AdSumsOut
+    leads: int
+    lead_cost_minor: int | None
+
+
+class AdGroupOut(BaseModel):
+    external_id: str
+    name: str
+    delivery_label: str
+    optimization_goal: str
+    daily_budget_minor: int | None
+    is_learning: bool
+    problem: str
+    audience: AudienceOut | None = Field(description="As the last sync saw it.")
+    sums: AdSumsOut
+    leads: int
+    lead_cost_minor: int | None
+    ads: list[AdLineOut]
+
+
+class AdSiblingOut(BaseModel):
+    launch_id: str
+    started_at: datetime
+
+
+class CustomerAdOut(BaseModel):
+    launch_id: str
+    window: AdWindowOut
+    bar: str = Field(description="`day`, `week` or `month`: the size of one bar.")
+    bars_offered: list[ChoiceOut]
+    row: AdRowOut | None = Field(description="Null: the launch made no campaign.")
+    campaign: AdCampaignOut | None
+    figures: AdFiguresOut | None
+    bars: list[AdBarOut] = Field(description="Oldest first.")
+    groups: list[AdGroupOut]
+    siblings: list[AdSiblingOut] = Field(description="Launches in the same campaign.")
+    settings: AdSettingsOut
+    live: AdLiveOut
+
+
+class AdFrameOut(BaseModel):
+    src: str = Field(description="Meta's preview address, for an iframe.")
+    width: int
+    height: int
+    polling: bool = Field(description="Ask again in `poll_seconds` with `tries`.")
+    tries: int
+    poll_seconds: int
+    gave_up: bool
 
 
 class CreatedOut(MessageOut):

@@ -16,14 +16,8 @@ from app.modules.accounts.models import User
 from app.modules.backoffice.constants import ADMIN_ROLES
 from app.modules.backoffice.permissions import staff_required
 from app.modules.backoffice.routers._out import amounts, choices, person_out, trace_out
-from app.modules.backoffice.schemas import CustomerAdsOut, CustomerCardOut, CustomersOut
+from app.modules.backoffice.schemas import CustomerCardOut, CustomersOut
 from app.modules.backoffice.selectors import traces
-from app.modules.backoffice.selectors.advertising import (
-    DEFAULT_PERIOD,
-    PERIODS,
-    advertising,
-    asked_period,
-)
 from app.modules.backoffice.selectors.card import (
     Limits,
     PageRow,
@@ -475,47 +469,4 @@ def customer(customer_id: uuid.UUID, db: Db, user: Admin) -> dict[str, Any]:
             for problem in problems_of(db, owner_id=owner.id, now=now)
         ],
         "traces": [trace_out(row) for row in traces(db, owner=owner)],
-    }
-
-
-@router.get("/{customer_id}/ads", responses={200: {"model": CustomerAdsOut}})
-def customer_ads(
-    customer_id: uuid.UUID,
-    db: Db,
-    user: Admin,
-    period: str = Query(DEFAULT_PERIOD, description="A value from `periods`."),
-) -> dict[str, Any]:
-    """Every advert this product launched for the account, over one window.
-
-    Only rows that spent, produced or still deliver, except for `all`.
-    """
-    owner = person(db, customer_id=customer_id)
-    if owner is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND)
-    found = advertising(db, owner=owner, now=localtime(), period=asked_period(period))
-    return {
-        "period": found.period,
-        "periods": choices(PERIODS),
-        "running": found.running,
-        "totals": amounts(found.totals),
-        "hidden": found.hidden,
-        "rows": [
-            {
-                "launch_id": str(row.launch_id),
-                "campaign_external_id": row.campaign_external_id,
-                "started_at": row.started_at,
-                "goal": row.goal,
-                "page": row.page,
-                "delivery_label": row.delivery_label,
-                "is_running": row.is_running,
-                "spend_minor": row.spend_minor,
-                "currency": row.currency,
-                "results": row.results,
-                "result_word": row.result_word,
-                "result_cost_minor": row.result_cost_minor,
-                "result_cost_label": row.result_cost_label,
-                "note": row.note,
-            }
-            for row in found.rows
-        ],
     }

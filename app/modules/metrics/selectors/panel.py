@@ -327,6 +327,8 @@ _SUMMED: Final[dict[str, Any]] = {
     "landing_page_views": M.landing_page_views,
     "leads_reported": M.leads_reported,
     "results_reported": M.results_reported,
+    "recallers": M.recallers,
+    "profile_visits": M.profile_visits,
     "video_plays": M.video_plays,
     "video_thruplays": M.video_thruplays,
     "reactions": M.reactions,
@@ -345,6 +347,8 @@ class FigureSums:
     landing_page_views: int = 0
     leads_reported: int = 0
     results_reported: int = 0
+    recallers: int = 0
+    profile_visits: int = 0
     video_plays: int = 0
     video_thruplays: int = 0
     reactions: int = 0
@@ -363,6 +367,12 @@ class FigureSums:
         if not self.impressions:
             return None
         return self.spend_minor * 1000 // self.impressions
+
+    @property
+    def cpc_minor(self) -> int | None:
+        if not self.clicks:
+            return None
+        return self.spend_minor // self.clicks
 
     def plus(self, other: "FigureSums") -> "FigureSums":
         return FigureSums(
@@ -406,8 +416,23 @@ def _figures(row: Any) -> FigureSums:
     return FigureSums(**{name: int(row._mapping[name] or 0) for name in _SUMMED})
 
 
+def _within(since: date | None, until: date | None) -> list[Any]:
+    """The dates asked for; no date on either side is no limit on it."""
+    return [
+        *([M.date >= since] if since is not None else []),
+        *([M.date <= until] if until is not None else []),
+    ]
+
+
 def _days(
-    db: Session, *, owner: User, provider: str, level: str, key: str
+    db: Session,
+    *,
+    owner: User,
+    provider: str,
+    level: str,
+    key: str,
+    since: date | None = None,
+    until: date | None = None,
 ) -> list[Any]:
     where = (
         M.external_id == key
@@ -428,6 +453,7 @@ def _days(
                 M.provider == provider,
                 M.level == str(level),
                 where,
+                *_within(since, until),
             )
             .group_by(M.date)
             .order_by(M.date.desc())
@@ -436,13 +462,21 @@ def _days(
 
 
 def _ads(
-    db: Session, *, owner: User, provider: str, level: str, campaign: str
+    db: Session,
+    *,
+    owner: User,
+    provider: str,
+    level: str,
+    campaign: str,
+    since: date | None = None,
+    until: date | None = None,
 ) -> tuple[AdFigures, ...]:
     where = (
         M.owner_id == owner.id,
         M.provider == provider,
         M.level == str(level),
         M.campaign_external_id == campaign,
+        *_within(since, until),
     )
     spend = func.coalesce(func.sum(M.spend_minor), 0)
     grouped = db.execute(
@@ -478,6 +512,8 @@ def campaign_figures(
     provider: str,
     campaign_external_id: str,
     fall_back: bool = False,
+    since: date | None = None,
+    until: date | None = None,
 ) -> CampaignFigures:
     day_rows = _days(
         db,
@@ -485,6 +521,8 @@ def campaign_figures(
         provider=provider,
         level=MetricLevel.CAMPAIGN,
         key=campaign_external_id,
+        since=since,
+        until=until,
     )
     if not day_rows and fall_back:
         day_rows = _days(
@@ -493,6 +531,8 @@ def campaign_figures(
             provider=provider,
             level=MetricLevel.ADSET,
             key=campaign_external_id,
+            since=since,
+            until=until,
         )
     days = tuple(
         FigureDay(day=row.date, sums=_figures(row), reach=int(row.reach or 0))
@@ -512,6 +552,8 @@ def campaign_figures(
             provider=provider,
             level=MetricLevel.AD,
             campaign=campaign_external_id,
+            since=since,
+            until=until,
         ),
         synced_at=max((row.synced for row in day_rows if row.synced), default=None),
         groups=_ads(
@@ -520,5 +562,7 @@ def campaign_figures(
             provider=provider,
             level=MetricLevel.ADSET,
             campaign=campaign_external_id,
+            since=since,
+            until=until,
         ),
     )
