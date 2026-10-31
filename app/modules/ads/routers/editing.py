@@ -10,6 +10,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
+from adskit.errors import ProviderError
 from fastapi import HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -57,7 +58,6 @@ from app.modules.ads.services.locations import (
     confirmed_for_campaign,
     place_query,
 )
-from adskit.errors import ProviderError
 from core.targeting import MAX_AGE, MIN_AGE, AudienceEdit
 from core.targeting.audiences import EXCLUDE_KEY, INCLUDE_KEY, AudienceRef
 from core.targeting.exceptions import InvalidTargeting

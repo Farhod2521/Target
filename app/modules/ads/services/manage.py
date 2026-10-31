@@ -59,7 +59,6 @@ from app.modules.ads.selectors import (
     shared_campaign_ids,
 )
 from app.modules.audit.constants import ActionStatus, ActionType, ActorType, EventName
-from core.targeting.revise import only_place_moved
 from app.modules.audit.models import ActionLog
 from app.modules.audit.services import emit
 from app.modules.integrations.models import AdAccount
@@ -82,6 +81,7 @@ from core.agent.guardrails import (
     REFUSED_LEARNING,
 )
 from core.targeting import daily_floor
+from core.targeting.revise import only_place_moved
 
 logger = logging.getLogger(__name__)
 
