@@ -135,6 +135,9 @@ Super admin uchun yangi sahifa. API: [OFIS_API.md](OFIS_API.md), 5a-bo'lim.
 Menyu bandini faqat `can.superuser` bo'lganda ko'rsating: boshqa rollar, Owner
 ham, `404` oladi.
 
+Bu yo'llarning maydonlari OFIS_API.md B-ilovasida yo'q, ularni `gen/openapi.ts`dan
+oling: `DirectionsOut`, `DirectionOut`, `NewDirectionIn`, `DirectionIn`.
+
 ---
 
 ## 4. Taklif etilgan tartib
