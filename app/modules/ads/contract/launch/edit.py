@@ -55,7 +55,7 @@ END_OUT: Final = {
     "call": "call",
 }
 AREA: Final = "area:"
-SECTIONS: Final = ("aud", "geo", "int", "hab", "reach", "ads", "form", "adv")
+SECTIONS: Final = ("aud", "geo", "int", "hab", "reach", "ads", "form", "adv", "budget")
 
 # What the word check found in an advert, in the owner's words.
 FINDINGS: Final[dict[str, dict[str, str]]] = {
@@ -458,6 +458,7 @@ def edit_from(answer: dict[str, Any]) -> dict[str, Any]:
         "ads": [edit_ad(variant) for variant in found.get("variants") or []],
         "form": _form(found.get("lead_form")),
         "adv": _advanced(found),
+        "budget": found["advanced"]["budget"],
     }
 
 
@@ -662,6 +663,11 @@ def proposal_patch(edit: dict[str, Any], answer: dict[str, Any]) -> ProposalIn:
     advanced = _advanced_patch(edit["adv"], was["adv"], found["advanced"])
     if advanced:
         out["advanced"] = advanced
+    budget, budget_was = edit.get("budget"), was["budget"]
+    if budget is not None and any(
+        budget[key] != budget_was[key] for key in ("level", "sharing")
+    ):
+        out["budget"] = {"level": budget["level"], "sharing": budget["sharing"]}
     return ProposalIn.model_validate(out)
 
 

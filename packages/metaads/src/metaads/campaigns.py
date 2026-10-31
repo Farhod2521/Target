@@ -16,6 +16,7 @@ from metaads.client import GraphClient
 from metaads.dto import AdRow, AdSetRow, CampaignRow
 from metaads.errors import MetaAPIError
 from metaads.parsing import parsed, parsed_all
+from metaads.writing import graph_client
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,9 @@ ADSET_FIELDS = (
     "billing_event,destination_type,daily_budget,targeting,promoted_object,"
     "learning_stage_info,start_time,end_time,issues_info,recommendations"
 )
+
+# Not on the mirror, and needed only when an ad set is copied from this one.
+ADSET_SETTINGS_FIELDS = "bid_strategy,bid_amount,attribution_spec,frequency_control_specs"
 
 # The nested creative read is there for one field above all: the lead form
 # id, the link between an ad and the leads it bought, which asking for
@@ -167,6 +171,14 @@ def list_adsets(
         path=f"{account_id}/adsets", fields=ADSET_FIELDS, token=token, client=client
     )
     return parsed_all(AdSetRow, rows)
+
+
+def read_adset_settings(
+    *, adset_id: str, token: str, client: GraphClient | None = None
+) -> dict[str, Any]:
+    """The delivery settings of one ad set, raw, as a new one will be sent them."""
+    with graph_client(client, token) as graph:
+        return graph.get(adset_id, fields=ADSET_SETTINGS_FIELDS)
 
 
 def count_campaign_adsets(

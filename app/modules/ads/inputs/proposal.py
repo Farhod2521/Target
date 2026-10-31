@@ -57,7 +57,7 @@ from app.modules.ads.selectors.variants import (
     post_caption_of,
     same_words,
 )
-from app.modules.ads.services.advanced import AdvancedEdit, CreativeEdit
+from app.modules.ads.services.advanced import AdvancedEdit, BudgetEdit, CreativeEdit
 from app.modules.ads.services.locations import confirmed_places
 from app.modules.businesses.models import Business
 from app.modules.integrations.selectors.audiences import targets_for
@@ -156,6 +156,10 @@ def check_proposal(
             body=body.advanced,
             problems=problems,
             plan_owns_kind=plan_owns_kind,
+        )
+    if body.budget is not None:
+        answers["budget"] = BudgetEdit(
+            level=body.budget.level, sharing=body.budget.sharing
         )
     problems.refuse()
     return answers

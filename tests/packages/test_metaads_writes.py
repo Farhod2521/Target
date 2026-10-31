@@ -196,6 +196,58 @@ def test_budget_sharing_is_answered_rather_than_left_out() -> None:
     assert sent(seen[0])["is_adset_budget_sharing_enabled"] == "false"
 
 
+def test_a_campaign_budget_goes_up_with_its_strategy_and_says_nothing_of_sharing() -> None:
+    """How Meta's campaign budget is switched on: the two fields, and no flag.
+    The sharing answer is for campaigns without a budget; true beside one is 4834002."""
+    graph, seen = recording()
+
+    create_campaign(
+        account_id="act_1",
+        spec=CAMPAIGN.model_copy(
+            update={"daily_budget_minor": 500, "bid_strategy": "COST_CAP"}
+        ),
+        token="t",
+        client=graph,
+        dry_run=False,
+    )
+
+    body = sent(seen[0])
+    assert body["daily_budget"] == "500"
+    assert body["bid_strategy"] == "COST_CAP"
+    assert "is_adset_budget_sharing_enabled" not in body
+
+
+def test_an_ad_set_under_a_campaign_budget_keeps_its_cap_only() -> None:
+    graph, seen = recording()
+    spec = ADSET.model_copy(
+        update={
+            "daily_budget_minor": 0,
+            "bid_strategy": "COST_CAP",
+            "bid_amount_minor": 90,
+        }
+    )
+
+    create_adset(account_id="act_1", spec=spec, token="t", client=graph, dry_run=False)
+
+    body = sent(seen[0])
+    assert "daily_budget" not in body
+    assert "bid_strategy" not in body
+    assert body["bid_amount"] == "90"
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"daily_budget_minor": 500},
+        {"budget_sharing": True},
+        {"daily_budget_minor": 500, "budget_sharing": True, "bid_strategy": "X"},
+    ],
+)
+def test_the_pairs_meta_refuses_never_leave(fields: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        CampaignSpec(name="n", objective="OUTCOME_LEADS", **fields)
+
+
 def test_a_false_is_a_word_meta_knows_and_not_pythons() -> None:
     """A form post turns ``False`` into "False", which Meta reads as a word
     rather than as a boolean - and rejects, naming a field that was filled
@@ -204,7 +256,9 @@ def test_a_false_is_a_word_meta_knows_and_not_pythons() -> None:
 
     create_campaign(
         account_id="act_1",
-        spec=CAMPAIGN.model_copy(update={"budget_sharing": True}),
+        spec=CAMPAIGN.model_copy(
+            update={"budget_sharing": True, "bid_strategy": "LOWEST_COST_WITHOUT_CAP"}
+        ),
         token="t",
         client=graph,
         dry_run=False,

@@ -30,6 +30,11 @@ from app.modules.ads.constants import (
     DraftSection,
 )
 from app.modules.ads.models import CampaignLaunch, LaunchCreative
+from app.modules.ads.selectors.budget_level import (
+    campaign_budget_minor,
+    held_by_campaign,
+    shares_budget,
+)
 from app.modules.ads.selectors.lead_form import (
     default_title,
     effective_ending,
@@ -87,11 +92,16 @@ def goal_campaign_spec(
     *, launch: CampaignLaunch, business: Business, built: BuiltTargeting, number: int
 ) -> CampaignSpec:
     """The campaign a page's launches for one goal share, paused."""
+    sharing = shares_budget(launch=launch)
+    budget = campaign_budget_minor(launch=launch)
     return CampaignSpec(
         name=naming.goal_campaign_name(launch=launch, business=business, number=number),
         objective=built.objective,
         special_ad_categories=built.special_ad_categories,
         special_ad_category_country=built.special_ad_category_countries,
+        budget_sharing=sharing,
+        daily_budget_minor=budget or 0,
+        bid_strategy=_strategy(built) if budget or sharing else "",
     )
 
 
@@ -107,12 +117,14 @@ def adset_spec(
     name: str = "",
     daily_budget_minor: int | None = None,
 ) -> MetaAdSetSpec:
-    """The audience and the money."""
+    """The audience and, unless the campaign holds it, the money."""
     money = (
         int(launch.daily_budget_minor or 0)
         if daily_budget_minor is None
         else int(daily_budget_minor)
     )
+    if held_by_campaign(launch=launch):
+        money = 0
     return MetaAdSetSpec(
         name=name or naming.adset_name(launch=launch, business=business),
         campaign_id=campaign_id,
@@ -124,11 +136,15 @@ def adset_spec(
         promoted_object=_promoted(built=built, page_id=page_id),
         start_time=start_time,
         end_time=end_time,
-        bid_strategy=BID_COST_CAP if _cap(built) else BID_LOWEST_COST,
+        bid_strategy=_strategy(built),
         bid_amount_minor=_cap(built),
         attribution=_attribution(built),
         frequency_control=_frequency(built),
     )
+
+
+def _strategy(built: BuiltTargeting) -> str:
+    return BID_COST_CAP if _cap(built) else BID_LOWEST_COST
 
 
 def _attribution(built: BuiltTargeting) -> tuple[dict[str, object], ...]:

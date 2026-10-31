@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.ads import groups as group_field
 from app.modules.ads.models import CampaignLaunch, LaunchCreative
+from app.modules.ads.selectors.budget_level import held_by_campaign
 from app.modules.ads.naming import adset_name
 from app.modules.ads.selectors.variants import launch_variants
 from app.modules.businesses.models import Business
@@ -88,7 +89,7 @@ def underfunded(
     variants: list[LaunchCreative] | None = None,
 ) -> GroupCard | None:
     """The first group this launch would build on less than ``floor_minor``."""
-    if floor_minor <= 0:
+    if floor_minor <= 0 or held_by_campaign(launch=launch):
         return None
     for group in arrangement(db, launch=launch, variants=variants).filled:
         if group.daily_budget_minor < floor_minor:

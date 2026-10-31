@@ -22,6 +22,8 @@ CHANGES: Final[dict[str, str]] = {
     ActionType.END_TIME_SET: "an end date",
     ActionType.SPEND_CAP_SET: "a campaign spending limit",
     ActionType.CREATIVE_SWAP: "a new version of the advert",
+    ActionType.CREATE_ADSET: "a new ad set in the campaign",
+    ActionType.CREATE_AD: "a new advert in the ad set",
     ActionType.DELETE_CAMPAIGN: "deleting it",
     ActionType.DELETE_ADSET: "deleting it",
     ActionType.DELETE_AD: "deleting it",

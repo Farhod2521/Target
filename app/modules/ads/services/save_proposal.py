@@ -25,6 +25,7 @@ from app.modules.ads.selectors.tracking import (
 )
 from app.modules.ads.services.advanced import (
     AdvancedEdit,
+    BudgetEdit,
     CreativeEdit,
     choose_attribution,
     choose_button,
@@ -35,6 +36,7 @@ from app.modules.ads.services.advanced import (
     choose_form_intent,
     choose_frequency_cap,
     choose_pixel,
+    choose_budget,
     choose_spend_limits,
     choose_url_tags,
 )
@@ -73,9 +75,12 @@ def save_proposal(
     form_depth: str = "",
     higher_intent: bool | None = None,
     advanced: AdvancedEdit | None = None,
+    budget: BudgetEdit | None = None,
 ) -> None:
     """Apply the sections that were sent. The caller commits, or rolls all back."""
     before = proposal_snapshot(db, launch=launch)
+    if budget is not None:
+        choose_budget(db, launch=launch, level=budget.level, sharing=budget.sharing)
     if advanced is not None and _apply_advanced(db, launch=launch, edit=advanced):
         rebuild_targeting(db, launch=launch, business=business)
         db.flush()

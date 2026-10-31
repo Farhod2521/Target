@@ -176,12 +176,29 @@ def account_of(*, target: Any, level: str) -> AdAccount:
     return reduce(getattr, MANAGED_ACCOUNT_PATH[level].split("__"), target)
 
 
+def goal_under(target: Any) -> str:
+    """What this object buys; a campaign buys what its groups buy."""
+    own = getattr(target, "optimization_goal_raw", None)
+    if own is not None:
+        return str(own)
+    return next(
+        (row.optimization_goal_raw for row in getattr(target, "adsets", ())), ""
+    )
+
+
+def learning_under(target: Any) -> bool:
+    """Whether a change here restarts learning; a campaign's budget is its groups'."""
+    return bool(getattr(target, "is_learning", False)) or any(
+        row.is_learning for row in getattr(target, "adsets", ())
+    )
+
+
 def budget_floor(*, target: Any, level: str) -> int:
     from core.targeting import daily_floor
 
     return daily_floor(
         account_minor=account_of(target=target, level=level).min_daily_budget_minor,
-        optimization_goal=str(getattr(target, "optimization_goal_raw", "")),
+        optimization_goal=goal_under(target),
     )
 
 

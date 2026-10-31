@@ -11,7 +11,7 @@ keys are named in the field descriptions.
 """
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -282,6 +282,12 @@ class LeadFormOut(Shape):
     )
 
 
+class BudgetChoiceOut(Shape):
+    level: Literal["campaign", "adset"]
+    sharing: bool
+    locked: bool
+
+
 class AdvancedOut(Shape):
     campaign_card: CampaignTypeCard | None
     campaign_types: CampaignTypeChoices | None
@@ -292,6 +298,7 @@ class AdvancedOut(Shape):
     tracking: UrlTagsChoice | None
     cost_cap: CostCapChoice | None
     delivery: DeliveryChoices
+    budget: BudgetChoiceOut
 
 
 class ProposalAdviceOut(Shape):

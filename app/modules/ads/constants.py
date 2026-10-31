@@ -541,6 +541,10 @@ FREQUENCY_CAP: Final = "frequency_cap"
 HIGHER_INTENT: Final = "higher_intent"
 FORM_DEPTH: Final = "form_depth"
 FORM_DEPTH_WANTED: Final = "form_depth_wanted"
+BUDGET_LEVEL: Final = "budget_level"
+BUDGET_SHARING: Final = "budget_sharing"
+BUDGET_AT_CAMPAIGN: Final = "campaign"
+BUDGET_AT_ADSET: Final = "adset"
 
 
 class FormDepth(Choices):

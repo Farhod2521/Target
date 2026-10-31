@@ -431,6 +431,8 @@ def proposal(
         },
         "budget": {
             "by": "me",
+            "level": found["advanced"]["budget"]["level"],
+            "sharing": found["advanced"]["budget"]["sharing"],
             "ends_at": launch.get("end_date"),
             "total": total,
             "starts_at": start,

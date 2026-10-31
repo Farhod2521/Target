@@ -89,6 +89,11 @@ class AdvancedIn(BaseModel):
     max_result_cost: Decimal | None = Field(None, ge=0, description="Null: no cap.")
 
 
+class BudgetIn(BaseModel):
+    level: Literal["campaign", "adset"]
+    sharing: bool = False
+
+
 class ProposalIn(BaseModel):
     audience: AudienceIn | None = None
     interests: InterestsIn | None = None
@@ -98,3 +103,4 @@ class ProposalIn(BaseModel):
     )
     form: FormSectionIn | None = None
     advanced: AdvancedIn | None = None
+    budget: BudgetIn | None = None

@@ -16,6 +16,8 @@ from app.modules.accounts.models import User
 from app.modules.ads import refs as ref_field
 from app.modules.ads.constants import (
     ATTRIBUTION,
+    BUDGET_LEVEL,
+    BUDGET_SHARING,
     CALL_TO_ACTION,
     CAMPAIGN_TYPE,
     CHAT_QUESTIONS,
@@ -95,6 +97,8 @@ ANSWER_KEYS = frozenset(
         FREQUENCY_CAP,
         HIGHER_INTENT,
         FORM_DEPTH,
+        BUDGET_LEVEL,
+        BUDGET_SHARING,
     }
 )
 INVALIDATING = frozenset({"goal", "offer_text", "goal_text"})

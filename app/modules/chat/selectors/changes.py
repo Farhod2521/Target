@@ -23,6 +23,7 @@ MOVES_THE_FIGURES: frozenset[str] = frozenset(
         ActionType.SPEND_CAP_SET,
         ActionType.CREATIVE_SWAP,
         ActionType.CREATE_ADSET,
+        ActionType.CREATE_AD,
         ActionType.CREATE_CAMPAIGN,
         ActionType.DELETE_CAMPAIGN,
         ActionType.DELETE_ADSET,

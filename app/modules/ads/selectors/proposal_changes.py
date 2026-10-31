@@ -12,6 +12,8 @@ from app.modules.ads import edits
 from app.modules.ads import geo as geo_field
 from app.modules.ads.constants import (
     ATTRIBUTION,
+    BUDGET_LEVEL,
+    BUDGET_SHARING,
     CALL_TO_ACTION,
     FREQUENCY_CAP,
     HIGHER_INTENT,
@@ -33,7 +35,15 @@ FORM = "form"
 QUESTIONS = "questions"
 ADVANCED = "advanced"
 ORDER = (AUDIENCE, INTERESTS, TRAITS, CREATIVE, FORM, QUESTIONS, ADVANCED)
-ADVANCED_ANSWERS = (PIXEL_ID, CALL_TO_ACTION, ATTRIBUTION, FREQUENCY_CAP, HIGHER_INTENT)
+ADVANCED_ANSWERS = (
+    PIXEL_ID,
+    CALL_TO_ACTION,
+    ATTRIBUTION,
+    FREQUENCY_CAP,
+    HIGHER_INTENT,
+    BUDGET_LEVEL,
+    BUDGET_SHARING,
+)
 MAX_NAMED = 2
 
 

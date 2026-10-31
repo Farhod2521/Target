@@ -12,7 +12,11 @@ from app.modules.ads.constants import (
     ManagedLevel,
 )
 from app.modules.ads.models import Ad
-from app.modules.ads.selectors.actions import account_of, budget_floor
+from app.modules.ads.selectors.actions import (
+    account_of,
+    budget_floor,
+    learning_under,
+)
 from app.modules.ads.selectors.delivery import (
     ancestors_of,
     blocked_above,
@@ -44,7 +48,7 @@ class Controls:
 def controls_for(*, target: Any, level: str) -> Controls:
     state = ObjectState(
         delivery=str(getattr(target, "delivery", "unknown")),
-        is_learning=bool(getattr(target, "is_learning", False)),
+        is_learning=learning_under(target),
         daily_budget_minor=getattr(target, "daily_budget_minor", None),
     )
     switched_off = state.delivery in SWITCHED_OFF

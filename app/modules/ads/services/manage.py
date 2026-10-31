@@ -50,8 +50,10 @@ from app.modules.ads.selectors import (
     budget_floor,
     campaigns_switched_on,
     counted_by_tier,
+    goal_under,
     in_flight,
     launched_campaign_ids,
+    learning_under,
     managed_target,
     shared_adset_ids,
     shared_campaign_ids,
@@ -295,10 +297,12 @@ END_TIME: Final = "end_time"
 SPEND_CAP: Final = "spend_cap"
 CREATIVE: Final = "creative"
 REMOVAL: Final = "removal"
+ADDITION: Final = "addition"
 _DELETES = {ActionType.DELETE_CAMPAIGN, ActionType.DELETE_ADSET, ActionType.DELETE_AD}
 ASPECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     STATUS: frozenset({ActionType.PAUSE, ActionType.RESUME, *_DELETES}),
     BUDGET: frozenset({ActionType.BUDGET_UP, ActionType.BUDGET_DOWN}),
+    ADDITION: frozenset({ActionType.CREATE_ADSET, ActionType.CREATE_AD}),
     TARGETING: frozenset({ActionType.TARGETING_SWAP}),
     END_TIME: frozenset({ActionType.END_TIME_SET}),
     SPEND_CAP: frozenset({ActionType.SPEND_CAP_SET}),
@@ -573,11 +577,9 @@ def budget_gate(
     )
     account = account_of(target=target, level=level)
     floor = budget_floor(target=target, level=level)
-    state = state_of(target)
-    if level == ManagedLevel.ADSET and state.is_learning:
-        state = replace(
-            state, has_spent=_has_spent(db, owner=user, adset_id=external_id)
-        )
+    state = replace(state_of(target), is_learning=learning_under(target))
+    if state.is_learning:
+        state = replace(state, has_spent=_any_spent(db, user, level, target))
     verdict = check_budget_change(
         state=state, wanted_minor=daily_budget_minor, floor_minor=floor
     )
@@ -592,6 +594,17 @@ def budget_gate(
             )
         raise REFUSALS.get(verdict.reason, ChangeRefused)()
     return target, account
+
+
+def _any_spent(db: Session, user: User, level: str, target: Any) -> bool:
+    """Whether what is learning here has spent: the group, or a campaign's learning ones."""
+    if level == ManagedLevel.ADSET:
+        return _has_spent(db, owner=user, adset_id=target.external_id)
+    return any(
+        _has_spent(db, owner=user, adset_id=row.external_id)
+        for row in target.adsets
+        if row.is_learning
+    )
 
 
 def status_gate(
@@ -745,6 +758,8 @@ EVENTS: dict[str, str] = {
     ActionType.END_TIME_SET: EventName.BUDGET_CHANGED,
     ActionType.SPEND_CAP_SET: EventName.BUDGET_CHANGED,
     ActionType.CREATIVE_SWAP: EventName.CREATIVE_CHANGED,
+    ActionType.CREATE_ADSET: EventName.ADSET_CREATED,
+    ActionType.CREATE_AD: EventName.AD_CREATED,
 }
 LIMIT_FIELDS: dict[str, str] = {
     ActionType.END_TIME_SET: "end_time",
@@ -912,19 +927,18 @@ def _refused(
     elif log.action in LIMIT_ACTIONS:
         verdict = check_limit_change(state=state)
     elif log.action in BUDGET_ACTIONS:
-        if state.is_learning and log.target_level == ManagedLevel.ADSET:
+        if state.is_learning or learning_under(target):
             state = replace(
                 state,
-                has_spent=_has_spent(
-                    db, owner=log.owner, adset_id=log.target_external_id
-                ),
+                is_learning=True,
+                has_spent=_any_spent(db, log.owner, log.target_level, target),
             )
         verdict = check_budget_change(
             state=state,
             wanted_minor=int(log.request_payload.get("daily_budget_minor", 0)),
             floor_minor=daily_floor(
                 account_minor=_floor_source(target),
-                optimization_goal=getattr(target, "optimization_goal_raw", ""),
+                optimization_goal=goal_under(target),
             ),
         )
     else:

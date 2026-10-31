@@ -19,7 +19,9 @@ from core.targeting import MAX_RADIUS_KM, MIN_RADIUS_KM
 
 By = Literal["ai", "me"]
 ChatChannel = Literal["messenger", "instagram"]
-EditSection = Literal["aud", "geo", "int", "hab", "reach", "ads", "form", "adv"]
+EditSection = Literal[
+    "aud", "geo", "int", "hab", "reach", "ads", "form", "adv", "budget"
+]
 NoticeTarget = Literal[
     "aud",
     "geo",
@@ -145,6 +147,8 @@ class ProposalAudience(Camel):
 
 class ProposalBudget(Camel):
     by: By
+    level: Literal["campaign", "adset"] = "campaign"
+    sharing: bool = False
     ends_at: str | None
     total: Money | None
     starts_at: str
@@ -475,6 +479,14 @@ class AdvRow(Camel):
     on: bool | None = None
 
 
+class EditBudget(Camel):
+    """The «Byudjet» tab: where the daily budget lives, and what comes with it."""
+
+    level: Literal["campaign", "adset"]
+    sharing: bool = False
+    locked: bool = False
+
+
 class ProposalEdit(Camel):
     say: dict[EditSection, str]
     aud: EditAudience
@@ -484,6 +496,7 @@ class ProposalEdit(Camel):
     ads: list[EditAd]
     form: LeadFormEdit
     adv: list[AdvRow]
+    budget: EditBudget | None = None
 
 
 class FormVariant(Camel):

@@ -91,7 +91,8 @@ def create_campaign(
     ``special_ad_categories`` has to be there even when empty, and a
     campaign without its own budget has to say whether its ad sets may
     share theirs - "Invalid parameter" is the whole of what comes back
-    otherwise.
+    otherwise. A campaign with its own budget must not say anything:
+    Meta documents no answer for it, and ``true`` is refused.
     """
     if dry_run:
         return fake_id(_CAMPAIGN)
@@ -107,7 +108,11 @@ def create_campaign(
             "special_ad_category_country": (
                 list(spec.special_ad_category_country) or None
             ),
-            "is_adset_budget_sharing_enabled": spec.budget_sharing,
+            "daily_budget": spec.daily_budget_minor or None,
+            "bid_strategy": spec.bid_strategy,
+            "is_adset_budget_sharing_enabled": (
+                None if spec.daily_budget_minor else spec.budget_sharing
+            ),
             # ``None`` for a campaign with no ceiling, so the key is left
             # out of the body: Meta reads a zero here as a cap of nothing
             # and refuses it, the same trap the bid amount carries on the
@@ -144,10 +149,12 @@ def create_adset(
             data={
                 "name": spec.name,
                 "campaign_id": spec.campaign_id,
-                "daily_budget": spec.daily_budget_minor,
+                # Both left out under a campaign that holds the budget:
+                # Meta takes one or the other, never both levels.
+                "daily_budget": spec.daily_budget_minor or None,
                 "optimization_goal": spec.optimization_goal,
                 "billing_event": spec.billing_event,
-                "bid_strategy": spec.bid_strategy,
+                "bid_strategy": spec.bid_strategy if spec.daily_budget_minor else None,
                 # ``None`` for an uncapped ad set, so the key is left out of
                 # the body entirely - an uncapped ad set must not carry it,
                 # and Meta reads a zero as a cap of nothing rather than as

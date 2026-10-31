@@ -35,6 +35,7 @@ from app.modules.ads import refs as ref_field
 from app.modules.ads.constants import POSTS_NOT_PROMOTED, LaunchStatus, LaunchStep
 from app.modules.ads.models import CampaignLaunch, GoalCampaign, LaunchCreative
 from app.modules.ads.selectors.ad_groups import Arrangement, GroupCard, arrangement
+from app.modules.ads.selectors.budget_level import budget_level, campaign_budget_minor
 from app.modules.ads.selectors.media import post_account
 from app.modules.ads.selectors.schedule import (
     effective_ad_name,
@@ -246,6 +247,7 @@ def _adsets(
             "guruhlar": len(built_groups),
             "reklamalar": [group.size for group in built_groups],
             "byudjet": [group.daily_budget_minor for group in built_groups],
+            "byudjet_darajasi": budget_level(launch=launch),
             "qo'lda": arrange.arranged,
         },
     )
@@ -770,7 +772,7 @@ def _own(
         return None
     if not row.external_id:
         return row
-    held = _held(db, row=row, token=token, dry_run=dry_run)
+    held = _held(db, row=row, launch=launch, token=token, dry_run=dry_run)
     watch.decision(
         f"kampaniya #{row.number}", {"id": row.external_id, "guruhlar": held}
     )
@@ -782,7 +784,7 @@ def _own(
 
 
 def _held(
-    db: Session, *, row: GoalCampaign, token: str, dry_run: bool
+    db: Session, *, row: GoalCampaign, launch: CampaignLaunch, token: str, dry_run: bool
 ) -> int | Unusable:
     from app.modules.ads.selectors.launched import ever_switched_on
     from app.modules.metrics.selectors.facts import campaign_has_run
@@ -807,6 +809,9 @@ def _held(
     except NotFound:
         return GONE
     if status.delivery == "finished":
+        return GONE
+    # A rollback that failed left it behind holding what an older attempt asked.
+    if (status.daily_budget_minor or None) != campaign_budget_minor(launch=launch):
         return GONE
     if status.delivery == "paused" and (
         ever_switched_on(db, row=row)

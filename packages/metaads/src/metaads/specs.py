@@ -175,12 +175,17 @@ class CampaignSpec(MetaDTO):
     # demands an explicit answer from any campaign that does not carry its
     # own budget, and refuses the create call outright without one.
     #
-    # False, and not because sharing is bad. A campaign here has exactly one
-    # ad set, so there is nobody to share with - and the owner typed a daily
-    # number for an audience they approved, which is a promise that a
-    # redistribution nobody showed them would quietly break. When a campaign
-    # can hold two ad sets, this becomes a decision with a screen behind it.
+    # False unless the owner chose it: the daily number they typed for an
+    # audience is a promise a redistribution nobody showed them would break.
+    # It cannot be switched on once the campaign runs, so it is asked here.
     budget_sharing: bool = False
+    # The daily budget when the campaign holds it, which is the whole of
+    # how Meta's Advantage campaign budget is switched on: there is no flag.
+    # Zero when the ad sets hold their own.
+    daily_budget_minor: int = 0
+    # Required beside a budget here, and beside sharing: both make the
+    # strategy the campaign's rather than the ad set's.
+    bid_strategy: str = ""
     # The most this campaign may spend in total, in the account currency's
     # smallest unit. Zero means no ceiling, which is what every campaign
     # has unless somebody set one.
@@ -191,13 +196,24 @@ class CampaignSpec(MetaDTO):
     # rather than checked here, because that figure is Meta's to change.
     spend_cap_minor: int = 0
 
+    @model_validator(mode="after")
+    def _a_budget_settles_who_holds_the_strategy(self) -> "CampaignSpec":
+        """Refuse the pairs Meta refuses, before anything exists to roll back."""
+        if self.daily_budget_minor and self.budget_sharing:
+            raise ValueError("a campaign budget leaves ad sets nothing to share")
+        if (self.daily_budget_minor or self.budget_sharing) and not self.bid_strategy:
+            raise ValueError("a campaign budget or sharing needs a bid strategy")
+        return self
+
 
 class AdSetSpec(MetaDTO):
     """The audience and the money. The layer that actually spends."""
 
     name: str
     campaign_id: str
-    daily_budget_minor: int
+    # Zero when the campaign above holds the budget. The strategy is then the
+    # campaign's too, so ``bid_strategy`` below stays home; a cap does not.
+    daily_budget_minor: int = 0
     optimization_goal: str
     billing_event: str
     destination_type: str = ""

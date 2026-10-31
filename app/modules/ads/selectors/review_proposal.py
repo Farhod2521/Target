@@ -1,6 +1,6 @@
 """The review screen's proposal: every section, as the owner may edit it."""
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime
 from typing import Any
 
@@ -33,6 +33,7 @@ from app.modules.ads.constants import (
 from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.selectors import advice
 from app.modules.ads.selectors.audiences_chosen import area_options
+from app.modules.ads.selectors.budget_level import budget_choice
 from app.modules.ads.selectors.campaign_type import (
     campaign_type_card,
     campaign_type_choices,
@@ -480,6 +481,7 @@ def _advanced(db: Session, *, launch: CampaignLaunch) -> dict[str, Any]:
         "tracking": url_tags_choice(db, launch=launch),
         "cost_cap": cost_cap_choice(db, launch=launch),
         "delivery": delivery_choices(db, launch=launch),
+        "budget": asdict(budget_choice(launch=launch)),
     }
 
 

@@ -35,6 +35,7 @@ from metaads.boosts import (
     create_boost_creative,
     read_creative,
 )
+from metaads.campaigns import read_adset_settings
 from metaads.leadforms import create_lead_form
 from metaads.restage import create_from_story
 from metaads.specs import STATUS_PAUSED, AdSetSpec, CampaignSpec, CreativeSpec
@@ -113,6 +114,9 @@ class MetaLauncher:
                 "name": spec.name,
                 "objective": spec.objective,
                 "status": spec.status,
+                "daily_budget_minor": spec.daily_budget_minor,
+                "bid_strategy": spec.bid_strategy,
+                "budget_sharing": spec.budget_sharing,
                 "special_ad_categories": list(spec.special_ad_categories),
                 "special_ad_category_country": list(spec.special_ad_category_country),
             },
@@ -156,6 +160,11 @@ class MetaLauncher:
             # added as well as what was lost - see ``writes.changed_from``.
             raw_response={"targeting": created.returned},
         )
+
+    def adset_settings(self, *, adset: ExternalRef, token: str) -> dict[str, Any]:
+        """What a new ad set copied from this one must carry beyond the mirror."""
+        with session(token) as graph:
+            return read_adset_settings(adset_id=adset.id, token=token, client=graph)
 
     def create_creative(
         self,

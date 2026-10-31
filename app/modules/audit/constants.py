@@ -24,6 +24,7 @@ class ActionType(Choices):
     SPEND_CAP_SET = "spend_cap_set"
     CREATIVE_SWAP = "creative_swap"
     CREATE_ADSET = "create_adset"
+    CREATE_AD = "create_ad"
     CREATE_CAMPAIGN = "create_campaign"
     DELETE_CAMPAIGN = "delete_campaign"
     DELETE_AD = "delete_ad"
@@ -63,6 +64,7 @@ ACTION_TYPE_LABELS = {
     ActionType.SPEND_CAP_SET: "Umumiy chegarani belgilash",
     ActionType.CREATIVE_SWAP: "Reklama mazmunini almashtirish",
     ActionType.CREATE_ADSET: "Yangi guruh yaratish",
+    ActionType.CREATE_AD: "Yangi reklama yaratish",
     ActionType.CREATE_CAMPAIGN: "Kampaniya yaratish",
     ActionType.DELETE_CAMPAIGN: "Kampaniyani o'chirish",
     ActionType.DELETE_AD: "Reklamani o'chirish",
@@ -207,6 +209,8 @@ class EventName(Choices):
     ADS_LAPSE_REMOVED = "ads.lapse_removed"
     AD_DELETED = "ad.deleted"
     ADSET_DELETED = "adset.deleted"
+    ADSET_CREATED = "adset.created"
+    AD_CREATED = "ad.created"
     BUDGET_CHANGED = "budget.changed"
     LAUNCH_ROLLED_BACK = "launch.rolled_back"
     LAUNCH_DISCARDED = "launch.discarded"
@@ -326,6 +330,8 @@ EVENT_NAME_LABELS = {
     EventName.ADS_LAPSE_REMOVED: "To'lanmagani uchun reklamalar o'chirildi",
     EventName.AD_DELETED: "Reklama o'chirildi",
     EventName.ADSET_DELETED: "Guruh o'chirildi",
+    EventName.ADSET_CREATED: "Yangi guruh yaratildi",
+    EventName.AD_CREATED: "Yangi reklama yaratildi",
     EventName.BUDGET_CHANGED: "Byudjet o'zgartirildi",
     EventName.LAUNCH_ROLLED_BACK: "Yaratilgan narsalar o'chirildi",
     EventName.LAUNCH_DISCARDED: "Tayyorlash o'chirildi",

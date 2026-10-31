@@ -13,6 +13,10 @@ from app.common.money import format_minor, provider_money
 from app.modules.ads import draft as draft_field
 from app.modules.ads.constants import (
     ATTRIBUTION,
+    BUDGET_AT_ADSET,
+    BUDGET_AT_CAMPAIGN,
+    BUDGET_LEVEL,
+    BUDGET_SHARING,
     CALL_TO_ACTION,
     CAMPAIGN_TYPE,
     CONVERSION_EVENT,
@@ -98,6 +102,14 @@ class AdvancedEdit:
 
 
 @dataclass(frozen=True, slots=True)
+class BudgetEdit:
+    """What the «Byudjet» tab posts."""
+
+    level: str
+    sharing: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class CreativeEdit:
     position: int
     primary_text: str
@@ -165,6 +177,18 @@ def choose_cost_cap(
 def _unlocked(launch: CampaignLaunch) -> None:
     if campaign_type_locked(launch=launch):
         raise DeliveryOptionLocked
+
+
+def choose_budget(
+    db: Session, *, launch: CampaignLaunch, level: str, sharing: bool
+) -> CampaignLaunch:
+    """Where the daily budget lives. Sharing belongs to groups, so it needs them."""
+    _unlocked(launch)
+    if level not in (BUDGET_AT_CAMPAIGN, BUDGET_AT_ADSET):
+        raise DeliveryOptionUnusable
+    if sharing and level != BUDGET_AT_ADSET:
+        raise DeliveryOptionUnusable
+    return save_answers(db, launch=launch, **{BUDGET_LEVEL: level, BUDGET_SHARING: sharing})
 
 
 def choose_attribution(
