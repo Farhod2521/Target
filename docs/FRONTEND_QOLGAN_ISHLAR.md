@@ -96,10 +96,10 @@ Launch'dagi joy qidiruvi bilan bir xil ishlaydi:
 GET /campaigns/{id}/locations?q=tosh&country=UZ
 ```
 
-`country` ixtiyoriy. Javob:
+`country` ixtiyoriy. `q` 2 belgidan qisqa bo'lsa `[]` qaytadi. Javob:
 
 ```json
-[{"id": "111", "name": "Toshkent", "type": "city", "context": "...", "country_code": "UZ"}]
+[{"id": "111", "name": "Toshkent", "type": "city", "context": "...", "countryCode": "UZ"}]
 ```
 
 `context` bir xil nomli joylarni ajratadi, ro'yxatda ko'rsating. Daqiqasiga 60 ta
