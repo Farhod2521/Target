@@ -92,11 +92,37 @@ class PermissionDenied(ProviderError):
     """
 
 
+class AccountNotWritable(PermissionDenied):
+    """The ad account's own status forbids changes, whoever asks.
+
+    Meta answers it with the permission code, but no role and no reconnect
+    cures it: the account must be put right first. Separate so a screen stops
+    sending the owner to the wrong place, and still a ``PermissionDenied`` for
+    everything that only needs to stop.
+    """
+
+
+class AdvertiserRoleMissing(PermissionDenied):
+    """The connected person has no advertiser role on this ad account.
+
+    An admin of the account grants it; reconnecting the same person changes
+    nothing.
+    """
+
+
 class InvalidRequest(ProviderError):
     """The provider rejected the payload.
 
     This is our bug, not theirs. Retrying sends the same wrong payload
     again, so it is raised to be seen rather than swallowed.
+    """
+
+
+class PageAccessDenied(InvalidRequest):
+    """The connected person may not advertise for this Page.
+
+    Meta sends it as an invalid parameter, but the payload is fine: someone
+    with full control of the Page grants the access.
     """
 
 

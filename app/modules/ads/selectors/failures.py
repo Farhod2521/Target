@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any, Final
 
-from metaads.accounts import billing_url, manager_url
+from metaads.accounts import ACCOUNT_QUALITY_URL, billing_url, manager_url
 from sqlalchemy.orm import Session
 
 from app.common.contract import Refusal, RefusalFix
@@ -21,6 +21,7 @@ DELETES: frozenset[str] = frozenset(
 RECONNECT = "reconnect"
 BILLING = "billing"
 ADS_MANAGER = "ads_manager"
+ACCOUNT_QUALITY = "account_quality"
 _RECONNECT_SAID = "Meta ulanishi uzilgan yoki muddati tugagan. Meta'ni qayta ulang, keyin yana bosing."
 SENTENCES: Final[dict[str, tuple[str, str]]] = {
     "reconnect": (_RECONNECT_SAID, RECONNECT),
@@ -30,6 +31,21 @@ SENTENCES: Final[dict[str, tuple[str, str]]] = {
         "Business Manager'da profilga akkaunt ustidan to'liq huquq bering yoki "
         "Meta'ni qayta ulang.",
         RECONNECT,
+    ),
+    "account_role": (
+        "Ulangan Facebook profilida bu reklama akkauntida reklama berish roli yo'q. "
+        "Akkaunt administratori sizga kamida «Advertiser» rolini bersin, keyin "
+        "Meta'ni qayta ulang.",
+        RECONNECT,
+    ),
+    "page_role": (
+        "Ulangan Facebook profili bu sahifa nomidan reklama bera olmaydi. Sahifani "
+        "to'liq boshqaradigan odam sizga huquq bersin, keyin Meta'ni qayta ulang.",
+        RECONNECT,
+    ),
+    "media_too_large": (
+        "Fayl Meta qabul qiladiganidan katta. Siqilgan yoki qisqaroq variantini tanlang.",
+        "",
     ),
     "account_blocked": (
         "Meta bu reklama akkauntiga hozir hech qanday o'zgarish kiritishga ruxsat "
@@ -112,6 +128,27 @@ GUIDES: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
             "Meta'ni qayta ulang.",
             AGAIN,
         ),
+    ),
+    "account_role": (
+        "Ulangan Facebook profilida bu reklama akkauntida reklama berish roli yo'q.",
+        (
+            "Reklama akkaunti administratoridan profilingizga kamida «Advertiser» "
+            "rolini berishni so'rang.",
+            "Rol berilgach, Meta'ni qayta ulang.",
+            AGAIN,
+        ),
+    ),
+    "page_role": (
+        "Ulangan Facebook profili bu sahifa nomidan reklama bera olmaydi.",
+        (
+            "Sahifani to'liq boshqaradigan odamdan reklama berish huquqini so'rang.",
+            "Huquq berilgach, Meta'ni qayta ulang.",
+            AGAIN,
+        ),
+    ),
+    "media_too_large": (
+        "Fayl Meta qabul qiladiganidan katta.",
+        ("Faylni siqilgan yoki qisqaroq variantiga almashtiring.", AGAIN),
     ),
     "account_blocked": (
         "Meta bu reklama akkauntiga hozir hech qanday o'zgarish kiritishga ruxsat "
@@ -246,6 +283,7 @@ def fix_link(fix: str, account: str) -> tuple[str, str]:
         RECONNECT: ("Meta'ni qayta ulash", reverse("integrations:connections")),
         BILLING: ("To'lov sahifasini ochish", billing_url(account)),
         ADS_MANAGER: ("Ads Manager'ni ochish", manager_url(account)),
+        ACCOUNT_QUALITY: ("Account Quality'ni ochish", ACCOUNT_QUALITY_URL),
     }
     return links.get(fix, ("", ""))
 

@@ -100,6 +100,19 @@ READY: Final[dict[LaunchErrorCode, Ready]] = {
         to="connections",
         href="account_quality",
     ),
+    "account_role": Ready(
+        title="Reklama akkauntida rolingiz yetarli emas",
+        hint="Akkaunt administratoridan rol so'rang",
+        cause="Ulangan Facebook profilida bu reklama akkauntida reklama berish roli yo'q. Qayta ulash yordam bermaydi: rolni akkaunt administratori beradi.",
+        steps=(
+            "Reklama akkaunti administratoriga yozing.",
+            "U business.facebook.com da «Settings» → «Accounts» → «Ad accounts» ga kirib, profilingizga kamida «Advertiser» rolini bersin.",
+            "Rol berilgach, «Ulanishlar» sahifasida Meta qatoridagi «Qayta ulash» ni bosing.",
+            RETRY,
+        ),
+        fix="Ulanishlarni ochish",
+        to="connections",
+    ),
     "location_invalid": Ready(
         title="Meta tanlangan joyni tanimadi",
         hint="Joylashuvni o'zgartiring",
