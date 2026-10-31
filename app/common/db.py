@@ -48,6 +48,9 @@ def on_commit(db: Session, callback: Callable[[], object]) -> None:
 
 @event.listens_for(Session, "after_commit")
 def _run_on_commit(db: Session) -> None:
+    # Fired for a savepoint too, when the row is still nobody else's to read.
+    if db.in_nested_transaction():
+        return
     callbacks = db.info.pop(_ON_COMMIT, [])
     for callback in callbacks:
         callback()
@@ -55,5 +58,5 @@ def _run_on_commit(db: Session) -> None:
 
 @event.listens_for(Session, "after_rollback")
 def _drop_on_commit(db: Session) -> None:
-    if not db.in_transaction():
+    if not db.in_nested_transaction():
         db.info.pop(_ON_COMMIT, None)

@@ -1,5 +1,8 @@
 """Ads against PostgreSQL: the page scope over a mirror, and asking for a change."""
 
+from datetime import datetime, timedelta
+
+import pytest
 from metaads import PROVIDER
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,6 +13,7 @@ from app.modules.ads import actions, selectors
 from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.exceptions import AlreadyInState, ChangeInFlight
 from app.modules.ads.models import Ad, AdSet, Campaign, CampaignLaunch
+from app.modules.ads.services.manage import close_stalled_changes, start_delivery
 from app.modules.audit.models import ActionLog
 from tests.pg.test_cabinet_flows import _cabinet
 
@@ -185,4 +189,70 @@ def test_campaigns_api(client, db: Session, queued: list) -> None:  # type: igno
             f"/api/v1/campaigns/{campaign.id}/history", headers=headers
         ).status_code
         == 200
+    )
+
+
+def test_every_level_of_a_start_goes_out_after_the_commit(
+    db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sent early, a worker finds no row and the campaign stays off for good."""
+    monkeypatch.setattr(
+        "app.modules.billing.services.require_live_subscription", lambda *_a, **_k: None
+    )
+    owner, account = _owner_with_account(db)
+    _mirror(db, owner, account.id)
+    for row in (db.scalars(select(model)).one() for model in (Campaign, AdSet, Ad)):
+        row.delivery, row.status = "paused", "PAUSED"
+    db.commit()
+
+    outcome = start_delivery(
+        db,
+        user=owner,
+        targets=[("campaign", "c_1"), ("adset", "s_1"), ("ad", "a_1")],
+    )
+    assert outcome.refused == ()
+    assert queued == []
+    db.commit()
+
+    assert len(queued) == 3
+
+
+def test_a_change_no_worker_carried_out_is_closed(db: Session, queued: list) -> None:
+    owner, _account = _owner_with_account(db)
+    now = utcnow()
+    old = _log(owner, "resume", key="old", created_at=now - timedelta(minutes=11))
+    fresh = _log(owner, "resume", key="fresh", created_at=now)
+    other = _log(owner, "budget_up", key="budget", created_at=now - timedelta(hours=1))
+    db.add_all([old, fresh, other])
+    db.commit()
+
+    assert close_stalled_changes(db, now=now) == 1
+
+    assert (old.status, old.error_code) == ("failed", "stalled")
+    assert fresh.status == "pending"
+    assert other.status == "pending"
+
+
+def _owner_with_account(db: Session) -> tuple[User, object]:
+    owner = User(
+        email="start@example.com", full_name="Ads", password="!", date_joined=utcnow()
+    )
+    db.add(owner)
+    db.commit()
+    account, page = _cabinet(db, owner)
+    page.is_current = page.is_active = True
+    account.is_current = account.is_active = True
+    db.commit()
+    return owner, account
+
+
+def _log(owner: User, action: str, *, key: str, created_at: datetime) -> ActionLog:
+    return ActionLog(
+        owner_id=owner.id,
+        action=action,
+        target_level="campaign",
+        target_external_id="c_1",
+        target_provider=PROVIDER,
+        idempotency_key=key,
+        created_at=created_at,
     )

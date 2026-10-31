@@ -59,6 +59,10 @@ SENTENCES: Final[dict[str, tuple[str, str]]] = {
         ADS_MANAGER,
     ),
     "gone": ("Bu reklama endi ro'yxatda yo'q. Sahifani yangilang.", ""),
+    "stalled": (
+        "Bu o'zgarish oxirigacha bormadi. Holatni tekshirib, yana bosing.",
+        "",
+    ),
     "changed_elsewhere": (
         "Bu guruhning auditoriyasi platformadan tashqarida — Ads Manager'da yoki "
         "Meta tomonidan — o'zgartirilgan, shuning uchun hech narsa yuborilmadi. "

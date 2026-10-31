@@ -10,7 +10,7 @@ import logging
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Final
 
 from adskit import ExternalRef
@@ -25,7 +25,12 @@ from app.common.db import on_commit, utcnow
 from app.common.exceptions import DomainError
 from app.common.money import provider_money
 from app.modules.accounts.models import User
-from app.modules.ads.constants import BLOCKED_STANDINGS, MANAGE_LOG_PREFIX, ManagedLevel
+from app.modules.ads.constants import (
+    ACTION_STALE_MINUTES,
+    BLOCKED_STANDINGS,
+    MANAGE_LOG_PREFIX,
+    ManagedLevel,
+)
 from app.modules.ads.exceptions import (
     AccountNotConnected,
     AlreadyInState,
@@ -179,6 +184,24 @@ def fail_log(
     if detail:
         log.result_payload = {**(log.result_payload or {}), **detail}
     db.commit()
+
+
+def close_stalled_changes(db: Session, *, now: datetime) -> int:
+    """Give up on every pause or resume no worker carried out in time.
+
+    Past this the screens stop waiting, so the row would only stay open for
+    good. A late task finds it closed and leaves it.
+    """
+    rows = db.scalars(
+        select(ActionLog).where(
+            ActionLog.status == str(ActionStatus.PENDING),
+            ActionLog.action.in_([str(action) for action in STATUS_WANTED]),
+            ActionLog.created_at < now - timedelta(minutes=ACTION_STALE_MINUTES),
+        )
+    ).all()
+    for log in rows:
+        fail_log(db, log=log, code="stalled", message="no worker carried it out")
+    return len(rows)
 
 
 # A provider's refusal by class name, so adding a provider never means

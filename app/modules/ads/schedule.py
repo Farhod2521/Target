@@ -31,6 +31,11 @@ SCHEDULE: Final = [
         "*/5",
     ),
     Periodic(
+        "Qotib qolgan o'zgarishlarni yopish",
+        f"{TASKS}.close_stalled_changes_task",
+        "3,13,23,33,43,53",
+    ),
+    Periodic(
         "Tashlab ketilgan kutubxona yuklashlarini yopish",
         f"{TASKS}.sweep_abandoned_uploads_task",
         "6,36",

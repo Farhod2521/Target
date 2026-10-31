@@ -397,6 +397,14 @@ def rollback_stranded_launch_task(launch_id: str) -> str:
 
 
 @celery_app.task(queue="sync", ignore_result=True)
+def close_stalled_changes_task() -> int:
+    from app.modules.ads.services.manage import close_stalled_changes
+
+    with task_session() as db:
+        return close_stalled_changes(db, now=utcnow())
+
+
+@celery_app.task(queue="sync", ignore_result=True)
 def release_stalled_launches_task() -> int:
     from app.modules.ads.services.rollback import release_stalled_launches
 
