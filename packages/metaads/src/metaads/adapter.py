@@ -144,6 +144,7 @@ from metaads.errors import (
     MetaTemporaryError,
     PagesExhausted,
     RateLimitApproaching,
+    refusal_key,
     retired_pairs,
 )
 from metaads.insights import (
@@ -443,6 +444,12 @@ def translate_error(exc: MetaError) -> ProviderError:
     provider said no" - which is what sends an owner to rewrite an ad three
     times over a security check Meta has already described in plain words.
     """
+    translated = _translated(exc)
+    translated.key = refusal_key(exc)
+    return translated
+
+
+def _translated(exc: MetaError) -> ProviderError:
     words = _user_words(exc)
     # First, because it is the one failure Meta did not report. Every
     # request succeeded and the answer was simply deeper than the read was

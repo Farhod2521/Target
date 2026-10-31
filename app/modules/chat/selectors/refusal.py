@@ -13,6 +13,7 @@ from app.common.i18n import DEFAULT, LANGUAGES
 from app.common.routes import reverse
 from app.modules.accounts.models import User
 from app.modules.ads.constants import LaunchStatus, LaunchStep
+from app.modules.ads.contract.launch.words import failure_code_of
 from app.modules.ads.models import CampaignLaunch
 from app.modules.chat.constants import (
     OUR_FAULT_KEYS,
@@ -55,11 +56,23 @@ def refused_launch_for(
 
 def key_for(launch: CampaignLaunch) -> str:
     """The name this refusal's ready answer is kept under, or empty."""
+    named = str(_detail(launch).get("key") or "")
+    if named:
+        return named
     return refusal_key(
         provider=launch.provider,
         error_code=launch.error_code,
         error_message=launch.error_message,
     )
+
+
+def explained_key(launch: CampaignLaunch) -> str:
+    """The key of a refusal the sheet has no answer of its own for, or empty.
+
+    A named refusal has its steps written already, and a passing fault is
+    answered by waiting: neither is worth a question to Claude.
+    """
+    return key_for(launch) if failure_code_of(launch.error_code) == "other" else ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,21 +92,41 @@ def answer_language(language: str | None) -> str:
 
 
 def ready_answer(db: Session, *, key: str, language: str) -> ReadyAnswer | None:
-    """The answer already written for this refusal, in this language."""
+    """The answer already written for this refusal, in this language first.
+
+    A row with only another language's text answers in that one: asking Claude
+    again for a translation is the office's to do, not a reader's to trigger.
+    """
     if not key:
         return None
-    column = getattr(RefusalAnswer, REFUSAL_ANSWER_FIELDS[answer_language(language)])
-    row = db.execute(
-        select(RefusalAnswer.id, column)
-        .where(
+    row = db.scalar(
+        select(RefusalAnswer).where(
             RefusalAnswer.key == key,
-            column != "",
+            RefusalAnswer.held.is_(False),
             RefusalAnswer.prompt_version.not_in(list(REFUSAL_STALE_VERSIONS)),
         )
-        .order_by(RefusalAnswer.hits.desc())
-        .limit(1)
-    ).first()
-    return ReadyAnswer(pk=row[0], text=row[1]) if row is not None else None
+    )
+    if row is None:
+        return None
+    wanted = REFUSAL_ANSWER_FIELDS[answer_language(language)]
+    for field in (wanted, *REFUSAL_ANSWER_FIELDS.values()):
+        text = getattr(row, field)
+        if text:
+            return ReadyAnswer(pk=row.id, text=text)
+    return None
+
+
+def already_asked(db: Session, *, key: str) -> bool:
+    """Whether Claude has answered this refusal: a kept row that is not retired."""
+    return (
+        db.scalar(
+            select(RefusalAnswer.id).where(
+                RefusalAnswer.key == key,
+                RefusalAnswer.prompt_version.not_in(list(REFUSAL_STALE_VERSIONS)),
+            )
+        )
+        is not None
+    )
 
 
 def refusal_facts(launch: CampaignLaunch) -> RefusalFacts:
@@ -172,13 +205,12 @@ def refusal_links(launch: CampaignLaunch) -> dict[str, Link]:
     return links
 
 
-def awaited(*, key: str, language: str) -> bool:
+def awaited(*, key: str) -> bool:
     """Whether an answer for this key may still come: none was given up on today."""
     from app.common.cache import cache
     from app.modules.chat.constants import REFUSAL_GAVE_UP, REFUSAL_LOCK
 
-    lock = REFUSAL_LOCK.format(key=key, language=answer_language(language))
-    return bool(cache.get(lock) != REFUSAL_GAVE_UP)
+    return bool(cache.get(REFUSAL_LOCK.format(key=key)) != REFUSAL_GAVE_UP)
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,12 +228,12 @@ def launch_explanation(
     from core.chat.links import link_html
     from core.chat.markdown import render as render_markdown
 
-    key = key_for(launch) if launch.status in REFUSED else ""
+    key = explained_key(launch) if launch.status in REFUSED else ""
     if not key:
         return Explanation()
     ready = ready_answer(db, key=key, language=language)
     if ready is None:
-        return Explanation(explaining=awaited(key=key, language=language))
+        return Explanation(explaining=awaited(key=key))
     return Explanation(
         html=link_html(render_markdown(ready.text), refusal_links(launch))
     )
@@ -231,8 +263,10 @@ __all__ = [
     "MEANINGS",
     "Explanation",
     "ReadyAnswer",
+    "already_asked",
     "answer_language",
     "awaited",
+    "explained_key",
     "key_for",
     "launch_explanation",
     "ready_answer",

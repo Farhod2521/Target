@@ -17,7 +17,11 @@ SECTION_CHARS: Final = 3_000
 
 
 def refusal_key(*, provider: str, error_code: str, error_message: str) -> str:
-    """The name one written answer is kept under, or empty for none."""
+    """The name of a refusal stored before the adapters named their own.
+
+    A new one carries it in ``ProviderError.key``; these rows have only the log
+    line, and answers are already kept under what is read from it.
+    """
     found = _NUMBERS.search(error_message or "")
     if found:
         return f"{provider}:{found.group(1)}/{found.group(2)}"
@@ -33,11 +37,7 @@ CHANGE_PREFIX: Final = "change"
 
 
 def change_refusal_key(*, provider: str, error_message: str) -> str:
-    """The name a refused change's answer is kept under, or empty for none.
-
-    Only a code with its subcode: a code alone ("100", invalid parameter)
-    names a family of refusals too wide for one answer to be true for all.
-    """
+    """The same for a refused change stored before the adapters named theirs."""
     found = _NUMBERS.search(error_message or "")
     if not found:
         return ""

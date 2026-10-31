@@ -65,6 +65,13 @@ _SETUP_REASONS: Final = frozenset(
 
 def translate_error(exc: GoogleAdsError) -> ProviderError:
     """One Google Ads failure as the domain's own error."""
+    translated = _translated(exc)
+    if isinstance(exc, GoogleAdsAPIError):
+        translated.key = f"google:{_code(exc)}"
+    return translated
+
+
+def _translated(exc: GoogleAdsError) -> ProviderError:
     if isinstance(exc, GoogleAdsOutcomeUnknown):
         # Retryable for a read, which is all this package does today. A
         # write that ends this way may have landed; the code says so, and

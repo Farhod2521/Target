@@ -48,6 +48,10 @@ class ProviderError(AdsError):
     """
 
     retryable: bool = False
+    # The name one written answer to this refusal is kept under, set by the
+    # adapter that translated it: the provider's own numbers read the same
+    # whatever language it answered in. Empty when it gave none.
+    key: str = ""
 
     def __init__(
         self,

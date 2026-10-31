@@ -33,6 +33,7 @@ from metaads.errors import (
     PagesExhausted,
     RateLimitApproaching,
     describe,
+    first_blamed,
     user_words,
 )
 
@@ -459,6 +460,7 @@ class GraphClient:
             subcode=subcode,
             user_title=title,
             user_message=sentence,
+            blamed=first_blamed(error),
         )
 
     def _brake_on(self, response: httpx.Response) -> None:

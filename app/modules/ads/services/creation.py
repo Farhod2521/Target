@@ -597,6 +597,9 @@ def _detail_for(exc: Exception) -> dict[str, Any]:
     title = str(getattr(exc, "user_title", "") or "").strip()
     sentence = str(getattr(exc, "user_message", "") or "").strip()
     code = str(getattr(exc, "code", "") or "").strip()
+    key = str(getattr(exc, "key", "") or "")
+    if key:
+        detail["key"] = key
     if not (title or sentence):
         return detail
     detail.update({"title": title, "message": sentence, "code": code})
@@ -627,19 +630,22 @@ def _fail(
     launch.finished_at = utcnow()
     db.commit()
     logger.warning("launch %s could not be created: %s - %s", launch.id, code, message)
-    _explain_later(launch)
+    _explain_later(db, launch)
     return code
 
 
-def _explain_later(launch: CampaignLaunch) -> None:
+def _explain_later(db: Session, launch: CampaignLaunch) -> None:
     """A refusal with a key goes to be explained in the owner's language, chat or no chat.
 
     After the row is committed: a lost broker leaves the refusal as it is.
     """
-    from app.modules.chat.services.explain import explain_launch_later
+    from app.modules.chat.selectors.refusal import explained_key
+    from app.modules.chat.services.explain import count_refusal, explain_launch_later
 
     try:
         explain_launch_later(launch=launch, language=launch.owner.language)
+        count_refusal(db, key=explained_key(launch))
+        db.commit()
     except Exception:
         logger.exception("refused launch %s was not sent to be explained", launch.id)
 

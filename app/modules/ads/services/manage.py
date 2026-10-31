@@ -240,26 +240,30 @@ def fail_provider(
             for key, value in (
                 ("user_title", exc.user_title),
                 ("user_message", exc.user_message),
+                ("key", exc.key),
             )
             if value
         },
     )
-    _explain_later(log)
+    _explain_later(db, log)
 
 
-def _explain_later(log: ActionLog) -> None:
+def _explain_later(db: Session, log: ActionLog) -> None:
     """A refusal the screen has no sentence for goes to be explained, in the owner's language.
 
     After the row is committed, so a lost broker never turns a refusal into
     an unknown failure.
     """
     from app.modules.ads.selectors.failures import unfamiliar
-    from app.modules.chat.services.explain import explain_later
+    from app.modules.chat.selectors.change_refusal import change_key
+    from app.modules.chat.services.explain import count_refusal, explain_later
 
     if not unfamiliar(log):
         return
     try:
         explain_later(log=log, language=log.owner.language)
+        count_refusal(db, key=change_key(log))
+        db.commit()
     except Exception:
         logger.exception("refusal %s was not sent to be explained", log.id)
 
