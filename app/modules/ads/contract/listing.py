@@ -15,6 +15,7 @@ from app.common.cache import cache
 from app.common.contract import money, zero_or
 from app.modules.accounts.models import User
 from app.modules.ads import selectors
+from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.contract.words import (
     RUNNING,
     Goal,
@@ -27,6 +28,8 @@ from app.modules.ads.contract.words import (
     network_of,
     status_of,
 )
+from app.modules.ads.selectors.failures import last_refusal
+from app.modules.ads.selectors.rejections import rejection_of
 
 Period = Literal["today", "7d", "30d", "90d", "custom"]
 StatusFilter = Literal["running", "paused", "all"]
@@ -133,6 +136,12 @@ def campaign_row(
         "problem": getattr(row, "issue_summary", "") or None,
         "deleting": bool(getattr(row, "deleting", False)) or None,
         "last_action": last_action_of(getattr(row, "last_action", None)),
+        "refusal": last_refusal(
+            action=getattr(row, "last_action", None),
+            target=row,
+            level=ManagedLevel.CAMPAIGN,
+        ),
+        "rejection": rejection_of(getattr(row, "rejected_ad", None)),
         "group_count": groups if groups > 1 else None,
         "controls": controls_of(controls, early_hours=early),
         # Not counted on the list: the delete question does not say «0 ta».
@@ -160,6 +169,7 @@ def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
     rows = selectors.with_switches(db, owner=owner, campaigns=rows)
     rows = selectors.with_settings(campaigns=rows)
     rows = selectors.with_badges(db, owner=owner, rows=rows)
+    rows = selectors.with_rejections(db, owner=owner, campaigns=rows)
     business = (
         business_for_page(db, owner=owner, page=advertising.page)
         if advertising.page is not None

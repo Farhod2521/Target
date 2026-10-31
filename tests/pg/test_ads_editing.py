@@ -164,7 +164,7 @@ def test_edit_a_campaigns_settings_and_an_adverts_words(
         json={"message": "Yangi matn", "headline": "Bahorgi tort"},
         headers=headers,
     )
-    assert swapped.status_code == 204, swapped.text
+    assert swapped.status_code == 200, swapped.text
     assert queued[-1][0].endswith("apply_swap_task")
 
     preview = client.get("/api/v1/campaigns/ads/a_2/preview", headers=headers)

@@ -22,6 +22,9 @@ class Destination(Protocol):
     @property
     def needs_phone(self) -> bool: ...
 
+    @property
+    def needs_lead_form(self) -> bool: ...
+
 
 @dataclass(frozen=True, slots=True)
 class MediaCount:
@@ -61,6 +64,9 @@ def post_route(*, variant: LaunchCreative, built: Destination) -> PostRoute | No
         return None
     if built.needs_phone:
         return PostRoute.COPIED_FOR_CALLS
+    asset = variant.media_asset
+    if built.needs_lead_form and asset is not None and asset.is_carousel:
+        return PostRoute.COPIED_FOR_CAROUSEL
     if words_touched(variant=variant):
         return PostRoute.COPIED_FOR_WORDS
     return PostRoute.PROMOTED

@@ -199,6 +199,10 @@ class MediaDTO(MetaDTO):
     height: int = 0
     created_time: datetime | None = None
 
+    # An Instagram album. Read as a picture, but Meta will not run one as it
+    # stands behind a lead form: see ``PostRoute.COPIED_FOR_CAROUSEL``.
+    is_carousel: bool = False
+
     # Whether the provider will let this be advertised at all, and why not.
     #
     # Only Instagram answers it, so ``None`` is the ordinary value and means

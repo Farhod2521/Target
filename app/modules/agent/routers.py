@@ -319,6 +319,8 @@ def save_new_ad(
 ) -> dict[str, Any]:
     """The yes: the words as edited, carried out as the proposal's approval."""
     from app.common.exceptions import InputRefused
+    from app.modules.ads.constants import ManagedLevel
+    from app.modules.ads.routers import control_state
 
     suggestion, ad = _new_ad(db, user=user, pk=suggestion_id)
     if ad is None:
@@ -341,7 +343,13 @@ def save_new_ad(
         db.rollback()
         raise
     db.commit()
-    return _answered(db, user, "Yangi reklama yuborildi. Bir necha soniyada ko'rinadi.")
+    return _answered(
+        db, user, "Yangi reklama yuborildi. Bir necha soniyada ko'rinadi."
+    ) | {
+        "control": control_state(
+            db, user, level=ManagedLevel.AD, external_id=ad.external_id
+        )
+    }
 
 
 # -- settings -------------------------------------------------------------------------

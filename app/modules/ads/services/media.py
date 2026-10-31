@@ -369,6 +369,7 @@ def _write(
         "permalink_url": asset.permalink_url,
         "width": asset.width,
         "height": asset.height,
+        "is_carousel": asset.is_carousel,
         "is_eligible": asset.is_eligible,
         "ineligible_reason": asset.ineligible_reason,
         "synced_at": now,

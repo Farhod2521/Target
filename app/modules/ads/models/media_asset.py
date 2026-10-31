@@ -31,6 +31,7 @@ class MediaAsset(Base):
     permalink_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
     width: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     height: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_carousel: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_eligible: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     ineligible_reason: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     created_at_provider: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

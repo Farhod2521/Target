@@ -429,17 +429,12 @@ def action_state_by_id(
     }
 
 
-@router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
-def campaign_delete(campaign_id: uuid.UUID, db: Db, user: CurrentUser) -> None:
+@router.delete("/{campaign_id}", response_model=ControlState)
+def campaign_delete(
+    campaign_id: uuid.UUID, db: Db, user: CurrentUser
+) -> dict[str, Any]:
     campaign = _detail(db, user, campaign_id)
-    actions.request(
-        db,
-        user=user,
-        ask=actions.Delete(
-            level=ManagedLevel.CAMPAIGN, external_id=campaign.external_id
-        ),
-    )
-    db.commit()
+    return _deleting(db, user, ManagedLevel.CAMPAIGN, campaign.external_id)
 
 
 @router.post("/drafts/{launch_id}/discard", status_code=status.HTTP_204_NO_CONTENT)
@@ -527,6 +522,39 @@ def control_state(
     }
 
 
+def _deleted(db: Session, user: User, level: str, external_id: str) -> bool:
+    """Whether this object is off the screens because a delete went through."""
+    from app.modules.ads.selectors.failures import DELETES
+
+    if level not in ManagedLevel.values or selectors.shown_target(
+        db, owner=user, level=level, external_id=external_id
+    ):
+        return False
+    last = selectors.latest_actions(db, owner=user, external_ids=[external_id]).get(
+        external_id
+    )
+    return (
+        last is not None
+        and last.action in DELETES
+        and last.status == ActionStatus.APPLIED
+    )
+
+
+def _gone(*, level: str, external_id: str, tries: int) -> dict[str, Any]:
+    """A press followed to its end: what it deleted has no state left to read."""
+    return {
+        "level": level,
+        "external_id": external_id,
+        "pending": False,
+        "stalled": False,
+        "failure": None,
+        "action": None,
+        "tries": tries + 1,
+        "poll_seconds": ACTION_POLL_SECONDS,
+        "gone": True,
+    }
+
+
 def _refusal(*, note: Any, action: Any) -> dict[str, Any]:
     from app.modules.ads.selectors.failures import note_refusal, unfamiliar
     from app.modules.chat.selectors.change_refusal import change_key
@@ -585,6 +613,8 @@ def _changed(
 def action_state(
     level: str, external_id: str, db: Db, user: CurrentUser, tries: int = TRIES_Q
 ) -> dict[str, Any]:
+    if _deleted(db, user, level, external_id):
+        return _gone(level=level, external_id=external_id, tries=tries)
     return control_state(db, user, level=level, external_id=external_id, tries=tries)
 
 
@@ -750,26 +780,25 @@ def campaign_resume(
     return _switch_campaign(db, user, campaign_id, "resume")
 
 
-@router.delete("/adsets/{external_id}", status_code=status.HTTP_204_NO_CONTENT)
-def adset_delete(external_id: str, db: Db, user: CurrentUser) -> None:
+def _deleting(db: Session, user: User, level: str, external_id: str) -> dict[str, Any]:
+    """Send the delete and answer its state: Meta may still refuse it."""
+    actions.request(
+        db, user=user, ask=actions.Delete(level=level, external_id=external_id)
+    )
+    db.commit()
+    return control_state(db, user, level=level, external_id=external_id)
+
+
+@router.delete("/adsets/{external_id}", response_model=ControlState)
+def adset_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     _target(db, user, ManagedLevel.ADSET, external_id)
-    actions.request(
-        db,
-        user=user,
-        ask=actions.Delete(level=ManagedLevel.ADSET, external_id=external_id),
-    )
-    db.commit()
+    return _deleting(db, user, ManagedLevel.ADSET, external_id)
 
 
-@router.delete("/ads/{external_id}", status_code=status.HTTP_204_NO_CONTENT)
-def ad_delete(external_id: str, db: Db, user: CurrentUser) -> None:
+@router.delete("/ads/{external_id}", response_model=ControlState)
+def ad_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     _target(db, user, ManagedLevel.AD, external_id)
-    actions.request(
-        db,
-        user=user,
-        ask=actions.Delete(level=ManagedLevel.AD, external_id=external_id),
-    )
-    db.commit()
+    return _deleting(db, user, ManagedLevel.AD, external_id)
 
 
 from app.modules.ads.routers import additions as _additions  # noqa: E402, F401

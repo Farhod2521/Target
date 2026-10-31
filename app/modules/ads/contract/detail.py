@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.common.contract import money, zero_or
 from app.modules.accounts.models import User
+from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.contract.listing import access_of
 from app.modules.ads.contract.tree import campaign_tree
 from app.modules.ads.contract.words import (
@@ -23,6 +24,12 @@ from app.modules.ads.contract.words import (
     place_of,
     status_of,
     status_word,
+)
+from app.modules.ads.selectors.failures import last_refusal
+from app.modules.ads.selectors.rejections import (
+    complaint_of,
+    first_turned_down,
+    rejection_of,
 )
 from app.modules.audit.constants import ActionStatus, ActionType, ActorType
 
@@ -292,7 +299,10 @@ def campaign_detail(
     )
     built = selectors.built_campaign_type(campaign=campaign)
     event = selectors.built_conversion_event(campaign=campaign)
-    issue = getattr(campaign, "issue_summary", "")
+    turned_down = first_turned_down(ad for group in groups for ad in group.ads)
+    issue = getattr(campaign, "issue_summary", "") or (
+        complaint_of(turned_down) if turned_down is not None else ""
+    )
     daily = (
         campaign.daily_budget_minor
         if campaign.daily_budget_minor is not None
@@ -314,6 +324,12 @@ def campaign_detail(
         "ends_at": settings.ends_at.isoformat() if settings.ends_at else None,
         "learning": learning,
         "problem": {"text": issue, "fix": ""} if issue else None,
+        "refusal": last_refusal(
+            action=getattr(campaign, "last_action", None),
+            target=campaign,
+            level=ManagedLevel.CAMPAIGN,
+        ),
+        "rejection": rejection_of(turned_down),
         "stats": stats_of(panel, currency=currency, provider=provider),
         "daily": None,
         "ads": ads,

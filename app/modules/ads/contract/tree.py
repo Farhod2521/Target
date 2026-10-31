@@ -6,11 +6,16 @@ from sqlalchemy.orm import Session
 
 from app.common.contract import money
 from app.modules.accounts.models import User
+from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.contract.listing import figures_of
 from app.modules.ads.contract.words import controls_of, last_action_of, status_of
+from app.modules.ads.selectors.failures import last_refusal
+from app.modules.ads.selectors.rejections import (
+    POST_KINDS,
+    first_turned_down,
+    rejection_of,
+)
 
-# An advert that shows an existing page post: its words are changed on the network.
-POST_KINDS: Final = frozenset({"post", "page_post", "existing_post", "boost"})
 # The figures beside each advert are the last week's.
 TREE_PERIOD: Final = "7"
 
@@ -40,6 +45,11 @@ def ad_item(ad: Any, *, position: int, chips: Any, currency: str) -> dict[str, A
         ),
         "is_last": bool(getattr(ad, "is_last", False)),
         "deleting": bool(getattr(ad, "deleting", False)) or None,
+        "last_action": last_action_of(getattr(ad, "last_action", None)),
+        "refusal": last_refusal(
+            action=getattr(ad, "last_action", None), target=ad, level=ManagedLevel.AD
+        ),
+        "rejection": rejection_of(ad),
         "can_swap": kind not in POST_KINDS,
     }
 
@@ -95,6 +105,14 @@ def campaign_tree(groups: list[Any], *, chips: dict[str, Any]) -> dict[str, Any]
                 "is_last": bool(getattr(group, "is_last", False)),
                 "deleting": bool(getattr(group, "deleting", False)) or None,
                 "last_action": last_action_of(getattr(group, "last_action", None)),
+                "refusal": last_refusal(
+                    action=getattr(group, "last_action", None),
+                    target=group,
+                    level=ManagedLevel.ADSET,
+                ),
+                "rejection": rejection_of(
+                    first_turned_down(getattr(group, "fold_ads", group.ads))
+                ),
                 "ads": ads,
             }
         )

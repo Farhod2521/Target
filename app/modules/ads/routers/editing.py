@@ -139,9 +139,16 @@ class AdEditIn(Camel):
     )
 
 
-@router.post("/ads/{external_id}/edit", status_code=status.HTTP_204_NO_CONTENT)
-def ad_edit_save(external_id: str, body: AdEditIn, db: Db, user: CurrentUser) -> None:
-    """Build the next advert from this one, and switch this one off."""
+@router.post("/ads/{external_id}/edit", response_model=ControlState)
+def ad_edit_save(
+    external_id: str, body: AdEditIn, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    """Build the next advert from this one, and switch this one off.
+
+    Answers its state: Meta's refusal comes later, in the worker.
+    """
+    from app.modules.ads.routers import control_state
+
     ad = _target(db, user, ManagedLevel.AD, external_id)
     if not any(
         word.strip() for word in (body.message, body.headline, body.description)
@@ -178,6 +185,7 @@ def ad_edit_save(external_id: str, body: AdEditIn, db: Db, user: CurrentUser) ->
         ),
     )
     db.commit()
+    return control_state(db, user, level=ManagedLevel.AD, external_id=ad.external_id)
 
 
 def _editable(db: Session, user: User, campaign_id: uuid.UUID, group: str) -> Any:

@@ -59,6 +59,12 @@ class ListedCampaign(Camel):
     problem: str | None = None
     deleting: bool | None = None
     last_action: Literal["failed", "dry_run"] | None = None
+    refusal: Refusal | None = Field(
+        None, description="Why the last change on this row failed."
+    )
+    rejection: Refusal | None = Field(
+        None, description="Why Meta will not run an advert under this row."
+    )
     group_count: int | None = None
     controls: Controls
     ad_count: int | None
@@ -166,6 +172,9 @@ class CampaignAd(Camel):
     controls: Controls | None = None
     is_last: bool | None = None
     deleting: bool | None = None
+    last_action: Literal["failed", "dry_run"] | None = None
+    refusal: Refusal | None = None
+    rejection: Refusal | None = None
     can_swap: bool | None = Field(
         None, description="False: the words live on the page's post, changed there."
     )
@@ -181,6 +190,8 @@ class AdGroup(Camel):
     is_last: bool
     deleting: bool | None = None
     last_action: Literal["failed", "dry_run"] | None = None
+    refusal: Refusal | None = None
+    rejection: Refusal | None = None
     ads: list[CampaignAd]
 
 
@@ -369,6 +380,12 @@ class CampaignDetail(Camel):
     ends_at: str | None
     learning: Learning | None
     problem: Problem | None
+    refusal: Refusal | None = Field(
+        None, description="Why the last change on this campaign failed."
+    )
+    rejection: Refusal | None = Field(
+        None, description="Why Meta will not run an advert in this campaign."
+    )
     stats: Stats | None
     daily: None = None
     ads: list[CampaignAd]
@@ -416,6 +433,9 @@ class ControlState(Camel):
     tries: int
     poll_seconds: int
     refused: str | None = Field(None, description="Not sent at all: the sentence why.")
+    gone: bool | None = Field(
+        None, description="The object is no more: its delete went through."
+    )
 
 
 class EditGroup(Camel):
@@ -603,6 +623,8 @@ class ManagerRow(Camel):
     clicks: int
     controls: Controls
     problem: str | None = None
+    refusal: Refusal | None = None
+    rejection: Refusal | None = None
 
 
 class ManagerData(Camel):
