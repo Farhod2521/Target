@@ -230,21 +230,23 @@ def _ask(
         related_id=payload.get("message_id", ""),
     )
     if key and text and not gate.masked and shareable(text):
-        keep_answer(
-            db, key=key, language=language, text=text, facts=facts, version=version
-        )
+        keep_answer(db, key=key, texts={language: text}, facts=facts, version=version)
 
 
 def keep_answer(
     db: Session,
     *,
     key: str,
-    language: str,
-    text: str,
+    texts: Mapping[str, str],
     facts: RefusalFacts | ChangeFacts,
     version: str,
+    held: bool = False,
 ) -> None:
-    """Fill this language's column on the refusal's one row."""
+    """Fill these languages' columns on the refusal's one row.
+
+    Only empty columns: what is there may be the office's own words. ``held``
+    keeps the text for the office and away from every screen.
+    """
     row = db.scalar(select(RefusalAnswer).where(RefusalAnswer.key == key))
     if row is None:
         row = RefusalAnswer(
@@ -255,8 +257,6 @@ def keep_answer(
         )
         db.add(row)
         db.flush()
-    field = REFUSAL_ANSWER_FIELDS[answer_language(language)]
-    column = getattr(RefusalAnswer, field)
     db.execute(
         update(RefusalAnswer)
         .where(
@@ -264,17 +264,23 @@ def keep_answer(
             RefusalAnswer.prompt_version.in_(list(REFUSAL_STALE_VERSIONS)),
         )
         .values(
-            **(dict.fromkeys(REFUSAL_ANSWER_FIELDS.values(), "") | {field: text}),
+            **dict.fromkeys(REFUSAL_ANSWER_FIELDS.values(), ""),
             prompt_version=version,
             provider_title=facts.provider_title,
             provider_message=facts.provider_message,
-            hits=RefusalAnswer.hits + 1,
         )
     )
+    for language, text in texts.items():
+        field = REFUSAL_ANSWER_FIELDS[answer_language(language)]
+        db.execute(
+            update(RefusalAnswer)
+            .where(RefusalAnswer.id == row.id, getattr(RefusalAnswer, field) == "")
+            .values(**{field: text})
+        )
     db.execute(
         update(RefusalAnswer)
-        .where(RefusalAnswer.id == row.id, column == "")
-        .values(**{field: text}, hits=RefusalAnswer.hits + 1)
+        .where(RefusalAnswer.id == row.id)
+        .values(hits=RefusalAnswer.hits + 1, held=held)
     )
 
 

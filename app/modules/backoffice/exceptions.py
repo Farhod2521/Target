@@ -13,6 +13,11 @@ class PromoCodeInUse(DomainError):
         )
 
 
+class RefusalAnswerEmpty(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Kamida bitta tilda javob yozing.")
+
+
 class EmailMismatch(DomainError):
     def __init__(self) -> None:
         super().__init__("Email mos kelmadi — akkaunt o'chirilmadi.")

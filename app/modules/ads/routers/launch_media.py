@@ -389,14 +389,15 @@ def media_preview(
     now = utcnow()
     chosen = launch_variants(db, launch=launch)
     usage = media_usage(db, owner=user, assets=[row])
+    refused = failed_deletes(db, owner=user, now=now)
     return encoded(
         {
             "tile": library_tile(
                 row,
                 used_in=usage.get(row.id, 0),
                 deleting=row.external_id in deleting_files(db, owner=user, now=now),
-                delete_failed=row.external_id
-                in failed_deletes(db, owner=user, now=now),
+                delete_failed=row.external_id in refused,
+                delete_refusal=refused.get(row.external_id),
             ),
             "permalink_url": row.permalink_url,
             "width": row.width,

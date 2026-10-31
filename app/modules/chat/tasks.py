@@ -52,6 +52,26 @@ def explain_launch_refusal(launch_id: str, language: str) -> None:
         db.commit()
 
 
+@celery_app.task(queue="chat", ignore_result=True)
+def explain_action_refusal(payload: str, language: str) -> None:
+    """Explain one refused press, and keep the answer."""
+    from app.modules.chat.services.explain import explain_action
+
+    with task_session() as db:
+        explain_action(db, payload=payload, language=language)
+        db.commit()
+
+
+@celery_app.task(queue="chat", ignore_result=True)
+def count_action_refusal(key: str) -> None:
+    """One more owner met this refusal."""
+    from app.modules.chat.services.explain import count_refusal
+
+    with task_session() as db:
+        count_refusal(db, key=key)
+        db.commit()
+
+
 @celery_app.task(queue="sync", ignore_result=True)
 def sweep_chat_sessions() -> int:
     """Delete threads nobody has written to for thirty days."""
@@ -94,6 +114,8 @@ def explain_week_task(owner_id: str, pair: str = "") -> None:
 __all__ = [
     "answer_chat_turn",
     "answer_refusal_turn",
+    "count_action_refusal",
+    "explain_action_refusal",
     "explain_change_refusal",
     "explain_launch_refusal",
     "explain_week_task",

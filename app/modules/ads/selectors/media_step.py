@@ -202,6 +202,7 @@ def media_step(
                 used_in=usage.get(asset.id, 0),
                 deleting=asset.external_id in deleting,
                 delete_failed=asset.external_id in refused,
+                delete_refusal=refused.get(asset.external_id),
                 still_pending=asset.id in stills,
             )
             for asset in assets

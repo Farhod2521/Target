@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.common.contract import Camel, Money
+from app.common.contract import Camel, Money, Refusal
 from app.modules.ads.constants import MAX_GEO_ADDRESS, MAX_GEO_PLACES
 from app.modules.ads.contract.launch.words import (
     LaunchErrorCode,
@@ -220,6 +220,7 @@ class Failure(Camel):
     explaining: bool | None = Field(
         None, description="That answer is being written: read the draft again."
     )
+    refusal: Refusal | None = None
 
 
 class DraftPage(Camel):
@@ -582,6 +583,7 @@ class MediaAsset(Camel):
     )
     thumb: str | None = None
     error: str | None = None
+    refusal: Refusal | None = None
 
 
 class InstagramProfile(Camel):

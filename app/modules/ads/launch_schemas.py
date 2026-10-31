@@ -119,6 +119,9 @@ class ReviewStateOut(Shape):
     explaining: bool = Field(
         default=False, description="That answer is being written: poll again."
     )
+    refusal_key: str = Field(
+        "", description="What `GET /refusals/answer` is asked with."
+    )
     reach: ReachOut | None
     tries: int
     keep_polling: bool
@@ -218,6 +221,7 @@ class VariantCardOut(Shape):
     words_touched: bool
     is_uploading: bool
     upload_failed: bool
+    upload_refusal: dict[str, Any] | None = None
     brief: str
     copy_notes: list[CopyFinding]
     ad_name: str

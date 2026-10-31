@@ -27,6 +27,41 @@ class Money(Camel):
     exponent: int = Field(description="Digits after the separator: 2 for USD and UZS.")
 
 
+class RefusalFix(Camel):
+    """The one button of a refusal: an address, or a screen of the wizard."""
+
+    label: str
+    url: str | None = None
+    to: str | None = None
+
+
+class Refusal(Camel):
+    """A refusal from the network, the same wherever it happened."""
+
+    key: str | None = Field(
+        None, description="Ask `GET /refusals/answer` with it while `explaining`."
+    )
+    retryable: bool = Field(False, description="It passes by itself: wait and retry.")
+    title: str
+    cause: str
+    steps: list[str] = Field(default_factory=list)
+    provider_words: str | None = Field(
+        None, description="What the network wrote for the advertiser."
+    )
+    html: str | None = Field(
+        None, description="The written answer; shown instead of `cause` and `steps`."
+    )
+    explaining: bool = Field(False, description="That answer is being written.")
+    fix: RefusalFix | None = None
+    retry_after_seconds: int | None = None
+
+
+class RefusalAnswer(Camel):
+    key: str
+    html: str | None = None
+    explaining: bool = False
+
+
 def money(minor: int | None, currency: str, *, provider: str = "meta") -> Money | None:
     """``None`` stays ``None``: an amount nobody knows is not a zero."""
     if minor is None:
@@ -45,4 +80,12 @@ def zero_or(minor: int | None, currency: str, *, provider: str = "meta") -> Mone
     return found
 
 
-__all__ = ["Camel", "Money", "money", "zero_or"]
+__all__ = [
+    "Camel",
+    "Money",
+    "Refusal",
+    "RefusalAnswer",
+    "RefusalFix",
+    "money",
+    "zero_or",
+]

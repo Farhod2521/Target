@@ -17,7 +17,7 @@ from app.api.deps import CurrentUser, Db
 from app.common.cache import cache
 from app.common.config import settings
 from app.common.db import utcnow
-from app.common.exceptions import DomainError
+from app.common.exceptions import DomainError, ProviderRefused
 from app.modules.accounts.models import User
 from app.modules.integrations import selectors, services
 from app.modules.integrations.constants import (
@@ -411,6 +411,10 @@ def meta_callback(
         services.complete_connection(
             db, user=user, code=code, redirect_uri=services.callback_uri(_api_base())
         )
+    except ProviderRefused as exc:
+        return _back(
+            next_url, error=exc.message, refusal_key=exc.refusal.get("key") or ""
+        )
     except DomainError as exc:
         return _back(next_url, error=exc.message)
     return _back(next_url, connected="meta")
@@ -638,16 +642,6 @@ def refresh_google_accounts(db: Db, user: CurrentUser) -> MessageOut:
     return _ok(db, "Tekshirilmoqda. Ro'yxat bir zumda yangilanadi.")
 
 
-def _provider_sentence(exc: ProviderError) -> str:
-    if exc.retryable:
-        return "Platforma hozir band. Bir necha daqiqadan so'ng qayta urining."
-    return (
-        "Platforma bu so'rovni rad etdi. Qayta urinish natijani "
-        "o'zgartirmaydi — reklama akkaunti ulanishini tekshiring yoki "
-        "biz bilan bog'laning."
-    )
-
-
 def _audiences(db: Session, *, owner: User, syncing: bool, tries: int) -> AudiencesOut:
     from app.modules.ads.selectors import page_accounts
     from app.modules.businesses.selectors import business_for
@@ -710,21 +704,29 @@ def audience_rows(
     return _audiences(db, owner=user, syncing=tries < MAX_POLLS, tries=tries + 1)
 
 
-def _provider_call(fn: Any) -> Any:
+def _provider_call(db: Session, user: User, fn: Any) -> Any:
+    from app.modules.chat.services.refused import refused
+
     try:
         return fn()
     except ProviderError as exc:
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY, detail=_provider_sentence(exc)
+        raise refused(
+            db,
+            owner=user,
+            exc=exc,
+            operation="audience",
+            account=selectors.active_ad_account(db, owner=user),
         ) from exc
 
 
 @router.post("/audiences", response_model=AudienceOut, status_code=201)
 def create_audience(body: AudienceIn, db: Db, user: CurrentUser) -> CustomAudience:
     return _provider_call(
+        db,
+        user,
         lambda: services.create_audience(
             db, owner=user, name=body.name, description=body.description
-        )
+        ),
     )
 
 
@@ -734,6 +736,8 @@ def create_rule_audience(
 ) -> CustomAudience:
     kind, _sep, external_id = body.source.partition(":")
     return _provider_call(
+        db,
+        user,
         lambda: services.create_rule_audience(
             db,
             owner=user,
@@ -742,7 +746,7 @@ def create_rule_audience(
             external_id=external_id,
             action=body.action,
             retention_days=body.retention_days,
-        )
+        ),
     )
 
 
@@ -755,13 +759,15 @@ def create_lookalike_audience(
             status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Kenglik noto'g'ri."
         )
     return _provider_call(
+        db,
+        user,
         lambda: services.create_lookalike_audience(
             db,
             owner=user,
             name=body.name,
             origin_external_id=body.origin,
             breadth=body.breadth,
-        )
+        ),
     )
 
 
@@ -787,5 +793,7 @@ def fill_audience(pk: uuid.UUID, db: Db, user: CurrentUser) -> MessageOut:
 @router.delete("/audiences/{pk}", response_model=MessageOut)
 def delete_audience(pk: uuid.UUID, db: Db, user: CurrentUser) -> MessageOut:
     audience = _audience(db, user, pk)
-    _provider_call(lambda: services.delete_audience(db, owner=user, audience=audience))
+    _provider_call(
+        db, user, lambda: services.delete_audience(db, owner=user, audience=audience)
+    )
     return MessageOut(detail="Auditoriya o'chirildi.")

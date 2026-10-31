@@ -66,10 +66,14 @@ class MetaAPIError(MetaError):
         subcode: int | None = None,
         user_title: str = "",
         user_message: str = "",
+        blamed: str = "",
     ) -> None:
         super().__init__(message)
         self.code = code
         self.subcode = subcode
+        # The first field Meta named: on a code with no subcode it is what
+        # tells one refusal from another.
+        self.blamed = blamed
         # Meta's own two sentences for the advertiser. Carried separately
         # as well as folded into ``describe`` - the log line wants one
         # string, and a screen wants the half that was written for the
@@ -302,6 +306,27 @@ def _blamed(error: Mapping[str, Any]) -> str:
         names.extend(str(entry).strip() for entry in entries)
 
     return ", ".join(name for name in names if name)
+
+
+def first_blamed(error: Mapping[str, Any]) -> str:
+    """The first field Meta refused, or nothing."""
+    return _blamed(error).split(",")[0].strip()
+
+
+def refusal_key(exc: MetaError) -> str:
+    """The name a written answer to this refusal is kept under.
+
+    The numbers, because Meta localises its sentences to the account. A code
+    alone ("100", invalid parameter) is a wide family, so the field it blamed
+    narrows it when there is no subcode.
+    """
+    if not isinstance(exc, MetaAPIError) or exc.code is None:
+        return ""
+    if exc.subcode:
+        return f"meta:{exc.code}/{exc.subcode}"
+    if exc.blamed:
+        return f"meta:{exc.code}:{exc.blamed[:32]}"
+    return f"meta:{exc.code}"
 
 
 def user_words(error: Mapping[str, Any]) -> tuple[str, str]:

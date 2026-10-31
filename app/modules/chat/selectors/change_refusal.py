@@ -11,7 +11,7 @@ from app.modules.audit.constants import ActionType
 from app.modules.audit.models import ActionLog
 from app.modules.chat.selectors.refusal import ready_answer
 from core.chat.links import Link
-from core.chat.refusal import ChangeFacts, change_refusal_key
+from core.chat.refusal import CHANGE_PREFIX, ChangeFacts, change_refusal_key
 
 CHANGES: Final[dict[str, str]] = {
     ActionType.PAUSE: "switching it off",
@@ -40,6 +40,9 @@ MEANINGS: Final[dict[str, str]] = {
 
 
 def change_key(log: ActionLog) -> str:
+    named = str((log.result_payload or {}).get("key") or "")
+    if named:
+        return f"{CHANGE_PREFIX}:{named}"
     return change_refusal_key(
         provider=log.target_provider, error_message=log.error_message
     )

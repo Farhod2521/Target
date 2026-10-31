@@ -1,12 +1,11 @@
 """A refused launch or change is explained where it failed, with no chat.
 
 A refusal the screen has a sentence for keeps its sentence. One it has none
-for is sent to Claude once per Meta code and language; the answer is kept and
-every later owner with the same refusal reads it at once.
+for is sent to Claude once per Meta code, for all three languages; the answer
+is kept and every later owner with the same refusal reads it at once.
 """
 
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -28,7 +27,9 @@ from app.modules.audit.constants import ActionType
 from app.modules.audit.models import ActionLog
 from app.modules.chat.constants import REFUSAL_LOCK
 from app.modules.chat.models import RefusalAnswer
+from app.modules.chat.selectors.refusal import key_for, refusal_facts
 from app.modules.chat.services.explain import explain_change, explain_launch
+from app.modules.chat.services.refusal import keep_answer
 from tests.pg.test_ads_manage import _mirror
 from tests.pg.test_ads_writes import RefusingCampaigns, _log, _refusing, _signed_in
 from tests.pg.test_cabinet_flows import _cabinet
@@ -48,35 +49,23 @@ ANSWER = (
 )
 
 
-@dataclass
-class _Stream:
-    pieces: list[str]
-    result: Any = None
-
-    def __iter__(self):  # type: ignore[no-untyped-def]
-        yield from self.pieces
-
-
 class _Claude:
     asked = 0
     answer = ANSWER
 
-    def stream(self, **asked: Any) -> _Stream:
+    def structured(self, *, schema: Any, **asked: Any) -> LLMResult[Any]:
         _Claude.asked += 1
         text = _Claude.answer
-        return _Stream(
-            pieces=[text[:20], text[20:]],
-            result=LLMResult(
-                value=text,
-                input_tokens=10,
-                output_tokens=5,
-                cost_micros=1,
-                currency="USD",
-                latency_ms=1,
-                prompt_name=asked.get("prompt_name", ""),
-                prompt_version=asked.get("prompt_version", ""),
-                model="test",
-            ),
+        return LLMResult(
+            value=schema(uz=text, ru=f"ru {text}", en=f"en {text}"),
+            input_tokens=10,
+            output_tokens=5,
+            cost_micros=1,
+            currency="USD",
+            latency_ms=1,
+            prompt_name=asked.get("prompt_name", ""),
+            prompt_version=asked.get("prompt_version", ""),
+            model="test",
         )
 
 
@@ -88,8 +77,7 @@ def _claude(**_: Any):  # type: ignore[no-untyped-def]
 @pytest.fixture(autouse=True)
 def _unlocked() -> None:
     for key in (KEY, LAUNCH_KEY):
-        for language in ("uz", "ru", "en"):
-            cache.delete(REFUSAL_LOCK.format(key=key, language=language))
+        cache.delete(REFUSAL_LOCK.format(key=key))
     _Claude.asked = 0
     _Claude.answer = ANSWER
 
@@ -149,11 +137,15 @@ def test_the_answer_is_written_once_and_kept_for_everyone(
     db.commit()
     again = explain_change(db, log_id=log_id, language="uz")
 
+    russian = explain_change(db, log_id=log_id, language="ru")
+
     assert first == again == ANSWER
+    assert russian == f"ru {ANSWER}"
     assert _Claude.asked == 1
     kept = db.scalar(select(RefusalAnswer).where(RefusalAnswer.key == KEY))
     assert kept is not None
     assert kept.answer_uz == ANSWER
+    assert kept.answer_en == f"en {ANSWER}"
     assert kept.prompt_version.startswith("change-")
     assert kept.provider_title == "Campaign Spending Limit Too Low"
 
@@ -176,7 +168,9 @@ def test_the_screen_shows_the_answer_where_the_change_failed(
     shown = client.get(path, headers=headers).json()["failure"]
 
     assert waiting["explaining"] is True and not waiting["explanationHtml"]
+    assert waiting["refusal"]["key"] == KEY and waiting["refusal"]["explaining"]
     assert not shown["explaining"]
+    assert shown["refusal"]["html"] == shown["explanationHtml"]
     assert "Ads Manager&#x27;ni ochish" in shown["explanationHtml"] or (
         "Ads Manager'ni ochish" in shown["explanationHtml"]
     )
@@ -264,6 +258,82 @@ def test_an_answer_that_cannot_be_shared_stops_the_wait(
     state = client.get(f"/api/v1/launch/{launch.id}/review/state", headers=headers)
 
     assert state.json()["state"]["explaining"] is False
-    assert (
-        db.scalar(select(RefusalAnswer).where(RefusalAnswer.key == LAUNCH_KEY)) is None
+    assert not state.json()["state"]["explanation_html"]
+    assert _Claude.asked == 1
+    kept = db.scalar(select(RefusalAnswer).where(RefusalAnswer.key == LAUNCH_KEY))
+    assert kept is not None and kept.held is True
+
+
+def test_a_passing_fault_and_a_named_refusal_cost_no_question(
+    db: Session, queued: list
+) -> None:
+    from app.modules.ads.services import creation
+
+    _owner_row, launch = _refused_launch(db)
+    queued.clear()
+    for code in ("temporary", "payment_missing"):
+        launch.status = "creating"
+        db.commit()
+        creation._fail(db, launch, code=code, message="x | code 100/1487851")
+
+    assert [name for name, _ in queued if "explain" in name] == []
+
+
+def test_a_key_the_adapter_named_outlives_the_log_line(
+    db: Session, queued: list
+) -> None:
+    from app.modules.ads.services import creation
+
+    _owner_row, launch = _refused_launch(db)
+    launch.status = "creating"
+    db.commit()
+    creation._fail(
+        db,
+        launch,
+        code="refused",
+        message="Invalid parameter | code 100",
+        detail={"key": "meta:100:daily_budget"},
     )
+
+    assert key_for(launch) == "meta:100:daily_budget"
+
+
+def test_a_kept_answer_is_never_overwritten_and_each_refusal_is_counted(
+    db: Session, queued: list
+) -> None:
+    from app.modules.ads.services import creation
+
+    _owner_row, launch = _refused_launch(db)
+    row = RefusalAnswer(key=LAUNCH_KEY, answer_uz="Ofis yozgan", prompt_version="v2")
+    db.add(row)
+    db.commit()
+    keep_answer(
+        db,
+        key=LAUNCH_KEY,
+        texts={"uz": "AI", "ru": "ИИ"},
+        facts=refusal_facts(launch),
+        version="v2",
+    )
+    launch.status = "creating"
+    db.commit()
+    creation._fail(db, launch, code="refused", message=launch.error_message)
+    db.refresh(row)
+
+    assert row.answer_uz == "Ofis yozgan" and row.answer_ru == "ИИ"
+    assert row.hits == 2
+
+
+def test_a_reader_of_another_language_is_not_a_question_to_claude(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _owner_row, launch = _refused_launch(db)
+    db.add(
+        RefusalAnswer(key=LAUNCH_KEY, answer_uz="Faqat o'zbekcha", prompt_version="v2")
+    )
+    db.commit()
+    monkeypatch.setattr("app.modules.chat.services.explain.claude", _claude)
+
+    assert (
+        explain_launch(db, launch_id=str(launch.id), language="ru") == "Faqat o'zbekcha"
+    )
+    assert _Claude.asked == 0

@@ -242,7 +242,16 @@ def upload_to_library(
         _still_going(db, row=row)
         raise UploadInterrupted(str(exc)) from exc
     except (DomainError, ProviderError, OSError) as exc:
-        _refused(db, row=row, log=log, code=_code_of(exc), message=str(exc))
+        _refused(
+            db,
+            row=row,
+            log=log,
+            code=_code_of(exc),
+            message=str(exc),
+            refusal=_kept_refusal(
+                db, exc=exc, owner=row.launch.owner, account=row.launch.ad_account
+            ),
+        )
         return "failed"
     _land(db, row=row, log=log, account=account, media=media, filename=filename)
     return "uploaded"
@@ -445,12 +454,22 @@ def _land(
 
 
 def _refused(
-    db: Session, *, row: LaunchCreative, log: ActionLog, code: str, message: str
+    db: Session,
+    *,
+    row: LaunchCreative,
+    log: ActionLog,
+    code: str,
+    message: str,
+    refusal: dict[str, Any] | None = None,
 ) -> None:
     db.execute(
         update(LaunchCreative)
         .where(LaunchCreative.id == row.id)
-        .values(library_upload=str(LibraryUpload.FAILED), updated_at=utcnow())
+        .values(
+            library_upload=str(LibraryUpload.FAILED),
+            upload_refusal=refusal or {},
+            updated_at=utcnow(),
+        )
     )
     fail_log(db, log=log, code=code, message=message)
     logger.info("library upload refused", extra={"variant": str(row.id), "code": code})
@@ -458,6 +477,17 @@ def _refused(
 
 def _code_of(exc: Exception) -> str:
     return str(getattr(exc, "code", "") or type(exc).__name__)
+
+
+def _kept_refusal(
+    db: Session, *, exc: Exception, owner: User, account: AdAccount | None
+) -> dict[str, Any] | None:
+    """A refusal to keep on the row: the screen reads it long after this task."""
+    from app.modules.chat.services.refused import kept_refusal
+
+    if not isinstance(exc, ProviderError):
+        return None
+    return kept_refusal(db, owner=owner, exc=exc, operation="media", account=account)
 
 
 def sweep_abandoned_uploads(db: Session, *, now: datetime) -> int:
@@ -624,7 +654,14 @@ def delete_library_media(db: Session, *, log_id: UUID | str) -> str:
         return "in_use"
     except (DomainError, ProviderError) as exc:
         code = str(getattr(exc, "code", "") or type(exc).__name__)
-        fail_log(db, log=log, code=code, message=str(exc))
+        refusal = _kept_refusal(db, exc=exc, owner=owner, account=account)
+        fail_log(
+            db,
+            log=log,
+            code=code,
+            message=str(exc),
+            detail={"refusal": refusal} if refusal else None,
+        )
         logger.warning(
             "library delete of %s on %s failed: %s: %s",
             asset.external_id,

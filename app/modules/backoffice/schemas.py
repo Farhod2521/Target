@@ -4,7 +4,7 @@ Attached with ``responses=``: the routes still return plain dicts.
 """
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -812,6 +812,36 @@ class PromoOut(BaseModel):
     discount_kinds: list[ChoiceOut]
     scopes: list[ChoiceOut]
     plans: list[ChoiceOut]
+
+
+class RefusalAnswerOut(BaseModel):
+    id: str
+    key: str = Field(description="Meta's numbers, with what the owner was doing.")
+    operation: str
+    operation_label: str
+    provider_title: str = Field(description="Meta's title for the advertiser.")
+    provider_message: str = Field(description="Meta's sentence for the advertiser.")
+    answer_uz: str = Field(description="Markdown; `[[name]]` becomes a link.")
+    answer_ru: str
+    answer_en: str
+    written_by: Literal["ai", "office"]
+    held: bool = Field(description="Hidden from owners until the office saves it.")
+    retired: bool = Field(description="An old version: hidden until saved.")
+    hits: int = Field(description="How many owners met this refusal.")
+    created_at: datetime
+    edited_at: datetime | None
+
+
+class RefusalAnswersOut(BaseModel):
+    tab: str
+    tabs: list[ChoiceOut]
+    links: list[ChoiceOut] = Field(description="Names an answer may write in `[[ ]]`.")
+    rows: list[RefusalAnswerOut]
+    held: int = Field(description="Answers waiting for the office, for the badge.")
+    total: int
+    offset: int
+    next_offset: int
+    has_more: bool
 
 
 class SupportRowOut(BaseModel):
