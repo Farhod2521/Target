@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -14,6 +14,7 @@ from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.notifications.constants import NOTICES_WITHOUT_SUBSCRIPTION, NoticeKind
 from app.modules.notifications.models import InboxSeen, StaffChat, TelegramChat
+from core.inbox import LEFT_DAYS, LEFT_PREFIX
 
 logger = logging.getLogger(__name__)
 FLAG_FOR: dict[str, str] = {
@@ -140,6 +141,19 @@ def undelivered_notices(db: Session, *, owner: User, now: datetime) -> int:
 def seen_keys(db: Session, *, owner: User) -> frozenset[str]:
     return frozenset(
         db.scalars(select(InboxSeen.key).where(InboxSeen.owner_id == owner.id))
+    )
+
+
+def left_keys(db: Session, *, owner: User, now: datetime) -> frozenset[str]:
+    """The lines this owner left as they are, while that still holds."""
+    return frozenset(
+        db.scalars(
+            select(InboxSeen.key).where(
+                InboxSeen.owner_id == owner.id,
+                InboxSeen.key.startswith(LEFT_PREFIX),
+                InboxSeen.created_at >= now - timedelta(days=LEFT_DAYS),
+            )
+        )
     )
 
 

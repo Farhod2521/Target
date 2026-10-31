@@ -83,6 +83,9 @@ class InboxItemOut(BaseModel):
     action: str = Field(description="The one button's label; empty for none.")
     href: str = Field(description="Where the button goes: a frontend path or Meta.")
     method: str = Field(description="`post` for a button that changes something.")
+    advice: str = Field(description="«Agent taklifi»: what to do; empty for none.")
+    network: str = Field(description="`meta`, `google`; empty for the whole cabinet.")
+    can_leave: bool = Field(description="«Shundayligicha qoldirish» is offered.")
     subject: SubjectOut | None = Field(description="The advert object it is about.")
     actions: list[ItemActionOut] = Field(
         description="A choice of buttons; drawn instead of `action` when present."

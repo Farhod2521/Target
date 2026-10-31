@@ -127,7 +127,6 @@ def announce_rejections(
                 ad_name=ad.name,
                 group_name=ad.adset.name,
                 feedback=ad.review_feedback,
-                campaign_pk=ad.adset.campaign_id,
                 page=_page_named(scope=scope, ad=ad),
             )
             told = tell(

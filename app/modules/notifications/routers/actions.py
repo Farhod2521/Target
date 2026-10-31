@@ -13,10 +13,12 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Query
 from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
 from app.common.db import utcnow
+from app.common.exceptions import Conflict, NotFound
 from app.common.routes import reverse
 from app.modules.accounts.models import User
 from app.modules.ads.selectors.pages import current_page_scope
@@ -35,6 +37,7 @@ from app.modules.notifications.schemas import (
     BellOut,
     CountsOut,
     HistoryOut,
+    MessageOut,
     ProposalsOut,
 )
 from app.modules.notifications.selectors import seen_keys
@@ -42,14 +45,15 @@ from app.modules.notifications.selectors.bell import (
     PANEL_ITEMS,
     counted,
     counts_for,
+    forget,
     item_to_dict,
     remember,
     watching,
 )
 from app.modules.notifications.selectors.inbox import inbox
 from app.modules.notifications.selectors.inbox_page import inbox_page
-from app.modules.notifications.services import mark_seen
-from core.inbox import InboxItem, keys, of_level, unseen, without_kind
+from app.modules.notifications.services import leave_item, mark_seen
+from core.inbox import InboxItem, keys, leavable, of_level, unseen, without_kind
 
 router = APIRouter(prefix="/actions", tags=["actions"])
 
@@ -184,6 +188,27 @@ def bell(db: Db, user: CurrentUser) -> dict[str, Any]:
             "all_href": home,
         }
     )
+
+
+class LeaveIn(BaseModel):
+    key: str = Field(min_length=1, max_length=512)
+
+
+@router.post("/leave", responses={200: {"model": MessageOut}})
+def leave(body: LeaveIn, db: Db, user: CurrentUser) -> dict[str, str]:
+    """«Shundayligicha qoldirish»: a line that may be left, gone for a week."""
+    now = utcnow()
+    item = next(
+        (row for row in inbox(db, owner=user, now=now) if row.key == body.key), None
+    )
+    if item is None:
+        raise NotFound("Bu yozuv endi yo'q.")
+    if not leavable(item):
+        raise Conflict("Bu muammoni qoldirib bo'lmaydi: uni tuzatish kerak.")
+    leave_item(db, owner=user, key=item.key, now=now)
+    db.commit()
+    forget(owner=user)
+    return {"message": "Qoldirildi. Muammo saqlansa, bir haftadan keyin qaytadi."}
 
 
 @router.get("/counts", responses={200: {"model": CountsOut}})

@@ -31,7 +31,11 @@ from app.modules.notifications.keys import (
 )
 from app.modules.notifications.models import TelegramChat
 from app.modules.notifications.selectors import deadline_text
-from app.modules.notifications.selectors.inbox import cabinet_inbox, page_inbox
+from app.modules.notifications.selectors.inbox import (
+    cabinet_inbox,
+    not_left,
+    page_inbox,
+)
 from app.modules.notifications.selectors.inbox_page import inbox_pages
 from app.modules.notifications.services.announce import tell
 from app.modules.notifications.services.compose import (
@@ -216,11 +220,21 @@ def _plans_button() -> tuple[Button, ...]:
 
 
 def _lines(db: Session, *, owner: User, now: datetime) -> list[tuple[InboxItem, str]]:
-    rows = [(item, "") for item in cabinet_inbox(db, owner=owner, now=now)]
+    rows = [
+        (item, "")
+        for item in not_left(
+            db, owner=owner, now=now, items=cabinet_inbox(db, owner=owner, now=now)
+        )
+    ]
     for view in inbox_pages(db, owner=owner):
         rows += [
             (item, view.page_name)
-            for item in page_inbox(db, owner=owner, view=view, now=now)
+            for item in not_left(
+                db,
+                owner=owner,
+                now=now,
+                items=page_inbox(db, owner=owner, view=view, now=now),
+            )
         ]
     return by_page(rows)
 

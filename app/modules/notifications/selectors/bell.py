@@ -20,7 +20,7 @@ from app.modules.accounts.models import User
 from app.modules.integrations.models import AdAccount, PageAccount
 from app.modules.notifications.selectors import seen_keys
 from app.modules.notifications.selectors.inbox import inbox
-from core.inbox import InboxItem, ItemAction, Subject, answerable, unseen
+from core.inbox import InboxItem, ItemAction, Subject, answerable, leavable, unseen
 
 CACHE_SECONDS = 60
 CACHE_KEY = "inbox:{owner_id}:{language}"
@@ -124,6 +124,9 @@ def item_to_dict(item: InboxItem) -> dict[str, Any]:
         "action": item.action,
         "href": item.href,
         "method": item.method,
+        "advice": item.advice,
+        "network": item.network,
+        "can_leave": leavable(item),
         "subject": {
             "provider": subject.ref.provider,
             "level": subject.ref.level,
@@ -158,6 +161,8 @@ def item_from_dict(raw: dict[str, Any]) -> InboxItem:
         action=raw.get("action", ""),
         href=raw.get("href", ""),
         method=raw.get("method", "get"),
+        advice=raw.get("advice", ""),
+        network=raw.get("network", ""),
         subject=Subject(
             ref=ExternalRef(
                 provider=subject["provider"], level=subject["level"], id=subject["id"]

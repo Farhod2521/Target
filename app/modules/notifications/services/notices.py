@@ -34,6 +34,7 @@ from app.modules.notifications.services.compose_referral import (
 )
 from app.modules.notifications.services.journal import claim, stamp
 from app.modules.notifications.services.send import send_to
+from core.inbox import LEFT_PREFIX, left_key
 
 logger = logging.getLogger(__name__)
 EDITABLE: frozenset[str] = frozenset(
@@ -60,7 +61,9 @@ def save_preferences(db: Session, *, user: User, **values: bool) -> TelegramChat
 def mark_seen(db: Session, *, owner: User, keys: frozenset[str]) -> int:
     db.execute(
         delete(InboxSeen).where(
-            InboxSeen.owner_id == owner.id, InboxSeen.key.not_in(keys)
+            InboxSeen.owner_id == owner.id,
+            InboxSeen.key.not_in(keys),
+            InboxSeen.key.not_like(f"{LEFT_PREFIX}%"),
         )
     )
     known = set(db.scalars(select(InboxSeen.key).where(InboxSeen.owner_id == owner.id)))
@@ -74,6 +77,17 @@ def mark_seen(db: Session, *, owner: User, keys: frozenset[str]) -> int:
             .on_conflict_do_nothing(index_elements=["owner_id", "key"])
         )
     return len(fresh)
+
+
+def leave_item(db: Session, *, owner: User, key: str, now: datetime) -> None:
+    """This line stays as it is: it goes for a week, and returns if it still holds."""
+    db.execute(
+        insert(InboxSeen)
+        .values(owner_id=owner.id, key=left_key(key), created_at=now)
+        .on_conflict_do_update(
+            index_elements=["owner_id", "key"], set_={"created_at": now}
+        )
+    )
 
 
 def _deliver(

@@ -103,7 +103,7 @@ def spend_guard_message(*, item: InboxItem, page: str = "") -> Message:
     lines = [*page_line(page), _bold(item.title)]
     if item.body:
         lines += ["", escaped(item.body)]
-    lines += ["", _link(path=reverse("actions:home"), label="Kabinetda ochish")]
+    lines += ["", _center_link(item_key=item.key)]
     return Message(text="\n".join(lines))
 
 
@@ -150,7 +150,7 @@ def waiting_message() -> Message:
 
 
 def rejection_message(
-    *, ad_name: str, group_name: str, feedback: Any, campaign_pk: Any, page: str = ""
+    *, ad_name: str, group_name: str, feedback: Any, page: str = ""
 ) -> Message:
     lines = [
         *page_line(page),
@@ -166,9 +166,7 @@ def rejection_message(
     lines += [
         "",
         "Qaysi qoida buzilganini Meta'ning Business Support Home sahifasi aniq ko'rsatadi. U yerda qayta ko'rib chiqishni ham so'rash mumkin. Sabab rasm, video yoki matnda bo'lishi mumkin.",
-        _link(
-            path=reverse("ads:campaign", args=[campaign_pk]), label="Kabinetda ochish"
-        ),
+        _center_link(),
     ]
     return Message(text="\n".join(lines))
 
@@ -205,8 +203,7 @@ def trouble_message(*, item: InboxItem, page: str = "") -> Message:
         lines.append(escaped(item.subject.name))
     if item.body:
         lines += ["", escaped(item.body)]
-    if item.action and item.href:
-        lines += ["", _link(path=item.href, label=str(item.action))]
+    lines += ["", _center_link(item_key=item.key)]
     return Message(text="\n".join(lines))
 
 
@@ -220,10 +217,7 @@ def connection_message() -> Message:
                     "Yangi mijozlar ro'yxatga tushmayapti va sarf-xarajat raqamlari yangilanmayapti. Reklamangiz Facebook'da ishlashda davom etadi."
                 ),
                 "",
-                _link(
-                    path=reverse("integrations:connections"),
-                    label="Kabinetda qayta ulash",
-                ),
+                _center_link(),
             ]
         )
     )
@@ -393,6 +387,12 @@ def miniapp_button(*, route: str, label: str, query: str = "") -> tuple[Button, 
         return ()
     destination = reverse(route) + (f"?{query}" if query else "")
     return (Button(text=label, web_app=door_url(destination=destination)),)
+
+
+def _center_link(*, item_key: str = "") -> str:
+    """The way to the center: Telegram says what happened, the center answers it."""
+    query = f"?{urlencode({'item': item_key})}" if item_key else ""
+    return _link(path=f"{reverse('actions:home')}{query}", label="Kabinetda ochish")
 
 
 def center_button() -> tuple[Button, ...]:

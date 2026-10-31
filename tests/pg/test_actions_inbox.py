@@ -292,3 +292,61 @@ def test_history_paging(client: TestClient, db: Session) -> None:
     assert [row["pk"] for row in broken.json()["history"]] == [
         row["pk"] for row in first["history"]
     ]
+
+
+def _keys(client: TestClient, auth: dict[str, str]) -> list[str]:
+    return [row["key"] for row in _all(client.get(URL, headers=auth).json())]
+
+
+def test_a_line_left_as_it_is_goes_for_a_week_and_comes_back(
+    client: TestClient, db: Session
+) -> None:
+    auth, _user = _owner(client, db, prepared=False)
+    line = next(
+        row
+        for row in _all(client.get(URL, headers=auth).json())
+        if row["kind"] == "setup"
+    )
+    assert line["can_leave"] is True
+    assert line["advice"]
+
+    left = client.post(f"{URL}/leave", json={"key": line["key"]}, headers=auth)
+
+    assert left.status_code == 200, left.text
+    assert line["key"] not in _keys(client, auth)
+
+    client.post(f"{URL}/bell", headers=auth)
+    assert line["key"] not in _keys(client, auth)
+
+    row = db.scalars(select(InboxSeen).where(InboxSeen.key.startswith("left:"))).one()
+    row.created_at = utcnow() - timedelta(days=8)
+    db.commit()
+    assert line["key"] in _keys(client, auth)
+
+
+def test_a_broken_thing_cannot_be_left(client: TestClient, db: Session) -> None:
+    auth, user = _owner(client, db)
+    account, _page = _cabinet(db, user)
+    account.connection.status = ConnectionStatus.EXPIRED
+    db.commit()
+    line = next(
+        row
+        for row in _all(client.get(URL, headers=auth).json())
+        if row["kind"] == "connection"
+    )
+    assert line["can_leave"] is False
+    assert line["network"] == "meta"
+    assert "qayta ulang" in line["advice"]
+
+    left = client.post(f"{URL}/leave", json={"key": line["key"]}, headers=auth)
+
+    assert left.status_code == 409
+    assert line["key"] in _keys(client, auth)
+
+
+def test_a_line_that_is_gone_cannot_be_left(client: TestClient, db: Session) -> None:
+    auth, _user = _owner(client, db)
+
+    left = client.post(f"{URL}/leave", json={"key": "nope"}, headers=auth)
+
+    assert left.status_code == 404

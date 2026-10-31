@@ -4,6 +4,7 @@ No table behind it: each item already exists somewhere a reader can open, and
 this asks all of them at once. A mended thing simply stops being in the list.
 """
 
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -26,6 +27,7 @@ from app.modules.agent.selectors.suggestions import waiting
 from app.modules.billing.selectors.subscription import live_subscription
 from app.modules.integrations.models import PageAccount
 from app.modules.leads.selectors.reads import delivery_trouble
+from app.modules.notifications.selectors import left_keys
 from app.modules.notifications.selectors.inbox_accounts import (
     figures_items,
     unpriced_items,
@@ -49,7 +51,7 @@ from app.modules.notifications.selectors.inbox_page import InboxPage, inbox_page
 from app.modules.notifications.selectors.inbox_spend import quiet_waits
 from app.modules.notifications.selectors.inbox_stops import stop_items
 from app.modules.notifications.selectors.inbox_watch import watch_items
-from core.inbox import InboxItem, Subject, ordered
+from core.inbox import InboxItem, Subject, advised, left_key, ordered
 
 # The launch states that mean something was refused halfway.
 BROKEN_LAUNCHES = (LaunchStatus.FAILED, LaunchStatus.ROLLED_BACK)
@@ -57,12 +59,23 @@ BROKEN_LAUNCHES = (LaunchStatus.FAILED, LaunchStatus.ROLLED_BACK)
 
 def inbox(db: Session, *, owner: User, now: datetime) -> tuple[InboxItem, ...]:
     """Everything waiting for this owner on the page they are on, worst first."""
-    return ordered(
-        [
+    return not_left(
+        db,
+        owner=owner,
+        now=now,
+        items=[
             *cabinet_inbox(db, owner=owner, now=now),
             *page_inbox(db, owner=owner, view=inbox_page(db, owner=owner), now=now),
-        ]
+        ],
     )
+
+
+def not_left(
+    db: Session, *, owner: User, now: datetime, items: Iterable[InboxItem]
+) -> tuple[InboxItem, ...]:
+    """The lines as the owner reads them: advised, without what they left as it is."""
+    left = left_keys(db, owner=owner, now=now)
+    return ordered(advised(item) for item in items if left_key(item.key) not in left)
 
 
 def cabinet_inbox(db: Session, *, owner: User, now: datetime) -> tuple[InboxItem, ...]:
@@ -197,4 +210,4 @@ def _leads(
     ]
 
 
-__all__ = ["cabinet_inbox", "inbox", "page_inbox"]
+__all__ = ["cabinet_inbox", "inbox", "not_left", "page_inbox"]
