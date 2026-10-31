@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import select
@@ -92,7 +93,7 @@ def campaign_chain(
         (level, external_id)
         for level, rows in ((ManagedLevel.ADSET, adsets), (ManagedLevel.AD, ads))
         for external_id, delivery in rows
-        if str(delivery) in SWITCHED_OFF and external_id in waiting
+        if str(delivery) in SWITCHED_OFF and (external_id in waiting or _none_on(rows))
     ]
     by_agent = stopped_by_agent(
         db, owner=owner, external_ids=[external_id for _level, external_id in below]
@@ -101,6 +102,11 @@ def campaign_chain(
         (ManagedLevel.CAMPAIGN, str(campaign.external_id)),
         *(pair for pair in below if pair[1] not in by_agent),
     ]
+
+
+def _none_on(rows: Sequence[Any]) -> bool:
+    """A level with nothing on: the campaign would start and still show nothing."""
+    return all(str(delivery) in SWITCHED_OFF for _external_id, delivery in rows)
 
 
 def never_started(db: Session, *, owner: User) -> frozenset[str]:

@@ -808,6 +808,40 @@ def _finish_change(db: Session, job: Any, result: ActionResult) -> None:
         after=after,
         landed=_landed(log=job.log, after=after),
     )
+    if not result.dry_run:
+        _read_below(db, job)
+
+
+def _read_below(db: Session, job: Any) -> None:
+    """A switch above decides what everything under it delivers: read that too."""
+    level = job.log.target_level
+    if job.log.action not in STATUS_WANTED or level == ManagedLevel.AD:
+        return
+    adsets = list(job.target.adsets) if level == ManagedLevel.CAMPAIGN else []
+    ads = [ad for adset in adsets or [job.target] for ad in adset.ads]
+    rows = {row.external_id: row for row in [*adsets, *ads]}
+    refs = [
+        ExternalRef(provider=job.ref.provider, level=at, id=row.external_id)
+        for at, group in ((ManagedLevel.ADSET, adsets), (ManagedLevel.AD, ads))
+        for row in group
+    ]
+    try:
+        found = job.provider.campaigns.read_objects(
+            account=ExternalRef(
+                provider=job.ref.provider, level="account", id=job.account.external_id
+            ),
+            refs=refs,
+            token=job.token,
+        )
+    except ProviderError:
+        logger.info("could not read what is under %s after the write", job.ref)
+        return
+    for dto in (*found.adsets, *found.ads):
+        row = rows[dto.ref.id]
+        row.status = dto.status
+        row.effective_status = dto.effective_status
+        row.delivery = dto.delivery
+    db.flush()
 
 
 def _moved_elsewhere(

@@ -233,6 +233,53 @@ def test_a_change_no_worker_carried_out_is_closed(db: Session, queued: list) -> 
     assert other.status == "pending"
 
 
+def test_a_campaign_on_with_its_group_off_offers_a_start_that_reaches_it(
+    db: Session,
+) -> None:
+    """The launch said started, so nothing below counts as never started."""
+    owner, account = _owner_with_account(db)
+    campaign = _mirror(db, owner, account.id)
+    group = db.scalars(select(AdSet)).one()
+    ad = db.scalars(select(Ad)).one()
+    group.delivery, ad.delivery = "paused", "paused_above"
+    db.commit()
+
+    rows = selectors.with_switches(db, owner=owner, campaigns=[campaign])
+    assert rows[0].controls.can_resume is False
+    rows = selectors.with_badges(db, owner=owner, rows=rows)
+
+    assert rows[0].badge == "paused"
+    assert rows[0].controls.can_resume is True
+    assert selectors.campaign_chain(db, owner=owner, campaign=campaign) == [
+        ("campaign", "c_1"),
+        ("adset", "s_1"),
+    ]
+
+
+def test_a_start_leaves_what_the_owner_stopped_beside_what_runs(db: Session) -> None:
+    owner, account = _owner_with_account(db)
+    campaign = _mirror(db, owner, account.id)
+    group = db.scalars(select(AdSet)).one()
+    db.add(
+        AdSet(
+            owner_id=owner.id,
+            provider=PROVIDER,
+            external_id="s_2",
+            campaign_id=campaign.id,
+            name="Boshqa",
+            delivery="paused",
+            status="PAUSED",
+            synced_at=utcnow(),
+        )
+    )
+    group.delivery = "active"
+    db.commit()
+
+    assert selectors.campaign_chain(db, owner=owner, campaign=campaign) == [
+        ("campaign", "c_1")
+    ]
+
+
 def _owner_with_account(db: Session) -> tuple[User, object]:
     owner = User(
         email="start@example.com", full_name="Ads", password="!", date_joined=utcnow()

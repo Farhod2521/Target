@@ -99,6 +99,59 @@ def _signed_in(
     )
 
 
+class StartedCampaigns(FakeCampaigns):
+    """Meta after a start: what was held by the campaign delivers now."""
+
+    def __init__(self) -> None:
+        super().__init__(ok=True)
+        self.delivery = "paused"
+
+    def get_status(self, *, ref: ExternalRef, token: str) -> StatusDTO:
+        return StatusDTO(ref=ref, status="ACTIVE", delivery=self.delivery)
+
+    def set_status(self, *, ref: ExternalRef, **_: Any) -> ActionResult:
+        self.delivery = "active"
+        return self._result(ref)
+
+    def read_objects(self, *, refs: Any, **_: Any) -> SimpleNamespace:
+        return SimpleNamespace(
+            adsets=(),
+            ads=tuple(
+                SimpleNamespace(
+                    ref=ref,
+                    status="ACTIVE",
+                    effective_status="ACTIVE",
+                    delivery="active",
+                )
+                for ref in refs
+                if ref.level == "ad"
+            ),
+        )
+
+
+def test_a_start_above_is_read_back_below(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, account = _owner_with_mirror(db)
+    port = StartedCampaigns()
+    monkeypatch.setattr(
+        executor,
+        "registry",
+        SimpleNamespace(get=lambda _: SimpleNamespace(campaigns=port)),
+    )
+    _signed_in(monkeypatch, executor, account)
+    ad = db.scalars(select(Ad)).one()
+    ad.delivery = "paused_above"
+    db.scalars(select(Campaign)).one().delivery = "paused"
+    db.commit()
+    log_id = _log(db, owner, ActionType.RESUME, ManagedLevel.CAMPAIGN, "c_1")
+
+    assert manage.apply_change(db, log_id=log_id) == "applied"
+
+    db.expire_all()
+    assert db.scalars(select(Ad)).one().delivery == "active"
+
+
 def test_a_sync_forgets_a_campaign_with_everything_under_it(
     db: Session,
 ) -> None:
