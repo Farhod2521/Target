@@ -44,7 +44,7 @@ def result_line(evidence: Mapping[str, Any], *, currency: str) -> str:
     count = whole(evidence.get("results"))
     if words is None or count is None:
         return ""
-    parts = [f"{words[0]}: {number_format(count, force_grouping=True)}"]
+    parts = [f"{words[0]}: {number_format(count)}"]
     own, usual = (
         whole(evidence.get("cost_minor")),
         whole(evidence.get("account_cost_minor")),

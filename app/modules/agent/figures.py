@@ -138,7 +138,7 @@ def result_lines(
         return []
     count_label, cost_label = words
     lines: list[tuple[Any, str]] = [
-        (count_label, number_format(count, force_grouping=True))
+        (count_label, number_format(count))
     ]
     for label, key in (
         (cost_label, "cost_minor"),
@@ -159,7 +159,7 @@ def _value(key: str, value: Any, currency: str) -> str:
         return f"{int(value)}%"
     if key in _UNGROUPED or not isinstance(value, int):
         return str(value)
-    return number_format(value, force_grouping=True)
+    return number_format(value)
 
 
 def decimal_of(value: int, unit: int) -> str:
