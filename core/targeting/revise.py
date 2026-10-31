@@ -12,8 +12,23 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from core.targeting.adjustments import Adjustment
+from core.targeting.audiences import (
+    EXCLUDE_KEY,
+    INCLUDE_KEY,
+    AudienceChoice,
+    AudienceRef,
+    fit,
+)
+from core.targeting.describe import _DETAILED_KEYS
 from core.targeting.exceptions import InvalidTargeting
-from core.targeting.geo import DISTANCE_UNIT, GeoChoice, GeoPlace, geo_locations, pins
+from core.targeting.geo import (
+    DISTANCE_UNIT,
+    GeoChoice,
+    GeoPlace,
+    geo_locations,
+    pins,
+    places_in,
+)
 from core.targeting.modes import AUTOMATIC_AGE_MAX, fit_automatic_ages, is_automatic
 from core.targeting.validators import MAX_AGE, MIN_AGE, clamp_age, clamp_radius
 
@@ -21,8 +36,20 @@ MALE: Final = 1
 FEMALE: Final = 2
 
 _DETAILED_KEY: Final = "flexible_spec"
+_EXCLUSIONS_KEY: Final = "exclusions"
+_LOCALES_KEY: Final = "locales"
 _WHERE_KEY: Final = "geo_locations"
+_NOT_WHERE_KEY: Final = "excluded_geo_locations"
 _WHERE_SETTINGS: Final = frozenset({"location_types", "location_cluster_ids"})
+
+
+@dataclass(frozen=True, slots=True)
+class Detail:
+    """One row of detailed targeting; ``kind`` is the spec key it is filed under."""
+
+    id: str
+    name: str = ""
+    kind: str = "interests"
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +62,13 @@ class AudienceEdit:
     radius_km: int | None = None
     keep_interests: bool = True
     places: tuple[GeoPlace, ...] | None = None
+    detailed: tuple[Detail, ...] | None = None
+    excluded_detailed: tuple[Detail, ...] | None = None
+    included_lists: tuple[AudienceRef, ...] | None = None
+    excluded_lists: tuple[AudienceRef, ...] | None = None
+    locales: tuple[int, ...] | None = None
+    excluded_places: tuple[GeoPlace, ...] | None = None
+    pin: tuple[str, str] | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -46,6 +80,13 @@ class AudienceEdit:
             and self.radius_km is None
             and self.keep_interests
             and self.places is None
+            and self.detailed is None
+            and self.excluded_detailed is None
+            and self.included_lists is None
+            and self.excluded_lists is None
+            and self.locales is None
+            and self.excluded_places is None
+            and self.pin is None
         )
 
 
@@ -67,9 +108,14 @@ def revised(
     notes: list[Adjustment] = []
     _ages(result, notes, edit=edit, special=special)
     _genders(result, notes, edit=edit, special=special)
+    _pin(result, edit=edit)
     _radius(result, notes, edit=edit, special=special)
     _interests(result, edit=edit)
+    _detailed(result, edit=edit)
+    _lists(result, notes, edit=edit)
+    _locales(result, edit=edit)
     _places(result, edit=edit)
+    _not_places(result, edit=edit)
     return result, tuple(notes)
 
 
@@ -184,13 +230,141 @@ def _places(spec: dict[str, Any], *, edit: AudienceEdit) -> None:
     """Where it reaches, replaced whole; the block's own settings stay."""
     if edit.places is None:
         return
-    kept = {
+    choice = GeoChoice(mode="places", places=edit.places)
+    spec[_WHERE_KEY] = geo_locations(choice) | _kept_where(spec)
+
+
+def _pin(spec: dict[str, Any], *, edit: AudienceEdit) -> None:
+    """One point on the map in place of where it reached; ``_radius`` sets how far."""
+    if edit.pin is None:
+        return
+    held = pins(spec)
+    radius = edit.radius_km or (held[0].get("radius") if held else None)
+    lat, lng = edit.pin
+    choice = GeoChoice(mode="around", lat=lat, lng=lng, radius_km=radius)
+    spec[_WHERE_KEY] = geo_locations(choice) | _kept_where(spec)
+
+
+def _kept_where(spec: Mapping[str, Any]) -> dict[str, Any]:
+    return {
         key: value
         for key, value in (spec.get(_WHERE_KEY) or {}).items()
         if key in _WHERE_SETTINGS
     }
-    choice = GeoChoice(mode="places", places=edit.places)
-    spec[_WHERE_KEY] = geo_locations(choice) | kept
+
+
+def _not_places(spec: dict[str, Any], *, edit: AudienceEdit) -> None:
+    """Where it must not reach, replaced whole; none left removes the block."""
+    if edit.excluded_places is None:
+        return
+    if not edit.excluded_places:
+        spec.pop(_NOT_WHERE_KEY, None)
+        return
+    choice = GeoChoice(mode="places", places=edit.excluded_places)
+    spec[_NOT_WHERE_KEY] = geo_locations(choice)
+
+
+def _detailed(spec: dict[str, Any], *, edit: AudienceEdit) -> None:
+    """Interests and the like, and who they rule out, each replaced whole."""
+    if edit.detailed is not None:
+        if not detail_is_open(spec):
+            raise InvalidTargeting(
+                "this audience narrows in several steps", field="flexible_spec"
+            )
+        if edit.detailed:
+            spec[_DETAILED_KEY] = [_block(edit.detailed)]
+        else:
+            spec.pop(_DETAILED_KEY, None)
+    if edit.excluded_detailed is not None:
+        rest = {
+            key: value
+            for key, value in (spec.get(_EXCLUSIONS_KEY) or {}).items()
+            if key not in _DETAILED_KEYS
+        }
+        written = rest | _block(edit.excluded_detailed)
+        if written:
+            spec[_EXCLUSIONS_KEY] = written
+        else:
+            spec.pop(_EXCLUSIONS_KEY, None)
+
+
+def _block(rows: tuple[Detail, ...]) -> dict[str, list[dict[str, str]]]:
+    block: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        if row.kind not in _DETAILED_KEYS:
+            raise InvalidTargeting(f"{row.kind} is not detail", field="flexible_spec")
+        block.setdefault(row.kind, []).append({"id": row.id, "name": row.name})
+    return block
+
+
+def _lists(
+    spec: dict[str, Any], notes: list[Adjustment], *, edit: AudienceEdit
+) -> None:
+    """The owner's own audiences; a side not named stays as it is."""
+    if edit.included_lists is None and edit.excluded_lists is None:
+        return
+    fit(
+        spec,
+        notes,
+        choice=AudienceChoice(
+            included=_side(spec, INCLUDE_KEY, edit.included_lists),
+            excluded=_side(spec, EXCLUDE_KEY, edit.excluded_lists),
+        ),
+    )
+
+
+def _side(
+    spec: Mapping[str, Any], key: str, named: tuple[AudienceRef, ...] | None
+) -> tuple[AudienceRef, ...]:
+    if named is not None:
+        return named
+    return tuple(
+        AudienceRef(external_id=str(row["id"]))
+        for row in spec.get(key) or ()
+        if isinstance(row, Mapping) and row.get("id")
+    )
+
+
+def _locales(spec: dict[str, Any], *, edit: AudienceEdit) -> None:
+    """Which languages it reaches; none left is every language."""
+    if edit.locales is None:
+        return
+    if edit.locales:
+        spec[_LOCALES_KEY] = list(edit.locales)
+    else:
+        spec.pop(_LOCALES_KEY, None)
+
+
+def detail_is_open(spec: Mapping[str, Any]) -> bool:
+    """Whether the detail is one block: several narrow in steps only Ads Manager draws."""
+    return len(spec.get(_DETAILED_KEY) or ()) <= 1
+
+
+def detailed_of(spec: Mapping[str, Any]) -> tuple[Detail, ...]:
+    """Every interest-like row the spec narrows by, whichever block holds it."""
+    blocks = spec.get(_DETAILED_KEY) or ()
+    return tuple(row for block in blocks for row in _rows(block))
+
+
+def excluded_detailed_of(spec: Mapping[str, Any]) -> tuple[Detail, ...]:
+    """Every interest-like row the spec rules out."""
+    return _rows(spec.get(_EXCLUSIONS_KEY))
+
+
+def excluded_places_of(spec: Mapping[str, Any]) -> tuple[GeoPlace, ...]:
+    """The places the spec rules out."""
+    return places_in(spec.get(_NOT_WHERE_KEY))
+
+
+def _rows(block: object) -> tuple[Detail, ...]:
+    if not isinstance(block, Mapping):
+        return ()
+    return tuple(
+        Detail(id=str(row["id"]), name=str(row.get("name") or row["id"]), kind=key)
+        for key in _DETAILED_KEYS
+        for row in block.get(key) or ()
+        if isinstance(row, Mapping) and row.get("id")
+    )
 
 
 def _interests(spec: dict[str, Any], *, edit: AudienceEdit) -> None:
@@ -204,7 +378,12 @@ __all__ = [
     "FEMALE",
     "MALE",
     "AudienceEdit",
+    "Detail",
     "changed",
+    "detail_is_open",
+    "detailed_of",
+    "excluded_detailed_of",
+    "excluded_places_of",
     "only_place_moved",
     "revise",
     "revised",

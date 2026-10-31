@@ -127,7 +127,11 @@ def _without_overlap(places: tuple[GeoPlace, ...]) -> list[GeoPlace]:
 
 def chosen_places(spec: Mapping[str, Any]) -> tuple[GeoPlace, ...]:
     """The cities, regions and countries one spec is aimed at."""
-    block = spec.get("geo_locations")
+    return places_in(spec.get("geo_locations"))
+
+
+def places_in(block: object) -> tuple[GeoPlace, ...]:
+    """The cities, regions and countries one geography block names."""
     if not isinstance(block, Mapping):
         return ()
     found: list[GeoPlace] = []
