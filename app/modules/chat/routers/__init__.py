@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import CurrentUser, Db, OptionalUser, client_address
 from app.common import tokens
 from app.common.cache import cache
+from app.common.contract import RefusalAnswer
 from app.common.db import utcnow
 from app.common.exceptions import DomainError
 from app.modules.accounts.models import User
@@ -37,6 +38,7 @@ from app.modules.chat.models import ChatMessage, ChatSession
 from app.modules.chat.schemas import ChatScreenOut, ReportOut
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+refusals = APIRouter(prefix="/refusals", tags=["refusals"])
 
 SUGGESTION_Q = Query("", description="A proposal id: focus the screen on it.")
 ITEM_Q = Query("", description="A waiting item's key: focus the screen on it.")
@@ -444,4 +446,27 @@ def change_state(
     return ChoiceOut(state=found.state, text=found.text)
 
 
-__all__ = ["router"]
+@refusals.get("/answer", response_model=RefusalAnswer)
+def refusal_answer(
+    db: Db,
+    user: CurrentUser,
+    key: str = Query(min_length=1, max_length=64),
+) -> RefusalAnswer:
+    """The answer a refusal's dialog is waiting for, with this owner's links.
+
+    Ask while it says `explaining`, every two or three seconds, a few dozen
+    times at most.
+    """
+    from app.common.i18n import get_language
+    from app.modules.chat.services.refused import answer_for
+    from app.modules.integrations.selectors import active_ad_account
+
+    return answer_for(
+        db,
+        key=key,
+        language=get_language(),
+        account=active_ad_account(db, owner=user),
+    )
+
+
+__all__ = ["refusals", "router"]

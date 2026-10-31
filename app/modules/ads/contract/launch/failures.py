@@ -9,6 +9,7 @@ never the developer's sentence, which is a log line.
 from dataclasses import dataclass
 from typing import Any, Final
 
+from app.common.contract import Refusal, RefusalFix
 from app.modules.ads.contract.launch.shapes import NoticeTarget
 from app.modules.ads.contract.launch.words import LaunchErrorCode, failure_code_of
 
@@ -543,14 +544,31 @@ def failure(
         ),
     )
     opening = found.pop("opening")
+    html = state.get("explanation_html") or None
+    explaining = bool(state.get("explaining"))
     return {
         "code": code,
         **found,
         "text": " ".join(part for part in (opening, made_text(made)) if part),
         "made": made,
         "raw": said or None,
-        "explanation_html": state.get("explanation_html") or None,
-        "explaining": bool(state.get("explaining")) or None,
+        "explanation_html": html,
+        "explaining": explaining or None,
+        "refusal": Refusal(
+            key=state.get("refusal_key") or None,
+            retryable=code == "temporary",
+            title=found["title"],
+            cause=found["guide"]["cause"],
+            steps=found["guide"]["steps"],
+            provider_words=said or None,
+            html=html,
+            explaining=explaining,
+            fix=RefusalFix(
+                label=found["fix"]["label"],
+                url=found["fix"].get("href"),
+                to=found["fix"]["to"],
+            ),
+        ).model_dump(by_alias=True),
     }
 
 

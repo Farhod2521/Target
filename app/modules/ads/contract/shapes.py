@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.common.contract import Camel, Money
+from app.common.contract import Camel, Money, Refusal
 from app.modules.ads.contract.words import Goal, Kind, Origin, Status
 
 SyncReason = Literal["unusable", "rate_limited", "busy", "truncated", "other"]
@@ -396,6 +396,7 @@ class ControlFailure(Camel):
     explaining: bool | None = Field(
         None, description="That answer is being written: ask `/state` again."
     )
+    refusal: Refusal | None = None
 
 
 class ControlAction(Camel):

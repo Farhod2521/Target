@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from adskit import ExternalRef
 from adskit.dto import LocationDTO
-from adskit.errors import TemporaryFailure
+from adskit.errors import InvalidRequest, TemporaryFailure
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -43,13 +43,14 @@ class Audiences:
     def __init__(self) -> None:
         self.asked: list[str] = []
         self.failing = False
+        self.error: Exception = TemporaryFailure("meta is down")
 
     def find_locations(
         self, *, query: str, country_code: str, token: str, language: str = ""
     ) -> list[LocationDTO]:
         self.asked.append(query)
         if self.failing:
-            raise TemporaryFailure("meta is down")
+            raise self.error
         return [TASHKENT, TASHKENT_KZ, _place("9", "Tash Bay", kind="other")]
 
 
@@ -142,6 +143,24 @@ def test_a_search_meta_cannot_answer_says_so(
     down = client.get(f"{path}/locations?q=Tashkent", headers=auth)
     assert down.status_code == 503
     assert down.json()["code"] == "place_search_failed"
+
+
+def test_a_search_meta_refuses_for_good_says_why(
+    client: TestClient,
+    db: Session,
+    queued: list,
+    meta: Audiences,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth, path, _launch = _proposal(client, db)
+    meta.failing = True
+    meta.error = InvalidRequest("Invalid parameter | code 100/44", code="100")
+    meta.error.key = "meta:100/44"
+
+    refused = client.get(f"{path}/locations?q=Tashkent", headers=auth)
+
+    assert refused.status_code == 422
+    assert refused.json()["refusal"]["key"] == "place:meta:100/44"
 
 
 def test_the_search_has_a_limit(

@@ -45,7 +45,7 @@ def test_the_list_shows_what_needs_a_person_first(
     old = client.get(URL, params={"tab": "retired"}, headers=headers).json()
     found = client.get(URL, params={"q": "3/3"}, headers=headers).json()
 
-    assert [row["key"] for row in everything["rows"]][0] == "change:meta:2/2"
+    assert everything["rows"][0]["key"] == "change:meta:2/2"
     assert everything["rows"][0]["operation"] == "change"
     assert everything["held"] == 1 and everything["total"] == 4
     assert [row["key"] for row in held["rows"]] == ["change:meta:2/2"]

@@ -4,10 +4,10 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.common.money import format_minor, provider_money
@@ -111,9 +111,7 @@ def media_usage(
     }
 
 
-def _media_deletes(
-    db: Session, *, owner: User, status: str, since: datetime
-) -> frozenset[str]:
+def _media_deletes_query(*, owner: User, status: str, since: datetime) -> Select[Any]:
     query = select(ActionLog.target_external_id).where(
         ActionLog.owner_id == owner.id,
         ActionLog.action == str(ActionType.MEDIA_DELETE),
@@ -122,7 +120,15 @@ def _media_deletes(
     )
     if status == str(ActionStatus.FAILED):
         query = query.where(ActionLog.error_code != "gone")
-    return frozenset(db.scalars(query))
+    return query
+
+
+def _media_deletes(
+    db: Session, *, owner: User, status: str, since: datetime
+) -> frozenset[str]:
+    return frozenset(
+        db.scalars(_media_deletes_query(owner=owner, status=status, since=since))
+    )
 
 
 def deleting_files(db: Session, *, owner: User, now: datetime) -> frozenset[str]:
@@ -132,9 +138,17 @@ def deleting_files(db: Session, *, owner: User, now: datetime) -> frozenset[str]
     )
 
 
-def failed_deletes(db: Session, *, owner: User, now: datetime) -> frozenset[str]:
+def failed_deletes(
+    db: Session, *, owner: User, now: datetime
+) -> dict[str, dict[str, Any] | None]:
+    """Each refused file's external id, with the refusal to show for it."""
     since = now - timedelta(minutes=DELETE_REFUSED_SHOWN_MINUTES)
-    return _media_deletes(db, owner=owner, status=str(ActionStatus.FAILED), since=since)
+    rows = db.execute(
+        _media_deletes_query(
+            owner=owner, status=str(ActionStatus.FAILED), since=since
+        ).add_columns(ActionLog.result_payload)
+    ).all()
+    return {row[0]: (row[1] or {}).get("refusal") for row in rows}
 
 
 def stills_pending(

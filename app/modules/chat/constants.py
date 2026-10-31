@@ -102,6 +102,8 @@ OUR_FAULT_KEYS: Final = frozenset({"meta:100/1885624", "meta:100/1815614"})
 CHANGE_REFUSAL_PROMPT_NAME: Final = "change_refusal"
 # Kept apart from the launch prompt's versions, which REFUSAL_STALE_VERSIONS retires.
 CHANGE_REFUSAL_VERSION_PREFIX: Final = "change-"
+ACTION_REFUSAL_PROMPT_NAME: Final = "action_refusal"
+ACTION_REFUSAL_VERSION_PREFIX: Final = "action-"
 # One question to Claude per refusal, however many screens ask; it answers every language.
 REFUSAL_LOCK: Final = "refusal-answer:{key}"
 REFUSAL_LOCK_SECONDS: Final = 10 * 60

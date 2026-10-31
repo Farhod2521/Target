@@ -67,7 +67,7 @@ def translate_error(exc: GoogleAdsError) -> ProviderError:
     """One Google Ads failure as the domain's own error."""
     translated = _translated(exc)
     if isinstance(exc, GoogleAdsAPIError):
-        translated.key = f"google:{_code(exc)}"
+        translated.key = f"google:{_code(exc)[:48]}"
     return translated
 
 

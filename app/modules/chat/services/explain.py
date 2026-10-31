@@ -10,9 +10,11 @@ A launch and a change to a running advert are kept apart (``meta:...`` and
 retried from its page and a change from the campaigns screen.
 """
 
+import json
 import logging
 import uuid
 from collections.abc import Mapping
+from dataclasses import asdict
 
 from llmkit import LLMError, render
 from pydantic import BaseModel, Field
@@ -28,6 +30,8 @@ from app.modules.ads.models import CampaignLaunch
 from app.modules.audit.constants import ActionStatus, LLMPurpose
 from app.modules.audit.models import ActionLog
 from app.modules.chat.constants import (
+    ACTION_REFUSAL_PROMPT_NAME,
+    ACTION_REFUSAL_VERSION_PREFIX,
     CHANGE_REFUSAL_PROMPT_NAME,
     CHANGE_REFUSAL_VERSION_PREFIX,
     REFUSAL_EVERY_LANGUAGE,
@@ -80,6 +84,16 @@ def explain_launch_later(*, launch: CampaignLaunch, language: str) -> bool:
     )
 
 
+def explain_action_later(
+    *, key: str, owner: User, facts: ChangeFacts, language: str
+) -> None:
+    """Send a refused press to be explained. Nothing is stored to read it back from."""
+    from app.modules.chat.tasks import explain_action_refusal
+
+    payload = {"key": key, "owner_id": str(owner.id), "facts": asdict(facts)}
+    _send(key, language, explain_action_refusal, json.dumps(payload))
+
+
 def _send(key: str, language: str, task: object, pk: str) -> bool:
     if not key:
         return False
@@ -114,6 +128,26 @@ def explain_change(db: Session, *, log_id: str, language: str) -> str:
         prompt_name=CHANGE_REFUSAL_PROMPT_NAME,
         version_prefix=CHANGE_REFUSAL_VERSION_PREFIX,
         related=("action_log", str(log.id)),
+    )
+
+
+def explain_action(db: Session, *, payload: str, language: str) -> str:
+    """The same for a refused press, from what was known when it was refused."""
+    asked = json.loads(payload)
+    owner = db.get(User, uuid.UUID(asked["owner_id"]))
+    if owner is None:
+        return ""
+    facts = dict(asked["facts"])
+    facts["links"] = tuple(tuple(link) for link in facts["links"])
+    return _answer(
+        db,
+        owner=owner,
+        key=asked["key"],
+        language=language,
+        facts=ChangeFacts(**facts),
+        prompt_name=ACTION_REFUSAL_PROMPT_NAME,
+        version_prefix=ACTION_REFUSAL_VERSION_PREFIX,
+        related=("refusal", asked["key"]),
     )
 
 
@@ -247,6 +281,8 @@ def _gave_up(key: str) -> None:
 
 __all__ = [
     "count_refusal",
+    "explain_action",
+    "explain_action_later",
     "explain_change",
     "explain_later",
     "explain_launch",

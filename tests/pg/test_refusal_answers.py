@@ -168,7 +168,9 @@ def test_the_screen_shows_the_answer_where_the_change_failed(
     shown = client.get(path, headers=headers).json()["failure"]
 
     assert waiting["explaining"] is True and not waiting["explanationHtml"]
+    assert waiting["refusal"]["key"] == KEY and waiting["refusal"]["explaining"]
     assert not shown["explaining"]
+    assert shown["refusal"]["html"] == shown["explanationHtml"]
     assert "Ads Manager&#x27;ni ochish" in shown["explanationHtml"] or (
         "Ads Manager'ni ochish" in shown["explanationHtml"]
     )

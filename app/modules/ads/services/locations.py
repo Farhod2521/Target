@@ -99,8 +99,18 @@ def _found_places(
             query=query, country_code="", token=token, language=language
         )
     except ProviderError as exc:
+        from app.modules.chat.services.refused import refused
+
         logger.warning("place search failed: %s", exc)
-        raise PlaceSearchFailed from exc
+        if exc.retryable:
+            raise PlaceSearchFailed from exc
+        raise refused(
+            db,
+            owner=launch.owner,
+            exc=exc,
+            operation="place",
+            account=launch.ad_account,
+        ) from exc
     rows = [
         {
             "key": place.ref.id,

@@ -2,7 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session
@@ -62,7 +62,7 @@ def _untranslated() -> ColumnElement[bool]:
     )
 
 
-def _tab(query: Select[tuple[RefusalAnswer]], tab: str) -> Select[tuple[RefusalAnswer]]:
+def _tab(query: Select[Any], tab: str) -> Select[Any]:
     if tab == HELD:
         return query.where(RefusalAnswer.held.is_(True))
     if tab == UNTRANSLATED:
@@ -72,9 +72,7 @@ def _tab(query: Select[tuple[RefusalAnswer]], tab: str) -> Select[tuple[RefusalA
     return query
 
 
-def _search(
-    query: Select[tuple[RefusalAnswer]], term: str
-) -> Select[tuple[RefusalAnswer]]:
+def _search(query: Select[Any], term: str) -> Select[Any]:
     term = term.strip()
     if not term:
         return query

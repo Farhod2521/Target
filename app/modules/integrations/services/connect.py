@@ -10,6 +10,7 @@ from googleadskit import PROVIDER as GOOGLE
 from googlekit import SCOPE_ADWORDS
 from metaads import PROVIDER
 from metaads.accounts import list_ad_accounts, list_pages
+from metaads.adapter import translate_error
 from metaads.dto import AdAccountDTO, PageDTO
 from metaads.errors import MetaAuthError, MetaError
 from metaads.oauth import (
@@ -26,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.common.config import settings
 from app.common.crypto import decrypt, encrypt, fingerprint
 from app.common.db import on_commit, utcnow
-from app.common.exceptions import DecryptionFailed
+from app.common.exceptions import DecryptionFailed, DomainError
 from app.modules.accounts.models import User
 from app.modules.audit.constants import EventName
 from app.modules.audit.services import emit
@@ -89,7 +90,7 @@ def complete_connection(
         ad_accounts = list_ad_accounts(token=grant.token)
         pages = list_pages(token=grant.token)
     except (ProviderError, MetaError) as exc:
-        raise ConnectionFailed from exc
+        raise _connection_refused(db, user=user, exc=exc) from exc
     claim_identity(db, user=user, external_user_id=grant.external_user_id)
     try:
         connection = _store_everything(
@@ -281,6 +282,18 @@ def complete_google_connection(
 
 def google_callback_uri(base_url: str) -> str:
     return f"{base_url.rstrip('/')}/api/v1/connections/google/callback"
+
+
+def _connection_refused(
+    db: Session, *, user: User, exc: ProviderError | MetaError
+) -> DomainError:
+    """A passing fault keeps its sentence; a real refusal gets its answer."""
+    from app.modules.chat.services.refused import refused
+
+    found = translate_error(exc) if isinstance(exc, MetaError) else exc
+    if found.retryable:
+        return ConnectionFailed()
+    return refused(db, owner=user, exc=found, operation="connect")
 
 
 def claim_identity(db: Session, *, user: User, external_user_id: str) -> None:

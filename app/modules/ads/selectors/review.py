@@ -185,7 +185,11 @@ def _explanation(db: Session, *, launch: CampaignLaunch) -> dict[str, Any]:
     found = launch_explanation(
         db, launch=launch, language=answer_language(get_language())
     )
-    return {"explanation_html": found.html, "explaining": found.explaining}
+    return {
+        "explanation_html": found.html,
+        "explaining": found.explaining,
+        "refusal_key": found.key,
+    }
 
 
 def _group_least(db: Session, *, launch: CampaignLaunch) -> str:

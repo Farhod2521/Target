@@ -1,4 +1,5 @@
 import re
+from typing import Any
 
 
 def _snake(name: str) -> str:
@@ -33,6 +34,20 @@ class DomainError(Exception):
     def __init__(self, message: str = "") -> None:
         super().__init__(message)
         self.message = str(message)
+
+
+class ProviderRefused(DomainError):
+    """The network said no to something the owner pressed.
+
+    ``refusal`` is the whole dialog, in the shape of ``app.common.contract.Refusal``.
+    """
+
+    status_code = 422
+    code = "provider_refused"
+
+    def __init__(self, message: str, *, refusal: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.refusal = refusal
 
 
 class NotAllowed(DomainError):

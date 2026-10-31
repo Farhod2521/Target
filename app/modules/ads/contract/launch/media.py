@@ -70,6 +70,7 @@ def _square(square: dict[str, Any]) -> dict[str, Any] | None:
         tile["state"] = "deleting"
     elif square.get("delete_failed"):
         tile["state"] = "delete_failed"
+        tile["refusal"] = square.get("delete_refusal")
     return tile
 
 
@@ -109,6 +110,7 @@ def library(ig: dict[str, Any] | None, lib: dict[str, Any] | None) -> dict[str, 
             )
             if variant.get("upload_failed"):
                 tile["state"] = "upload_failed"
+                tile["refusal"] = variant.get("upload_refusal")
             elif variant.get("is_uploading"):
                 tile["state"] = "uploading"
             uploads.append(tile)

@@ -54,6 +54,7 @@ def variant_card(variant: LaunchCreative, *, now: datetime) -> dict[str, Any]:
         "words_touched": words_touched(variant=variant),
         "is_uploading": is_uploading(variant=variant, now=now),
         "upload_failed": variant.library_upload == LibraryUpload.FAILED,
+        "upload_refusal": variant.upload_refusal or None,
         "brief": variant.brief,
     }
 
@@ -65,6 +66,7 @@ def library_tile(
     deleting: bool,
     delete_failed: bool,
     still_pending: bool = False,
+    delete_refusal: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One square of the picker's grid, and what the owner may do to it."""
     is_file = asset.kind in LIBRARY_FILE_KINDS and bool(asset.ad_account_id)
@@ -73,6 +75,7 @@ def library_tile(
         "used_in": used_in,
         "deleting": deleting,
         "delete_failed": delete_failed,
+        "delete_refusal": delete_refusal,
         "still_pending": still_pending,
         "is_file": is_file,
         "deletable": is_file and not used_in and not deleting,

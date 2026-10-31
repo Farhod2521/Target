@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, Index, SmallInteger, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.common.db import Base, utcnow
+from app.common.db import Base, Json, utcnow
 
 
 class LaunchCreative(Base):
@@ -27,6 +28,7 @@ class LaunchCreative(Base):
     media_asset_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True, index=True)
     media_upload: Mapped[str] = mapped_column(String(100), nullable=False, default="")
     library_upload: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    upload_refusal: Mapped[Any] = mapped_column(Json, nullable=False, default=dict)
     brief: Mapped[str] = mapped_column(Text, nullable=False, default="")
     primary_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     headline: Mapped[str] = mapped_column(String(255), nullable=False, default="")

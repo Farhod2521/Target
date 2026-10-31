@@ -174,7 +174,7 @@ def fail_log(
     log: ActionLog,
     code: str,
     message: str,
-    detail: dict[str, str] | None = None,
+    detail: dict[str, Any] | None = None,
 ) -> None:
     """``detail`` is what the provider wrote for the advertiser, quoted under
     the screen's own sentence."""

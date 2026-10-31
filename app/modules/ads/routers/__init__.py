@@ -425,6 +425,7 @@ def action_state_by_id(
         "polling": selectors.still_running([row]),
         "explanation_html": failure.explanation_html if failure is not None else "",
         "explaining": failure.explaining if failure is not None else False,
+        "refusal": _refusal(note=failure, action=row) if failure is not None else None,
     }
 
 
@@ -508,6 +509,7 @@ def control_state(
             else None,
             "explanation_html": note.explanation_html or None,
             "explaining": note.explaining or None,
+            "refusal": _refusal(note=note, action=action),
         }
         if note is not None
         else None,
@@ -523,6 +525,14 @@ def control_state(
         "poll_seconds": ACTION_POLL_SECONDS,
         "refused": refusal or None,
     }
+
+
+def _refusal(*, note: Any, action: Any) -> dict[str, Any]:
+    from app.modules.ads.selectors.failures import note_refusal, unfamiliar
+    from app.modules.chat.selectors.change_refusal import change_key
+
+    key = change_key(action) if unfamiliar(action) else ""
+    return note_refusal(note=note, action=action, key=key).model_dump(by_alias=True)
 
 
 def _failure(db: Session, *, action: Any, target: Any, level: str) -> Any:

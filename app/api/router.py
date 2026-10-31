@@ -17,6 +17,7 @@ from app.modules.backoffice.routers import router as office
 from app.modules.billing.routers import router as billing
 from app.modules.billing.routers import webhooks as billing_webhooks
 from app.modules.businesses.routers import router as businesses
+from app.modules.chat.routers import refusals
 from app.modules.chat.routers import router as chat
 from app.modules.crm.routers import router as crm
 from app.modules.destinations.routers import router as destinations
@@ -44,6 +45,7 @@ api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(accounts)
 api_router.include_router(businesses)
 api_router.include_router(integrations)
+api_router.include_router(refusals)
 api_router.include_router(billing)
 api_router.include_router(referrals)
 api_router.include_router(leads)

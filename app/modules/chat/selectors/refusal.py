@@ -219,6 +219,7 @@ class Explanation:
 
     html: str = ""
     explaining: bool = False
+    key: str = ""
 
 
 def launch_explanation(
@@ -233,9 +234,9 @@ def launch_explanation(
         return Explanation()
     ready = ready_answer(db, key=key, language=language)
     if ready is None:
-        return Explanation(explaining=awaited(key=key))
+        return Explanation(explaining=awaited(key=key), key=key)
     return Explanation(
-        html=link_html(render_markdown(ready.text), refusal_links(launch))
+        html=link_html(render_markdown(ready.text), refusal_links(launch)), key=key
     )
 
 

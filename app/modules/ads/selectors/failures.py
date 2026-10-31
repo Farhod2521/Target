@@ -7,6 +7,8 @@ from typing import Any, Final
 from metaads.accounts import billing_url, manager_url
 from sqlalchemy.orm import Session
 
+from app.common.contract import Refusal, RefusalFix
+from app.common.routes import reverse
 from app.modules.ads.selectors.actions import account_of
 from app.modules.audit.constants import ActionStatus, ActionType
 from app.modules.audit.models import ActionLog
@@ -86,6 +88,7 @@ SENTENCES: Final[dict[str, tuple[str, str]]] = {
         ADS_MANAGER,
     ),
 }
+CHANGE_TITLE: Final = "Meta bu o'zgarishni qabul qilmadi"
 FALLBACK: Final = (
     "Meta bu o'zgarishni rad etdi. Sababi pastda; tuzatib bo'lmasa, Ads Manager'da "
     "tekshiring.",
@@ -151,16 +154,23 @@ def failure_sentence(action: ActionLog) -> str:
     return f"{sentence} {words}" if words else sentence
 
 
+def fix_link(fix: str, account: str) -> tuple[str, str]:
+    """The button a sentence names, as its label and this account's address."""
+    links = {
+        RECONNECT: ("Meta'ni qayta ulash", reverse("integrations:connections")),
+        BILLING: ("To'lov sahifasini ochish", billing_url(account)),
+        ADS_MANAGER: ("Ads Manager'ni ochish", manager_url(account)),
+    }
+    return links.get(fix, ("", ""))
+
+
 def failure_note(*, action: ActionLog, target: Any, level: str) -> FailureNote:
     """The sentence and the button for one failed audit row."""
     sentence, fix = SENTENCES.get(action.error_code, FALLBACK)
     account = account_of(target=target, level=level).external_id
-    links = {
-        RECONNECT: ("Meta'ni qayta ulash", ""),
-        BILLING: ("To'lov sahifasini ochish", billing_url(account)),
-        ADS_MANAGER: ("Ads Manager'ni ochish", manager_url(account)),
-    }
-    label, url = links.get(fix, ("", ""))
+    label, url = fix_link(fix, account)
+    if fix == RECONNECT:
+        url = ""
     said = action.result_payload or {}
     words = " ".join(
         part
@@ -200,6 +210,25 @@ def explained(
         explanation_html=link_html(
             render_markdown(text), change_links(account_external_id)
         ),
+    )
+
+
+def note_refusal(*, note: FailureNote, action: ActionLog, key: str) -> Refusal:
+    """A failed change in the shape every refusal is drawn in."""
+    url = note.fix_url or (
+        reverse("integrations:connections") if note.fix == RECONNECT else ""
+    )
+    return Refusal(
+        key=key or None,
+        retryable=action.error_code == "temporary",
+        title=CHANGE_TITLE,
+        cause=note.sentence,
+        provider_words=note.provider_words or None,
+        html=note.explanation_html or None,
+        explaining=note.explaining,
+        fix=RefusalFix(label=note.fix_label, url=url)
+        if note.fix_label and url
+        else None,
     )
 
 
