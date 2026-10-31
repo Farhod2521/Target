@@ -10,3 +10,6 @@ media/
 graphify-out/
 logs/
 backups/
+
+# Local staging (tools/staging/up.sh)
+tools/staging/.encryption-key
