@@ -443,12 +443,14 @@ class PostRoute(Choices):
     PROMOTED = "promoted"
     COPIED_FOR_CALLS = "calls"
     COPIED_FOR_WORDS = "words"
+    COPIED_FOR_CAROUSEL = "carousel"
 
 
 POST_ROUTE_LABELS = {
     PostRoute.PROMOTED: "Post o'z joyida reklama qilinadi — layk va izohlar saqlanadi.",
     PostRoute.COPIED_FOR_CALLS: "Qo'ng'iroq maqsadida post o'z joyida reklama qilinmaydi — reklama yangi post bo'lib chiqadi. Layk va izohlar ko'chmaydi.",
     PostRoute.COPIED_FOR_WORDS: "Matn o'zgardi — reklama yangi post bo'lib chiqadi. Layk va izohlar ko'chmaydi.",
+    PostRoute.COPIED_FOR_CAROUSEL: "Karusel post lid formasi bilan o'z joyida reklama qilinmaydi — reklama yangi karusel bo'lib chiqadi. Layk va izohlar ko'chmaydi.",
 }
 
 

@@ -168,7 +168,7 @@ def test_targetolog_mode_shows_every_level(client: TestClient, db: Session) -> N
     assert body["campaigns"][0]["budgetAt"] == "campaign"
 
 
-def test_the_bins_and_the_refresh_answer_no_content(
+def test_a_bin_answers_its_state_and_the_refresh_no_content(
     client: TestClient, db: Session, queued: list, monkeypatch: Any
 ) -> None:
     import app.modules.ads.routers as routers
@@ -183,7 +183,7 @@ def test_the_bins_and_the_refresh_answer_no_content(
     synced = client.post("/api/v1/campaigns/sync", headers=headers)
     gone = client.delete("/api/v1/campaigns/adsets/nope", headers=headers)
 
-    assert ad.status_code == 204, ad.text
+    assert ad.status_code == 200, ad.text
     assert any(name.endswith("apply_delete_task") for name, _ in queued)
     assert synced.status_code == 204, synced.text
     assert gone.status_code == 404

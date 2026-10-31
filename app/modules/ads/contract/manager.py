@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.common.contract import money
 from app.modules.accounts.models import User
 from app.modules.ads import selectors
+from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.contract.listing import (
     ListAsk,
     campaign_list,
@@ -19,6 +20,8 @@ from app.modules.ads.contract.listing import (
     figures_range,
 )
 from app.modules.ads.contract.words import controls_of, status_of
+from app.modules.ads.selectors.failures import last_refusal
+from app.modules.ads.selectors.rejections import first_turned_down, rejection_of
 
 
 def _reach(chips: Any) -> dict[str, int]:
@@ -46,6 +49,11 @@ def manager(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
         if campaign is None:
             continue
         selectors.with_controls(db, owner=owner, campaign=campaign)
+        ads = selectors.with_content(
+            db,
+            owner=owner,
+            ads=[ad for group in campaign.adsets for ad in group.ads],
+        )
         chosen, _ = figures_range(db, owner=owner, account=campaign.ad_account, ask=ask)
         at_campaign = campaign.daily_budget_minor is not None
         budget_at = "campaign" if at_campaign else "adset"
@@ -83,6 +91,8 @@ def manager(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
                 **_reach(own),
                 "controls": row["controls"],
                 "problem": row["problem"],
+                "refusal": row["refusal"],
+                "rejection": rejection_of(first_turned_down(ads)),
             }
         )
         groups = list(campaign.adsets)
@@ -100,9 +110,6 @@ def manager(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
             found.ad_id: found
             for found in ad_chips(db, owner=owner, campaign=campaign, date_range=chosen)
         }
-        ads = selectors.with_content(
-            db, owner=owner, ads=[ad for group in groups for ad in group.ads]
-        )
         for group in groups:
             currency = group.currency or campaign.ad_account.currency
             chips = by_group.get(group.external_id)
@@ -130,6 +137,14 @@ def manager(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
                         early_hours=getattr(group, "early_hours", 0),
                     ),
                     "problem": getattr(group, "issue_summary", "") or None,
+                    "refusal": last_refusal(
+                        action=getattr(group, "last_action", None),
+                        target=group,
+                        level=ManagedLevel.ADSET,
+                    ),
+                    "rejection": rejection_of(
+                        first_turned_down(ad for ad in ads if ad.adset_id == group.id)
+                    ),
                 }
             )
             for ad in (row for row in ads if row.adset_id == group.id):
@@ -153,6 +168,12 @@ def manager(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
                             early_hours=getattr(ad, "early_hours", 0),
                         ),
                         "problem": getattr(ad, "issue_summary", "") or None,
+                        "refusal": last_refusal(
+                            action=getattr(ad, "last_action", None),
+                            target=ad,
+                            level=ManagedLevel.AD,
+                        ),
+                        "rejection": rejection_of(ad),
                     }
                 )
     return out

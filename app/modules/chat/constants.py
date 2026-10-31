@@ -97,6 +97,7 @@ REFUSAL_OPERATION_LABELS: Final[dict[str, str]] = {
     "audience": "Auditoriya",
     "place": "Joy qidirish",
     "connect": "Meta ulanishi",
+    "review": "Reklama tekshiruvi",
 }
 OUR_FAULT_KEYS: Final = frozenset({"meta:100/1885624", "meta:100/1815614"})
 CHANGE_REFUSAL_PROMPT_NAME: Final = "change_refusal"

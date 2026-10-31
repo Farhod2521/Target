@@ -61,7 +61,8 @@ _PROMOTABLE_PRODUCTS: Final = frozenset({"FEED", "REELS"})
 # A carousel is read as a picture on purpose. Meta answers the parent with
 # one representative frame it chose itself, so the ad is a single image and
 # nobody here picked which - see ``discovery.IG_MEDIA_DETAIL_FIELDS``.
-_STILL_TYPES: Final = frozenset({"IMAGE", "CAROUSEL_ALBUM"})
+_CAROUSEL: Final = "CAROUSEL_ALBUM"
+_STILL_TYPES: Final = frozenset({"IMAGE", _CAROUSEL})
 _MOVING_TYPES: Final = frozenset({"VIDEO"})
 
 
@@ -289,6 +290,7 @@ def _instagram(row: dict[str, Any]) -> MediaDTO | None:
         thumbnail_url=still,
         permalink_url=str(row.get("permalink", "")),
         created_time=row.get("timestamp"),
+        is_carousel=row.get("media_type") == _CAROUSEL,
         is_eligible=eligible,
         ineligible_reason=reason,
     )

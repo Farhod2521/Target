@@ -89,11 +89,88 @@ SENTENCES: Final[dict[str, tuple[str, str]]] = {
     ),
 }
 CHANGE_TITLE: Final = "Meta bu o'zgarishni qabul qilmadi"
-FALLBACK: Final = (
-    "Meta bu o'zgarishni rad etdi. Sababi pastda; tuzatib bo'lmasa, Ads Manager'da "
-    "tekshiring.",
-    ADS_MANAGER,
+FALLBACK: Final = ("Meta bu o'zgarishni rad etdi.", ADS_MANAGER)
+AGAIN: Final = "Shu amalni yana bajaring."
+UNNAMED_STEPS: Final = (
+    "«Ulanishlar» sahifasida Meta ulanishi «Faol» ekanini tekshiring.",
+    "Reklama hisobida qizil ogohlantirish yo'qligini business.facebook.com da ko'ring.",
+    "Takrorlansa, supportga yozing.",
 )
+_RECONNECT_GUIDE: Final = (
+    "Meta ulanishi uzilgan yoki muddati tugagan.",
+    ("«Ulanishlar» sahifasini oching.", "Meta'ni qayta ulang.", AGAIN),
+)
+# The sentence above split for the dialog: the cause, then what to do in order.
+# A sentence with nothing to do but read it has no line here.
+GUIDES: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
+    "reconnect": _RECONNECT_GUIDE,
+    "connection": _RECONNECT_GUIDE,
+    "permission": (
+        "Ulangan Facebook profilida bu reklama akkauntini boshqarish huquqi yo'q.",
+        (
+            "Business Manager'da shu profilga akkaunt ustidan to'liq huquq bering.",
+            "Meta'ni qayta ulang.",
+            AGAIN,
+        ),
+    ),
+    "account_blocked": (
+        "Meta bu reklama akkauntiga hozir hech qanday o'zgarish kiritishga ruxsat "
+        "bermayapti. Ko'pincha sababi to'lanmagan qarz yoki karta.",
+        (
+            "To'lov sahifasini oching.",
+            "Qarzni to'lang yoki kartani yangilang.",
+            "Akkaunt tiklangach, shu amalni yana bajaring.",
+        ),
+    ),
+    "account_action": (
+        "Meta Facebook profilingizni tasdiqlashni kutmoqda.",
+        ("Ads Manager'ga kiring.", "Meta so'ragan tasdiqlashni bajaring.", AGAIN),
+    ),
+    "payment_missing": (
+        "Reklama akkauntida ishlaydigan to'lov kartasi yo'q.",
+        (
+            "To'lov sahifasini oching.",
+            "Kartani tekshiring yoki yangisini qo'shing.",
+            AGAIN,
+        ),
+    ),
+    "temporary": (
+        "Meta hozir javob bermayapti.",
+        ("Bir-ikki daqiqa kuting.", AGAIN),
+    ),
+    "read": (
+        "Meta'dan reklama holatini o'qib bo'lmadi.",
+        ("Bir daqiqa kuting.", AGAIN),
+    ),
+    "not_found": (
+        "Bu reklama Meta'da topilmadi. U Ads Manager'da o'chirilgan bo'lishi mumkin.",
+        ("Ads Manager'da reklamani tekshiring.", "Sahifani yangilang."),
+    ),
+    "stalled": (
+        "Bu o'zgarish oxirigacha bormadi.",
+        ("Reklama holatini tekshiring.", AGAIN),
+    ),
+    "changed_elsewhere": (
+        "Bu guruhning auditoriyasi platformadan tashqarida — Ads Manager'da yoki "
+        "Meta tomonidan — o'zgartirilgan, shuning uchun hech narsa yuborilmadi.",
+        (
+            "Tahrirni qayta oching: yangi holati yuklangan.",
+            "Ko'rib chiqing va yana saqlang.",
+        ),
+    ),
+    "learning": (
+        "Guruh hali o'rganmoqda. Hozir reklamani to'xtatish o'rganishni noldan boshlaydi.",
+        ("O'rganish tugashini kuting yoki butun guruhni to'xtating.",),
+    ),
+    "last_ad": (
+        "Guruhda boshqa ishlayotgan reklama yo'q.",
+        ("Uning o'rniga butun guruhni to'xtating.",),
+    ),
+    "not_applied": (
+        "Meta so'rovni qabul qilmadi va hech narsa o'zgarmadi.",
+        ("Ads Manager'da reklama holatini tekshiring.", AGAIN),
+    ),
+}
 CAUSE_LINES: Final[dict[RefusalCause, str]] = {
     "words": "Sabab — reklama matni. Matnni Meta qoidasiga moslab o'zgartiring.",
     "picture": (
@@ -152,6 +229,15 @@ def failure_sentence(action: ActionLog) -> str:
         if part
     )
     return f"{sentence} {words}" if words else sentence
+
+
+def guide_of(code: str) -> tuple[str, tuple[str, ...]]:
+    """The cause and the steps a dialog draws for one code."""
+    if code in GUIDES:
+        return GUIDES[code]
+    if code in SENTENCES:
+        return SENTENCES[code][0], ()
+    return FALLBACK[0], UNNAMED_STEPS
 
 
 def fix_link(fix: str, account: str) -> tuple[str, str]:
@@ -218,11 +304,13 @@ def note_refusal(*, note: FailureNote, action: ActionLog, key: str) -> Refusal:
     url = note.fix_url or (
         reverse("integrations:connections") if note.fix == RECONNECT else ""
     )
+    cause, steps = guide_of(action.error_code)
     return Refusal(
         key=key or None,
         retryable=action.error_code == "temporary",
         title=CHANGE_TITLE,
-        cause=note.sentence,
+        cause=cause,
+        steps=list(steps),
         provider_words=note.provider_words or None,
         html=note.explanation_html or None,
         explaining=note.explaining,
@@ -230,6 +318,25 @@ def note_refusal(*, note: FailureNote, action: ActionLog, key: str) -> Refusal:
         if note.fix_label and url
         else None,
     )
+
+
+def last_refusal(*, action: Any, target: Any, level: str) -> dict[str, Any] | None:
+    """Why this object's last change failed, for a screen read long after it.
+
+    Without the written answer: the dialog asks for it by key, so a page of
+    rows costs no read of the answers and no question to Claude.
+    """
+    from app.modules.chat.selectors.change_refusal import change_key
+
+    if action is None or action.status != ActionStatus.FAILED:
+        return None
+    key = change_key(action) if unfamiliar(action) else ""
+    found = note_refusal(
+        note=failure_note(action=action, target=target, level=level),
+        action=action,
+        key=key,
+    )
+    return found.model_copy(update={"explaining": bool(key)}).model_dump(by_alias=True)
 
 
 def recent_delete_failure(

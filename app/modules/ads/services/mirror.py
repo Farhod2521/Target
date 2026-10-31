@@ -44,6 +44,7 @@ from app.modules.ads.exceptions import (
     SyncFailed,
 )
 from app.modules.ads.models import Ad, AdCreative, AdSet, Campaign
+from app.modules.ads.selectors.rejections import turned_down
 from app.modules.ads.services.access import token_for
 from app.modules.integrations.models import AdAccount
 
@@ -328,6 +329,7 @@ def write_ads(
 ) -> set[str]:
     owner = ad_account.owner
     seen: set[str] = set()
+    rejected: list[Ad] = []
     known_forms = forms_still_known(db, owner=owner, ads=ads)
     for dto in ads:
         adset = adsets.get(dto.adset_ref.id)
@@ -363,7 +365,22 @@ def write_ads(
         )
         if ad is not None:
             seen.add(dto.ref.id)
+            if turned_down(ad):
+                rejected.append(ad)
+    _explain_rejections(db, owner=owner, ads=rejected)
     return seen
+
+
+def _explain_rejections(db: Session, *, owner: User, ads: list[Ad]) -> None:
+    """A lost broker or a slow Claude must never fail a sync."""
+    from app.modules.chat.services.refused import explain_rejections
+
+    if not ads:
+        return
+    try:
+        explain_rejections(db, owner=owner, ads=ads)
+    except Exception:
+        logger.exception("rejections of %s were not sent to be explained", owner.id)
 
 
 def write_creatives(

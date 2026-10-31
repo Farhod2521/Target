@@ -142,6 +142,7 @@ from app.modules.ads.selectors.pages import (
     pages_by_promoted,
     paying_accounts,
 )
+from app.modules.ads.selectors.rejections import with_rejections
 from app.modules.ads.selectors.row_controls import (
     with_controls,
     with_switches,
@@ -318,6 +319,7 @@ __all__ = [
     "with_badges",
     "with_content",
     "with_controls",
+    "with_rejections",
     "with_settings",
     "with_switches",
     "with_tree_badge",
