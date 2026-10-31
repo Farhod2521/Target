@@ -44,7 +44,7 @@ from app.modules.ads.services.additions import (
 from app.modules.ads.services.swap import NAME_SUFFIX
 
 
-class NewGroupIn(Camel):
+class AddGroupIn(Camel):
     name: str = Field(min_length=1, max_length=LAUNCH_NAME_MAX)
     source: str = Field(
         default="", description="A group of this campaign; empty: its first."
@@ -56,7 +56,7 @@ class NewGroupIn(Camel):
     )
 
 
-class NewAdIn(Camel):
+class AddAdIn(Camel):
     name: str = Field(min_length=1, max_length=LAUNCH_NAME_MAX)
     source: str = Field(
         default="", description="The advert to copy; empty: the nearest."
@@ -105,7 +105,7 @@ def new_group_form(campaign_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[st
     status_code=status.HTTP_202_ACCEPTED,
 )
 def new_group(
-    campaign_id: uuid.UUID, body: NewGroupIn, db: Db, user: CurrentUser
+    campaign_id: uuid.UUID, body: AddGroupIn, db: Db, user: CurrentUser
 ) -> dict[str, str]:
     """Open a paused copy of one of this campaign's groups."""
     campaign = _detail(db, user, campaign_id)
@@ -123,7 +123,7 @@ def new_group(
     return {"action_id": str(log.id)}
 
 
-def _budget(body: NewGroupIn, campaign: Any) -> int | None:
+def _budget(body: AddGroupIn, campaign: Any) -> int | None:
     if body.daily_budget is None:
         return None
     problems = Problems()
@@ -179,7 +179,7 @@ def new_ad_form(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     status_code=status.HTTP_202_ACCEPTED,
 )
 def new_ad(
-    external_id: str, body: NewAdIn, db: Db, user: CurrentUser
+    external_id: str, body: AddAdIn, db: Db, user: CurrentUser
 ) -> dict[str, str]:
     """Open a paused copy of an advert in this group, with what was typed changed."""
     group = _target(db, user, ManagedLevel.ADSET, external_id)
