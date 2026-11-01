@@ -2,8 +2,8 @@
 
 ``/start`` with a code links an account, ``/start parol`` sends a linked
 one its new-password link, ``/stop`` unlinks it, ``/yordam`` makes the next
-typed words a message to Support, ``/hisobot`` and ``/bugun`` send the day's
-list, and the buttons under that list open a pair's day. A stranger and an
+typed words a message to Support, ``/hisobot``, ``/bugun`` and ``/hafta`` send
+a report, and the buttons under it open a pair's figures. A stranger and an
 unlinked chat get the one sentence about connecting.
 
 Anything else typed in a linked chat is a question for the assistant, or the
@@ -38,6 +38,7 @@ from app.modules.notifications.constants import (
     COMMAND_START,
     COMMAND_STOP,
     COMMAND_TODAY,
+    COMMAND_WEEK,
     PRIVATE_CHAT,
     RESET_PAYLOAD,
     SUPPORT_WAIT_KEY,
@@ -50,6 +51,7 @@ from app.modules.notifications.services.commands import (
     handle_daily_press,
     is_daily_press,
     send_today,
+    send_week,
     send_yesterday,
 )
 from app.modules.notifications.services.compose import escaped
@@ -131,6 +133,8 @@ def _command(
             return send_yesterday(db, client=client, chat=known, now=now)
         if command.name == COMMAND_TODAY:
             return send_today(db, client=client, chat=known, now=now)
+        if command.name == COMMAND_WEEK:
+            return send_week(db, client=client, chat=known, now=now)
     _say(client=client, chat_id=command.chat_id, text=_hello(known))
     return "unknown"
 
@@ -284,7 +288,7 @@ def _hello(known: TelegramChat | None) -> str:
     if not _linked(known):
         return _instructions()
     return (
-        "Siz ulangansiz.\n\n/hisobot — kechagi hisobot\n/bugun — bugungi raqamlar\n"
+        "Siz ulangansiz.\n\n/hisobot — kechagi hisobot\n/bugun — bugungi raqamlar\n/hafta — o'tgan hafta hisoboti\n"
         "/yordam — yordam xizmatiga yozish\n/stop — xabarlarni to'xtatish"
     )
 

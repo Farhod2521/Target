@@ -1,21 +1,25 @@
-"""One page and account pair's day in full: what the list's button opens.
+"""One page and account pair's day or week: what the first message's button opens.
 
-Every group that spent, «Campaign — Group», with its adverts under it: the
-ones switched on now first, the ones switched off since below them, each
-half by money. It replaces the list in place, and «◀ Ro'yxat» puts the list
-back.
+The pair's total, where the money was built, and one line per goal: how many,
+what one cost, what the goal spent. No campaign, group or advert: «Batafsil»
+opens them in the cabinet, on this pair and this period. A week says under each
+goal what it came to the week before: comparing is what a week is read for.
 
-Figures only, like the list - see :mod:`app.modules.notifications.services.compose_daily`.
+The goal lines add up to the total, so a goal nothing here counts has a line
+too. It replaces the list in place, and «◀ Ro'yxat» puts the list back. A pair
+that is the only one to spend needs no list: its day is the message.
+
+Figures only, like the list - see
+:mod:`app.modules.notifications.services.compose_daily`.
 """
 
-from collections.abc import Sequence
+from typing import Final
+from urllib.parse import urlencode
 
-from telegramkit import MESSAGE_MAX_CHARS, Button, message_units
+from telegramkit import Button
 
-from app.common.money import format_minor, number_format
-from app.modules.metrics.selectors.results import UNCOUNTED_LABEL
-from app.modules.notifications.constants import DAILY_PAIRS_PER_MESSAGE
-from app.modules.notifications.keys import daily_list_data, daily_pair_data
+from app.common.money import number_format
+from app.modules.notifications.keys import daily_list_data, weekly_list_data
 from app.modules.notifications.services.compose import (
     Message,
     _bold,
@@ -25,166 +29,165 @@ from app.modules.notifications.services.compose import (
 )
 from app.modules.notifications.services.compose_daily import (
     SEPARATOR,
-    pair_figures,
+    closing_lines,
+    compared,
+    heading,
+    list_buttons,
+    list_message,
+    pair_press,
     status_line,
 )
-from core.chat.day_report import DailyReport, Figure, GroupLine
+from core.chat.day_report import DailyReport, DayBook, Result
+
+# What a goal is called on its line. «Murojaat» alone would name two of them.
+GOAL_NAMES: Final[dict[str, str]] = {
+    "lead": "Forma murojaati",
+    "site_lead": "Saytdagi murojaat",
+    "chat": "Suhbat",
+    "call": "Qo'ng'iroq",
+    "view": "Ko'rish",
+    "click": "Saytga o'tish",
+    "recall": "Eslab qolgan",
+    "profile": "Profilga o'tish",
+}
 
 
-def pair_message(*, report: DailyReport, number: int) -> Message:
-    """One pair's day in full, cut to fit rather than cut off.
-
-    Telegram takes four thousand characters. A pair with more groups than
-    that loses the adverts under its smallest groups first, then those
-    groups themselves - and a last line says what the dropped ones spent,
-    so the rows still add up to the figure at the top.
-    """
-    size = len(report.groups)
-    for with_ads in range(size, -1, -1):
-        text = _pair_text(report, number=number, shown=size, with_ads=with_ads)
-        if message_units(text) <= MESSAGE_MAX_CHARS:
-            return Message(text=text)
-    for shown in range(size - 1, -1, -1):
-        text = _pair_text(report, number=number, shown=shown, with_ads=0)
-        if message_units(text) <= MESSAGE_MAX_CHARS:
-            return Message(text=text)
-    return Message(text=text)
-
-
-def pair_buttons(*, reports: Sequence[DailyReport], index: int) -> tuple[Button, ...]:
-    """Back to the list, on to the next pair that spent, and the cabinet."""
-    report = reports[index]
-    spent = [place for place, item in enumerate(reports) if not item.is_quiet]
-    after = [place for place in spent if place > index] + spent
-    following = next((place for place in after if place != index), None)
-    buttons = [
-        Button(
-            text="◀ Ro'yxat",
-            data=daily_list_data(day=report.day, part=index // DAILY_PAIRS_PER_MESSAGE),
-        )
-    ]
-    if following is not None:
-        buttons.append(
-            Button(
-                text="Keyingisi ▶",
-                data=daily_pair_data(day=report.day, pair=reports[following].pair),
-            )
-        )
-    return (
-        *buttons,
-        *miniapp_button(route="metrics:dashboard", label="Kabinetda ochish"),
+def day_view(*, book: DayBook) -> tuple[Message, tuple[Button, ...]]:
+    """What the day opens on: the list, or the lone pair's day."""
+    report = book.only
+    if report is None:
+        return list_message(book=book), list_buttons(book=book)
+    return pair_message(book=book, report=report), pair_buttons(
+        book=book, report=report
     )
 
 
-def _pair_text(report: DailyReport, *, number: int, shown: int, with_ads: int) -> str:
-    """The pair's message with ``shown`` groups, the first ``with_ads`` of
-    them with their adverts."""
-    lines = [_bold(f"{number}. {report.title}"), escaped(report.day_text)]
-    if status := status_line([report]):
+def pair_message(*, book: DayBook, report: DailyReport) -> Message:
+    """One pair's day, by goal."""
+    lone = book.only is report
+    if lone:
+        lines = [_bold(heading(book)), _bold(report.title)]
+    else:
+        lines = [_bold(report.title), escaped(report.day_text)]
+    if status := status_line(book):
         lines.append(status)
-    lines += ["", *pair_figures(report)]
-    if report.groups:
-        lines.append(
+    lines += ["", *_money_lines(book, report)]
+    goals = _goal_lines(book, report)
+    if goals:
+        lines += ["", _bold("Maqsad bo'yicha natijalar"), *goals]
+    if report.other_currency:
+        spent = SEPARATOR.join(report.other_currency)
+        lines += ["", escaped(f"Boshqa valyutada: {spent}")]
+    if report.idle:
+        lines += [
+            "",
             _italic(
-                "%(campaigns)s kampaniya · %(groups)s guruh · "
-                "%(ads)s reklama ishladi"
-                % {
-                    "campaigns": report.campaigns,
-                    "groups": len(report.groups),
-                    "ads": report.ad_count,
-                }
-            )
-        )
-        lines += ["", _italic("Har qatorda: natija · bittasining narxi · sarf")]
-    kept = report.groups[:shown]
-    for heading, running in (
-        ("Hozir yoqilgan", True),
-        ("Ishlagan, hozir o'chirilgan", False),
-    ):
-        half = [
-            (place, group)
-            for place, group in enumerate(kept)
-            if group.running is running
+                f"Ads Manager'da yana {report.idle} ta kampaniya yoniq, lekin "
+                f"{'shu hafta' if book.weekly else f'{report.day_text} kuni'} "
+                "sarf qilmadi."
+            ),
         ]
-        if half:
-            lines += ["", _bold(heading)]
-        for place, group in half:
-            lines += ["", *_group_lines(group, with_ads=place < with_ads)]
-    lines += _dropped(report, shown=shown)
-    lines += _footnotes(report)
-    return "\n".join(lines)
+    if report.open_proposals:
+        lines += [
+            "",
+            escaped(f"Javob kutayotgan takliflar: {report.open_proposals}"),
+        ]
+    if lone:
+        lines += closing_lines(book)
+    return Message(text="\n".join(lines))
 
 
-def _group_lines(group: GroupLine, *, with_ads: bool) -> list[str]:
-    name = (
-        f"{group.campaign} — {group.name}"
-        if group.campaign and group.name
-        else group.campaign or group.name
+def pair_buttons(*, book: DayBook, report: DailyReport) -> tuple[Button, ...]:
+    """Back to the list and on to the next pair, then the pair in the cabinet."""
+    return (*_steps(book, report), *_cabinet(book, report))
+
+
+def _steps(book: DayBook, report: DailyReport) -> tuple[Button, ...]:
+    if book.only is not None:
+        return ()
+    spent = book.spent
+    place = next(
+        (index for index, item in enumerate(spent) if item.pair == report.pair), 0
     )
-    lines = [
-        _bold(name),
-        f"{escaped(_row_result(group.figure, short=False))}{_bold(group.figure.spend)}",
+    following = spent[(place + 1) % len(spent)] if len(spent) > 1 else None
+    back = Button(
+        text="◀ Ro'yxat",
+        data=weekly_list_data(since=book.day)
+        if book.weekly
+        else daily_list_data(day=book.day, part=0),
+    )
+    if following is None:
+        return (back,)
+    return (
+        back,
+        Button(
+            text="Keyingisi ▶",
+            data=pair_press(book, following),
+        ),
+    )
+
+
+def _cabinet(book: DayBook, report: DailyReport) -> tuple[Button, ...]:
+    """This pair over this period: the figures the message gave."""
+    query = {"start": book.day.isoformat(), "end": book.until.isoformat()}
+    if report.page_id and report.account_id:
+        query["pair"] = f"{report.page_id}:{report.account_id}"
+    return miniapp_button(
+        route="metrics:dashboard",
+        label="Batafsil — kabinetda",
+        query=urlencode(query),
+    )
+
+
+def _money_lines(book: DayBook, report: DailyReport) -> list[str]:
+    if report.spend_minor <= 0:
+        return [] if report.other_currency else [_italic("Sarf bo'lmagan")]
+    total = f"{escaped('Jami')}: {_bold(report.spend)}{compared(book, report.before)}"
+    if not report.elsewhere:
+        return [total]
+    parts = [
+        f"Platformadan {report.here}" if report.here else "",
+        f"Ads Manager {report.elsewhere}",
     ]
-    if not with_ads:
-        return lines
-    for place, ad in enumerate(group.ads):
-        branch = "└" if place == len(group.ads) - 1 else "├"
-        lines.append(
-            escaped(
-                f"{branch} {ad.name}: {_row_result(ad.figure, short=True)}"
-                f"{ad.figure.spend}"
-            )
-        )
+    return [total, escaped(SEPARATOR.join(part for part in parts if part))]
+
+
+def _goal_lines(book: DayBook, report: DailyReport) -> list[str]:
+    figure = report.figure
+    lines: list[str] = []
+    for result in figure.results:
+        lines.append(_goal_line(result))
+        if book.weekly:
+            lines.append(_week_before(result))
+    if figure.uncounted:
+        lines.append(escaped(f"• Natijasi sanalmaydi: sarf {figure.uncounted}"))
+    if report.elsewhere_apart:
+        lines.append(escaped(f"• Ads Manager: sarf {report.elsewhere}"))
     return lines
 
 
-def _row_result(figure: Figure, *, short: bool) -> str:
-    """«22 murojaat · $2.05 · », the start of a row; the spend follows it.
-
-    ``short`` drops the word, for an advert under a group that already
-    said it.
-    """
-    if not figure.counted:
-        return f"{UNCOUNTED_LABEL}{SEPARATOR}"
-    parts = []
-    for result in figure.results:
-        if result.count == 0:
-            parts.append("natija yo'q")
-            continue
-        count = number_format(result.count)
-        parts += [count if short else f"{count} {result.word}", result.cost]
-    return SEPARATOR.join(parts) + SEPARATOR if parts else ""
+def _goal_line(result: Result) -> str:
+    name = GOAL_NAMES.get(result.kind, str(result.word))
+    if result.count == 0:
+        return escaped(f"• {name}: natija yo'q · sarf {result.spend}")
+    amount = _amount(result, count=result.count, cost=result.cost)
+    return escaped(f"• {name}: {amount} · sarf {result.spend}")
 
 
-def _dropped(report: DailyReport, *, shown: int) -> list[str]:
-    left = report.groups[shown:]
-    if not left:
-        return []
-    spend = format_minor(
-        amount_minor=sum(group.figure.spend_minor for group in left),
-        currency=report.currency,
-    )
-    return [
-        "",
-        _italic(
-            "Yana %(count)s ta guruh %(spend)s sarfladi — kabinetda."
-            % {"count": len(left), "spend": spend}
-        ),
-    ]
+def _week_before(result: Result) -> str:
+    if not result.before_spend:
+        return escaped("  oldingi hafta: yo'q")
+    if result.before_count == 0:
+        return escaped("  oldingi hafta: natija yo'q")
+    amount = _amount(result, count=result.before_count, cost=result.before_cost)
+    return escaped(f"  oldingi hafta: {amount}")
 
 
-def _footnotes(report: DailyReport) -> list[str]:
-    """What the cabinet draws on this pair and the figures above leave out."""
-    lines = []
-    if report.unplaced:
-        lines.append(
-            _italic(
-                "Sahifasi aniq yozilmagan reklamalaringiz yana %(spend)s "
-                "sarfladi. Ular kabinetda ko'rinadi, lekin bu hisobotga "
-                "kirmaydi." % {"spend": report.unplaced}
-            )
-        )
-    return ["", *lines] if lines else []
+def _amount(result: Result, *, count: int, cost: str) -> str:
+    written = number_format(count)
+    if result.per_thousand:
+        return f"{written} · ming {cost}"
+    return f"{written} ta · {cost}"
 
 
-__all__ = ["pair_buttons", "pair_message"]
+__all__ = ["day_view", "pair_buttons", "pair_message"]

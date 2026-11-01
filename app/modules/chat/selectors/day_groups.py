@@ -1,154 +1,189 @@
-"""One pair's day, group by group, with each group's adverts under it.
+"""One pair's day or week, added up by goal.
 
-The rung the message is read at: «Campaign — Group», then the adverts. Split
-from :mod:`app.modules.chat.selectors.daily`, which reads the day once for every
-pair; this turns one pair's slice of it into a report.
+Split from :mod:`app.modules.chat.selectors.daily`, which reads the day once
+for every pair; this turns one pair's slice of it into a report.
 
-**Running first.** A group is listed under "switched on now" or "ran
-yesterday and is off now" by its state at this minute, the group's own or
-its campaign's; within each half the biggest spender leads.
+**A group's own goal, not its campaign's.** Budgets set at the group let one
+campaign buy two things, and the goal is what a result is counted by.
 """
 
-from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable
+from dataclasses import replace
 from datetime import date
 
 from app.common.money import format_minor
-from app.modules.chat.selectors.day_figures import AdRow, DayTables
-from app.modules.chat.selectors.day_lines import figure_of, result_count
+from app.modules.chat.selectors.day_figures import DayTables
+from app.modules.chat.selectors.day_lines import (
+    Part,
+    against,
+    figure_of,
+    result_count,
+)
 from app.modules.chat.selectors.day_tables import DayPairs
 from app.modules.metrics.selectors.results import screen_kind
 from core.chat.daily import OFF_STATES
-from core.chat.day_report import AdLine, DailyReport, GroupLine
+from core.chat.day_report import DailyReport
 from core.metrics import Outcome
 
 
 def pair_report(
     *,
     tables: DayTables,
-    ads: Mapping[str, list[AdRow]],
     day: date,
-    final: bool,
+    day_text: str,
     ongoing: bool,
     currency: str,
     pair: str,
     pairs: DayPairs,
     adset_ids: list[str],
-    unplaced_minor: int,
     other_currency: tuple[str, ...],
+    describes_elsewhere: bool,
+    open_proposals: int = 0,
 ) -> DailyReport:
-    """One pair's day: its total, and every group that spent or brought."""
-    kinds = {adset_id: _kind(tables, adset_id) for adset_id in adset_ids}
-    shown = [
-        adset_id
-        for adset_id in adset_ids
-        if _spent(tables, adset_id)
-        or result_count(
-            kind=kinds[adset_id],
-            sums=tables.sums.get(adset_id, {}),
-            ours=tables.ours.get(adset_id, 0),
-        )
+    """One pair's period: every group that spent or brought, by goal."""
+    shown = [adset_id for adset_id in adset_ids if _did_something(tables, adset_id)]
+    here = [
+        adset_id for adset_id in shown if _campaign(tables, adset_id) in tables.built
     ]
-    groups = sorted(
-        (
-            _group(
-                tables=tables,
-                ads=ads.get(adset_id, []),
-                adset_id=adset_id,
-                kind=kinds[adset_id],
-                currency=currency,
-            )
-            for adset_id in shown
-        ),
-        key=lambda group: (not group.running, -group.figure.spend_minor),
+    elsewhere = [adset_id for adset_id in shown if adset_id not in set(here)]
+    here_minor, elsewhere_minor = _money(tables, here), _money(tables, elsewhere)
+    figure = figure_of(
+        parts=_parts(tables, shown if describes_elsewhere else here),
+        currency=currency,
     )
+    if not describes_elsewhere:
+        figure = replace(
+            figure,
+            spend=format_minor(
+                amount_minor=here_minor + elsewhere_minor, currency=currency
+            ),
+            spend_minor=here_minor + elsewhere_minor,
+        )
+    before_minor = sum(
+        tables.before.get(adset_id, {}).get("spend", 0) for adset_id in adset_ids
+    )
+    if not ongoing:
+        counted = [
+            adset_id
+            for adset_id in adset_ids
+            if describes_elsewhere or _campaign(tables, adset_id) in tables.built
+        ]
+        figure = against(
+            figure,
+            before=figure_of(parts=_before_parts(tables, counted), currency=currency),
+        )
     return DailyReport(
         day=day,
-        day_text=day.strftime("%d.%m"),
+        day_text=day_text,
         currency=currency,
         pair=pair,
         page=pairs.names.get(pair, ""),
         page_id=pairs.pages.get(pair, ""),
         account=pairs.accounts.get(pair, ""),
-        figure=figure_of(
-            parts=[
-                (
-                    kinds[adset_id],
-                    tables.sums.get(adset_id, {}),
-                    tables.ours.get(adset_id, 0),
-                )
-                for adset_id in shown
-            ],
-            currency=currency,
-        ),
-        final=final,
+        account_id=pairs.account_ids.get(pair, ""),
+        figure=figure,
         ongoing=ongoing,
-        groups=tuple(groups),
-        campaigns=len({tables.campaign_of.get(adset_id, "") for adset_id in shown}),
-        unplaced=(
-            format_minor(amount_minor=unplaced_minor, currency=currency)
-            if unplaced_minor > 0
-            else ""
-        ),
+        here=_text(here_minor, currency),
+        elsewhere=_text(elsewhere_minor, currency),
+        elsewhere_apart=not describes_elsewhere and elsewhere_minor > 0,
+        before="" if ongoing else _text(before_minor, currency),
+        before_minor=0 if ongoing else before_minor,
+        idle=_idle(tables, adset_ids) if describes_elsewhere else 0,
+        open_proposals=open_proposals,
         other_currency=other_currency,
     )
 
 
-def _group(
-    *,
-    tables: DayTables,
-    ads: list[AdRow],
-    adset_id: str,
-    kind: Outcome,
-    currency: str,
-) -> GroupLine:
-    """One group's day, and its adverts' under it, the biggest spender first.
+def _idle(tables: DayTables, adset_ids: Iterable[str]) -> int:
+    """Ads Manager's campaigns on this pair still switched on, that spent
+    lately and not that day. One that went silent weeks ago is not news, and
+    a pair can hold hundreds."""
+    campaign_of = tables.campaign_of
+    spent = {
+        campaign_of.get(adset_id, "")
+        for adset_id, sums in tables.sums.items()
+        if sums.get("spend", 0) > 0
+    }
+    idle: set[str] = set()
+    for adset_id in adset_ids:
+        campaign = campaign_of.get(adset_id, "")
+        if (
+            campaign in tables.lately
+            and campaign not in tables.built
+            and campaign not in spent
+            and _running(tables, adset_id)
+        ):
+            idle.add(campaign)
+    return len(idle)
 
-    Switched on only while both its own switch and its campaign's are: a
+
+def _running(tables: DayTables, adset_id: str) -> bool:
+    """Switched on only while both its own switch and its campaign's are: a
     group under a stopped campaign shows nothing, whatever its own switch
-    says - see ``Delivery.PAUSED_ABOVE``.
-    """
-    campaign = tables.mirror.get(tables.campaign_of.get(adset_id, ""))
+    says - see ``Delivery.PAUSED_ABOVE``."""
     group = tables.groups.get(adset_id)
-    states = (
-        group.delivery if group else "",
-        campaign.delivery if campaign else "",
-    )
-    return GroupLine(
-        campaign=campaign.name if campaign else "",
-        name=group.name if group else adset_id,
-        running=not any(state in OFF_STATES for state in states),
-        figure=figure_of(
-            parts=[(kind, tables.sums.get(adset_id, {}), tables.ours.get(adset_id, 0))],
-            currency=currency,
-        ),
-        ads=tuple(
-            AdLine(
-                name=row.name,
-                figure=figure_of(parts=[(kind, row.sums, row.ours)], currency=currency),
-            )
-            for row in sorted(ads, key=lambda row: -row.sums.get("spend", 0))
-        ),
+    campaign = tables.mirror.get(_campaign(tables, adset_id))
+    states = (group.delivery if group else "", campaign.delivery if campaign else "")
+    return not any(state in OFF_STATES for state in states)
+
+
+def _parts(tables: DayTables, adset_ids: Iterable[str]) -> list[Part]:
+    return [
+        (
+            _kind(tables, adset_id),
+            tables.sums.get(adset_id, {}),
+            tables.ours.get(adset_id, 0),
+        )
+        for adset_id in adset_ids
+    ]
+
+
+def _before_parts(tables: DayTables, adset_ids: Iterable[str]) -> list[Part]:
+    return [
+        (
+            _kind(tables, adset_id),
+            tables.before.get(adset_id, {}),
+            tables.ours_before.get(adset_id, 0),
+        )
+        for adset_id in adset_ids
+        if adset_id in tables.before or adset_id in tables.ours_before
+    ]
+
+
+def _did_something(tables: DayTables, adset_id: str) -> bool:
+    sums = tables.sums.get(adset_id, {})
+    if sums.get("spend", 0) > 0:
+        return True
+    return bool(
+        result_count(
+            kind=_kind(tables, adset_id),
+            sums=sums,
+            ours=tables.ours.get(adset_id, 0),
+        )
     )
 
 
 def _kind(tables: DayTables, adset_id: str) -> Outcome:
-    """What the group's campaign was bought for, the way every screen reads it."""
-    campaign = tables.mirror.get(tables.campaign_of.get(adset_id, ""))
+    """What the group was bought for, the way every screen reads it."""
+    group = tables.groups.get(adset_id)
+    if group is not None:
+        return screen_kind(group.goal, group.promoted)
+    campaign = tables.mirror.get(_campaign(tables, adset_id))
     if campaign is None:
         return screen_kind("")
     return screen_kind(campaign.goal, campaign.promoted)
 
 
-def _spent(tables: DayTables, adset_id: str) -> bool:
-    return tables.sums.get(adset_id, {}).get("spend", 0) > 0
+def _campaign(tables: DayTables, adset_id: str) -> str:
+    return tables.campaign_of.get(adset_id, "")
 
 
-def ads_by_group(ads: Mapping[str, AdRow]) -> dict[str, list[AdRow]]:
-    found: dict[str, list[AdRow]] = defaultdict(list)
-    for row in ads.values():
-        found[row.adset_id].append(row)
-    return dict(found)
+def _money(tables: DayTables, adset_ids: Iterable[str]) -> int:
+    return sum(tables.sums.get(adset_id, {}).get("spend", 0) for adset_id in adset_ids)
 
 
-__all__ = ["ads_by_group", "pair_report"]
+def _text(amount: int, currency: str) -> str:
+    return format_minor(amount_minor=amount, currency=currency) if amount > 0 else ""
+
+
+__all__ = ["pair_report"]

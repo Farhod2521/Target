@@ -11,12 +11,14 @@ from app.modules.chat.selectors.context import chat_context
 from app.modules.chat.selectors.daily import (
     cabinet_clock,
     current_day,
-    daily_reports,
+    daily_book,
     night_has_passed,
     report_day,
+    week_is_final,
+    weekly_book,
 )
 from app.modules.chat.selectors.focus import Focus, focus_for
-from app.modules.chat.selectors.report import weekly_report, weekly_reports
+from app.modules.chat.selectors.report import weekly_report
 from app.modules.chat.selectors.sessions import (
     answer_of,
     history,
@@ -38,7 +40,7 @@ __all__ = [
     "cabinet_clock",
     "chat_context",
     "current_day",
-    "daily_reports",
+    "daily_book",
     "focus_for",
     "history",
     "messages_in",
@@ -56,8 +58,9 @@ __all__ = [
     "sessions_for",
     "still_open",
     "week_bounds",
+    "week_is_final",
+    "weekly_book",
     "weekly_report",
-    "weekly_reports",
     "with_choices",
     "with_replies",
 ]

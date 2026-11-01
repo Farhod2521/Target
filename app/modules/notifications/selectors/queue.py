@@ -187,6 +187,22 @@ def has_been_announced(db: Session, *, owner: User, kind: str, subject: str) -> 
     )
 
 
+def sent_message_id(db: Session, *, owner: User, kind: str, subject: str) -> int:
+    """The Telegram message this notice went out as, or 0."""
+    return (
+        db.scalar(
+            select(TelegramNotice.message_id)
+            .where(
+                TelegramNotice.owner_id == owner.id,
+                TelegramNotice.kind == str(kind),
+                TelegramNotice.subject == subject,
+            )
+            .limit(1)
+        )
+        or 0
+    )
+
+
 __all__ = [
     "NEWS_OUTCOMES",
     "announced",
@@ -195,6 +211,7 @@ __all__ = [
     "owners_with_open_suggestions",
     "owners_with_rejected_ads",
     "rejected_ads",
+    "sent_message_id",
     "settled",
     "unannounced_outcomes",
     "unannounced_suggestions",

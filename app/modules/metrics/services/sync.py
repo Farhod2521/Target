@@ -713,17 +713,14 @@ def _still_delivering(
 
 
 def sync_all_observed(db: Session, *, now: datetime, hour: int | None = None) -> int:
-    from app.modules.integrations.selectors import observed_accounts, owners_at_hour
+    from app.modules.integrations.selectors import observed_accounts
     from app.modules.metrics.tasks import sync_observed_task
 
-    rows = [
-        (account.id, account.owner_id) for account in observed_accounts(db, now=now)
+    accounts = [
+        account.id
+        for account in observed_accounts(db, now=now)
+        if hour is None or now.astimezone(account.tzinfo()).hour == hour
     ]
-    if hour is not None:
-        due = owners_at_hour(
-            db, owner_ids={owner for _, owner in rows}, now=now, hour=hour
-        )
-        rows = [row for row in rows if str(row[1]) in due]
-    for account_id, _owner in rows:
+    for account_id in accounts:
         sync_observed_task.delay(str(account_id))
-    return len(rows)
+    return len(accounts)

@@ -78,11 +78,12 @@ CALLBACK_SEPARATOR: Final = ":"
 # The daily report's buttons: a pair's day, and back to the list.
 CALLBACK_DAILY_PAIR: Final = "dd"
 CALLBACK_DAILY_LIST: Final = "dl"
+CALLBACK_WEEKLY_PAIR: Final = "wd"
+CALLBACK_WEEKLY_LIST: Final = "wl"
 # Five pairs a message; a pair key on a button is cut to a digest this long.
-DAILY_PAIRS_PER_MESSAGE: Final = 5
 DAILY_PAIR_DIGEST_CHARS: Final = 10
 # A final day's reports, kept for the buttons under its message.
-DAILY_REPORTS_KEY: Final = "notifications:daily:{owner}:{day}:{language}"
+DAILY_REPORTS_KEY: Final = "notifications:day-book:{owner}:{day}:{language}"
 DAILY_REPORTS_TTL_SECONDS: Final = 3 * 24 * 60 * 60
 CALLBACK_WATCH_UP: Final = "wu"
 CALLBACK_WATCH_DOWN: Final = "wd"
@@ -140,9 +141,10 @@ __all__ = [
     "CALLBACK_WATCH_RESUME",
     "CALLBACK_WATCH_UP",
     "CALLBACK_WATCH_WAIT",
+    "CALLBACK_WEEKLY_LIST",
+    "CALLBACK_WEEKLY_PAIR",
     "COMMAND_START",
     "COMMAND_STOP",
-    "DAILY_PAIRS_PER_MESSAGE",
     "DAILY_PAIR_DIGEST_CHARS",
     "DAILY_REPORTS_KEY",
     "DAILY_REPORTS_TTL_SECONDS",
@@ -181,6 +183,7 @@ DEV_ALERT_MESSAGE_CHARS: Final = 1500
 # The customer bot's "/" menu, and the wait after /yordam for words to Support.
 COMMAND_REPORT: Final = "hisobot"
 COMMAND_TODAY: Final = "bugun"
+COMMAND_WEEK: Final = "hafta"
 COMMAND_HELP: Final = "yordam"
 SUPPORT_WAIT_KEY: Final = "notifications:support-wait:{chat_id}"
 SUPPORT_WAIT_TTL_SECONDS: Final = 15 * 60

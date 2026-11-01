@@ -1,18 +1,18 @@
 """The morning's daily report and Monday's weekly one.
 
-**Figures only.** No model reads either: the daily list says what each pair
-spent, what it brought and what one cost, and the week's message its figures
-against the week before. Somebody who wants to know whether a figure is good
-asks the assistant.
+**Figures only.** No model reads either: each says what was spent, and each
+pair's button what its goals brought and what one cost, a week against the week
+before. Somebody who wants to know whether a figure is good asks the assistant.
 
 **Hourly, on each owner's clock.** The day ends at a different hour in every
 account's timezone, and the night's re-read finishes at a different hour for
 every account, so the audience is asked every hour and each owner is sent
-their report once - when the night is done, or at the latest hour anyway.
+their report once - when the night is done, or at the latest hour anyway. One
+sent early says so, and is edited in place when the night does finish.
 """
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from typing import Final, Literal
 
 from sqlalchemy.orm import Session
@@ -26,7 +26,7 @@ from app.modules.chat.selectors import (
     night_has_passed,
     report_day,
     week_bounds,
-    weekly_reports,
+    week_is_final,
 )
 from app.modules.notifications.bot import bot, is_configured
 from app.modules.notifications.constants import (
@@ -38,25 +38,23 @@ from app.modules.notifications.constants import (
 )
 from app.modules.notifications.keys import (
     daily_done_subject,
+    daily_final_subject,
     daily_subject,
-    report_subject,
     weekly_done_subject,
+    weekly_final_subject,
+    weekly_subject,
 )
 from app.modules.notifications.models import TelegramChat
 from app.modules.notifications.selectors import chat_for, chats_wanting
-from app.modules.notifications.selectors.daily import day_reports
-from app.modules.notifications.selectors.queue import has_been_announced
-from app.modules.notifications.services.compose import miniapp_button
-from app.modules.notifications.services.compose_daily import (
-    list_buttons,
-    list_message,
-    part_count,
+from app.modules.notifications.selectors.daily import day_book, week_book
+from app.modules.notifications.selectors.queue import (
+    has_been_announced,
+    sent_message_id,
 )
-from app.modules.notifications.services.compose_weekly import weekly_message
+from app.modules.notifications.services.compose_day_pair import day_view
 from app.modules.notifications.services.journal import claim, settle, stamp
-from app.modules.notifications.services.send import send_to
-from core.chat.day_report import DailyReport
-from core.chat.report import WeeklyReport
+from app.modules.notifications.services.send import edit, send_to
+from core.chat.day_report import DayBook
 
 logger = logging.getLogger(__name__)
 
@@ -104,44 +102,48 @@ def deliver_daily_report_for(db: Session, *, owner: User, now: datetime) -> bool
 def announce_daily(
     db: Session, *, client: BotClient, chat: TelegramChat, now: datetime
 ) -> bool:
-    """The day's list, five pairs a message. A day nothing was spent on is
-    marked done without a message: a phone buzzing to say nothing happened is
-    a phone taught to ignore the next one."""
+    """The day's one message. A day nothing was spent on is marked done
+    without one: a phone buzzing to say nothing happened is a phone taught to
+    ignore the next one."""
     with override(chat.owner.language):
-        reports = day_reports(db, owner=chat.owner, now=now)
-    if not reports:
+        book = day_book(db, owner=chat.owner, now=now)
+    if book is None:
         return False
-    if all(report.is_quiet for report in reports):
-        outcomes = [SETTLED]
-    else:
-        outcomes = [
-            _announce_part(
-                db, client=client, chat=chat, reports=reports, part=part, now=now
-            )
-            for part in range(part_count(reports))
-        ]
-    if OWED not in outcomes:
+    outcome = (
+        SETTLED
+        if book.is_quiet
+        else _announce_book(db, client=client, chat=chat, book=book, now=now)
+    )
+    if outcome != OWED:
         settle(
             db,
             chat=chat,
             kind=NoticeKind.DAILY_REPORT,
-            subject=daily_done_subject(day=reports[0].day),
+            subject=daily_done_subject(day=book.day),
             now=now,
         )
+        if book.final:
+            _settle_final(db, chat=chat, book=book, now=now)
     db.commit()
-    return SENT in outcomes
+    return outcome == SENT
 
 
-def _announce_part(
-    db: Session,
-    *,
-    client: BotClient,
-    chat: TelegramChat,
-    reports: list[DailyReport],
-    part: int,
-    now: datetime,
+def _settle_final(
+    db: Session, *, chat: TelegramChat, book: DayBook, now: datetime
+) -> None:
+    settle(
+        db,
+        chat=chat,
+        kind=NoticeKind.DAILY_REPORT,
+        subject=daily_final_subject(day=book.day),
+        now=now,
+    )
+
+
+def _announce_book(
+    db: Session, *, client: BotClient, chat: TelegramChat, book: DayBook, now: datetime
 ) -> Outcome:
-    subject = daily_subject(day=reports[0].day, part=part)
+    subject = daily_subject(day=book.day, part=0)
     if has_been_announced(
         db, owner=chat.owner, kind=NoticeKind.DAILY_REPORT, subject=subject
     ):
@@ -150,14 +152,82 @@ def _announce_part(
     if notice is None:
         return SETTLED
     with override(chat.owner.language):
-        message = list_message(reports=reports, part=part)
-        buttons = list_buttons(reports=reports, part=part)
+        message, buttons = day_view(book=book)
     message_id = send_to(
         db, client=client, chat=chat, text=message.text, buttons=buttons, now=now
     )
     stamp(db, notice=notice, message_id=message_id, now=now)
     db.commit()
     return SENT if message_id else OWED
+
+
+# -- a day sent before its night was over ----------------------------------------
+
+
+def unfinished_report_audience(db: Session, *, now: datetime) -> list[str]:
+    """The owners whose morning message said its figures were not final, and
+    whose night has finished since."""
+    if not is_configured():
+        return []
+    owners: list[str] = []
+    for chat in db.scalars(chats_wanting(db, kind=NoticeKind.DAILY_REPORT)).all():
+        account = cabinet_clock(db, owner=chat.owner)
+        if account is None:
+            continue
+        day = report_day(account=account, now=now)
+        if _unfinished_message(db, chat=chat, day=day) and night_has_passed(
+            db, owner=chat.owner, account=account, now=now
+        ):
+            owners.append(str(chat.owner_id))
+    return owners
+
+
+def _unfinished_message(db: Session, *, chat: TelegramChat, day: date) -> int:
+    """The day's message, while it still stands unfinished; otherwise 0."""
+    if has_been_announced(
+        db,
+        owner=chat.owner,
+        kind=NoticeKind.DAILY_REPORT,
+        subject=daily_final_subject(day=day),
+    ):
+        return 0
+    return sent_message_id(
+        db,
+        owner=chat.owner,
+        kind=NoticeKind.DAILY_REPORT,
+        subject=daily_subject(day=day, part=0),
+    )
+
+
+def finish_daily_report_for(db: Session, *, owner: User, now: datetime) -> bool:
+    """Put the finished figures into the message sent without them.
+
+    Edited rather than sent again: the reader has one report for the day, and
+    a second buzz would say nothing new about most of it.
+    """
+    chat = chat_for(db, owner=owner)
+    if chat is None or not chat.notify_daily_report or not is_configured():
+        return False
+    with override(chat.owner.language):
+        book = day_book(db, owner=owner, now=now)
+    if book is None or not book.final:
+        return False
+    message_id = _unfinished_message(db, chat=chat, day=book.day)
+    if not message_id:
+        return False
+    with override(chat.owner.language):
+        message, buttons = day_view(book=book)
+    with bot() as client:
+        edit(
+            client=client,
+            chat_id=chat.chat_id,
+            message_id=message_id,
+            text=message.text,
+            buttons=buttons,
+        )
+    _settle_final(db, chat=chat, book=book, now=now)
+    db.commit()
+    return True
 
 
 # -- the week -------------------------------------------------------------------
@@ -200,42 +270,47 @@ def deliver_report_for(db: Session, *, owner: User, now: datetime) -> bool:
 def announce_report(
     db: Session, *, client: BotClient, chat: TelegramChat, now: datetime
 ) -> bool:
-    """Every page's completed week, a message each."""
+    """The week's one message. A week nothing was spent on is marked done
+    without one, like a quiet day."""
     with override(chat.owner.language):
-        reports = weekly_reports(db, owner=chat.owner, now=now)
-    outcomes = [
-        _announce_week(db, client=client, chat=chat, report=report, now=now)
-        for report in reports
-    ]
-    clock = cabinet_clock(db, owner=chat.owner)
-    if OWED not in outcomes and clock is not None:
-        since, _until = week_bounds(
-            today=timezone.localtime(now, clock.tzinfo()).date()
-        )
+        book = week_book(db, owner=chat.owner, now=now)
+    if book is None:
+        return False
+    outcome = (
+        SETTLED
+        if book.is_quiet
+        else _announce_week(db, client=client, chat=chat, book=book, now=now)
+    )
+    if outcome != OWED:
         settle(
             db,
             chat=chat,
             kind=NoticeKind.REPORT,
-            subject=weekly_done_subject(since=since),
+            subject=weekly_done_subject(since=book.day),
             now=now,
         )
+        if book.final:
+            _settle_week_final(db, chat=chat, book=book, now=now)
     db.commit()
-    return SENT in outcomes
+    return outcome == SENT
+
+
+def _settle_week_final(
+    db: Session, *, chat: TelegramChat, book: DayBook, now: datetime
+) -> None:
+    settle(
+        db,
+        chat=chat,
+        kind=NoticeKind.REPORT,
+        subject=weekly_final_subject(since=book.day),
+        now=now,
+    )
 
 
 def _announce_week(
-    db: Session,
-    *,
-    client: BotClient,
-    chat: TelegramChat,
-    report: WeeklyReport,
-    now: datetime,
+    db: Session, *, client: BotClient, chat: TelegramChat, book: DayBook, now: datetime
 ) -> Outcome:
-    if not report.worth_sending:
-        return SETTLED
-    subject = report_subject(
-        since=report.since, until=report.until, now=now, pair=report.pair
-    )
+    subject = weekly_subject(since=book.day)
     if has_been_announced(
         db, owner=chat.owner, kind=NoticeKind.REPORT, subject=subject
     ):
@@ -244,8 +319,7 @@ def _announce_week(
     if notice is None:
         return SETTLED
     with override(chat.owner.language):
-        message = weekly_message(report=report, summary="", advice="")
-        buttons = miniapp_button(route="metrics:dashboard", label="Raqamlar")
+        message, buttons = day_view(book=book)
     message_id = send_to(
         db, client=client, chat=chat, text=message.text, buttons=buttons, now=now
     )
@@ -254,11 +328,78 @@ def _announce_week(
     return SENT if message_id else OWED
 
 
+def unfinished_week_audience(db: Session, *, now: datetime) -> list[str]:
+    """The owners whose Monday message said its figures were not final, and
+    whose week has settled since."""
+    if not is_configured():
+        return []
+    owners: list[str] = []
+    for chat in db.scalars(chats_wanting(db, kind=NoticeKind.REPORT)).all():
+        account = cabinet_clock(db, owner=chat.owner)
+        if account is None:
+            continue
+        today = timezone.localtime(now, account.tzinfo()).date()
+        since, until = week_bounds(today=today)
+        if _unfinished_week(db, chat=chat, since=since) and week_is_final(
+            db, owner=chat.owner, account=account, now=now, until=until
+        ):
+            owners.append(str(chat.owner_id))
+    return owners
+
+
+def _unfinished_week(db: Session, *, chat: TelegramChat, since: date) -> int:
+    """The week's message, while it still stands unfinished; otherwise 0."""
+    if has_been_announced(
+        db,
+        owner=chat.owner,
+        kind=NoticeKind.REPORT,
+        subject=weekly_final_subject(since=since),
+    ):
+        return 0
+    return sent_message_id(
+        db,
+        owner=chat.owner,
+        kind=NoticeKind.REPORT,
+        subject=weekly_subject(since=since),
+    )
+
+
+def finish_weekly_report_for(db: Session, *, owner: User, now: datetime) -> bool:
+    """Put the finished figures into the week's message, as for a day."""
+    chat = chat_for(db, owner=owner)
+    if chat is None or not chat.notify_report or not is_configured():
+        return False
+    with override(chat.owner.language):
+        book = week_book(db, owner=owner, now=now)
+    if book is None or not book.final:
+        return False
+    message_id = _unfinished_week(db, chat=chat, since=book.day)
+    if not message_id:
+        return False
+    with override(chat.owner.language):
+        message, buttons = day_view(book=book)
+    with bot() as client:
+        edit(
+            client=client,
+            chat_id=chat.chat_id,
+            message_id=message_id,
+            text=message.text,
+            buttons=buttons,
+        )
+    _settle_week_final(db, chat=chat, book=book, now=now)
+    db.commit()
+    return True
+
+
 __all__ = [
     "announce_daily",
     "announce_report",
     "daily_report_audience",
     "deliver_daily_report_for",
     "deliver_report_for",
+    "finish_daily_report_for",
+    "finish_weekly_report_for",
     "report_audience",
+    "unfinished_report_audience",
+    "unfinished_week_audience",
 ]

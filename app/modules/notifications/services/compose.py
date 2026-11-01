@@ -11,14 +11,12 @@ from app.common.config import settings
 from app.common.routes import reverse
 from app.modules.miniapp.services import door_url
 from app.modules.referrals.constants import FeedbackStatus, PayoutStatus
-from core.chat.report import KindFigures
 from core.inbox import InboxItem
 
 if TYPE_CHECKING:
     from app.modules.agent.selectors import Card
 FEEDBACK_MAX_CHARS: int = 400
 SUPPORT_EXCERPT_CHARS: int = 200
-EN_DASH: str = "–"
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,10 +85,6 @@ def outcome_message(*, card: Card) -> Message:
         if found.period:
             lines.append(escaped(found.period))
     return Message(text="\n".join(lines))
-
-
-def _kind_line(row: KindFigures) -> str:
-    return f"{escaped(str(row.label))}: {_bold(str(row.results))} · {escaped(str(row.cost_label))}: {_bold(row.cost)}"
 
 
 def page_line(page: str) -> list[str]:
@@ -428,17 +422,11 @@ def _quote(text: str) -> str:
     return f"<blockquote>{escaped(text)}</blockquote>"
 
 
-def _folded(title: str, rows: list[str]) -> str:
-    body = "\n".join([escaped(title), *rows])
-    return f"<blockquote expandable>{body}</blockquote>"
-
-
 def _link(*, path: str, label: str) -> str:
     return f'<a href="{escape(settings.site_url + path)}">{escaped(label)}</a>'
 
 
 __all__ = [
-    "EN_DASH",
     "FEEDBACK_MAX_CHARS",
     "Message",
     "ask_button",

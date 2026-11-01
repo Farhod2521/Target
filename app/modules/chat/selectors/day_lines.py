@@ -12,6 +12,7 @@ counts, each priced over its own money.
 """
 
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from typing import Final
 
 from adskit import MinorUnits
@@ -42,12 +43,13 @@ Part = tuple[Outcome, Mapping[str, int], int]
 
 def figure_of(*, parts: Iterable[Part], currency: str) -> Figure:
     """The money and the results of these parts, one count per kind."""
-    spend = 0
+    spend = uncounted = 0
     counted: dict[Outcome, list[int]] = {}
     for kind, sums, ours in parts:
         money = int(sums.get("spend", 0) or 0)
         spend += money
         if kind != "lead" and kind not in COUNTED:
+            uncounted += money
             continue
         tally = counted.setdefault(kind, [0, 0])
         tally[0] += result_count(kind=kind, sums=sums, ours=ours)
@@ -63,7 +65,28 @@ def figure_of(*, parts: Iterable[Part], currency: str) -> Figure:
                 counted.items(), key=lambda item: -item[1][1]
             )
         ),
-        counted=bool(counted),
+        uncounted=format_minor(amount_minor=uncounted, currency=currency)
+        if uncounted > 0
+        else "",
+    )
+
+
+def against(figure: Figure, *, before: Figure) -> Figure:
+    """``figure`` with each goal's count and cost over the period before."""
+    earlier = {result.kind: result for result in before.results}
+    return replace(
+        figure,
+        results=tuple(
+            replace(
+                result,
+                before_spend=held.spend,
+                before_count=held.count,
+                before_cost=held.cost,
+            )
+            if (held := earlier.get(result.kind)) is not None
+            else result
+            for result in figure.results
+        ),
     )
 
 
@@ -95,8 +118,9 @@ def _result(*, kind: Outcome, count: int, spend: int, currency: str) -> Result:
         cost=NO_FIGURE
         if cost is None
         else format_minor(amount_minor=cost, currency=currency),
+        spend=format_minor(amount_minor=spend, currency=currency),
         per_thousand=words.per > 1,
     )
 
 
-__all__ = ["COUNTED", "Part", "figure_of", "result_count"]
+__all__ = ["COUNTED", "Part", "against", "figure_of", "result_count"]
