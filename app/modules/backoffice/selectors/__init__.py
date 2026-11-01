@@ -93,6 +93,8 @@ class Shell:
             ("sales", self.can_sell),
             ("chat", self.can_answer),
             ("refusals", True),
+            ("team", self.is_owner),
+            ("tg", True),
         )
         return tuple(name for name, open_to_them in doors if open_to_them)
 

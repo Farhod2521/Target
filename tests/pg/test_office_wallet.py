@@ -422,8 +422,8 @@ def test_a_payout_recorded_by_hand_shows_in_the_history(
 @pytest.mark.parametrize(
     ("role", "sections"),
     [
-        (Role.SUPPORT, ["home", "clients", "promo", "payouts", "reviews", "surveys", "chat", "refusals"]),
-        (Role.FINANCE, ["home", "clients", "promo", "payouts", "reviews", "surveys", "refusals"]),
+        (Role.SUPPORT, ["home", "clients", "promo", "payouts", "reviews", "surveys", "chat", "refusals", "tg"]),
+        (Role.FINANCE, ["home", "clients", "promo", "payouts", "reviews", "surveys", "refusals", "tg"]),
         (
             Role.OWNER,
             [
@@ -437,10 +437,12 @@ def test_a_payout_recorded_by_hand_shows_in_the_history(
                 "sales",
                 "chat",
                 "refusals",
+                "team",
+                "tg",
             ],
         ),
-        (Role.SALES, ["sales", "refusals"]),
-        (Role.ENGINEER, ["refusals"]),
+        (Role.SALES, ["sales", "refusals", "tg"]),
+        (Role.ENGINEER, ["refusals", "tg"]),
     ],
 )
 def test_the_rail_names_only_the_doors_this_role_opens(

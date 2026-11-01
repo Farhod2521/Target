@@ -25,6 +25,7 @@ ANSWER_ROLES = (Role.SUPPORT, Role.OWNER)
 BLOCK_ROLES = (Role.SUPPORT, Role.OWNER)
 SALES_ROLES = (Role.SALES, Role.SALES_LEAD, Role.OWNER)
 SALES_LEAD_ROLES = (Role.SALES_LEAD, Role.OWNER)
+FAULT_ROLES = (Role.ENGINEER,)
 
 
 class Severity(Choices):
@@ -80,6 +81,8 @@ class ActionKind(Choices):
     HOLD_RELEASED = "hold_released"
     INVOICE_ARCHIVED = "invoice_archived"
     ROLES_CHANGED = "roles_changed"
+    STAFF_ADDED = "staff_added"
+    STAFF_REMOVED = "staff_removed"
     WITHDRAWAL_PAID = "withdrawal_paid"
     WITHDRAWAL_REJECTED = "withdrawal_rejected"
     WITHDRAWAL_VOIDED = "withdrawal_voided"
@@ -126,6 +129,8 @@ ACTION_KIND_LABELS = {
     ActionKind.HOLD_RELEASED: "Hisob bo'shatildi",
     ActionKind.INVOICE_ARCHIVED: "Hisob arxivga olindi",
     ActionKind.ROLES_CHANGED: "Rollar o'zgardi",
+    ActionKind.STAFF_ADDED: "Xodim qo'shildi",
+    ActionKind.STAFF_REMOVED: "Xodim jamoadan chiqarildi",
     ActionKind.WITHDRAWAL_PAID: "Daromad to'lovi qayd etildi",
     ActionKind.WITHDRAWAL_REJECTED: "Pul yechish so'rovi rad etildi",
     ActionKind.WITHDRAWAL_VOIDED: "Daromad to'lovi bekor qilindi",

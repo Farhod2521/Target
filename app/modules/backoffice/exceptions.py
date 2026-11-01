@@ -6,6 +6,28 @@ class CannotChangeOwnRoles(DomainError):
         super().__init__("O'z rolingizni o'zgartira olmaysiz - hamkasbdan so'rang.")
 
 
+class SuperuserRolesFixed(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Super adminda hamma rol bor, ularni o'zgartirib bo'lmaydi.")
+
+
+class StaffAccountMissing(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu email bilan akkaunt topilmadi. Avval xodim saytda ro'yxatdan o'tsin."
+        )
+
+
+class StaffAccountClosed(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu akkaunt bloklangan. Avval blokdan chiqaring.")
+
+
+class AlreadyStaff(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu odam allaqachon jamoada.")
+
+
 class CampaignNotMirrored(DomainError):
     status_code = 409
     code = "not_ready"

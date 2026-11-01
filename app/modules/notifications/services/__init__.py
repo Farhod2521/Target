@@ -2,6 +2,10 @@ from app.modules.notifications.services.announce_support import (
     announce_support_reply,
     queue_support_reply,
 )
+from app.modules.notifications.services.dev_alerts import (
+    queue_launch_failure,
+    report_launch_failure,
+)
 from app.modules.notifications.services.journal import claim, settle, stamp
 from app.modules.notifications.services.link import (
     deactivate,
@@ -71,12 +75,14 @@ __all__ = [
     "link_staff_chat",
     "mark_seen",
     "queue_feedback_notice",
+    "queue_launch_failure",
     "queue_password_changed",
     "queue_referral_notice",
     "queue_support_answered",
     "queue_support_question",
     "queue_support_reply",
     "queue_withdrawal_notice",
+    "report_launch_failure",
     "reset_bot_link",
     "save_preferences",
     "send_to",

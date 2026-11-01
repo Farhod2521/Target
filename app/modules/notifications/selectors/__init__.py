@@ -1,8 +1,10 @@
 """Which chat to write to, and the deadline words notices quote."""
 
 import logging
+import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -11,12 +13,17 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.common.dates import date_format
 from app.common.db import utcnow
+from app.common.env import BASE_DIR
 from app.modules.accounts.models import User
+from app.modules.ads.constants import LaunchStatus
+from app.modules.ads.models import CampaignLaunch
+from app.modules.ads.trace import TRACE_DIR
 from app.modules.notifications.constants import NOTICES_WITHOUT_SUBSCRIPTION, NoticeKind
 from app.modules.notifications.models import InboxSeen, StaffChat, TelegramChat
 from core.inbox import LEFT_DAYS, LEFT_PREFIX
 
 logger = logging.getLogger(__name__)
+FAILED_LAUNCH_STATUSES = (LaunchStatus.FAILED, LaunchStatus.ROLLED_BACK)
 FLAG_FOR: dict[str, str] = {
     NoticeKind.SUGGESTION: "notify_suggestions",
     NoticeKind.REPORT: "notify_report",
@@ -37,10 +44,12 @@ def chat_for(db: Session, *, owner: User) -> TelegramChat | None:
 
 
 def last_chat_for(db: Session, *, owner: User) -> TelegramChat | None:
+    """The live chat first: coming back to an earlier phone keeps its old
+    ``linked_at``, so the newest stamp can belong to a chat switched off since."""
     return db.scalars(
         select(TelegramChat)
         .where(TelegramChat.owner_id == owner.id)
-        .order_by(TelegramChat.linked_at.desc())
+        .order_by(TelegramChat.is_active.desc(), TelegramChat.linked_at.desc())
         .limit(1)
     ).first()
 
@@ -103,6 +112,20 @@ def staff_chats_where(
         .where(StaffChat.is_active.is_(True), User.is_staff.is_(True))
     )
     return [chat for chat in chats if allowed(chat.owner)]
+
+
+def failed_launch(db: Session, *, launch_id: str) -> CampaignLaunch | None:
+    """A launch somebody has already retried into another state is not reported."""
+    launch = db.get(CampaignLaunch, uuid.UUID(str(launch_id)))
+    if launch is None or launch.status not in FAILED_LAUNCH_STATUSES:
+        return None
+    return launch
+
+
+def launch_trace(*, launch_id: str) -> Path | None:
+    """The newest trace of this launch: a file's stamp sorts by time."""
+    matches = sorted((Path(BASE_DIR) / TRACE_DIR).glob(f"*_{launch_id[:8]}.md"))
+    return matches[-1] if matches else None
 
 
 def deadline_text(db: Session, *, owner: User, moment: datetime) -> str:
@@ -178,7 +201,9 @@ __all__ = [
     "chat_for",
     "chats_wanting",
     "deadline_text",
+    "failed_launch",
     "last_chat_for",
+    "launch_trace",
     "left_keys",
     "left_rows",
     "seen_keys",

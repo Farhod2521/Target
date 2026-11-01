@@ -47,6 +47,11 @@ from app.modules.backoffice.services.promo import (
     refuse_promo,
     update_code,
 )
+from app.modules.backoffice.services.roles import (
+    add_member,
+    remove_member,
+    set_roles,
+)
 from app.modules.backoffice.services.support_access import (
     holds_any_role,
     may_answer_support,
@@ -56,6 +61,7 @@ from app.modules.backoffice.services.support_access import (
 __all__ = [
     "Payment",
     "add_days",
+    "add_member",
     "add_page",
     "add_slots",
     "approve_piece",
@@ -83,10 +89,12 @@ __all__ = [
     "refuse_ask",
     "refuse_piece",
     "refuse_promo",
+    "remove_member",
     "remove_page_account",
     "seen",
     "set_customer_password",
     "set_referral",
+    "set_roles",
     "take_payment",
     "take_slots",
     "unblock_customer",

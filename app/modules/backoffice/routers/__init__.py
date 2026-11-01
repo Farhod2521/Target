@@ -27,6 +27,8 @@ from app.modules.backoffice.routers.reviews import router as reviews
 from app.modules.backoffice.routers.support import router as support
 from app.modules.backoffice.routers.surveys import customer_router as customer_surveys
 from app.modules.backoffice.routers.surveys import router as surveys
+from app.modules.backoffice.routers.team import router as team
+from app.modules.backoffice.routers.telegram import router as telegram
 from app.modules.backoffice.routers.wallet import router as wallet
 from app.modules.backoffice.schemas import JournalOut, MeOut
 
@@ -46,6 +48,8 @@ router.include_router(wallet)
 router.include_router(reviews)
 router.include_router(surveys)
 router.include_router(customer_surveys)
+router.include_router(team)
+router.include_router(telegram)
 
 
 @router.get("/me", responses={200: {"model": MeOut}})

@@ -1450,3 +1450,40 @@ class PaymentSubscriptionsOut(BaseModel):
     has_more: bool
     states: list[ChoiceOut]
     counts: dict[str, int] = Field(description="Rows per chip, inside the search.")
+
+
+class StaffMemberOut(BaseModel):
+    id: str
+    name: str
+    email: str
+    roles: list[str] = Field(description="Every role for a super admin.")
+    superuser: bool
+    is_me: bool
+
+
+class StaffTeamOut(BaseModel):
+    members: list[StaffMemberOut]
+
+
+class StaffBotLinkOut(BaseModel):
+    account: str = Field(description="`@username`, or the chat id without one.")
+    linked_at: datetime
+
+
+class StaffBotTopicOut(BaseModel):
+    topic: str
+    roles: list[str]
+
+
+class StaffBotOut(BaseModel):
+    configured: bool = Field(description="False: the bot has no token on this server.")
+    username: str
+    link: StaffBotLinkOut | None
+    roles: list[str]
+    topics: list[StaffBotTopicOut] = Field(
+        description="What the bot sends this reader; empty for a role it has nothing for."
+    )
+
+
+class StaffBotUrlOut(BaseModel):
+    url: str

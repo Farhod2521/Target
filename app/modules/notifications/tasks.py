@@ -11,6 +11,7 @@ from app.modules.notifications.services import (
     forward_support_question,
     handle_staff_update,
     handle_update,
+    report_launch_failure,
 )
 from app.modules.notifications.services.notices import user_of
 from app.worker import celery_app, task_session
@@ -118,6 +119,12 @@ def deliver_support_question_task(message_id: str) -> int:
         copies = forward_support_question(db, message_id=message_id, now=utcnow())
         db.commit()
         return copies
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def deliver_launch_failure_task(launch_id: str) -> int:
+    with task_session() as db:
+        return report_launch_failure(db, launch_id=launch_id)
 
 
 @celery_app.task(queue="webhooks", ignore_result=True)

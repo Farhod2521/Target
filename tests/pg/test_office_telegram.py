@@ -254,3 +254,21 @@ def test_the_webhooks_check_their_own_secret(
         "handle_telegram_update",
         "handle_staff_telegram_update",
     ]
+
+
+def test_coming_back_to_an_earlier_phone_counts_as_linked(
+    client: TestClient, db: Session, fake: FakeBot
+) -> None:
+    from tests.pg.test_office_actions import _bearer
+
+    owner = _user(db, "back@x.co")
+    db.commit()
+    for chat_id in ("100", "200", "100"):
+        link = issue_link_token(owner=owner)
+        handle_update(db, payload=_text(chat_id, f"/start {link}"), now=utcnow())
+        db.commit()
+
+    read = client.get("/api/v1/notifications", headers=_bearer(owner)).json()
+
+    assert read["is_linked"] is True
+    assert read["chat"]["is_active"] is True
