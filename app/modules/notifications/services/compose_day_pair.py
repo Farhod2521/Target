@@ -29,13 +29,14 @@ from app.modules.notifications.services.compose import (
 )
 from app.modules.notifications.services.compose_daily import (
     SEPARATOR,
-    closing_lines,
+    closing_sections,
     compared,
     heading,
     list_buttons,
     list_message,
     pair_press,
-    status_line,
+    sectioned,
+    status_section,
 )
 from core.chat.day_report import DailyReport, DayBook, Result
 
@@ -49,6 +50,8 @@ GOAL_NAMES: Final[dict[str, str]] = {
     "click": "Saytga o'tish",
     "recall": "Eslab qolgan",
     "profile": "Profilga o'tish",
+    "registration": "Ro'yxatdan o'tish",
+    "message_purchase": "Xabar orqali xarid",
 }
 
 
@@ -63,38 +66,42 @@ def day_view(*, book: DayBook) -> tuple[Message, tuple[Button, ...]]:
 
 
 def pair_message(*, book: DayBook, report: DailyReport) -> Message:
-    """One pair's day, by goal."""
+    """One pair's period, by goal."""
     lone = book.only is report
-    if lone:
-        lines = [_bold(heading(book)), _bold(report.title)]
-    else:
-        lines = [_bold(report.title), escaped(report.day_text)]
-    if status := status_line(book):
-        lines.append(status)
-    lines += ["", *_money_lines(book, report)]
-    goals = _goal_lines(book, report)
-    if goals:
-        lines += ["", _bold("Maqsad bo'yicha natijalar"), *goals]
+    return Message(
+        text=sectioned(
+            _head(book, report, lone=lone),
+            _money_lines(book, report),
+            _goal_section(book, report),
+            _notes(book, report),
+            *(closing_sections(book) if lone else []),
+            status_section(book),
+        )
+    )
+
+
+def _head(book: DayBook, report: DailyReport, *, lone: bool) -> list[str]:
+    title = f"📄 {_bold(report.title)}"
+    day = escaped(report.day_text)
+    return [heading(book), title, day] if lone else [title, day]
+
+
+def _notes(book: DayBook, report: DailyReport) -> list[str]:
+    lines = []
     if report.other_currency:
         spent = SEPARATOR.join(report.other_currency)
-        lines += ["", escaped(f"Boshqa valyutada: {spent}")]
+        lines.append(escaped(f"Boshqa valyutada: {spent}"))
     if report.idle:
-        lines += [
-            "",
+        when = "shu hafta" if book.weekly else "shu kuni"
+        lines.append(
             _italic(
                 f"Ads Manager'da yana {report.idle} ta kampaniya yoniq, lekin "
-                f"{'shu hafta' if book.weekly else f'{report.day_text} kuni'} "
-                "sarf qilmadi."
-            ),
-        ]
+                f"{when} sarf qilmadi"
+            )
+        )
     if report.open_proposals:
-        lines += [
-            "",
-            escaped(f"Javob kutayotgan takliflar: {report.open_proposals}"),
-        ]
-    if lone:
-        lines += closing_lines(book)
-    return Message(text="\n".join(lines))
+        lines.append(escaped(f"Javob kutayotgan takliflar: {report.open_proposals}"))
+    return lines
 
 
 def pair_buttons(*, book: DayBook, report: DailyReport) -> tuple[Button, ...]:
@@ -142,52 +149,62 @@ def _cabinet(book: DayBook, report: DailyReport) -> tuple[Button, ...]:
 def _money_lines(book: DayBook, report: DailyReport) -> list[str]:
     if report.spend_minor <= 0:
         return [] if report.other_currency else [_italic("Sarf bo'lmagan")]
-    total = f"{escaped('Jami')}: {_bold(report.spend)}{compared(book, report.before)}"
-    if not report.elsewhere:
-        return [total]
-    parts = [
-        f"Platformadan {report.here}" if report.here else "",
-        f"Ads Manager {report.elsewhere}",
-    ]
-    return [total, escaped(SEPARATOR.join(part for part in parts if part))]
-
-
-def _goal_lines(book: DayBook, report: DailyReport) -> list[str]:
-    figure = report.figure
-    lines: list[str] = []
-    for result in figure.results:
-        lines.append(_goal_line(result))
-        if book.weekly:
-            lines.append(_week_before(result))
-    if figure.uncounted:
-        lines.append(escaped(f"• Natijasi sanalmaydi: sarf {figure.uncounted}"))
-    if report.elsewhere_apart:
-        lines.append(escaped(f"• Ads Manager: sarf {report.elsewhere}"))
+    lines = [f"💰 Jami sarf: {_bold(report.spend)}"]
+    if line := compared(book, report.before, report.change):
+        lines.append(line)
+    if report.here and report.elsewhere:
+        lines.append(escaped(f"Platformadan: {report.here}"))
+    if report.elsewhere:
+        lines.append(escaped(f"Ads Manager: {report.elsewhere}"))
     return lines
 
 
-def _goal_line(result: Result) -> str:
-    name = GOAL_NAMES.get(result.kind, str(result.word))
-    if result.count == 0:
-        return escaped(f"• {name}: natija yo'q · sarf {result.spend}")
-    amount = _amount(result, count=result.count, cost=result.cost)
-    return escaped(f"• {name}: {amount} · sarf {result.spend}")
+def _goal_section(book: DayBook, report: DailyReport) -> list[str]:
+    figure = report.figure
+    blocks = [_goal_block(book, result) for result in figure.results]
+    if figure.uncounted:
+        blocks.append(_money_block("Natijasi sanalmaydi", figure.uncounted))
+    if report.elsewhere_apart:
+        blocks.append(_money_block("Ads Manager", report.elsewhere))
+    if not blocks:
+        return []
+    lines = ["🎯 " + _bold("Natijalar")]
+    for block in blocks:
+        lines += ["", *block]
+    return lines
+
+
+def _money_block(name: str, spend: str) -> list[str]:
+    return [_bold(name), escaped(f"Sarf: {spend}")]
+
+
+def _goal_block(book: DayBook, result: Result) -> list[str]:
+    name = GOAL_NAMES.get(result.kind, "Boshqa natija")
+    said = (
+        "Natija yo'q"
+        if result.count == 0
+        else _amount(result, count=result.count, cost=result.cost)
+    )
+    lines = [_bold(name), escaped(said), escaped(f"Sarf: {result.spend}")]
+    if book.weekly:
+        lines.append(_week_before(result))
+    return lines
 
 
 def _week_before(result: Result) -> str:
     if not result.before_spend:
-        return escaped("  oldingi hafta: yo'q")
+        return escaped("Oldingi hafta: yo'q")
     if result.before_count == 0:
-        return escaped("  oldingi hafta: natija yo'q")
+        return escaped("Oldingi hafta: natija yo'q")
     amount = _amount(result, count=result.before_count, cost=result.before_cost)
-    return escaped(f"  oldingi hafta: {amount}")
+    return escaped(f"Oldingi hafta: {amount}")
 
 
 def _amount(result: Result, *, count: int, cost: str) -> str:
     written = number_format(count)
     if result.per_thousand:
-        return f"{written} · ming {cost}"
-    return f"{written} ta · {cost}"
+        return f"{written} ta · mingtasi {cost}"
+    return f"{written} ta · bittasi {cost}"
 
 
 __all__ = ["day_view", "pair_buttons", "pair_message"]

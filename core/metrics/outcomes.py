@@ -51,6 +51,11 @@ def outcome_for(
     return outcome_of(goal)
 
 
+def site_event(promoted_object: Mapping[str, object] | None) -> str:
+    """The website event an ad set is bought for, in Meta's capitals."""
+    return _event_of(promoted_object)
+
+
 def _event_of(promoted_object: Mapping[str, object] | None) -> str:
     if not isinstance(promoted_object, Mapping):
         return ""

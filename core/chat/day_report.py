@@ -85,6 +85,8 @@ class DailyReport:
     # The day before's money, as text; empty when there was none to compare.
     before: str = ""
     before_minor: int = 0
+    # How far the money moved from the period before, as «+94%».
+    change: str = ""
     # Ads Manager campaigns switched on, silent that day, but spending lately.
     idle: int = 0
     # The agent's proposals on this pair waiting for an answer: weekly only.
@@ -103,8 +105,9 @@ class DailyReport:
 
     @property
     def title(self) -> str:
-        """«Page · Account», the pair as the cabinet's header names it."""
-        return " · ".join(part for part in (self.page, self.account) if part)
+        """«Page · Account», or the one name where both are called the same."""
+        names = dict.fromkeys(part for part in (self.page, self.account) if part)
+        return " · ".join(names)
 
     @property
     def is_quiet(self) -> bool:
@@ -119,6 +122,7 @@ class DayTotal:
 
     spend: str
     before: str = ""
+    change: str = ""
 
 
 @dataclass(frozen=True, slots=True)

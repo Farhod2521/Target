@@ -27,7 +27,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common import timezone
-from app.common.money import format_minor
 from app.modules.accounts.models import User
 from app.modules.chat.constants import DAILY_REREAD_AFTER_HOURS
 from app.modules.chat.selectors.changes import week_bounds
@@ -37,6 +36,7 @@ from app.modules.chat.selectors.day_figures import (
     outside_spend,
 )
 from app.modules.chat.selectors.day_groups import pair_report
+from app.modules.chat.selectors.day_lines import change_text, report_money
 from app.modules.chat.selectors.day_tables import (
     PageMoney,
     apart_spend,
@@ -54,6 +54,29 @@ from app.modules.metrics.models import MetricsDaily
 from core.chat.day_report import DailyReport, DayBook, DayTotal
 
 WEEK_DAYS: Final = 7
+MONTHS: Final = (
+    "yanvar",
+    "fevral",
+    "mart",
+    "aprel",
+    "may",
+    "iyun",
+    "iyul",
+    "avgust",
+    "sentabr",
+    "oktabr",
+    "noyabr",
+    "dekabr",
+)
+WEEKDAYS: Final = (
+    "dushanba",
+    "seshanba",
+    "chorshanba",
+    "payshanba",
+    "juma",
+    "shanba",
+    "yakshanba",
+)
 
 
 def daily_book(
@@ -81,7 +104,7 @@ def daily_book(
         clock=clock,
         since=day,
         until=day,
-        day_text=day.strftime("%d.%m"),
+        day_text=_day_said(day),
         final=day < latest
         or (not ongoing and night_has_passed(db, owner=owner, account=clock, now=now)),
         ongoing=ongoing,
@@ -106,7 +129,7 @@ def weekly_book(
         clock=clock,
         since=since,
         until=until,
-        day_text=f"{since:%d.%m} – {until:%d.%m}",
+        day_text=f"{_date_said(since)} – {_date_said(until)}",
         final=week_is_final(db, owner=owner, account=clock, now=now, until=until),
         weekly=True,
     )
@@ -205,6 +228,16 @@ def _waiting(
     return open_proposals(db, owner=owner, targets=targets, now=now)
 
 
+def _date_said(day: date) -> str:
+    """«1-noyabr»."""
+    return f"{day.day}-{MONTHS[day.month - 1]}"
+
+
+def _day_said(day: date) -> str:
+    """«1-noyabr, yakshanba»."""
+    return f"{_date_said(day)}, {WEEKDAYS[day.weekday()]}"
+
+
 def _totals(reports: Iterable[DailyReport]) -> tuple[DayTotal, ...]:
     """The day's money, one figure a currency: nothing here converts money."""
     spent: dict[str, int] = defaultdict(int)
@@ -215,10 +248,9 @@ def _totals(reports: Iterable[DailyReport]) -> tuple[DayTotal, ...]:
             spent[report.currency] += report.spend_minor
     return tuple(
         DayTotal(
-            spend=format_minor(amount_minor=amount, currency=code),
-            before=format_minor(amount_minor=before[code], currency=code)
-            if before[code] > 0
-            else "",
+            spend=report_money(amount, code),
+            before=report_money(before[code], code) if before[code] > 0 else "",
+            change=change_text(amount, before[code]),
         )
         for code, amount in sorted(spent.items(), key=lambda row: -row[1])
     )

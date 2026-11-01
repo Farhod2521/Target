@@ -11,19 +11,20 @@ from collections.abc import Iterable
 from dataclasses import replace
 from datetime import date
 
-from app.common.money import format_minor
 from app.modules.chat.selectors.day_figures import DayTables
 from app.modules.chat.selectors.day_lines import (
     Part,
     against,
+    change_text,
     figure_of,
+    report_kind,
+    report_money,
     result_count,
 )
 from app.modules.chat.selectors.day_tables import DayPairs
 from app.modules.metrics.selectors.results import screen_kind
 from core.chat.daily import OFF_STATES
 from core.chat.day_report import DailyReport
-from core.metrics import Outcome
 
 
 def pair_report(
@@ -54,9 +55,7 @@ def pair_report(
     if not describes_elsewhere:
         figure = replace(
             figure,
-            spend=format_minor(
-                amount_minor=here_minor + elsewhere_minor, currency=currency
-            ),
+            spend=report_money(here_minor + elsewhere_minor, currency),
             spend_minor=here_minor + elsewhere_minor,
         )
     before_minor = sum(
@@ -88,6 +87,7 @@ def pair_report(
         elsewhere_apart=not describes_elsewhere and elsewhere_minor > 0,
         before="" if ongoing else _text(before_minor, currency),
         before_minor=0 if ongoing else before_minor,
+        change="" if ongoing else change_text(figure.spend_minor, before_minor),
         idle=_idle(tables, adset_ids) if describes_elsewhere else 0,
         open_proposals=open_proposals,
         other_currency=other_currency,
@@ -163,15 +163,18 @@ def _did_something(tables: DayTables, adset_id: str) -> bool:
     )
 
 
-def _kind(tables: DayTables, adset_id: str) -> Outcome:
-    """What the group was bought for, the way every screen reads it."""
+def _kind(tables: DayTables, adset_id: str) -> str:
+    """What the group was bought for, the way every screen reads it, with a
+    name for what the screens leave uncounted."""
     group = tables.groups.get(adset_id)
-    if group is not None:
-        return screen_kind(group.goal, group.promoted)
     campaign = tables.mirror.get(_campaign(tables, adset_id))
-    if campaign is None:
-        return screen_kind("")
-    return screen_kind(campaign.goal, campaign.promoted)
+    if group is not None:
+        goal, promoted = group.goal, group.promoted
+    elif campaign is not None:
+        goal, promoted = campaign.goal, campaign.promoted
+    else:
+        goal, promoted = "", None
+    return report_kind(screen_kind(goal, promoted), goal=goal, promoted=promoted)
 
 
 def _campaign(tables: DayTables, adset_id: str) -> str:
@@ -183,7 +186,7 @@ def _money(tables: DayTables, adset_ids: Iterable[str]) -> int:
 
 
 def _text(amount: int, currency: str) -> str:
-    return format_minor(amount_minor=amount, currency=currency) if amount > 0 else ""
+    return report_money(amount, currency) if amount > 0 else ""
 
 
 __all__ = ["pair_report"]
