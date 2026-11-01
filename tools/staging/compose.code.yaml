@@ -1,0 +1,16 @@
+# The working tree's code on the image already built, for when Docker Hub cannot
+# be reached to build a new one. Dependencies stay the image's.
+#   docker compose -f tools/staging/compose.yaml -f tools/staging/compose.code.yaml up -d --no-build api worker
+
+x-code: &code
+  volumes:
+    - ../../app:/app/app:ro
+    - ../../core:/app/core:ro
+    - ../../packages:/app/packages:ro
+    - ../../migrations:/app/migrations:ro
+
+services:
+  api:
+    <<: *code
+  worker:
+    <<: *code
