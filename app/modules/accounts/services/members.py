@@ -5,7 +5,7 @@ import secrets
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -192,13 +192,13 @@ def purge_owned_rows(db: Session, *, user: User) -> dict[str, int]:
         model = models.get(label)
         if model is None or not hasattr(model, "owner_id"):
             continue
-        rows = db.execute(delete(model).where(model.owner_id == user.id)).rowcount
+        rows = delete_rows(db, model.__table__, model.owner_id == user.id)
         if label == "leads.RawLeadEvent" and pages:
-            rows += db.execute(
-                delete(model).where(
-                    model.owner_id.is_(None), model.page_external_id.in_(pages)
-                )
-            ).rowcount
+            rows += delete_rows(
+                db,
+                model.__table__,
+                and_(model.owner_id.is_(None), model.page_external_id.in_(pages)),
+            )
         if rows:
             deleted[label] = rows
     return deleted

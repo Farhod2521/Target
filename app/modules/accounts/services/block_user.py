@@ -23,3 +23,21 @@ def block_user(
     )
     db.flush()
     return user
+
+
+def unblock_user(
+    db: Session, *, user: User, reason: str, details: dict[str, Any] | None = None
+) -> User:
+    if user.is_active:
+        return user
+    user.is_active = True
+    emit(
+        db,
+        owner_id=user.id,
+        name=EventName.USER_UNBLOCKED,
+        aggregate_type="user",
+        aggregate_id=user.id,
+        payload={"reason": reason, **(details or {})},
+    )
+    db.flush()
+    return user

@@ -172,6 +172,7 @@ class EventName(Choices):
     CONNECTION_REMOVED = "connection.removed"
     CONNECTION_REFUSED_DUPLICATE = "connection.refused_duplicate"
     USER_BLOCKED = "user.blocked"
+    USER_UNBLOCKED = "user.unblocked"
     ACCOUNT_REBOUND = "account.rebound"
     PAGE_REBOUND = "page.rebound"
     PAGE_RELEASED = "page.released"
@@ -293,6 +294,7 @@ EVENT_NAME_LABELS = {
     EventName.CONNECTION_REMOVED: "Reklama akkaunti uzildi",
     EventName.CONNECTION_REFUSED_DUPLICATE: "Ulanish rad etildi: akkaunt band",
     EventName.USER_BLOCKED: "Akkaunt bloklandi",
+    EventName.USER_UNBLOCKED: "Akkaunt blokdan chiqarildi",
     EventName.ACCOUNT_REBOUND: "Reklama akkaunti almashtirildi",
     EventName.PAGE_REBOUND: "Sahifa almashtirildi",
     EventName.PAGE_RELEASED: "Sahifa uzildi",

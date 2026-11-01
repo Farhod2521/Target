@@ -31,6 +31,16 @@ class EmailMismatch(DomainError):
         super().__init__("Email mos kelmadi — akkaunt o'chirilmadi.")
 
 
+class AlreadyBlocked(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu akkaunt allaqachon bloklangan.")
+
+
+class NotBlocked(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu akkaunt bloklanmagan.")
+
+
 class SuperuserOnly(DomainError):
     def __init__(self) -> None:
         super().__init__("Parolni faqat super admin o'rnata oladi.")

@@ -1,7 +1,9 @@
 from app.modules.backoffice.services.accounts import (
     attach_old_receipts,
+    block_customer,
     delete_account,
     set_customer_password,
+    unblock_customer,
 )
 from app.modules.backoffice.services.directions import (
     create_direction,
@@ -52,6 +54,7 @@ __all__ = [
     "add_slots",
     "approve_promo",
     "attach_old_receipts",
+    "block_customer",
     "change_page_account",
     "create_code",
     "create_direction",
@@ -76,6 +79,7 @@ __all__ = [
     "set_referral",
     "take_payment",
     "take_slots",
+    "unblock_customer",
     "update_code",
     "update_direction",
     "void_withdrawal",

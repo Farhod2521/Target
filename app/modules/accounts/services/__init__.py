@@ -1,5 +1,5 @@
 from app.modules.accounts.services.authenticate import authenticate
-from app.modules.accounts.services.block_user import block_user
+from app.modules.accounts.services.block_user import block_user, unblock_user
 from app.modules.accounts.services.change_password import change_password
 from app.modules.accounts.services.email_code import (
     CodeSent,
@@ -68,4 +68,5 @@ __all__ = [
     "set_language",
     "set_member_password",
     "sign_up",
+    "unblock_user",
 ]

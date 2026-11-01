@@ -10,12 +10,25 @@ from app.common import tokens
 from app.common.db import utcnow
 from app.common.passwords import check_password
 from app.modules.accounts.models import Group, User, UserGroup
+from app.modules.ads.models import DeliveryStop
+from app.modules.audit.constants import EventName
+from app.modules.audit.models import Event
 from app.modules.backoffice.constants import ActionKind, Role
 from app.modules.backoffice.models import StaffAction
 from app.modules.billing.constants import InvoiceStatus, SubscriptionStatus
 from app.modules.billing.models import Invoice, Plan, Subscription
-from app.modules.integrations.models import PageAccount, ProviderConnection
-from app.modules.referrals.models import ReferralAccess, ReferralBinding
+from app.modules.integrations.models import (
+    AdAccount,
+    PageAccount,
+    PagePair,
+    ProviderConnection,
+)
+from app.modules.referrals.models import (
+    ReferralAccess,
+    ReferralBinding,
+    ReferralReward,
+)
+from app.modules.sales.models import SalesClaim, SalesCommission
 
 URL = "/api/v1/office/customers"
 
@@ -263,6 +276,93 @@ def test_moving_a_page_hands_its_slot_over(client: TestClient, db: Session) -> N
     assert stranger.status_code == 404
 
 
+def test_a_page_s_pair_is_changed_and_removed_by_meta_ids(
+    client: TestClient, db: Session
+) -> None:
+    customer, _ = _shop(db)
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+    link = ProviderConnection(
+        owner_id=customer.id, provider="meta", token_encrypted=b"x", status="active"
+    )
+    db.add(link)
+    db.flush()
+    page = PageAccount(
+        owner_id=customer.id,
+        provider="meta",
+        external_id="p1",
+        connection_id=link.id,
+        token_encrypted=b"x",
+        is_active=True,
+        is_current=True,
+    )
+    first, second = (
+        AdAccount(
+            owner_id=customer.id,
+            provider="meta",
+            external_id=external_id,
+            connection_id=link.id,
+            is_active=True,
+        )
+        for external_id in ("act_1", "act_2")
+    )
+    db.add_all([page, first, second])
+    db.flush()
+    db.add(PagePair(owner_id=customer.id, page_id=page.id, ad_account_id=first.id))
+    db.commit()
+    base = f"{URL}/{customer.id}/pages/{page.id}"
+
+    changed = client.post(
+        f"{base}/account",
+        headers=support,
+        json={"current": "act_1", "target": "act_2", "reason": "Filial"},
+    )
+    assert changed.status_code == 200, changed.text
+    db.expire_all()
+    pair = db.scalar(select(PagePair).where(PagePair.page_id == page.id))
+    assert pair is not None and pair.ad_account_id == second.id
+
+    removed = client.post(
+        f"{base}/remove-pair",
+        headers=support,
+        json={"account": "act_2", "reason": "Xato"},
+    )
+    assert removed.status_code == 200, removed.text
+    db.expire_all()
+    assert db.scalar(select(PagePair).where(PagePair.page_id == page.id)) is None
+    assert _kinds(db, customer) == [
+        ActionKind.PAGE_ACCOUNT_CHANGED,
+        ActionKind.PAGE_PAIR_REMOVED,
+    ]
+
+
+def test_blocking_a_customer_stops_their_crm_logins_too(
+    client: TestClient, db: Session
+) -> None:
+    customer, _ = _shop(db)
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+    login = User(
+        email="manager@client.test",
+        password="!",
+        date_joined=utcnow(),
+        crm_owner_id=customer.id,
+    )
+    db.add(login)
+    db.commit()
+    member = _bearer(login)
+    base = f"{URL}/{customer.id}"
+    assert client.get("/api/v1/crm/nav", headers=member).status_code == 200
+
+    blocked = client.post(f"{base}/block", headers=support, json={"reason": "Firibgar"})
+    assert blocked.status_code == 200, blocked.text
+    assert client.get("/api/v1/crm/nav", headers=member).status_code == 401
+
+    freed = client.post(
+        f"{base}/unblock", headers=support, json={"reason": "Tekshirildi"}
+    )
+    assert freed.status_code == 200, freed.text
+    assert client.get("/api/v1/crm/nav", headers=member).status_code == 200
+
+
 def test_a_set_password_signs_the_customer_out(client: TestClient, db: Session) -> None:
     customer, _ = _shop(db)
     _, owner = _staff(db, Role.OWNER, email="owner@office.test")
@@ -344,3 +444,132 @@ def test_deleting_a_customer_keeps_the_inviter_s_and_the_invitee_s_rows(
     assert kept is not None and kept.owner_id is None
     assert kept.former_email == "shop@client.test"
     assert _kinds(db, owner) == [ActionKind.ACCOUNT_PURGED]
+
+
+def test_deleting_a_customer_others_earned_from_keeps_their_money(
+    client: TestClient, db: Session
+) -> None:
+    customer, _ = _shop(db)
+    customer_id = customer.id
+    owner, headers = _staff(db, Role.OWNER, email="owner@office.test")
+    seller, _ = _staff(db, Role.SALES, email="seller@office.test")
+    inviter = User(email="inviter@client.test", password="!", date_joined=utcnow())
+    db.add(inviter)
+    db.flush()
+    link = ProviderConnection(
+        owner_id=customer.id, provider="meta", token_encrypted=b"x", status="active"
+    )
+    db.add(link)
+    db.flush()
+    account = AdAccount(
+        owner_id=customer.id,
+        provider="meta",
+        external_id="act_1",
+        connection_id=link.id,
+    )
+    db.add(account)
+    db.flush()
+    binding = ReferralBinding(owner_id=customer.id, referrer_id=inviter.id, code="ABC")
+    claim = SalesClaim(
+        owner_id=customer.id,
+        manager_id=seller.id,
+        claimed_at=utcnow(),
+        expires_at=utcnow(),
+    )
+    db.add_all(
+        [
+            binding,
+            claim,
+            DeliveryStop(
+                owner_id=customer.id,
+                ad_account_id=account.id,
+                level="campaign",
+                external_id="c1",
+                reason="spend_cap",
+                detected_at=utcnow(),
+            ),
+        ]
+    )
+    db.flush()
+    reward = ReferralReward(
+        owner_id=inviter.id,
+        binding_id=binding.id,
+        base_minor=100,
+        amount_minor=10,
+        earned_at=utcnow(),
+    )
+    commission = SalesCommission(
+        owner_id=seller.id,
+        client_id=customer.id,
+        claim_id=claim.id,
+        base_minor=100,
+        percent=10,
+        amount_minor=10,
+        earned_at=utcnow(),
+    )
+    db.add_all([reward, commission])
+    db.commit()
+
+    gone = client.post(
+        f"{URL}/{customer.id}/delete", headers=headers, json={"email": customer.email}
+    )
+    assert gone.status_code == 200, gone.text
+
+    db.expire_all()
+    assert db.scalar(select(User.id).where(User.id == customer_id)) is None
+    assert db.scalar(select(DeliveryStop.id)) is None
+    kept_reward = db.get(ReferralReward, reward.id)
+    assert kept_reward is not None and kept_reward.binding_id is None
+    kept_commission = db.get(SalesCommission, commission.id)
+    assert kept_commission is not None
+    assert kept_commission.claim_id is None and kept_commission.client_id is None
+    assert _kinds(db, owner) == [ActionKind.ACCOUNT_PURGED]
+
+
+def test_blocking_signs_the_customer_out_until_unblocked(
+    client: TestClient, db: Session
+) -> None:
+    customer, _ = _shop(db)
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+    _, finance = _staff(db, Role.FINANCE, email="money@office.test")
+    signed_in = _bearer(customer)
+    base = f"{URL}/{customer.id}"
+
+    assert (
+        client.post(f"{base}/block", headers=finance, json={"reason": "x"}).status_code
+        == 404
+    )
+    assert client.post(f"{base}/block", headers=support, json={}).status_code == 422
+    not_yet = client.post(f"{base}/unblock", headers=support, json={"reason": "x"})
+    assert not_yet.status_code == 400
+
+    blocked = client.post(f"{base}/block", headers=support, json={"reason": "Firibgar"})
+    assert blocked.status_code == 200, blocked.text
+    assert blocked.json() == {"message": "Akkaunt bloklandi."}
+    assert client.get("/api/v1/account", headers=signed_in).status_code == 401
+    assert client.get(base, headers=support).json()["profile"]["is_blocked"] is True
+    again = client.post(f"{base}/block", headers=support, json={"reason": "x"})
+    assert again.status_code == 400
+
+    freed = client.post(
+        f"{base}/unblock", headers=support, json={"reason": "Tekshirildi"}
+    )
+    assert freed.status_code == 200, freed.text
+    assert client.get(base, headers=support).json()["profile"]["is_blocked"] is False
+    assert client.get("/api/v1/account", headers=_bearer(customer)).status_code == 200
+
+    db.expire_all()
+    assert [kind for kind in _kinds(db, customer) if kind != ActionKind.VIEW] == [
+        ActionKind.ACCOUNT_BLOCKED,
+        ActionKind.ACCOUNT_UNBLOCKED,
+    ]
+    assert list(
+        db.scalars(
+            select(Event.name)
+            .where(
+                Event.owner_id == customer.id,
+                Event.name.in_([EventName.USER_BLOCKED, EventName.USER_UNBLOCKED]),
+            )
+            .order_by(Event.occurred_at)
+        )
+    ) == [EventName.USER_BLOCKED, EventName.USER_UNBLOCKED]

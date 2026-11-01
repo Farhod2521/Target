@@ -22,6 +22,7 @@ ADMIN_ROLES = (Role.SUPPORT, Role.FINANCE, Role.OWNER)
 MONEY_ROLES = (Role.FINANCE, Role.OWNER)
 FEEDBACK_ROLES = (Role.OWNER,)
 ANSWER_ROLES = (Role.SUPPORT, Role.OWNER)
+BLOCK_ROLES = (Role.SUPPORT, Role.OWNER)
 SALES_ROLES = (Role.SALES, Role.SALES_LEAD, Role.OWNER)
 SALES_LEAD_ROLES = (Role.SALES_LEAD, Role.OWNER)
 
@@ -70,6 +71,8 @@ class ActionKind(Choices):
     PAGE_PAIR_REMOVED = "page_pair_removed"
     RECEIPTS_ATTACHED = "receipts_attached"
     ACCOUNT_PURGED = "account_purged"
+    ACCOUNT_BLOCKED = "account_blocked"
+    ACCOUNT_UNBLOCKED = "account_unblocked"
     PASSWORD_SET = "password_set"
     PAYMENT_RECORDED = "payment_recorded"
     REFERRAL_CHANGED = "referral_changed"
@@ -113,6 +116,8 @@ ACTION_KIND_LABELS = {
     ActionKind.PAGE_PAIR_REMOVED: "Sahifa juftligi o'chirildi",
     ActionKind.RECEIPTS_ATTACHED: "Eski cheklar ulandi",
     ActionKind.ACCOUNT_PURGED: "Akkaunt o'chirildi",
+    ActionKind.ACCOUNT_BLOCKED: "Akkaunt bloklandi",
+    ActionKind.ACCOUNT_UNBLOCKED: "Akkaunt blokdan chiqarildi",
     ActionKind.PASSWORD_SET: "Parol o'rnatildi",
     ActionKind.PAYMENT_RECORDED: "To'lov qayd etildi",
     ActionKind.REFERRAL_CHANGED: "Referal o'zgardi",

@@ -28,6 +28,16 @@ def crm_member_may(request: Request) -> bool:
     return request.method == "GET" and path.rstrip("/") in CRM_MEMBER_READS
 
 
+def may_sign_in(db: Session, user: User | None) -> bool:
+    """Active, and a CRM login stands or falls with the account that made it."""
+    if user is None or not user.is_active:
+        return False
+    if user.crm_owner_id is None:
+        return True
+    owner = db.get(User, user.crm_owner_id)
+    return owner is not None and owner.is_active
+
+
 def signed_in(
     request: Request, credentials: HTTPAuthorizationCredentials | None, db: Session
 ) -> User:
@@ -43,7 +53,7 @@ def signed_in(
         user = db.get(User, uuid.UUID(subject or ""))
     except ValueError:
         raise refused from None
-    if user is None or not user.is_active:
+    if not may_sign_in(db, user):
         raise refused
     if user.crm_owner_id is not None and not crm_member_may(request):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Faqat CRM doskasi.")
@@ -60,7 +70,7 @@ def _bearer_user(
         user = db.get(User, uuid.UUID(subject or ""))
     except ValueError:
         return None
-    if user is None or not user.is_active:
+    if not may_sign_in(db, user):
         return None
     return user
 

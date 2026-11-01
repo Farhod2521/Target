@@ -7,11 +7,15 @@ The models still carry Django's rules as ``ondelete``; this applies them first.
 """
 
 from functools import cache
+from typing import Any
 
 from sqlalchemy import ColumnElement, Table, delete, exists, select, update
 from sqlalchemy.orm import Session
 
 from app.common.db import Base
+
+# PostgreSQL takes 65535 parameters in one statement.
+KEYS_AT_ONCE = 10_000
 
 
 class ProtectedRows(Exception):
@@ -43,21 +47,26 @@ def delete_rows(db: Session, table: Table, where: ColumnElement[bool]) -> int:
 
 def _delete(db: Session, table: Table, where: ColumnElement[bool]) -> int:
     incoming = _incoming(table.name)
-    if incoming:
-        keys = list(db.scalars(select(table.c.id).where(where)))
-        if not keys:
-            return 0
-        where = table.c.id.in_(keys)
-        protected = []
-        for child, column, rule in incoming:
-            pointing = child.c[column].in_(keys)
-            if rule == "SET NULL":
-                db.execute(update(child).where(pointing).values({column: None}))
-            elif rule == "CASCADE":
-                _delete(db, child, pointing)
-            elif rule == "RESTRICT":
-                protected.append((child, pointing))
-        for child, pointing in protected:
-            if db.scalar(select(exists().where(pointing))):
-                raise ProtectedRows(child.name)
-    return db.execute(delete(table).where(where)).rowcount
+    if not incoming:
+        return db.execute(delete(table).where(where)).rowcount
+    keys = list(db.scalars(select(table.c.id).where(where)))
+    return sum(
+        _delete_keys(db, table, keys[start : start + KEYS_AT_ONCE])
+        for start in range(0, len(keys), KEYS_AT_ONCE)
+    )
+
+
+def _delete_keys(db: Session, table: Table, keys: list[Any]) -> int:
+    protected = []
+    for child, column, rule in _incoming(table.name):
+        pointing = child.c[column].in_(keys)
+        if rule == "SET NULL":
+            db.execute(update(child).where(pointing).values({column: None}))
+        elif rule == "CASCADE":
+            _delete(db, child, pointing)
+        elif rule == "RESTRICT":
+            protected.append((child, pointing))
+    for child, pointing in protected:
+        if db.scalar(select(exists().where(pointing))):
+            raise ProtectedRows(child.name)
+    return db.execute(delete(table).where(table.c.id.in_(keys))).rowcount

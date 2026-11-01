@@ -18,7 +18,12 @@ from app.common.db import utcnow
 from app.common.exceptions import InputRefused
 from app.modules.accounts.models import User
 from app.modules.backoffice import services
-from app.modules.backoffice.constants import ADMIN_ROLES, MONEY_ROLES, Role
+from app.modules.backoffice.constants import (
+    ADMIN_ROLES,
+    BLOCK_ROLES,
+    MONEY_ROLES,
+    Role,
+)
 from app.modules.backoffice.permissions import staff_required
 from app.modules.backoffice.schemas import DeletedOut, MessageOut
 from app.modules.backoffice.selectors.card import person
@@ -31,6 +36,7 @@ from app.modules.referrals.constants import PayoutMethod, ReferralMode
 router = APIRouter(prefix="/customers/{customer_id}")
 Admin = Annotated[User, Depends(staff_required(*ADMIN_ROLES))]
 Money = Annotated[User, Depends(staff_required(*MONEY_ROLES))]
+Blocker = Annotated[User, Depends(staff_required(*BLOCK_ROLES))]
 Owner = Annotated[User, Depends(staff_required(Role.OWNER))]
 
 
@@ -380,6 +386,28 @@ def set_password(
         now=utcnow(),
     )
     return _done(db, "Parol o'rnatildi. Mijoz hamma qurilmada chiqarildi.")
+
+
+@router.post("/block", responses={200: {"model": MessageOut}})
+def block_customer(
+    customer_id: uuid.UUID, body: ReasonIn, db: Db, actor: Blocker
+) -> dict[str, Any]:
+    """Shut the account and sign the customer out everywhere."""
+    customer = _customer(db, customer_id)
+    services.block_customer(
+        db, customer=customer, actor=actor, reason=body.reason, now=utcnow()
+    )
+    return _done(db, "Akkaunt bloklandi.")
+
+
+@router.post("/unblock", responses={200: {"model": MessageOut}})
+def unblock_customer(
+    customer_id: uuid.UUID, body: ReasonIn, db: Db, actor: Blocker
+) -> dict[str, Any]:
+    """Open a blocked account again."""
+    customer = _customer(db, customer_id)
+    services.unblock_customer(db, customer=customer, actor=actor, reason=body.reason)
+    return _done(db, "Akkaunt blokdan chiqarildi.")
 
 
 @router.post("/delete", responses={200: {"model": DeletedOut}})

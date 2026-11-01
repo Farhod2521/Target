@@ -1,4 +1,5 @@
-"""Account writes from a customer's card: old receipts, a password, deletion."""
+"""Account writes from a customer's card: old receipts, a password, a block,
+deletion."""
 
 from datetime import datetime
 
@@ -7,12 +8,19 @@ from sqlalchemy.orm import Session
 from app.common import tokens
 from app.common.passwords import PasswordInvalid, make_password, validate_password
 from app.modules.accounts.models import User
-from app.modules.accounts.services import PurgeReport, purge_user
+from app.modules.accounts.services import (
+    PurgeReport,
+    block_user,
+    purge_user,
+    unblock_user,
+)
 from app.modules.audit.constants import EventName
 from app.modules.audit.services import emit
 from app.modules.backoffice.constants import ActionKind
 from app.modules.backoffice.exceptions import (
+    AlreadyBlocked,
     EmailMismatch,
+    NotBlocked,
     PasswordRefused,
     SuperuserOnly,
 )
@@ -80,6 +88,44 @@ def set_customer_password(
         db, customer=customer, actor=actor, kind=ActionKind.PASSWORD_SET, reason=reason
     )
     tokens.revoke_all(subject=str(customer.id), now=now)
+    return customer
+
+
+def block_customer(
+    db: Session, *, customer: User, actor: User, reason: str, now: datetime
+) -> User:
+    """Shut the account and sign the customer out on every device. Nothing in
+    it is touched: their ads keep running at Meta."""
+    if not reason.strip():
+        raise ReasonRequired
+    if not customer.is_active:
+        raise AlreadyBlocked
+    block_user(db, user=customer, reason=reason, details={"actor_id": str(actor.id)})
+    record(
+        db,
+        customer=customer,
+        actor=actor,
+        kind=ActionKind.ACCOUNT_BLOCKED,
+        reason=reason,
+    )
+    tokens.revoke_all(subject=str(customer.id), now=now)
+    return customer
+
+
+def unblock_customer(db: Session, *, customer: User, actor: User, reason: str) -> User:
+    """Open the account again; the customer signs in anew."""
+    if not reason.strip():
+        raise ReasonRequired
+    if customer.is_active:
+        raise NotBlocked
+    unblock_user(db, user=customer, reason=reason, details={"actor_id": str(actor.id)})
+    record(
+        db,
+        customer=customer,
+        actor=actor,
+        kind=ActionKind.ACCOUNT_UNBLOCKED,
+        reason=reason,
+    )
     return customer
 
 

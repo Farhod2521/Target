@@ -67,6 +67,7 @@ PURGE_ORDER: tuple[str, ...] = (
     "audit.LLMCall",
     "montage.Montage",
     "montage.BrandKit",
+    "ads.DeliveryStop",
     "ads.Ad",
     "ads.AdPreview",
     "ads.AdCreative",
