@@ -50,6 +50,7 @@ from app.modules.notifications.services.announce_reports import (
     unfinished_report_audience,
     unfinished_week_audience,
 )
+from app.modules.notifications.services.compose_daily import RULE
 from app.modules.notifications.services.compose_day_pair import pair_message
 from tests.pg.test_actions_inbox import _owner, _page_with_campaign, _run, _suggestion
 from tests.pg.test_office_telegram import FakeBot, _press, _text
@@ -214,6 +215,7 @@ def _group(
     delivery: str = "active",
     earlier: int = 0,
     into: Campaign | None = None,
+    results: int = 2,
 ) -> Campaign:
     """A campaign with one group in the mirror, and its money yesterday. A
     group of ``earlier`` days back spent then instead."""
@@ -268,8 +270,8 @@ def _group(
                 spend_minor=spend or 5000,
                 currency=account.currency,
                 impressions=4000,
-                results_reported=2,
-                leads_reported=2,
+                results_reported=results,
+                leads_reported=results,
                 synced_at=MORNING,
             )
         )
@@ -314,7 +316,7 @@ def test_a_lone_pair_s_day_is_sent_once_with_no_list_in_front_of_it(
     assert deliver_daily_report_for(db, owner=user, now=MORNING)
     (message,) = _sent(phone)
     assert "Kunlik hisobot" in message["text"]
-    assert "Jami" in message["text"] and "Maqsad bo'yicha" in message["text"]
+    assert "Jami sarf" in message["text"] and "Natijalar" in message["text"]
     (opened,) = message["buttons"]
     assert opened.text == "Batafsil — kabinetda"
     assert opened.web_app
@@ -347,8 +349,8 @@ def test_two_pairs_are_a_total_and_a_button_each_with_its_money(
     deliver_daily_report_for(db, owner=user, now=MORNING)
 
     (message,) = _sent(phone)
-    assert "Jami sarflandi" in message["text"]
-    assert "Bahor" not in message["text"] and "Maqsad" not in message["text"]
+    assert "Jami sarf" in message["text"]
+    assert "Bahor" not in message["text"] and "Natijalar" not in message["text"]
     first, second, cabinet = message["buttons"]
     assert first.text.endswith("Bahor kafesi · Asosiy") or "·" in first.text
     assert first.text[0] == "$" and first.data.startswith("dd:")
@@ -357,14 +359,14 @@ def test_two_pairs_are_a_total_and_a_button_each_with_its_money(
 
     handle_update(db, payload=_press("700", first.data, message_id=101), now=MORNING)
     opened = _edits(phone)[-1]
-    assert "Maqsad bo'yicha natijalar" in opened["text"]
+    assert "Natijalar" in opened["text"]
     assert "Guruh" not in opened["text"] and "Reklama" not in opened["text"]
     back, following, detail = opened["buttons"]
     assert back.data.startswith("dl:") and following.data == second.data
     assert detail.text == "Batafsil — kabinetda"
 
     handle_update(db, payload=_press("700", back.data, message_id=101), now=MORNING)
-    assert "Jami sarflandi" in _edits(phone)[-1]["text"]
+    assert "Jami sarf" in _edits(phone)[-1]["text"]
 
 
 def test_the_cabinet_button_opens_this_pair_on_this_day(
@@ -403,7 +405,7 @@ def test_every_goal_has_a_line_and_the_lines_add_up_to_the_total(
         promoted={"custom_event_type": "LEAD"},
     )
     _group(db, user, account, "c_4", "s_4", spend=30000, goal="CONVERSATIONS")
-    _group(db, user, account, "c_5", "s_5", spend=40000, goal="OFFSITE_CONVERSIONS")
+    _group(db, user, account, "c_5", "s_5", spend=40000, goal="THRUPLAY", results=0)
 
     book = daily_book(db, owner=user, now=MORNING)
 
@@ -412,7 +414,61 @@ def test_every_goal_has_a_line_and_the_lines_add_up_to_the_total(
     text = pair_message(book=book, report=report).text
     assert "Forma murojaati" in text and "Saytdagi murojaat" in text
     assert "Suhbat" in text and "Natijasi sanalmaydi" in text
-    assert report.figure.uncounted
+    assert report.figure.uncounted == "$400,00"
+
+
+def test_a_goal_the_screens_leave_uncounted_has_meta_s_count_and_its_name(
+    client: TestClient, db: Session
+) -> None:
+    user = _cabinet(client, db)
+    account = _account(db, user)
+    _group(
+        db,
+        user,
+        account,
+        "c_2",
+        "s_2",
+        spend=20000,
+        goal="OFFSITE_CONVERSIONS",
+        promoted={"custom_event_type": "COMPLETE_REGISTRATION"},
+    )
+    _group(
+        db,
+        user,
+        account,
+        "c_3",
+        "s_3",
+        spend=10000,
+        goal="MESSAGING_PURCHASE_CONVERSION",
+    )
+    _group(db, user, account, "c_4", "s_4", spend=5000, goal="AUTOMATIC_OBJECTIVE")
+
+    book = daily_book(db, owner=user, now=MORNING)
+
+    (report,) = book.reports
+    text = pair_message(book=book, report=report).text
+    assert "Ro'yxatdan o'tish" in text and "Xabar orqali xarid" in text
+    assert "Boshqa natija" in text and "Natijasi sanalmaydi" not in text
+    assert "2 ta · bittasi $100,00" in text
+
+
+def test_sections_are_ruled_apart_and_a_name_said_twice_is_said_once(
+    client: TestClient, db: Session
+) -> None:
+    user = _cabinet(client, db)
+    _spent(db, user)
+    account = _account(db, user)
+    account.name = "Bahor kafesi"
+    db.commit()
+
+    book = daily_book(db, owner=user, now=MORNING)
+
+    (report,) = book.reports
+    text = pair_message(book=book, report=report).text
+    assert report.title == "Bahor kafesi"
+    assert text.count(RULE) >= 2
+    assert not book.final and text.rstrip().endswith("yakuniy emas</i>")
+    assert report.spend.endswith(",00")
 
 
 def test_a_group_is_counted_by_its_own_goal_not_its_campaign_s(
@@ -464,7 +520,8 @@ def test_an_owner_only_in_ads_manager_is_told_their_day(
     assert deliver_daily_report_for(db, owner=user, now=MORNING)
 
     (message,) = _sent(phone)
-    assert "Ads Manager" in message["text"] and "Platformadan" not in message["text"]
+    assert "Ads Manager: $" in message["text"]
+    assert "Platformadan" not in message["text"]
 
 
 def test_a_one_time_plan_sees_ads_manager_as_one_sum(
@@ -495,7 +552,7 @@ def test_a_one_time_plan_sees_ads_manager_as_one_sum(
     assert report.spend_minor == 150000 and report.elsewhere_apart
     assert report.idle == 0
     assert {result.kind for result in report.figure.results} == {"lead"}
-    assert "• Ads Manager: sarf" in pair_message(book=book, report=report).text
+    assert "Ads Manager" in pair_message(book=book, report=report).text
 
 
 def test_a_silent_campaign_counts_only_while_it_spent_lately_and_is_on(
@@ -567,7 +624,9 @@ def test_the_day_before_is_beside_the_total_and_not_beside_today_so_far(
     book = daily_book(db, owner=user, now=MORNING)
     (report,) = book.reports
     assert report.before and book.totals[0].before
-    assert "oldingi kun" in pair_message(book=book, report=report).text
+    assert report.change == book.totals[0].change
+    assert report.change.startswith("+") and report.change.endswith("%")
+    assert "Oldingi kun" in pair_message(book=book, report=report).text
 
     today = daily_book(db, owner=user, now=MORNING, day=YESTERDAY + timedelta(days=1))
     assert all(not report.before for report in today.reports)
@@ -853,9 +912,9 @@ def test_monday_s_week_is_sent_once_with_its_goals_against_the_week_before(
 
     (message,) = _sent(phone)
     assert "Haftalik hisobot" in message["text"]
-    assert "Suhbat: 14 ta" in message["text"]
-    assert "oldingi hafta: 14 ta" in message["text"]
-    assert "(oldingi hafta" in message["text"]
+    assert "14 ta" in message["text"]
+    assert "Oldingi hafta: 14 ta · bittasi" in message["text"]
+    assert "Oldingi hafta: $" in message["text"]
     (opened,) = message["buttons"]
     assert opened.text == "Batafsil — kabinetda"
     sunday = _sunday(monday)
@@ -877,13 +936,13 @@ def test_two_pairs_are_one_message_of_the_week_with_a_button_each(
     deliver_report_for(db, owner=user, now=monday)
 
     (message,) = _sent(phone)
-    assert "Jami sarflandi" in message["text"] and "oldingi hafta" in message["text"]
+    assert "Jami sarf" in message["text"] and "Oldingi hafta" in message["text"]
     first, second, _cabinet_button = message["buttons"]
     assert first.data.startswith("wd:") and first.text[0] == "$"
 
     handle_update(db, payload=_press("700", first.data, message_id=101), now=monday)
     opened = _edits(phone)[-1]
-    assert "Maqsad bo'yicha natijalar" in opened["text"]
+    assert "Natijalar" in opened["text"]
     back, following, _detail = opened["buttons"]
     assert back.data.startswith("wl:") and following.data == second.data
 
@@ -918,7 +977,7 @@ def test_a_goal_says_when_the_week_before_had_nothing_or_no_results(
 
     (report,) = book.reports
     text = pair_message(book=book, report=report).text
-    assert "oldingi hafta: yo'q" in text and "oldingi hafta: natija yo'q" in text
+    assert "Oldingi hafta: yo'q" in text and "Oldingi hafta: natija yo'q" in text
 
 
 def test_the_week_s_money_adds_up_with_a_goal_nothing_counts(
@@ -927,7 +986,7 @@ def test_the_week_s_money_adds_up_with_a_goal_nothing_counts(
     user = _cabinet(client, db)
     account = _account(db, user)
     _week(db, user, account, "c_2", "s_2", spend=10000)
-    _week(db, user, account, "c_3", "s_3", spend=2000, goal="OFFSITE_CONVERSIONS")
+    _week(db, user, account, "c_3", "s_3", spend=2000, goal="THRUPLAY", results=0)
 
     (report,) = weekly_book(db, owner=user, now=_monday()).reports
 

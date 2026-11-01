@@ -10,13 +10,13 @@ from typing import Final
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.common.money import format_minor
 from app.modules.accounts.models import User
 from app.modules.ads.models import AdSet, Campaign
 from app.modules.agent.causes import cause_label, cause_line
 from app.modules.agent.constants import DiagnosisCause
 from app.modules.agent.models import AdSetDiagnosis
 from app.modules.agent.selectors.policy import diagnoses
+from app.modules.chat.selectors.day_lines import report_money
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +93,7 @@ def apart_spend(
     from app.modules.metrics.selectors.lead_sources import other_currency_spend
 
     return tuple(
-        format_minor(amount_minor=amount, currency=code)
+        report_money(amount, code)
         for code, amount in other_currency_spend(
             db, owner=owner, ids=money.apart, since=since, until=until
         )

@@ -5,6 +5,9 @@ spent, with that pair's money on it. A press replaces the message in place with
 that pair's figures - see
 :mod:`app.modules.notifications.services.compose_day_pair`.
 
+**Sections, ruled apart.** A message is short blocks with a line between them,
+so the eye finds the total and the results without reading the rest.
+
 Figures only. Nothing here judges a day: no verdict, no warning, no reading
 by a model. Somebody who wants to know whether a figure is good asks the
 assistant, which reads the same figures.
@@ -28,6 +31,9 @@ from app.modules.notifications.services.compose import (
 from core.chat.day_report import DailyReport, DayBook
 
 SEPARATOR: Final = " · "
+# Short enough not to wrap on a narrow phone, where a rule broken in two is
+# worse than none.
+RULE: Final = "──────────────"
 # The longest a button may run: a phone draws it one line high and clips the
 # rest, which is why the money goes first and the name is what is cut.
 BUTTON_CHARS: Final = 40
@@ -36,15 +42,22 @@ MAX_PAIR_BUTTONS: Final = 90
 MAX_QUIET_NAMES: Final = 5
 
 
+def sectioned(*sections: list[str]) -> str:
+    """The sections that have anything in them, a rule between each two."""
+    filled = ["\n".join(lines) for lines in sections if lines]
+    return f"\n{RULE}\n".join(filled)
+
+
 def list_message(*, book: DayBook) -> Message:
-    """The day's total. The buttons under it carry each pair's share."""
-    lines = [_bold(heading(book))]
-    if book.totals:
-        lines.append(f"{escaped('Jami sarflandi')}: {_totals(book)}")
-    if status := status_line(book):
-        lines.append(status)
-    lines += closing_lines(book)
-    return Message(text="\n".join(lines))
+    """The period's total. The buttons under it carry each pair's share."""
+    return Message(
+        text=sectioned(
+            [heading(book), escaped(book.day_text)],
+            _total_section(book),
+            *closing_sections(book),
+            status_section(book),
+        )
+    )
 
 
 def list_buttons(*, book: DayBook) -> tuple[Button, ...]:
@@ -73,53 +86,54 @@ def heading(book: DayBook) -> str:
         name = "Haftalik hisobot"
     else:
         name = "Bugun" if book.ongoing else "Kunlik hisobot"
-    return f"{name}{SEPARATOR}{book.day_text}"
+    return f"📊 {_bold(name)}"
 
 
-def status_line(book: DayBook) -> str:
-    """Whether these figures are the day's own, or empty when they are.
-
-    Said before anything else about the day: somebody who reads two lines
-    and puts the phone down should not act on an afternoon's figures
-    believing they are the day's.
-    """
+def status_section(book: DayBook) -> list[str]:
+    """Whether these figures are the period's own, or nothing when they are."""
     if book.ongoing:
-        return _italic("Kun hali tugamagan — raqamlar shu paytgacha.")
+        return [_italic("⏳ Kun hali tugamagan — raqamlar shu paytgacha")]
     if not book.final:
-        return _italic("Raqamlar hali yakuniy emas — kun to'liq o'qilmagan.")
-    return ""
+        return [_italic("⏳ Raqamlar hali yakuniy emas")]
+    return []
 
 
-def closing_lines(book: DayBook) -> list[str]:
-    """The day's last lines, under the total or under a lone pair's figures."""
-    lines = []
+def closing_sections(book: DayBook) -> list[list[str]]:
+    """What the period also says: the pairs that were quiet, and money that
+    fell outside the subscription."""
+    sections = []
     if book.quiet:
-        lines += ["", _quiet_line(book.quiet)]
+        sections.append(["⏸ Sarf bo'lmagan", *_quiet_names(book.quiet)])
     if book.outside:
         money = SEPARATOR.join(book.outside)
-        lines += [
-            "",
-            _italic(f"Tanlanmagan sahifalar: yana {money} (jamiga kirmaydi)"),
-        ]
+        sections.append(
+            ["📁 Tanlanmagan sahifalar", escaped(f"Yana {money} (jamiga kirmaydi)")]
+        )
+    return sections
+
+
+def _total_section(book: DayBook) -> list[str]:
+    lines: list[str] = []
+    for total in book.totals:
+        lines.append(f"💰 Jami sarf: {_bold(total.spend)}")
+        if line := compared(book, total.before, total.change):
+            lines.append(line)
     return lines
 
 
-def _quiet_line(reports: tuple[DailyReport, ...]) -> str:
-    names = ", ".join(report.title for report in reports[:MAX_QUIET_NAMES])
+def compared(book: DayBook, before: str, change: str) -> str:
+    """«Oldingi kun: $63,32 (+94%)», or nothing with nothing to compare."""
+    if not before:
+        return ""
+    word = "Oldingi hafta" if book.weekly else "Oldingi kun"
+    moved = f" ({change})" if change else ""
+    return escaped(f"{word}: {before}{moved}")
+
+
+def _quiet_names(reports: tuple[DailyReport, ...]) -> list[str]:
+    names = [escaped(report.title) for report in reports[:MAX_QUIET_NAMES]]
     left = len(reports) - MAX_QUIET_NAMES
-    tail = f" va yana {left} ta" if left > 0 else ""
-    return _italic(f"Sarf bo'lmagan: {names}{tail}")
-
-
-def _totals(book: DayBook) -> str:
-    return escaped(SEPARATOR).join(
-        _bold(total.spend) + compared(book, total.before) for total in book.totals
-    )
-
-
-def compared(book: DayBook, before: str) -> str:
-    word = "oldingi hafta" if book.weekly else "oldingi kun"
-    return escaped(f" ({word} {before})") if before else ""
+    return [*names, escaped(f"Yana {left} ta")] if left > 0 else names
 
 
 def _button_title(report: DailyReport) -> str:
@@ -131,12 +145,14 @@ def _button_title(report: DailyReport) -> str:
 
 
 __all__ = [
+    "RULE",
     "SEPARATOR",
-    "closing_lines",
+    "closing_sections",
     "compared",
     "heading",
     "list_buttons",
     "list_message",
     "pair_press",
-    "status_line",
+    "sectioned",
+    "status_section",
 ]

@@ -59,22 +59,35 @@ def number_format(value: Decimal | int | float, *, decimal_pos: int = 0) -> str:
 
 
 def format_minor(
-    *, amount_minor: int | None, currency: str, places: int | None = None
+    *,
+    amount_minor: int | None,
+    currency: str,
+    places: int | None = None,
+    keep_cents: bool = False,
 ) -> str:
     return str(
-        format_minor_parts(amount_minor=amount_minor, currency=currency, places=places)
+        format_minor_parts(
+            amount_minor=amount_minor,
+            currency=currency,
+            places=places,
+            keep_cents=keep_cents,
+        )
     )
 
 
 def format_minor_parts(
-    *, amount_minor: int | None, currency: str, places: int | None = None
+    *,
+    amount_minor: int | None,
+    currency: str,
+    places: int | None = None,
+    keep_cents: bool = False,
 ) -> MoneyParts:
     if amount_minor is None:
         return MoneyParts(amount="", currency="")
     if places is None:
         places = decimal_places(currency)
     value = Decimal(amount_minor) / (10**places)
-    if places and amount_minor % (10**places) == 0:
+    if places and not keep_cents and amount_minor % (10**places) == 0:
         places = 0
     formatted = number_format(value, decimal_pos=places)
     sign = CURRENCY_SIGNS.get(currency)

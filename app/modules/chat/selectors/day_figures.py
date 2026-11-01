@@ -19,9 +19,9 @@ from typing import Any, Final
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, aliased
 
-from app.common.money import format_minor
 from app.modules.accounts.models import User
 from app.modules.ads.models import AdSet, Campaign
+from app.modules.chat.selectors.day_lines import report_money
 from app.modules.chat.selectors.scope import in_subscription, subscribed_pages
 from app.modules.metrics.constants import MetricLevel
 from app.modules.metrics.models import MetricsDaily
@@ -238,7 +238,7 @@ def outside_spend(
         if group not in inside:
             spent[currency] = spent.get(currency, 0) + int(amount)
     return tuple(
-        format_minor(amount_minor=amount, currency=currency)
+        report_money(amount, currency)
         for currency, amount in sorted(spent.items(), key=lambda row: -row[1])
     )
 
