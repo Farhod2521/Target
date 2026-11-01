@@ -482,7 +482,11 @@ def _paid_totals(db: Session, ids: list[uuid.UUID]) -> dict[uuid.UUID, Money]:
     found: dict[uuid.UUID, list[tuple[str, int]]] = {}
     for owner_id, currency, total in db.execute(
         select(Invoice.owner_id, Invoice.currency, func.sum(Invoice.amount_minor))
-        .where(Invoice.owner_id.in_(ids), Invoice.status == InvoiceStatus.PAID)
+        .where(
+            Invoice.owner_id.in_(ids),
+            Invoice.status == InvoiceStatus.PAID,
+            Invoice.archived_at.is_(None),
+        )
         .group_by(Invoice.owner_id, Invoice.currency)
     ):
         if owner_id is not None and total:

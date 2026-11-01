@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Select, exists, func, or_, select, true
+from sqlalchemy import ColumnElement, Select, and_, exists, func, or_, select, true
 from sqlalchemy.orm import Session, joinedload
 
 from app.modules.accounts.models import User
@@ -35,6 +35,10 @@ from app.modules.businesses.models import Business
 OPEN_STATUSES = (InvoiceStatus.PENDING, InvoiceStatus.HELD)
 CLOSED_STATUSES = (InvoiceStatus.CANCELED, InvoiceStatus.EXPIRED)
 UNPAID = "unpaid"
+ARCHIVED = "archived"
+# On the books: what every list and sum here reads. An archived bill is only
+# ever read through its own chip.
+ON_BOOKS = Invoice.archived_at.is_(None)
 
 INVOICE_STATES: tuple[tuple[str, str], ...] = (
     ("", "Hammasi"),
@@ -42,6 +46,7 @@ INVOICE_STATES: tuple[tuple[str, str], ...] = (
     ("paid", "To'langan"),
     ("closed", "Yopilgan"),
 )
+ARCHIVE_STATE: tuple[str, str] = (ARCHIVED, "Arxiv")
 SUBSCRIPTION_STATES: tuple[tuple[str, str], ...] = (
     ("", "Hammasi"),
     (UNPAID, "To'lovsiz"),
@@ -106,7 +111,7 @@ class SubscriptionPage:
 def _sums(db: Session, *where: ColumnElement[bool]) -> Money:
     rows = db.execute(
         select(Invoice.currency, func.sum(Invoice.amount_minor))
-        .where(*where)
+        .where(ON_BOOKS, *where)
         .group_by(Invoice.currency)
         .order_by(Invoice.currency)
     ).all()
@@ -114,7 +119,7 @@ def _sums(db: Session, *where: ColumnElement[bool]) -> Money:
 
 
 def _count(db: Session, *where: ColumnElement[bool]) -> int:
-    return int(db.scalar(select(func.count(Invoice.id)).where(*where)) or 0)
+    return int(db.scalar(select(func.count(Invoice.id)).where(ON_BOOKS, *where)) or 0)
 
 
 def totals(db: Session, *, now: datetime) -> Totals:
@@ -178,13 +183,15 @@ def stuck_holds(db: Session, *, now: datetime) -> list[PaymentTransaction]:
 
 
 def _by_state(state: str) -> ColumnElement[bool]:
+    if state == ARCHIVED:
+        return Invoice.archived_at.is_not(None)
     if state == "open":
-        return Invoice.status.in_(OPEN_STATUSES)
+        return and_(ON_BOOKS, Invoice.status.in_(OPEN_STATUSES))
     if state == "paid":
-        return Invoice.status == InvoiceStatus.PAID
+        return and_(ON_BOOKS, Invoice.status == InvoiceStatus.PAID)
     if state == "closed":
-        return Invoice.status.in_(CLOSED_STATUSES)
-    return true()
+        return and_(ON_BOOKS, Invoice.status.in_(CLOSED_STATUSES))
+    return ON_BOOKS
 
 
 def by_owner(term: str) -> list[ColumnElement[bool]]:
@@ -216,9 +223,14 @@ def _invoice_counts(db: Session, *, term: str) -> dict[str, int]:
     rows = db.execute(
         select(Invoice.status, func.count(Invoice.id))
         .outerjoin(User, Invoice.owner_id == User.id)
-        .where(_invoice_term(term))
+        .where(ON_BOOKS, _invoice_term(term))
         .group_by(Invoice.status)
     ).all()
+    archived = db.scalar(
+        select(func.count(Invoice.id))
+        .outerjoin(User, Invoice.owner_id == User.id)
+        .where(_by_state(ARCHIVED), _invoice_term(term))
+    )
     by_status = {str(status): int(count) for status, count in rows}
 
     def sum_of(*statuses: InvoiceStatus) -> int:
@@ -229,6 +241,7 @@ def _invoice_counts(db: Session, *, term: str) -> dict[str, int]:
         "open": sum_of(*OPEN_STATUSES),
         "paid": sum_of(InvoiceStatus.PAID),
         "closed": sum_of(*CLOSED_STATUSES),
+        ARCHIVED: int(archived or 0),
     }
 
 
@@ -262,6 +275,7 @@ def invoice_page(
                 joinedload(Invoice.owner),
                 joinedload(Invoice.plan),
                 joinedload(Invoice.recorded_by),
+                joinedload(Invoice.archived_by),
             )
             .where(*where)
             .order_by(Invoice.created_at.desc(), Invoice.id)
@@ -311,6 +325,7 @@ def subscription_page(
     with no bill ever settled, so nobody wrote down whether they paid."""
     every = _live(now=now).where(_subscription_term(term))
     settled = exists().where(
+        ON_BOOKS,
         Invoice.owner_id == Subscription.owner_id,
         Invoice.status == InvoiceStatus.PAID,
     )
@@ -340,6 +355,7 @@ def settled_owners(db: Session, owners: Iterable[UUID]) -> frozenset[UUID]:
         db.scalars(
             select(Invoice.owner_id)
             .where(
+                ON_BOOKS,
                 Invoice.owner_id.in_(set(owners)),
                 Invoice.status == InvoiceStatus.PAID,
             )

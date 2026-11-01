@@ -1,7 +1,8 @@
 """Bills and entitlements across every account, as JSON.
 
 The Owner and the super admin read it; anybody else is answered 404. Only
-the super admin may free a held bill: for the Owner this screen is read-only.
+the super admin may free a held bill or archive one, and only they see the
+archive: for the Owner this screen is read-only.
 """
 
 import uuid
@@ -29,6 +30,8 @@ from app.modules.backoffice.schemas import (
 )
 from app.modules.backoffice.selectors.days import days_left
 from app.modules.backoffice.selectors.payments import (
+    ARCHIVE_STATE,
+    ARCHIVED,
     INVOICE_STATES,
     SUBSCRIPTION_STATES,
     InvoiceRow,
@@ -44,7 +47,7 @@ from app.modules.billing.constants import (
     SUBSCRIPTION_STATUS_LABELS,
     SubscriptionStatus,
 )
-from app.modules.billing.models import PaymentTransaction, Subscription
+from app.modules.billing.models import Invoice, PaymentTransaction, Subscription
 
 router = APIRouter(prefix="/payments")
 Owner = Annotated[User, Depends(staff_required(Role.OWNER))]
@@ -119,6 +122,15 @@ def _invoice_row_out(row: InvoiceRow) -> dict[str, Any]:
         "id": str(invoice.id),
         "customer": person_out(invoice.owner),
         "email": invoice.owner.email if invoice.owner else invoice.former_email,
+        "archive": (
+            {
+                "at": invoice.archived_at,
+                "by": person_out(invoice.archived_by),
+                "reason": invoice.archive_reason,
+            }
+            if invoice.archived_at is not None
+            else None
+        ),
         "transaction": (
             {
                 "id": str(attempt.id),
@@ -167,17 +179,43 @@ def invoices(
     state: str = Query("", description="A chip from `states`."),
     offset: int = OFFSET,
 ) -> dict[str, Any]:
-    """Every bill, newest first, 50 at a time."""
+    """Every bill on the books, newest first, 50 at a time. The archive is a
+    chip of its own, for the super admin alone."""
+    if state == ARCHIVED and not user.is_superuser:
+        state = ""
     page = invoice_page(db, state=state, term=q.strip(), offset=offset)
+    counts = page.counts
+    if not user.is_superuser:
+        counts = {key: n for key, n in counts.items() if key != ARCHIVED}
     return {
         "rows": [_invoice_row_out(row) for row in page.rows],
         "total": page.total,
         "offset": page.offset,
         "next_offset": page.next_offset,
         "has_more": page.has_more,
-        "states": choices(INVOICE_STATES),
-        "counts": page.counts,
+        "states": choices(
+            (*INVOICE_STATES, ARCHIVE_STATE) if user.is_superuser else INVOICE_STATES
+        ),
+        "counts": counts,
     }
+
+
+@router.post("/invoices/{invoice_id}/archive", responses={200: {"model": MessageOut}})
+def archive_invoice(
+    invoice_id: uuid.UUID, body: ReasonIn, db: Db, actor: Owner
+) -> dict[str, Any]:
+    """Take a bill off the books; it stays in the archive. Superuser only.
+    Nothing the customer holds changes."""
+    if not actor.is_superuser:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    invoice = db.get(Invoice, invoice_id, with_for_update=True)
+    if invoice is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    services.archive_invoice(
+        db, invoice=invoice, actor=actor, reason=body.reason, now=utcnow()
+    )
+    db.commit()
+    return {"message": "Hisob arxivga olindi."}
 
 
 @router.get("/subscriptions", responses={200: {"model": PaymentSubscriptionsOut}})

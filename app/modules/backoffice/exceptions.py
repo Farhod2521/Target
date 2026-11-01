@@ -58,3 +58,15 @@ class SuperuserOnly(DomainError):
 
 class PasswordRefused(DomainError):
     pass
+
+
+class InvoiceBeingPaid(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu hisob hozir to'lanmoqda. Avval uni bo'shating, keyin o'chiring."
+        )
+
+
+class InvoiceAlreadyArchived(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu hisob allaqachon arxivda.")

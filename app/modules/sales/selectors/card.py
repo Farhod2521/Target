@@ -142,7 +142,11 @@ def client_card(
     from app.modules.billing.models import Invoice
 
     claim = open_claim(db, client_id=client.id)
-    paid = (Invoice.owner_id == client.id, Invoice.status == str(InvoiceStatus.PAID))
+    paid = (
+        Invoice.owner_id == client.id,
+        Invoice.status == str(InvoiceStatus.PAID),
+        Invoice.archived_at.is_(None),
+    )
     facebook, facebook_name = _facebook(db, client=client)
     bills = list(
         db.scalars(

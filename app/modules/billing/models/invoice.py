@@ -50,8 +50,12 @@ class Invoice(Base):
     pay_reference: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     recorded_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    archive_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # -- django extras --
     recorded_by: Mapped["User | None"] = relationship(foreign_keys=[recorded_by_id], lazy="select")  # noqa: F821
+    archived_by: Mapped["User | None"] = relationship(foreign_keys=[archived_by_id], lazy="select")  # noqa: F821
     plan: Mapped["Plan"] = relationship(foreign_keys=[plan_id], lazy="select")  # noqa: F821
     owner: Mapped["User | None"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
     subscription: Mapped["Subscription | None"] = relationship(foreign_keys=[subscription_id], lazy="select")  # noqa: F821

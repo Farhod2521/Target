@@ -39,7 +39,9 @@ from tools import erase_payment as erase_tool
 URL = "/api/v1/office/payments"
 
 
-def _bill(db: Session, plan: Plan, owner: User | None, number: str, **fields: object) -> Invoice:
+def _bill(
+    db: Session, plan: Plan, owner: User | None, number: str, **fields: object
+) -> Invoice:
     now = utcnow()
     bill = Invoice(
         owner_id=owner.id if owner else None,
@@ -56,7 +58,9 @@ def _bill(db: Session, plan: Plan, owner: User | None, number: str, **fields: ob
     return bill
 
 
-def _attempt(db: Session, bill: Invoice, *, hours: int = 13, **fields: object) -> PaymentTransaction:
+def _attempt(
+    db: Session, bill: Invoice, *, hours: int = 13, **fields: object
+) -> PaymentTransaction:
     attempt = PaymentTransaction(
         owner_id=bill.owner_id,
         invoice_id=bill.id,
@@ -74,7 +78,9 @@ def _attempt(db: Session, bill: Invoice, *, hours: int = 13, **fields: object) -
     return attempt
 
 
-def test_only_the_owner_and_super_admin_read_it(client: TestClient, db: Session) -> None:
+def test_only_the_owner_and_super_admin_read_it(
+    client: TestClient, db: Session
+) -> None:
     _, owner = _staff(db, Role.OWNER, email="owner@office.test")
     _, root = _staff(db, email="root@office.test", superuser=True)
     readers = (owner, root)
@@ -188,7 +194,9 @@ def test_invoice_list_filters_and_shows_the_transaction(
     assert inside["counts"] == {"all": 3, "open": 1, "paid": 1, "closed": 1}
 
 
-def test_subscription_list_finds_who_never_paid(client: TestClient, db: Session) -> None:
+def test_subscription_list_finds_who_never_paid(
+    client: TestClient, db: Session
+) -> None:
     _, plan = _shop(db)
     other = User(email="paid@client.test", full_name="Paid", password="!",
                  date_joined=utcnow())  # fmt: skip
@@ -249,7 +257,9 @@ def test_a_subscription_says_blocked_and_trial_before_unpaid(
     }
 
 
-def test_only_the_super_admin_frees_a_held_bill(client: TestClient, db: Session) -> None:
+def test_only_the_super_admin_frees_a_held_bill(
+    client: TestClient, db: Session
+) -> None:
     shop, plan = _shop(db)
     held = _bill(db, plan, shop, "TA-31", status=InvoiceStatus.HELD)
     attempt = _attempt(db, held)
@@ -280,6 +290,75 @@ def test_only_the_super_admin_frees_a_held_bill(client: TestClient, db: Session)
     assert client.post(path, headers=root, json={"reason": "x"}).status_code == 400
 
 
+def test_only_the_super_admin_archives_and_the_customer_keeps_their_days(
+    client: TestClient, db: Session
+) -> None:
+    shop, plan = _shop(db)
+    paid = _bill(
+        db, plan, shop, "TA-41", status=InvoiceStatus.PAID, paid_at=utcnow(), pages=2
+    )
+    live = db.scalar(select(Subscription).where(Subscription.owner_id == shop.id))
+    days = live.expires_at
+    db.commit()
+    _, owner = _staff(db, Role.OWNER, email="owner@office.test")
+    root_user, root = _staff(db, email="root@office.test", superuser=True)
+    path = f"{URL}/invoices/{paid.id}/archive"
+    earned = client.get(f"{URL}/summary", headers=root).json()["totals"]["earned"]
+    assert earned[0]["amount_minor"] == 490000
+
+    assert client.post(path, headers=owner, json={"reason": "x"}).status_code == 404
+    assert client.post(path, headers=root, json={"reason": ""}).status_code == 422
+    done = client.post(path, headers=root, json={"reason": "Sinov to'lovi"})
+    assert done.status_code == 200, done.text
+
+    db.expire_all()
+    bill = db.get(Invoice, paid.id)
+    assert bill is not None and bill.status == InvoiceStatus.PAID
+    assert (
+        bill.archived_by_id == root_user.id and bill.archive_reason == "Sinov to'lovi"
+    )
+    assert db.get(Subscription, live.id).expires_at == days
+    trace = db.scalar(
+        select(StaffAction).where(StaffAction.kind == str(ActionKind.INVOICE_ARCHIVED))
+    )
+    assert trace is not None and trace.detail["invoice"] == "TA-41"
+
+    assert client.get(f"{URL}/summary", headers=root).json()["totals"]["earned"] == []
+    listed = client.get(f"{URL}/invoices", headers=root).json()
+    assert listed["rows"] == [] and listed["counts"]["archived"] == 1
+    kept = client.get(f"{URL}/invoices?state=archived", headers=root).json()
+    assert kept["rows"][0]["archive"]["reason"] == "Sinov to'lovi"
+    assert kept["rows"][0]["archive"]["by"]["id"] == str(root_user.id)
+    assert client.post(path, headers=root, json={"reason": "x"}).status_code == 400
+
+    theirs = client.get(f"{URL}/invoices?state=archived", headers=owner).json()
+    assert theirs["rows"] == [] and "archived" not in theirs["counts"]
+    assert all(s["value"] != "archived" for s in theirs["states"])
+
+
+def test_an_open_bill_is_cancelled_with_it_and_a_held_one_is_refused(
+    client: TestClient, db: Session
+) -> None:
+    shop, plan = _shop(db)
+    open_bill = _bill(db, plan, shop, "TA-42", status=InvoiceStatus.PENDING)
+    held = _bill(db, plan, shop, "TA-43", status=InvoiceStatus.HELD)
+    db.commit()
+    _, root = _staff(db, email="root@office.test", superuser=True)
+
+    closed = client.post(
+        f"{URL}/invoices/{open_bill.id}/archive", headers=root, json={"reason": "Xato"}
+    )
+    refused = client.post(
+        f"{URL}/invoices/{held.id}/archive", headers=root, json={"reason": "Xato"}
+    )
+
+    assert closed.status_code == 200, closed.text
+    assert refused.json()["code"] == "invoice_being_paid"
+    db.expire_all()
+    assert db.get(Invoice, open_bill.id).status == InvoiceStatus.CANCELED
+    assert db.get(Invoice, held.id).archived_at is None
+
+
 def _paid_test_bill(db: Session) -> tuple[User, User, Invoice, PaymentTransaction]:
     shop, plan = _shop(db)
     referrer = User(email="ref@client.test", full_name="Ref", password="!",
@@ -289,7 +368,9 @@ def _paid_test_bill(db: Session) -> tuple[User, User, Invoice, PaymentTransactio
     now = utcnow()
     bill = _bill(db, plan, shop, "TA-41", status=InvoiceStatus.PAID, paid_at=now)
     attempt = _attempt(db, bill, state=TransactionState.PERFORMED)
-    subscription = db.scalar(select(Subscription).where(Subscription.owner_id == shop.id))
+    subscription = db.scalar(
+        select(Subscription).where(Subscription.owner_id == shop.id)
+    )
     promo = PromoCode(code="TEST", kind="discount")
     db.add(promo)
     db.flush()

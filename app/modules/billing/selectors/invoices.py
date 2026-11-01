@@ -152,7 +152,7 @@ def recent_invoices(
         (invoice, paid_via or "")
         for invoice, paid_via in db.execute(
             select(Invoice, settled_by)
-            .where(Invoice.owner_id == owner.id)
+            .where(Invoice.owner_id == owner.id, Invoice.archived_at.is_(None))
             .order_by(Invoice.created_at.desc())
             .limit(limit)
         )

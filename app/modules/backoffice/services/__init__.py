@@ -5,6 +5,7 @@ from app.modules.backoffice.services.accounts import (
     set_customer_password,
     unblock_customer,
 )
+from app.modules.backoffice.services.archive import archive_invoice
 from app.modules.backoffice.services.directions import (
     create_direction,
     delete_direction,
@@ -59,6 +60,7 @@ __all__ = [
     "add_slots",
     "approve_piece",
     "approve_promo",
+    "archive_invoice",
     "attach_old_receipts",
     "block_customer",
     "change_page_account",

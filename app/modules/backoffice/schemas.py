@@ -1414,10 +1414,19 @@ class PaymentTransactionOut(BaseModel):
     state: str
 
 
+class InvoiceArchiveOut(BaseModel):
+    at: datetime
+    by: PersonOut | None
+    reason: str
+
+
 class PaymentInvoiceOut(CardInvoiceOut):
     id: str
     customer: PersonOut | None = Field(description="Gone when the account was deleted.")
     email: str
+    archive: InvoiceArchiveOut | None = Field(
+        description="Who took it off the books; `null` for a bill still on them."
+    )
     transaction: PaymentTransactionOut | None = Field(
         description="The last attempt to pay; `null` for a bill written by hand."
     )

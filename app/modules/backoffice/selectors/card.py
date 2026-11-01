@@ -278,7 +278,11 @@ def _paid(db: Session, *, owner: User) -> tuple[tuple[str, int], ...]:
     """Everything paid, per currency billed in; a refunded bill went back."""
     rows = db.execute(
         select(Invoice.currency, func.sum(Invoice.amount_minor))
-        .where(Invoice.owner_id == owner.id, Invoice.status == InvoiceStatus.PAID)
+        .where(
+            Invoice.owner_id == owner.id,
+            Invoice.status == InvoiceStatus.PAID,
+            Invoice.archived_at.is_(None),
+        )
         .group_by(Invoice.currency)
         .order_by(Invoice.currency)
     )

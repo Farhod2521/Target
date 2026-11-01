@@ -78,6 +78,7 @@ class ActionKind(Choices):
     PAYMENT_RECORDED = "payment_recorded"
     REFERRAL_CHANGED = "referral_changed"
     HOLD_RELEASED = "hold_released"
+    INVOICE_ARCHIVED = "invoice_archived"
     ROLES_CHANGED = "roles_changed"
     WITHDRAWAL_PAID = "withdrawal_paid"
     WITHDRAWAL_REJECTED = "withdrawal_rejected"
@@ -123,6 +124,7 @@ ACTION_KIND_LABELS = {
     ActionKind.PAYMENT_RECORDED: "To'lov qayd etildi",
     ActionKind.REFERRAL_CHANGED: "Referal o'zgardi",
     ActionKind.HOLD_RELEASED: "Hisob bo'shatildi",
+    ActionKind.INVOICE_ARCHIVED: "Hisob arxivga olindi",
     ActionKind.ROLES_CHANGED: "Rollar o'zgardi",
     ActionKind.WITHDRAWAL_PAID: "Daromad to'lovi qayd etildi",
     ActionKind.WITHDRAWAL_REJECTED: "Pul yechish so'rovi rad etildi",

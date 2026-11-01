@@ -273,6 +273,7 @@ def _paid(db: Session, *, since: datetime, until: datetime) -> list[_Paid]:
         )
         .join(Plan, Plan.id == Invoice.plan_id)
         .where(
+            Invoice.archived_at.is_(None),
             Invoice.status == InvoiceStatus.PAID,
             Invoice.paid_at >= since,
             Invoice.paid_at < until,
@@ -419,6 +420,7 @@ def recent_payments(db: Session) -> tuple[PaymentRow, ...]:
         select(Invoice)
         .options(joinedload(Invoice.owner), joinedload(Invoice.plan))
         .where(
+            Invoice.archived_at.is_(None),
             Invoice.status == InvoiceStatus.PAID,
             Invoice.paid_at.is_not(None),
             or_(Invoice.amount_minor != 0, Invoice.wallet_minor != 0),
@@ -491,6 +493,7 @@ def customers(db: Session, *, window: Window, now: datetime) -> Customers:
         stopped >= window.since, stopped < min(window.until, now)
     )
     paid = select(Invoice.owner_id).where(
+        Invoice.archived_at.is_(None),
         Invoice.status == InvoiceStatus.PAID,
         Invoice.kind == InvoiceKind.PLAN,
         Invoice.amount_minor > 0,
