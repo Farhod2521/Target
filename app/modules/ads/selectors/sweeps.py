@@ -81,13 +81,13 @@ def nightly_swept_account_ids(db: Session) -> list[uuid.UUID]:
 def nightly_due_account_ids(
     db: Session, *, now: datetime, hour: int
 ) -> list[uuid.UUID]:
-    from app.modules.integrations.selectors import owners_at_hour
-
-    rows = list(
-        db.execute(_nightly().with_only_columns(AdAccount.id, AdAccount.owner_id))
-    )
-    due = owners_at_hour(db, owner_ids={owner for _, owner in rows}, now=now, hour=hour)
-    return [pk for pk, owner in rows if str(owner) in due]
+    """The accounts whose own night it is: a day is over on an account's
+    clock, and Meta closes its figures by that clock, not the owner's."""
+    return [
+        account.id
+        for account in nightly_swept_accounts(db)
+        if now.astimezone(account.tzinfo()).hour == hour
+    ]
 
 
 # -- what the last sync said ----------------------------------------------------------

@@ -238,7 +238,7 @@ def test_context_and_every_lookup(client: TestClient, db: Session) -> None:
         now=now,
     )
 
-    assert selectors.daily_reports(db, owner=owner, now=now) is not None
+    assert selectors.daily_book(db, owner=owner, now=now) is not None
     selectors.weekly_report(db, owner=owner, now=now)
 
 

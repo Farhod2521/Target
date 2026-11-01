@@ -190,13 +190,18 @@ def deliver_daily_reports_task() -> str:
     task, so one account whose figures raise does not take the rest down."""
     from app.modules.notifications.services.announce_reports import (
         daily_report_audience,
+        unfinished_report_audience,
     )
 
     with task_session() as db:
-        owners = daily_report_audience(db, now=utcnow())
+        now = utcnow()
+        owners = daily_report_audience(db, now=now)
+        unfinished = unfinished_report_audience(db, now=now)
     for owner_id in owners:
         deliver_daily_report_task.delay(owner_id)
-    return f"queued:{len(owners)}"
+    for owner_id in unfinished:
+        finish_daily_report_task.delay(owner_id)
+    return f"queued:{len(owners)}:finished:{len(unfinished)}"
 
 
 @celery_app.task(queue="sync", ignore_result=True)
@@ -215,15 +220,37 @@ def deliver_daily_report_task(owner_id: str) -> str:
 
 
 @celery_app.task(queue="sync", ignore_result=True)
-def deliver_weekly_reports_task() -> str:
-    """Every hour: the owners whose Monday morning it is, a task each."""
-    from app.modules.notifications.services.announce_reports import report_audience
+def finish_daily_report_task(owner_id: str) -> str:
+    """Put the finished figures into a message sent without them."""
+    from app.modules.notifications.services.announce_reports import (
+        finish_daily_report_for,
+    )
 
     with task_session() as db:
-        owners = report_audience(db, now=utcnow())
+        owner = user_of(db, owner_id)
+        if owner is None:
+            return "gone"
+        edited = finish_daily_report_for(db, owner=owner, now=utcnow())
+        return "edited" if edited else "quiet"
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def deliver_weekly_reports_task() -> str:
+    """Every hour: the owners whose Monday morning it is, a task each."""
+    from app.modules.notifications.services.announce_reports import (
+        report_audience,
+        unfinished_week_audience,
+    )
+
+    with task_session() as db:
+        now = utcnow()
+        owners = report_audience(db, now=now)
+        unfinished = unfinished_week_audience(db, now=now)
     for owner_id in owners:
         deliver_report_task.delay(owner_id)
-    return f"queued:{len(owners)}"
+    for owner_id in unfinished:
+        finish_weekly_report_task.delay(owner_id)
+    return f"queued:{len(owners)}:finished:{len(unfinished)}"
 
 
 @celery_app.task(queue="sync", ignore_result=True)
@@ -236,6 +263,21 @@ def deliver_report_task(owner_id: str) -> str:
         if owner is None:
             return "gone"
         return "sent" if deliver_report_for(db, owner=owner, now=utcnow()) else "quiet"
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def finish_weekly_report_task(owner_id: str) -> str:
+    """Put the finished figures into the week's message."""
+    from app.modules.notifications.services.announce_reports import (
+        finish_weekly_report_for,
+    )
+
+    with task_session() as db:
+        owner = user_of(db, owner_id)
+        if owner is None:
+            return "gone"
+        edited = finish_weekly_report_for(db, owner=owner, now=utcnow())
+        return "edited" if edited else "quiet"
 
 
 @celery_app.task(queue="sync", ignore_result=True)

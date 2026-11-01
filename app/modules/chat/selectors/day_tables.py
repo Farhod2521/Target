@@ -23,18 +23,17 @@ from app.modules.agent.selectors.policy import diagnoses
 class DayPairs:
     """``{ad group: pair key}``, and every chosen pair's page and account.
 
-    ``names``, ``accounts`` and ``pages`` hold every chosen pair, whether it
-    advertised or not: the page's name, the account's name and the page's id.
-    ``unplaced`` files the groups whose page was guessed rather than named
-    under the pair whose screens draw them - in no figure, only in the line
-    saying what the message left out.
+    ``names``, ``accounts``, ``pages`` and ``account_ids`` hold every chosen
+    pair, whether it advertised or not: the page's name, the account's name,
+    the page's id and the account's. A group whose page was guessed is filed
+    under the pair the screens draw it on: the cabinet counts it there too.
     """
 
     of: dict[str, str] = field(default_factory=dict)
     names: dict[str, str] = field(default_factory=dict)
     accounts: dict[str, str] = field(default_factory=dict)
     pages: dict[str, str] = field(default_factory=dict)
-    unplaced: dict[str, str] = field(default_factory=dict)
+    account_ids: dict[str, str] = field(default_factory=dict)
 
 
 def day_pairs(db: Session, *, owner: User, pages: Mapping[str, str]) -> DayPairs:
@@ -48,23 +47,23 @@ def day_pairs(db: Session, *, owner: User, pages: Mapping[str, str]) -> DayPairs
         for pair in stored_pairs(db, owner=owner, pages=enabled_pages(db, owner=owner))
     }
     of: dict[str, str] = {}
-    unplaced: dict[str, str] = {}
     for adset_id, page in scope.page_of.items():
         account = scope.account_of.get(adset_id, "")
         pair = chosen.get((page, account))
         if pair is not None:
-            into = unplaced if adset_id in scope.guessed else of
-            into[adset_id] = page if pair.first else f"{page}:{account}"
+            of[adset_id] = page if pair.first else f"{page}:{account}"
     names: dict[str, str] = {}
     accounts: dict[str, str] = {}
     owners: dict[str, str] = {}
+    account_ids: dict[str, str] = {}
     for (page, external_id), pair in chosen.items():
         key = page if pair.first else f"{page}:{external_id}"
         names[key] = pages.get(page, "") or pair.page.name or page
         accounts[key] = pair.account.name or external_id
         owners[key] = page
+        account_ids[key] = external_id
     return DayPairs(
-        of=of, names=names, accounts=accounts, pages=owners, unplaced=unplaced
+        of=of, names=names, accounts=accounts, pages=owners, account_ids=account_ids
     )
 
 
@@ -88,15 +87,15 @@ def money_by_pair(db: Session, *, owner: User, fallback: str) -> dict[str, PageM
 
 
 def apart_spend(
-    db: Session, *, owner: User, money: PageMoney, day: date
+    db: Session, *, owner: User, money: PageMoney, since: date, until: date
 ) -> tuple[str, ...]:
-    """What this page spent that day in a currency its report is not in."""
+    """What this page spent in a currency its report is not in."""
     from app.modules.metrics.selectors.lead_sources import other_currency_spend
 
     return tuple(
         format_minor(amount_minor=amount, currency=code)
         for code, amount in other_currency_spend(
-            db, owner=owner, ids=money.apart, since=day, until=day
+            db, owner=owner, ids=money.apart, since=since, until=until
         )
     )
 

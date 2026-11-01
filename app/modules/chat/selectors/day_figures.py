@@ -6,23 +6,29 @@ subscription in one pass and split by pair in
 query by the number of pairs.
 
 **The ad group is the unit.** A page is found through the group, so the group
-is what is placed, and the campaign and the advert are read around it. Only
-campaigns this product built are reported, the rule the figures screen keeps.
+is what is placed, and the campaign is read around it. Campaigns built in Ads
+Manager are reported beside the ones built here: a pair's total is everything
+the pair spent, and ``built`` says which is which.
 """
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Final
 
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, aliased
 
+from app.common.money import format_minor
 from app.modules.accounts.models import User
-from app.modules.ads.models import Ad, AdSet, Campaign
+from app.modules.ads.models import AdSet, Campaign
 from app.modules.chat.selectors.scope import in_subscription, subscribed_pages
 from app.modules.metrics.constants import MetricLevel
 from app.modules.metrics.models import MetricsDaily
+
+# How far back an Ads Manager campaign that is switched on but silent still
+# counts as working. Most of them have not spent for months: one pair held 258.
+IDLE_LOOKBACK_DAYS: Final = 7
 
 COLUMNS: Final[dict[str, str]] = {
     "spend": "spend_minor",
@@ -50,125 +56,100 @@ class Mirror:
 
 @dataclass(frozen=True, slots=True)
 class Group:
-    """What the mirror says about one ad group: its name and its state now."""
+    """What the mirror says about one ad group: its goal and its state now."""
 
     name: str
     delivery: str
-
-
-@dataclass(frozen=True, slots=True)
-class AdRow:
-    """One advert that spent that day: its group, its name, its figures."""
-
-    adset_id: str
-    name: str
-    sums: dict[str, int]
-    ours: int = 0
+    goal: str = ""
+    promoted: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class DayTables:
     """One owner's day, before it is split by pair. Keyed by ad group, except
-    ``mirror`` by campaign, ``pages`` by page and ``ads`` by advert."""
+    ``mirror`` by campaign and ``pages`` by page."""
 
     sums: dict[str, dict[str, int]] = field(default_factory=dict)
     ours: dict[str, int] = field(default_factory=dict)
-    # Groups of the campaigns built here, which are the report.
+    # The same two over the period before.
+    before: dict[str, dict[str, int]] = field(default_factory=dict)
+    ours_before: dict[str, int] = field(default_factory=dict)
     campaign_of: dict[str, str] = field(default_factory=dict)
+    # The campaigns this product built; the rest are Ads Manager's.
+    built: frozenset[str] = frozenset()
+    # The campaigns that spent in the days before this one.
+    lately: frozenset[str] = frozenset()
     mirror: dict[str, Mirror] = field(default_factory=dict)
     pages: dict[str, str] = field(default_factory=dict)
+    # The groups that did something that day, or may be silent since.
     groups: dict[str, Group] = field(default_factory=dict)
-    # Only the adverts that spent that day.
-    ads: dict[str, AdRow] = field(default_factory=dict)
 
 
 def day_tables(
-    db: Session, *, owner: User, day: date, start: datetime, end: datetime
+    db: Session,
+    *,
+    owner: User,
+    since: date,
+    until: date,
+    lead_window: tuple[datetime, datetime],
+    before_window: tuple[datetime, datetime],
 ) -> DayTables:
-    """The day's figures, per ad group. ``start`` and ``end`` are the day's
-    lead window on the cabinet's clock: a lead is stamped with an instant and
-    a figure with a provider's day."""
+    """The period's figures, per ad group, and the same length before it. The
+    windows are its leads' on the cabinet's clock: a lead is stamped with an
+    instant and a figure with a provider's day."""
     from app.modules.ads.selectors import all_launched_campaign_ids
 
     groups = _groups(db, owner=owner)
-    built_here = all_launched_campaign_ids(db, owner=owner)
-    sums = _sums(db, owner=owner, since=day, until=day)
+    sums = _sums(db, owner=owner, since=since, until=until)
+    span = (until - since).days + 1
+    lately = _lately(db, owner=owner, since=since)
     return DayTables(
-        groups=_group_mirror(db, owner=owner, ids=sums),
-        ads=_ads(db, owner=owner, day=day, start=start, end=end),
+        groups=_group_mirror(
+            db,
+            owner=owner,
+            ids={*sums, *(g for g, c in groups.items() if c in lately)},
+        ),
         sums=sums,
-        ours=_ours(db, owner=owner, since=start, until=end),
-        campaign_of={
-            group: campaign
-            for group, campaign in groups.items()
-            if campaign in built_here
-        },
+        before=_sums(
+            db,
+            owner=owner,
+            since=since - timedelta(days=span),
+            until=since - timedelta(days=1),
+        ),
+        ours=_ours(db, owner=owner, since=lead_window[0], until=lead_window[1]),
+        ours_before=_ours(
+            db, owner=owner, since=before_window[0], until=before_window[1]
+        ),
+        campaign_of=groups,
+        built=all_launched_campaign_ids(db, owner=owner),
+        lately=lately,
         mirror=_mirror(db, owner=owner),
         pages=_pages(db, owner=owner),
     )
 
 
 def _group_mirror(db: Session, *, owner: User, ids: Iterable[str]) -> dict[str, Group]:
-    """``{ad group id: name and state}`` for the groups that spent."""
+    """``{ad group id: name, goal and state}``."""
     wanted = list(ids)
     if not wanted:
         return {}
     rows = db.execute(
-        select(AdSet.external_id, AdSet.name, AdSet.delivery).where(
-            AdSet.owner_id == owner.id, AdSet.external_id.in_(wanted)
-        )
-    )
-    return {
-        external_id: Group(name=name or external_id, delivery=delivery or "")
-        for external_id, name, delivery in rows
-    }
-
-
-def _ads(
-    db: Session, *, owner: User, day: date, start: datetime, end: datetime
-) -> dict[str, AdRow]:
-    """``{ad id: its day}`` for every advert that spent - the advert's own
-    rows. One the mirror has not stored yet is still listed, under its id."""
-    from app.modules.leads.selectors import counts_by_ad
-
-    rows = db.execute(
         select(
-            MetricsDaily.ad_external_id,
-            MetricsDaily.adset_external_id,
-            *(
-                func.sum(getattr(MetricsDaily, column)).label(name)
-                for name, column in COLUMNS.items()
-            ),
-        )
-        .where(
-            MetricsDaily.owner_id == owner.id,
-            in_subscription(MetricsDaily.ad_account_id),
-            MetricsDaily.level == MetricLevel.AD,
-            MetricsDaily.date == day,
-            MetricsDaily.spend_minor > 0,
-            MetricsDaily.ad_external_id != "",
-        )
-        .group_by(MetricsDaily.ad_external_id, MetricsDaily.adset_external_id)
-    ).mappings()
-    found = {row["ad_external_id"]: row for row in rows}
-    if not found:
-        return {}
-    names = dict(
-        db.execute(
-            select(Ad.external_id, Ad.name).where(
-                Ad.owner_id == owner.id, Ad.external_id.in_(list(found))
-            )
-        ).all()
+            AdSet.external_id,
+            AdSet.name,
+            AdSet.delivery,
+            AdSet.optimization_goal_raw,
+            AdSet.promoted_object_raw,
+        ).where(AdSet.owner_id == owner.id, AdSet.external_id.in_(wanted))
     )
-    ours = counts_by_ad(db, owner=owner, since=start, until=end)
     return {
-        ad_id: AdRow(
-            adset_id=row["adset_external_id"],
-            name=names.get(ad_id) or ad_id,
-            sums={name: int(row[name] or 0) for name in COLUMNS},
-            ours=ours.get(ad_id, (0, 0))[0],
+        external_id: Group(
+            name=name or external_id,
+            delivery=delivery or "",
+            goal=goal or "",
+            promoted=promoted if isinstance(promoted, Mapping) else None,
         )
-        for ad_id, row in found.items()
+        for external_id, name, delivery, goal, promoted in rows
     }
 
 
@@ -213,6 +194,53 @@ def _sums(
         row["adset_external_id"]: {name: int(row[name] or 0) for name in COLUMNS}
         for row in rows
     }
+
+
+def _lately(db: Session, *, owner: User, since: date) -> frozenset[str]:
+    """The campaigns with money in the days just before ``since``."""
+    rows = db.scalars(
+        select(MetricsDaily.campaign_external_id)
+        .where(
+            MetricsDaily.owner_id == owner.id,
+            in_subscription(MetricsDaily.ad_account_id),
+            MetricsDaily.level == MetricLevel.ADSET,
+            MetricsDaily.date >= since - timedelta(days=IDLE_LOOKBACK_DAYS),
+            MetricsDaily.date < since,
+            MetricsDaily.spend_minor > 0,
+            MetricsDaily.campaign_external_id != "",
+        )
+        .distinct()
+    )
+    return frozenset(rows)
+
+
+def outside_spend(
+    db: Session, *, owner: User, since: date, until: date, placed: Iterable[str]
+) -> tuple[str, ...]:
+    """What the groups in no chosen pair spent, one text a currency."""
+    inside = set(placed)
+    money = func.sum(MetricsDaily.spend_minor)
+    rows = db.execute(
+        select(MetricsDaily.adset_external_id, MetricsDaily.currency, money)
+        .where(
+            MetricsDaily.owner_id == owner.id,
+            in_subscription(MetricsDaily.ad_account_id),
+            MetricsDaily.level == MetricLevel.ADSET,
+            MetricsDaily.date >= since,
+            MetricsDaily.date <= until,
+            MetricsDaily.adset_external_id != "",
+        )
+        .group_by(MetricsDaily.adset_external_id, MetricsDaily.currency)
+        .having(money > 0)
+    )
+    spent: dict[str, int] = {}
+    for group, currency, amount in rows:
+        if group not in inside:
+            spent[currency] = spent.get(currency, 0) + int(amount)
+    return tuple(
+        format_minor(amount_minor=amount, currency=currency)
+        for currency, amount in sorted(spent.items(), key=lambda row: -row[1])
+    )
 
 
 def _ours(
@@ -283,4 +311,12 @@ def _pages(db: Session, *, owner: User) -> dict[str, str]:
     }
 
 
-__all__ = ["COLUMNS", "AdRow", "DayTables", "Group", "Mirror", "day_tables"]
+__all__ = [
+    "COLUMNS",
+    "IDLE_LOOKBACK_DAYS",
+    "DayTables",
+    "Group",
+    "Mirror",
+    "day_tables",
+    "outside_spend",
+]

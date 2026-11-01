@@ -42,19 +42,6 @@ def weekly_report(
     return _report(db, owner=owner, page=_page(db, owner=owner, pair=pair), now=now)
 
 
-def weekly_reports(db: Session, *, owner: User, now: datetime) -> list[WeeklyReport]:
-    """Every page's last completed week, biggest spender first."""
-    from app.modules.metrics.selectors.scope import pages_campaigns
-
-    reports = [
-        found
-        for page in pages_campaigns(db, owner=owner)
-        if page.pair_account is not None
-        and (found := _report(db, owner=owner, page=page, now=now)) is not None
-    ]
-    return sorted(reports, key=lambda report: -report.now.spend_minor)
-
-
 def _page(db: Session, *, owner: User, pair: str) -> PageCampaigns | None:
     from app.modules.metrics.selectors.scope import page_campaigns, pages_campaigns
 
@@ -257,4 +244,4 @@ def _end_of(day: date, tzinfo: ZoneInfo) -> datetime:
     return timezone.make_aware(datetime.combine(day, time.max), tzinfo)
 
 
-__all__ = ["weekly_report", "weekly_reports"]
+__all__ = ["weekly_report"]

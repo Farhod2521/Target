@@ -1,9 +1,9 @@
 """The customer bot's report commands, and the buttons under the daily list.
 
-``/hisobot`` sends yesterday's list again, ``/bugun`` today's so far in the
-same shape. A pair's button rewrites the list in place into that pair's day,
-and «Ro'yxat» brings the list back. Nothing here is journalled: each answers
-something the reader just did.
+``/hisobot`` sends yesterday's report again, ``/bugun`` today's so far in the
+same shape, ``/hafta`` the last finished week's. A pair's button rewrites the message in place into that pair's
+day, and «Ro'yxat» brings the list back. Nothing here is journalled: each
+answers something the reader just did.
 """
 
 from datetime import datetime
@@ -14,23 +14,26 @@ from telegramkit import BotClient, Button, ButtonPress
 from app.common.i18n import override
 from app.modules.billing.selectors import has_live_subscription
 from app.modules.chat.selectors import cabinet_clock, current_day
-from app.modules.notifications.constants import CALLBACK_DAILY_LIST
-from app.modules.notifications.keys import pair_digest, read_daily_press
+from app.modules.notifications.constants import (
+    CALLBACK_DAILY_LIST,
+    CALLBACK_DAILY_PAIR,
+)
+from app.modules.notifications.keys import (
+    LIST_PRESSES,
+    pair_digest,
+    read_daily_press,
+)
 from app.modules.notifications.models import TelegramChat
 from app.modules.notifications.selectors import chat_by_id
-from app.modules.notifications.selectors.daily import day_reports
+from app.modules.notifications.selectors.daily import day_book, week_book
 from app.modules.notifications.services.compose import Message, escaped, miniapp_button
-from app.modules.notifications.services.compose_daily import (
-    list_buttons,
-    list_message,
-    part_count,
-)
 from app.modules.notifications.services.compose_day_pair import (
+    day_view,
     pair_buttons,
     pair_message,
 )
 from app.modules.notifications.services.send import answer, edit, send_to
-from core.chat.day_report import DailyReport
+from core.chat.day_report import DayBook
 
 
 def send_yesterday(
@@ -39,12 +42,12 @@ def send_yesterday(
     """``/hisobot``: yesterday's list, as the morning sent it."""
     if not _entitled(db, client=client, chat=chat, now=now):
         return "not_entitled"
-    reports = day_reports(db, owner=chat.owner, now=now)
-    return _send_reports(
+    book = day_book(db, owner=chat.owner, now=now)
+    return _send_book(
         db,
         client=client,
         chat=chat,
-        reports=reports,
+        book=book,
         empty="Kecha reklamaga pul sarflanmagan.",
         now=now,
     )
@@ -57,19 +60,33 @@ def send_today(
     if not _entitled(db, client=client, chat=chat, now=now):
         return "not_entitled"
     clock = cabinet_clock(db, owner=chat.owner)
-    reports = (
-        day_reports(
-            db, owner=chat.owner, now=now, day=current_day(account=clock, now=now)
-        )
+    book = (
+        day_book(db, owner=chat.owner, now=now, day=current_day(account=clock, now=now))
         if clock is not None
-        else []
+        else None
     )
-    return _send_reports(
+    return _send_book(
         db,
         client=client,
         chat=chat,
-        reports=reports,
+        book=book,
         empty="Bugun hali reklamaga pul sarflanmagan.",
+        now=now,
+    )
+
+
+def send_week(
+    db: Session, *, client: BotClient, chat: TelegramChat, now: datetime
+) -> str:
+    """``/hafta``: the last finished week, as Monday sent it."""
+    if not _entitled(db, client=client, chat=chat, now=now):
+        return "not_entitled"
+    return _send_book(
+        db,
+        client=client,
+        chat=chat,
+        book=week_book(db, owner=chat.owner, now=now),
+        empty="O'tgan haftada reklamaga pul sarflanmagan.",
         now=now,
     )
 
@@ -101,8 +118,12 @@ def handle_daily_press(
             answer(client=client, query_id=press.query_id)
             return "ignored"
         action, day, value = parsed
-        reports = day_reports(db, owner=chat.owner, now=now, day=day)
-        reply = _reply(reports=reports, action=action, value=value)
+        book = (
+            day_book(db, owner=chat.owner, now=now, day=day)
+            if action in (CALLBACK_DAILY_LIST, CALLBACK_DAILY_PAIR)
+            else week_book(db, owner=chat.owner, now=now, since=day)
+        )
+        reply = _reply(book=book, action=action, value=value)
         if reply is None:
             answer(
                 client=client,
@@ -123,55 +144,39 @@ def handle_daily_press(
 
 
 def _reply(
-    *, reports: list[DailyReport], action: str, value: str
+    *, book: DayBook | None, action: str, value: str
 ) -> tuple[Message, tuple[Button, ...], str] | None:
-    if not reports:
+    if book is None:
         return None
-    if action == CALLBACK_DAILY_LIST:
-        part = min(int(value), part_count(reports) - 1)
-        return (
-            list_message(reports=reports, part=part),
-            list_buttons(reports=reports, part=part),
-            "daily_list",
-        )
-    index = next(
-        (
-            place
-            for place, report in enumerate(reports)
-            if pair_digest(report.pair) == value
-        ),
-        None,
+    if action in LIST_PRESSES:
+        message, buttons = day_view(book=book)
+        return message, buttons, "daily_list"
+    report = next(
+        (item for item in book.reports if pair_digest(item.pair) == value), None
     )
-    if index is None:
+    if report is None:
         return None
     return (
-        pair_message(report=reports[index], number=index + 1),
-        pair_buttons(reports=reports, index=index),
+        pair_message(book=book, report=report),
+        pair_buttons(book=book, report=report),
         "daily_pair",
     )
 
 
-def _send_reports(
+def _send_book(
     db: Session,
     *,
     client: BotClient,
     chat: TelegramChat,
-    reports: list[DailyReport],
+    book: DayBook | None,
     empty: str,
     now: datetime,
 ) -> str:
-    if all(report.is_quiet for report in reports):
+    if book is None or book.is_quiet:
         send_to(db, client=client, chat=chat, text=escaped(empty), now=now)
         return "report_quiet"
-    for part in range(part_count(reports)):
-        send_to(
-            db,
-            client=client,
-            chat=chat,
-            text=list_message(reports=reports, part=part).text,
-            buttons=list_buttons(reports=reports, part=part),
-            now=now,
-        )
+    message, buttons = day_view(book=book)
+    send_to(db, client=client, chat=chat, text=message.text, buttons=buttons, now=now)
     return "report_sent"
 
 
@@ -194,4 +199,10 @@ def _entitled(
     return False
 
 
-__all__ = ["handle_daily_press", "is_daily_press", "send_today", "send_yesterday"]
+__all__ = [
+    "handle_daily_press",
+    "is_daily_press",
+    "send_today",
+    "send_week",
+    "send_yesterday",
+]

@@ -27,6 +27,8 @@ from app.modules.notifications.constants import (
     CALLBACK_WATCH_RESUME,
     CALLBACK_WATCH_UP,
     CALLBACK_WATCH_WAIT,
+    CALLBACK_WEEKLY_LIST,
+    CALLBACK_WEEKLY_PAIR,
     DAILY_PAIR_DIGEST_CHARS,
     REJECTION_DIGEST_CHARS,
 )
@@ -61,12 +63,18 @@ def suggestion_subject(*, pk: Any) -> str:
     return str(pk)
 
 
-def report_subject(*, since: str, until: str, now: datetime, pair: str) -> str:
-    return f"{now.year}:{since}-{until}:{pair}"
-
-
 def weekly_done_subject(*, since: date) -> str:
     return f"week:{since.isoformat()}"
+
+
+def weekly_subject(*, since: date) -> str:
+    """The week's one message."""
+    return f"week:{since.isoformat()}:list"
+
+
+def weekly_final_subject(*, since: date) -> str:
+    """The week's message carries the finished figures."""
+    return f"week:{since.isoformat()}:final"
 
 
 def daily_subject(*, day: date, part: int) -> str:
@@ -77,6 +85,11 @@ def daily_subject(*, day: date, part: int) -> str:
 
 def daily_done_subject(*, day: date) -> str:
     return day.isoformat()
+
+
+def daily_final_subject(*, day: date) -> str:
+    """The day's message carries the night's finished figures."""
+    return f"{day.isoformat()}:final"
 
 
 def expiry_subject(*, expires_at: datetime, days: int) -> str:
@@ -199,6 +212,8 @@ def read_survey_press(data: str) -> tuple[int, str, int] | None:
     return (int(step), action, int(value))
 
 
+LIST_PRESSES: Final = (CALLBACK_DAILY_LIST, CALLBACK_WEEKLY_LIST)
+PAIR_PRESSES: Final = (CALLBACK_DAILY_PAIR, CALLBACK_WEEKLY_PAIR)
 _DIGEST: Final = re.compile(rf"[0-9a-f]{{{DAILY_PAIR_DIGEST_CHARS}}}")
 
 
@@ -219,20 +234,32 @@ def daily_list_data(*, day: date, part: int) -> str:
     return f"{CALLBACK_DAILY_LIST}{sep}{day:%Y%m%d}{sep}{part}"
 
 
+def weekly_pair_data(*, since: date, pair: str) -> str:
+    """A pair's button under the weekly message: ``wd:<Monday>:<pair digest>``."""
+    sep = CALLBACK_SEPARATOR
+    return f"{CALLBACK_WEEKLY_PAIR}{sep}{since:%Y%m%d}{sep}{pair_digest(pair)}"
+
+
+def weekly_list_data(*, since: date) -> str:
+    """«Back to the list»: ``wl:<Monday>:0``."""
+    sep = CALLBACK_SEPARATOR
+    return f"{CALLBACK_WEEKLY_LIST}{sep}{since:%Y%m%d}{sep}0"
+
+
 def read_daily_press(data: str) -> tuple[str, date, str] | None:
-    """``(action, day, pair digest or part)``, or None. Strict: callback data
-    is whatever the sender put in it."""
+    """``(action, first day, pair digest or part)``, or None. Strict: callback
+    data is whatever the sender put in it."""
     parts = data.split(CALLBACK_SEPARATOR)
-    if len(parts) != 3 or parts[0] not in (CALLBACK_DAILY_PAIR, CALLBACK_DAILY_LIST):
+    if len(parts) != 3 or parts[0] not in (*LIST_PRESSES, *PAIR_PRESSES):
         return None
     action, day_text, value = parts
     try:
         day = datetime.strptime(day_text, "%Y%m%d").date()
     except ValueError:
         return None
-    if action == CALLBACK_DAILY_LIST and value.isdigit():
+    if action in LIST_PRESSES and value.isdigit():
         return action, day, value
-    if action == CALLBACK_DAILY_PAIR and _DIGEST.fullmatch(value):
+    if action in PAIR_PRESSES and _DIGEST.fullmatch(value):
         return action, day, value
     return None
 
@@ -257,7 +284,6 @@ __all__ = [
     "read_survey_press",
     "rejection_subject",
     "reply_press_data",
-    "report_subject",
     "suggestion_subject",
     "support_press_data",
     "survey_press_data",
