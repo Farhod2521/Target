@@ -45,6 +45,8 @@ def due(db: Db, user: CurrentUser) -> dict[str, Any]:
     asked = due_survey(db, user=user, language=_language(user))
     if asked is None:
         return {"survey": None, "always": 0}
+    services.note_seen(db, survey_id=asked.survey_id, owner_id=user.id)
+    db.commit()
     return {"survey": asdict(asked), "always": len(asked.asked({}))}
 
 
@@ -72,7 +74,11 @@ def answer(body: AnswerIn, db: Db, user: CurrentUser) -> dict[str, Any]:
 
 
 @router.post("/later", responses={200: {"model": LaterOut}})
-def later(user: CurrentUser) -> dict[str, Any]:
+def later(db: Db, user: CurrentUser) -> dict[str, Any]:
     """Not now: nothing is asked on any screen until the wait runs out."""
+    asked = due_survey(db, user=user, language=_language(user))
+    if asked is not None:
+        services.note_later(db, survey_id=asked.survey_id, owner_id=user.id)
+        db.commit()
     services.snooze_survey(user=user)
     return {"ask_again_in": SNOOZE_SECONDS + 5}

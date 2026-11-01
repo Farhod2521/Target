@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.dates import localtime
 from app.common.db import utcnow
 from app.modules.ads.models import (
     AdCreative,
@@ -112,7 +113,7 @@ def test_the_list_reads_every_figure_and_a_typed_stretch(
     client: TestClient, db: Session
 ) -> None:
     owner, _launch, headers = _launched(client, db)
-    today = utcnow().date()
+    today = localtime(utcnow()).date()
 
     body = client.get(f"{URL}/{owner.id}/ads?period=30", headers=headers).json()
     [row] = body["rows"]
@@ -253,6 +254,83 @@ def test_a_launch_that_made_no_campaign_is_read_without_figures(
     body = client.get(f"{URL}/{owner.id}/ads/{launch.id}", headers=headers).json()
     assert body["row"] is None and body["figures"] is None
     assert body["live"]["error"] == "Meta rad etdi"
+
+
+def test_the_campaign_page_is_the_one_its_owner_reads(
+    client: TestClient, db: Session
+) -> None:
+    owner, launch, headers = _launched(client, db)
+
+    found = client.get(f"{URL}/{owner.id}/ads/{launch.id}/campaign", headers=headers)
+
+    assert found.status_code == 200, found.text
+    body = found.json()
+    assert body["name"] and body["access"] and body["panel"]
+    assert "parentName" in body and "history" in body
+    assert body["ads"] and body["creatives"] is not None
+
+
+def test_the_campaign_page_is_read_whichever_page_the_owner_has_open(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.ads.models import Campaign
+
+    owner, launch, headers = _launched(client, db)
+    campaign = db.scalar(select(Campaign).where(Campaign.owner_id == owner.id))
+    assert campaign is not None
+    with patch(
+        "app.modules.ads.selectors.actions.campaign_on_page", return_value=False
+    ):
+        found = client.get(
+            f"{URL}/{owner.id}/ads/{launch.id}/campaign", headers=headers
+        )
+    assert found.status_code == 200, found.text
+    assert found.json()["id"] == str(campaign.id)
+
+
+def test_a_launch_the_sync_has_not_seen_says_so(
+    client: TestClient, db: Session
+) -> None:
+    owner, launch, headers = _launched(client, db)
+    launch.created_refs = {}
+    db.commit()
+
+    found = client.get(f"{URL}/{owner.id}/ads/{launch.id}/campaign", headers=headers)
+
+    assert found.status_code == 409, found.text
+    assert found.json()["code"] == "not_ready"
+
+
+def test_a_campaign_page_is_not_read_across_customers(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.accounts.models import User
+
+    owner, launch, headers = _launched(client, db)
+    stranger = User(
+        email="other@client.test",
+        full_name="Other",
+        password="!",
+        date_joined=utcnow(),
+    )
+    db.add(stranger)
+    db.commit()
+    found = client.get(f"{URL}/{stranger.id}/ads/{launch.id}/campaign", headers=headers)
+    assert found.status_code == 404
+    missing = client.get(
+        f"{URL}/{owner.id}/ads/00000000-0000-0000-0000-000000000000/campaign",
+        headers=headers,
+    )
+    assert missing.status_code == 404
+
+
+def test_a_role_outside_the_office_cannot_read_the_campaign_page(
+    client: TestClient, db: Session
+) -> None:
+    owner, launch, _ = _launched(client, db)
+    _, seller = _staff(db, Role.SALES, email="seller@office.test")
+    found = client.get(f"{URL}/{owner.id}/ads/{launch.id}/campaign", headers=seller)
+    assert found.status_code == 404
 
 
 def test_another_customers_launch_is_not_read(client: TestClient, db: Session) -> None:

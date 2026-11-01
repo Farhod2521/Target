@@ -30,12 +30,21 @@ INLINE_TYPES: Final[dict[str, dict[str, str]]] = {
         ".webp": "image/webp",
         ".gif": "image/gif",
     },
-    MessageKind.VIDEO: {".mp4": "video/mp4", ".mov": "video/quicktime"},
+    MessageKind.VIDEO: {
+        ".mp4": "video/mp4",
+        ".mov": "video/quicktime",
+        ".webm": "video/webm",
+        ".m4v": "video/mp4",
+    },
     MessageKind.VOICE: {
         ".webm": "audio/webm",
         ".ogg": "audio/ogg",
         ".m4a": "audio/mp4",
         ".mp3": "audio/mpeg",
+        ".aac": "audio/aac",
+        ".oga": "audio/ogg",
+        ".opus": "audio/opus",
+        ".wav": "audio/wav",
     },
 }
 

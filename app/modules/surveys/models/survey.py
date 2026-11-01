@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Column, ForeignKey, Table, Boolean, DateTime, Index, String, Uuid
+from sqlalchemy import BigInteger, Column, ForeignKey, Table, Boolean, DateTime, Index, String, Uuid, SmallInteger
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.db import Base, Json, utcnow
@@ -27,6 +27,9 @@ class Survey(Base):
     state: Mapped[str] = mapped_column(String(16), nullable=False, default='draft')
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ask_after_days: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=7, server_default="7")
 
 
 surveys_plans = Table(

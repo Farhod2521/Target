@@ -434,6 +434,8 @@ def record_payout(
 ) -> WithdrawalRequest:
     if not reason.strip():
         raise ReasonRequired
+    if not settings.withdrawals_open:
+        raise WithdrawalsClosed
     locked = _lock_user(db, owner.id)
     if locked is None:
         raise InsufficientBalance
@@ -453,6 +455,7 @@ def record_payout(
         decided_by_id=actor.id,
         decided_at=now,
         note=reason.strip(),
+        card_number_encrypted=b"",
         card_last4="",
         card_holder="",
         reject_reason="",

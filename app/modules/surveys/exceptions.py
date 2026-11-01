@@ -38,6 +38,13 @@ class SurveyAnswerInvalid(DomainError):
         self.problems = problems
 
 
+class SurveyEnded(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Tugash sanasi o'tib ketgan. Sanani o'zgartirib, keyin e'lon qiling."
+        )
+
+
 class SurveyNotDue(DomainError):
     def __init__(self, message: str | None = None) -> None:
         super().__init__(message or "Bu so'rovnoma endi yopilgan. Sahifani yangilang.")

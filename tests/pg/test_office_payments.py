@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.common.db import utcnow
+from app.common.timezone import localtime
 from app.modules.accounts.models import User
 from app.modules.backoffice.constants import ActionKind, Role
 from app.modules.backoffice.models import StaffAction
@@ -116,6 +117,35 @@ def test_summary_keeps_currencies_apart(client: TestClient, db: Session) -> None
     assert [row["id"] for row in body["holds"]] == [str(attempt.id)]
     assert body["holds"][0]["email"] == "shop@client.test"
     assert [row["customer"]["email"] for row in body["running_out"]] == []
+    assert body["totals"]["earned_count"] == 2
+    assert body["totals"]["stuck_sums"] == [{"currency": "UZS", "amount_minor": 2000}]
+    assert body["totals"]["stuck_after_hours"] == 12
+    assert body["totals"]["refunded_sums"] == [
+        {"currency": "UZS", "amount_minor": 490000}
+    ]
+    assert body["holds"][0]["plan"] == "Pro"
+
+
+def test_summary_reads_last_month_apart_from_this_one(
+    client: TestClient, db: Session
+) -> None:
+    shop, plan = _shop(db)
+    month_start = localtime().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    last_month = month_start - timedelta(hours=1)
+    two_ago = month_start - timedelta(days=40)
+    _bill(db, plan, shop, "TA-1", status=InvoiceStatus.PAID, paid_at=month_start)
+    _bill(db, plan, shop, "TA-2", status=InvoiceStatus.PAID, paid_at=last_month,
+          amount_minor=1000)  # fmt: skip
+    _bill(db, plan, shop, "TA-3", status=InvoiceStatus.PAID, paid_at=two_ago,
+          amount_minor=7000)  # fmt: skip
+    db.commit()
+    _, owner = _staff(db, Role.OWNER, email="owner@office.test")
+
+    found = client.get(f"{URL}/summary", headers=owner).json()["totals"]
+
+    assert found["earned"] == [{"currency": "UZS", "amount_minor": 490000}]
+    assert found["earned_count"] == 1
+    assert found["earned_before"] == [{"currency": "UZS", "amount_minor": 1000}]
 
 
 def test_invoice_list_filters_and_shows_the_transaction(
@@ -152,6 +182,11 @@ def test_invoice_list_filters_and_shows_the_transaction(
     assert by_number["TA-14"]["email"] == "gone@client.test"
     assert kept.id is not None
 
+    counts = client.get(f"{URL}/invoices", headers=owner).json()["counts"]
+    assert counts == {"all": 4, "open": 1, "paid": 2, "closed": 1}
+    inside = client.get(f"{URL}/invoices?q=shop@client", headers=owner).json()
+    assert inside["counts"] == {"all": 3, "open": 1, "paid": 1, "closed": 1}
+
 
 def test_subscription_list_finds_who_never_paid(client: TestClient, db: Session) -> None:
     _, plan = _shop(db)
@@ -175,10 +210,43 @@ def test_subscription_list_finds_who_never_paid(client: TestClient, db: Session)
     assert sorted(emails()) == ["paid@client.test", "shop@client.test"]
     assert emails(state="unpaid") == ["shop@client.test"]
     assert emails(q="paid@") == ["paid@client.test"]
+    page = client.get(f"{URL}/subscriptions", headers=owner).json()
+    assert page["counts"] == {"all": 2, "unpaid": 1}
+    states = {row["customer"]["email"]: row for row in page["rows"]}
+    assert states["paid@client.test"]["state"] == "active"
+    assert states["paid@client.test"]["days_left"] in {2, 3}
+    assert states["shop@client.test"]["state"] == "unpaid"
+    assert states["shop@client.test"]["activated_by"] is None
+    chip = client.get(f"{URL}/subscriptions?state=unpaid", headers=owner).json()
+    assert chip["total"] == 1 and chip["counts"]["all"] == 2
     summary = client.get(f"{URL}/summary", headers=owner).json()
     assert [row["customer"]["email"] for row in summary["running_out"]] == [
         "paid@client.test"
     ]
+
+
+def test_a_subscription_says_blocked_and_trial_before_unpaid(
+    client: TestClient, db: Session
+) -> None:
+    shop, plan = _shop(db)
+    trying = User(email="try@client.test", full_name="Try", password="!",
+                  date_joined=utcnow())  # fmt: skip
+    db.add(trying)
+    db.flush()
+    now = utcnow()
+    db.add(Subscription(owner_id=trying.id, plan_id=plan.id,
+                        status=SubscriptionStatus.TRIAL, started_at=now,
+                        expires_at=now + timedelta(days=3)))  # fmt: skip
+    shop.is_active = False
+    db.commit()
+    _, owner = _staff(db, Role.OWNER, email="owner@office.test")
+
+    rows = client.get(f"{URL}/subscriptions", headers=owner).json()["rows"]
+
+    assert {row["customer"]["email"]: row["state"] for row in rows} == {
+        "shop@client.test": "blocked",
+        "try@client.test": "trial",
+    }
 
 
 def test_only_the_super_admin_frees_a_held_bill(client: TestClient, db: Session) -> None:

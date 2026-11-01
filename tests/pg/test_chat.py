@@ -11,6 +11,7 @@ from metaads import PROVIDER
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.common.dates import localtime
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.ads.models import Ad, AdCreative, AdSet, Campaign, CampaignLaunch
@@ -131,7 +132,7 @@ def _mirror(db: Session, owner: User, account: Any, page: Any) -> None:
         )
     )
     db.flush()
-    today = now.date()
+    today = localtime(now).date()
     for back in range(1, 8):
         for level, extra in (
             ("campaign", {}),

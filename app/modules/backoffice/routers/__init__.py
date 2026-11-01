@@ -23,7 +23,11 @@ from app.modules.backoffice.routers.directions import router as directions
 from app.modules.backoffice.routers.payments import router as payments
 from app.modules.backoffice.routers.promo import router as promo
 from app.modules.backoffice.routers.refusals import router as refusals
+from app.modules.backoffice.routers.reviews import router as reviews
 from app.modules.backoffice.routers.support import router as support
+from app.modules.backoffice.routers.surveys import customer_router as customer_surveys
+from app.modules.backoffice.routers.surveys import router as surveys
+from app.modules.backoffice.routers.wallet import router as wallet
 from app.modules.backoffice.schemas import JournalOut, MeOut
 
 router = APIRouter(prefix="/office", tags=["office"])
@@ -38,6 +42,10 @@ router.include_router(support)
 router.include_router(dashboard)
 router.include_router(payments)
 router.include_router(refusals)
+router.include_router(wallet)
+router.include_router(reviews)
+router.include_router(surveys)
+router.include_router(customer_surveys)
 
 
 @router.get("/me", responses={200: {"model": MeOut}})
@@ -51,6 +59,7 @@ def me(db: Db, user: Staff) -> dict[str, Any]:
             for role in Role
             if str(role) in shell.roles
         ],
+        "sections": list(shell.sections),
         "can": {
             "give": shell.can_give,
             "grant": shell.can_grant,

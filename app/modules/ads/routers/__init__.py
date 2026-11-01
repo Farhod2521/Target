@@ -314,13 +314,9 @@ def _detail(db: Session, user: User, campaign_id: uuid.UUID) -> Any:
 
 
 def _groups(db: Session, user: User, campaign: Any) -> list[Any]:
-    groups = list(campaign.adsets)
-    ads = selectors.with_content(
-        db, owner=user, ads=[ad for adset in groups for ad in adset.ads]
-    )
-    for adset in groups:
-        adset.fold_ads = [ad for ad in ads if ad.adset_id == adset.id]
-    return groups
+    from app.modules.ads.contract.detail import campaign_groups
+
+    return campaign_groups(db, owner=user, campaign=campaign)
 
 
 @router.get("/{campaign_id}", response_model=CampaignDetail)
@@ -328,21 +324,9 @@ def campaign_detail(
     campaign_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
     """One campaign's page: its figures, adverts, groups and history in one answer."""
-    from app.modules.ads.contract.detail import campaign_detail as detail
-    from app.modules.ads.contract.tree import ad_figures
+    from app.modules.ads.contract.detail import campaign_page
 
-    campaign = _detail(db, user, campaign_id)
-    selectors.with_controls(db, owner=user, campaign=campaign)
-    selectors.with_tree_badge(campaign=campaign)
-    campaign.settings = selectors.row_settings(campaign=campaign)
-    return detail(
-        db,
-        owner=user,
-        campaign=campaign,
-        groups=_groups(db, user, campaign),
-        history=selectors.campaign_history(db, owner=user, campaign=campaign),
-        chips=ad_figures(db, owner=user, campaign=campaign),
-    )
+    return campaign_page(db, owner=user, campaign=_detail(db, user, campaign_id))
 
 
 def _tree(db: Session, user: User, campaign_id: uuid.UUID) -> dict[str, Any]:

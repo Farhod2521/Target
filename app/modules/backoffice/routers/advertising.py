@@ -19,10 +19,13 @@ from app.modules.ads.constants import (
     PREVIEW_AD_FORMAT,
     PREVIEW_POLL_SECONDS,
 )
-from app.modules.ads.selectors import fresh_preview
+from app.modules.ads.contract.detail import campaign_page
+from app.modules.ads.contract.shapes import CampaignDetail
+from app.modules.ads.selectors import fresh_preview, launched_campaign
 from app.modules.ads.selectors.launch_live import LiveForm, launch_ads
 from app.modules.ads.selectors.launch_settings import AudienceLines, LaunchSettings
 from app.modules.backoffice.constants import ADMIN_ROLES
+from app.modules.backoffice.exceptions import CampaignNotMirrored
 from app.modules.backoffice.permissions import staff_required
 from app.modules.backoffice.routers._out import amounts, choices
 from app.modules.backoffice.schemas import AdFrameOut, CustomerAdOut, CustomerAdsOut
@@ -41,6 +44,7 @@ from app.modules.backoffice.selectors.advertising import (
     AdWindow,
     advertising,
     asked_window,
+    launch_pairs,
 )
 from app.modules.backoffice.selectors.card import person
 from app.modules.metrics.selectors.panel import FigureSums
@@ -415,6 +419,28 @@ def customer_ad(
         "settings": settings_out(found.settings),
         "live": live_out(found),
     }
+
+
+@router.get("/{launch_id}/campaign", response_model=CampaignDetail)
+def customer_campaign(
+    customer_id: uuid.UUID, launch_id: uuid.UUID, db: Db, user: Admin
+) -> dict[str, Any]:
+    """The campaign this launch built, in the shape its owner reads it.
+
+    A launch the sync has not mirrored yet answers `not_ready`, and the launch
+    itself is still read from `/{launch_id}`.
+    """
+    owner = _owner(db, customer_id)
+    launch = owned_launch(db, owner=owner, launch_id=launch_id)
+    if launch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    pairs = launch_pairs([launch])
+    campaign = (
+        launched_campaign(db, owner=owner, external_id=pairs[0][1]) if pairs else None
+    )
+    if campaign is None:
+        raise CampaignNotMirrored
+    return campaign_page(db, owner=owner, campaign=campaign)
 
 
 @router.get("/{launch_id}/preview/{ad_id}", responses={200: {"model": AdFrameOut}})

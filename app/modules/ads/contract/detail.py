@@ -265,6 +265,37 @@ def history_row(row: Any) -> dict[str, Any]:
     }
 
 
+def campaign_groups(db: Session, *, owner: User, campaign: Any) -> list[Any]:
+    """The campaign's groups, each holding its adverts with their content."""
+    from app.modules.ads import selectors
+
+    groups = list(campaign.adsets)
+    ads = selectors.with_content(
+        db, owner=owner, ads=[ad for adset in groups for ad in adset.ads]
+    )
+    for adset in groups:
+        adset.fold_ads = [ad for ad in ads if ad.adset_id == adset.id]
+    return groups
+
+
+def campaign_page(db: Session, *, owner: User, campaign: Any) -> dict[str, Any]:
+    """One campaign's page: the owner's, and the office's read of the same."""
+    from app.modules.ads import selectors
+    from app.modules.ads.contract.tree import ad_figures
+
+    selectors.with_controls(db, owner=owner, campaign=campaign)
+    selectors.with_tree_badge(campaign=campaign)
+    campaign.settings = selectors.row_settings(campaign=campaign)
+    return campaign_detail(
+        db,
+        owner=owner,
+        campaign=campaign,
+        groups=campaign_groups(db, owner=owner, campaign=campaign),
+        history=selectors.campaign_history(db, owner=owner, campaign=campaign),
+        chips=ad_figures(db, owner=owner, campaign=campaign),
+    )
+
+
 def campaign_detail(
     db: Session,
     *,

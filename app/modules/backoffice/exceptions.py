@@ -6,6 +6,16 @@ class CannotChangeOwnRoles(DomainError):
         super().__init__("O'z rolingizni o'zgartira olmaysiz - hamkasbdan so'rang.")
 
 
+class CampaignNotMirrored(DomainError):
+    status_code = 409
+    code = "not_ready"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Kampaniya hali sinxronlanmagan. Ishga tushirish ma'lumotlari pastda."
+        )
+
+
 class PromoCodeInUse(DomainError):
     def __init__(self) -> None:
         super().__init__(

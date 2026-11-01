@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.common.config import settings
 from app.modules.accounts.models import User
 from app.modules.backoffice.constants import (
     ACTION_KIND_LABELS,
@@ -77,6 +78,23 @@ class Shell:
     waiting_feedback: int
     waiting_support: int
     waiting_arizas: int
+
+    @property
+    def sections(self) -> tuple[str, ...]:
+        """The office screens this reader may open, in the rail's order."""
+        doors = (
+            ("home", self.can_give),
+            ("clients", self.can_give),
+            ("payments", self.is_owner),
+            ("promo", self.can_give),
+            ("payouts", self.can_give and settings.withdrawals_open),
+            ("reviews", self.can_give),
+            ("surveys", self.can_give),
+            ("sales", self.can_sell),
+            ("chat", self.can_answer),
+            ("refusals", True),
+        )
+        return tuple(name for name, open_to_them in doors if open_to_them)
 
 
 def office_shell(db: Session, *, user: User, now: datetime) -> Shell:

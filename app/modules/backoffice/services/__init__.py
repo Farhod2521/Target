@@ -19,6 +19,11 @@ from app.modules.backoffice.services.entitlement import (
     take_payment,
     take_slots,
 )
+from app.modules.backoffice.services.feedback import (
+    approve_piece,
+    publish_piece,
+    refuse_piece,
+)
 from app.modules.backoffice.services.holds import free_hold
 from app.modules.backoffice.services.journal import record, seen
 from app.modules.backoffice.services.pages import (
@@ -52,6 +57,7 @@ __all__ = [
     "add_days",
     "add_page",
     "add_slots",
+    "approve_piece",
     "approve_promo",
     "attach_old_receipts",
     "block_customer",
@@ -69,9 +75,11 @@ __all__ = [
     "move_page",
     "pay_ask",
     "payout_currencies",
+    "publish_piece",
     "record",
     "record_withdrawal",
     "refuse_ask",
+    "refuse_piece",
     "refuse_promo",
     "remove_page_account",
     "seen",

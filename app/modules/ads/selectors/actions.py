@@ -306,6 +306,19 @@ def campaign_detail(
     return campaign
 
 
+def launched_campaign(db: Session, *, owner: User, external_id: str) -> Campaign | None:
+    """The campaign whichever page it is on: the office reads every page, where
+    the owner reads the one chosen."""
+    return db.scalars(
+        select(Campaign)
+        .options(
+            joinedload(Campaign.ad_account),
+            selectinload(Campaign.adsets).selectinload(AdSet.ads),
+        )
+        .where(Campaign.owner_id == owner.id, Campaign.external_id == external_id)
+    ).first()
+
+
 def last_synced_at(
     db: Session, *, owner: User, accounts: Sequence[AdAccount] | None = None
 ) -> datetime | None:

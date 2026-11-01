@@ -34,6 +34,7 @@ from app.modules.surveys.constants import ANSWER_TEXT_MAX, QuestionKind, Respons
 from app.modules.surveys.exceptions import SurveyAnswerInvalid
 from app.modules.surveys.selectors.due import DueSurvey
 from app.modules.surveys.services import answer_survey
+from app.modules.surveys.services.sightings import note_seen
 
 logger = logging.getLogger(__name__)
 LOCK_SECONDS = 15
@@ -53,6 +54,7 @@ def start_survey(
             "picks": [],
         }
     state.pop("resume", None)
+    note_seen(db, survey_id=due.survey_id, owner_id=chat.owner_id)
     return ask(db, client=client, chat=chat, state=state, due=due, now=now)
 
 

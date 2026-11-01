@@ -48,7 +48,7 @@ def answer_survey(
     subscription = live_subscription(db, owner=owner)
     survey: Survey | None = (
         db.scalars(
-            owed(user=owner, plan_id=subscription.plan_id)
+            owed(user=owner, subscription=subscription)
             .where(Survey.id == _uuid(survey_id))
             .limit(1)
         ).first()

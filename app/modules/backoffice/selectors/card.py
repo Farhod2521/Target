@@ -12,6 +12,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.common.config import settings
 from app.modules.accounts.models import User
 from app.modules.ads.selectors import (
     adsets_delivering,
@@ -310,7 +311,7 @@ def customer_card(db: Session, *, owner: User, now: datetime) -> CustomerCard:
         wallet=wallet_balance(db, owner=owner),
         recent_payouts=payout_history(db, owner=owner)[:RECENT_PAYOUTS],
         referral_open=may_invite(db, owner_id=owner.id),
-        wallet_payable=may_withdraw(db, owner=owner),
+        wallet_payable=settings.withdrawals_open and may_withdraw(db, owner=owner),
         referral_mode=access.mode if access is not None else str(ReferralMode.AUTO),
         referral_access=access,
         inviter=inviter_of(db, owner=owner),

@@ -254,10 +254,13 @@ def publish_feedback(db: Session, *, piece: object, actor: User) -> Testimonial:
             raise FeedbackNotPublishable(
                 "Sayt bu formatni ko'rsatmaydi: video MP4 yoki WebM bo'lsin."
             )
-        with storage.media_path(piece.file).open("rb") as handle:  # type: ignore[attr-defined]
-            copied = storage.save(
-                handle, folder=TESTIMONIAL_UPLOAD_DIR, filename=name, keep_name=True
-            )
+        try:
+            with storage.media_path(piece.file).open("rb") as handle:  # type: ignore[attr-defined]
+                copied = storage.save(
+                    handle, folder=TESTIMONIAL_UPLOAD_DIR, filename=name, keep_name=True
+                )
+        except (OSError, ValueError) as exc:
+            raise FeedbackNotPublishable("Fikr fayli topilmadi.") from exc
         if is_video:
             row.video = copied
         else:

@@ -34,6 +34,7 @@ class Severity(Choices):
 
 SEVERITY_LABELS = {Severity.URGENT: "Shoshilinch", Severity.WAITING: "Kutilmoqda"}
 PAGE_SIZE = 50
+WITHDRAWAL_OVERDUE_HOURS = 48
 
 
 class TakingsPeriod(Choices):

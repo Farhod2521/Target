@@ -1,8 +1,9 @@
 """The survey a customer is owed right now, in their language, or none.
 
 Owed to a customer on a live plan (a trial counts) it is meant for:
-everyone, everyone on its plans, or the people the office picked. Asked
-once; an answer anywhere closes it. The first published is asked first.
+everyone, everyone on its plans, or the people the office picked, between its
+dates and once the plan has run the days the survey waits. Asked once; an
+answer anywhere closes it. The first published is asked first.
 A customer who pressed "later" is left alone everywhere until it runs out.
 """
 
@@ -15,7 +16,9 @@ from sqlalchemy import Select, and_, exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.cache import cache
+from app.common.db import utcnow
 from app.modules.accounts.models import User
+from app.modules.billing.models import Subscription
 from app.modules.billing.selectors import live_subscription
 from app.modules.surveys.constants import SNOOZE_KEY, QuestionKind, SurveyAudience
 from app.modules.surveys.models import (
@@ -89,17 +92,20 @@ def due_survey(db: Session, *, user: User, language: str) -> DueSurvey | None:
     subscription = live_subscription(db, owner=user)
     if subscription is None:
         return None
-    survey = db.scalars(owed(user=user, plan_id=subscription.plan_id).limit(1)).first()
+    survey = db.scalars(owed(user=user, subscription=subscription).limit(1)).first()
     if survey is None:
         return None
     return _asked(db, survey=survey, language=language)
 
 
-def owed(*, user: User, plan_id: uuid.UUID) -> Select[tuple[Survey]]:
-    """The live surveys meant for this customer and not yet answered by
-    them, the first published first. ``plan_id`` is their live plan's."""
+def owed(*, user: User, subscription: Subscription) -> Select[tuple[Survey]]:
+    """The running surveys meant for this customer and not yet answered by
+    them, the first published first."""
+    now = utcnow()
+    days_on_plan = (now - subscription.started_at).days
     on_plan = exists().where(
-        surveys_plans.c.survey_id == Survey.id, surveys_plans.c.plan_id == plan_id
+        surveys_plans.c.survey_id == Survey.id,
+        surveys_plans.c.plan_id == subscription.plan_id,
     )
     picked = exists().where(
         surveys_people.c.survey_id == Survey.id, surveys_people.c.user_id == user.id
@@ -111,6 +117,9 @@ def owed(*, user: User, plan_id: uuid.UUID) -> Select[tuple[Survey]]:
         select(Survey)
         .where(
             Survey.is_active.is_(True),
+            or_(Survey.starts_at.is_(None), Survey.starts_at <= now),
+            or_(Survey.ends_at.is_(None), Survey.ends_at > now),
+            Survey.ask_after_days <= days_on_plan,
             or_(
                 Survey.audience == SurveyAudience.EVERYONE,
                 and_(

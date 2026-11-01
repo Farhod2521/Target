@@ -8,7 +8,7 @@ from app.common.cache import cache
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.audit.models import Event
-from app.modules.billing.models import Plan
+from app.modules.billing.models import Plan, Subscription
 from app.modules.billing.services import start_trial
 from app.modules.surveys.constants import SNOOZE_KEY
 from app.modules.surveys.models import (
@@ -30,8 +30,15 @@ def _customer(client: TestClient, db: Session) -> tuple[dict[str, str], User]:
     user = db.scalar(select(User))
     assert user is not None
     start_trial(db, user=user, now=utcnow())
-    db.commit()
+    _on_plan_for(db, user, days=8)
     return auth, user
+
+
+def _on_plan_for(db: Session, user: User, *, days: int) -> None:
+    subscription = db.scalar(select(Subscription).where(Subscription.owner_id == user.id))
+    assert subscription is not None
+    subscription.started_at = utcnow() - timedelta(days=days)
+    db.commit()
 
 
 def _survey(db: Session, *, audience: str = "everyone", ago: int = 1) -> Survey:
@@ -88,6 +95,19 @@ def _ids(db: Session, survey: Survey) -> list[str]:
             .order_by(SurveyQuestion.position)
         )
     ]
+
+
+def test_nothing_is_asked_in_the_first_week_on_a_plan(
+    client: TestClient, db: Session
+) -> None:
+    auth, user = _customer(client, db)
+    _survey(db)
+
+    _on_plan_for(db, user, days=6)
+    assert client.get("/api/v1/surveys/due", headers=auth).json()["survey"] is None
+
+    _on_plan_for(db, user, days=7)
+    assert client.get("/api/v1/surveys/due", headers=auth).json()["survey"] is not None
 
 
 def test_nothing_is_due_without_a_live_plan(client: TestClient, db: Session) -> None:

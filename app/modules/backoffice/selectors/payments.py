@@ -4,9 +4,11 @@ Two currencies never add, so every sum here is a list per currency.
 """
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import ColumnElement, Select, exists, func, or_, select, true
 from sqlalchemy.orm import Session, joinedload
@@ -28,6 +30,7 @@ from app.modules.billing.models import (
     Plan,
     Subscription,
 )
+from app.modules.businesses.models import Business
 
 OPEN_STATUSES = (InvoiceStatus.PENDING, InvoiceStatus.HELD)
 CLOSED_STATUSES = (InvoiceStatus.CANCELED, InvoiceStatus.EXPIRED)
@@ -50,10 +53,14 @@ Money = tuple[tuple[str, int], ...]
 @dataclass(frozen=True, slots=True)
 class Totals:
     earned: Money
+    earned_count: int
+    earned_before: Money
     unpaid: int
     unpaid_sums: Money
     stuck: int
+    stuck_sums: Money
     refunded: int
+    refunded_sums: Money
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +76,7 @@ class InvoicePage:
     rows: tuple[InvoiceRow, ...]
     total: int
     offset: int
+    counts: dict[str, int]
 
     @property
     def next_offset(self) -> int:
@@ -84,6 +92,7 @@ class SubscriptionPage:
     rows: tuple[Subscription, ...]
     total: int
     offset: int
+    counts: dict[str, int]
 
     @property
     def next_offset(self) -> int:
@@ -110,29 +119,48 @@ def _count(db: Session, *where: ColumnElement[bool]) -> int:
 
 def totals(db: Session, *, now: datetime) -> Totals:
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    last_month_start = (month_start - timedelta(days=1)).replace(day=1)
     is_open = Invoice.status.in_(OPEN_STATUSES)
+    is_paid = Invoice.status == InvoiceStatus.PAID
+    refunded = (
+        Invoice.status == InvoiceStatus.REFUNDED,
+        Invoice.updated_at >= month_start,
+    )
+    stuck = db.execute(
+        select(PaymentTransaction.currency, func.sum(PaymentTransaction.amount_minor))
+        .where(*_stuck_where(now=now))
+        .group_by(PaymentTransaction.currency)
+        .order_by(PaymentTransaction.currency)
+    ).all()
     return Totals(
-        earned=_sums(
-            db, Invoice.status == InvoiceStatus.PAID, Invoice.paid_at >= month_start
+        earned=_sums(db, is_paid, Invoice.paid_at >= month_start),
+        earned_count=_count(db, is_paid, Invoice.paid_at >= month_start),
+        earned_before=_sums(
+            db,
+            is_paid,
+            Invoice.paid_at >= last_month_start,
+            Invoice.paid_at < month_start,
         ),
         unpaid=_count(db, is_open),
         unpaid_sums=_sums(db, is_open),
         stuck=int(
             db.scalar(select(func.count()).select_from(_stuck(now=now).subquery())) or 0
         ),
-        refunded=_count(
-            db,
-            Invoice.status == InvoiceStatus.REFUNDED,
-            Invoice.updated_at >= month_start,
-        ),
+        stuck_sums=tuple((currency, int(total)) for currency, total in stuck),
+        refunded=_count(db, *refunded),
+        refunded_sums=_sums(db, *refunded),
+    )
+
+
+def _stuck_where(*, now: datetime) -> tuple[ColumnElement[bool], ...]:
+    return (
+        PaymentTransaction.state == TransactionState.CREATED,
+        PaymentTransaction.created_at <= now - timedelta(hours=STUCK_HOLD_HOURS),
     )
 
 
 def _stuck(*, now: datetime) -> Select[Any]:
-    return select(PaymentTransaction).where(
-        PaymentTransaction.state == TransactionState.CREATED,
-        PaymentTransaction.created_at <= now - timedelta(hours=STUCK_HOLD_HOURS),
-    )
+    return select(PaymentTransaction).where(*_stuck_where(now=now))
 
 
 def stuck_holds(db: Session, *, now: datetime) -> list[PaymentTransaction]:
@@ -142,7 +170,7 @@ def stuck_holds(db: Session, *, now: datetime) -> list[PaymentTransaction]:
             _stuck(now=now)
             .options(
                 joinedload(PaymentTransaction.owner),
-                joinedload(PaymentTransaction.invoice),
+                joinedload(PaymentTransaction.invoice).joinedload(Invoice.plan),
             )
             .order_by(PaymentTransaction.created_at)
         )
@@ -159,7 +187,7 @@ def _by_state(state: str) -> ColumnElement[bool]:
     return true()
 
 
-def _by_owner(term: str) -> list[ColumnElement[bool]]:
+def by_owner(term: str) -> list[ColumnElement[bool]]:
     """Whoever the caller named: an address, a name, a telephone number."""
     like = f"%{term}%"
     digits = re.sub(r"[\s()-]", "", term) or term
@@ -175,12 +203,33 @@ def _invoice_term(term: str) -> ColumnElement[bool]:
         return true()
     like = f"%{term}%"
     return or_(
-        Invoice.number.ilike(like), Invoice.former_email.ilike(like), *_by_owner(term)
+        Invoice.number.ilike(like), Invoice.former_email.ilike(like), *by_owner(term)
     )
 
 
 def _subscription_term(term: str) -> ColumnElement[bool]:
-    return or_(*_by_owner(term)) if term else true()
+    return or_(*by_owner(term)) if term else true()
+
+
+def _invoice_counts(db: Session, *, term: str) -> dict[str, int]:
+    """Each chip's bills inside the search. `all` also holds what no chip names."""
+    rows = db.execute(
+        select(Invoice.status, func.count(Invoice.id))
+        .outerjoin(User, Invoice.owner_id == User.id)
+        .where(_invoice_term(term))
+        .group_by(Invoice.status)
+    ).all()
+    by_status = {str(status): int(count) for status, count in rows}
+
+    def sum_of(*statuses: InvoiceStatus) -> int:
+        return sum(by_status.get(str(status), 0) for status in statuses)
+
+    return {
+        "all": sum(by_status.values()),
+        "open": sum_of(*OPEN_STATUSES),
+        "paid": sum_of(InvoiceStatus.PAID),
+        "closed": sum_of(*CLOSED_STATUSES),
+    }
 
 
 def _last_attempts(
@@ -225,6 +274,7 @@ def invoice_page(
         rows=tuple(InvoiceRow(row, attempts.get(row.id)) for row in invoices),
         total=int(total or 0),
         offset=offset,
+        counts=_invoice_counts(db, term=term),
     )
 
 
@@ -259,17 +309,53 @@ def subscription_page(
 ) -> SubscriptionPage:
     """Live entitlements, soonest to end first. ``unpaid``: on a priced plan
     with no bill ever settled, so nobody wrote down whether they paid."""
-    query = _live(now=now).where(_subscription_term(term))
-    if state == UNPAID:
-        settled = exists().where(
-            Invoice.owner_id == Subscription.owner_id,
-            Invoice.status == InvoiceStatus.PAID,
-        )
-        query = query.where(Plan.price > 0, ~settled)
-    total = db.scalar(select(func.count()).select_from(query.subquery()))
+    every = _live(now=now).where(_subscription_term(term))
+    settled = exists().where(
+        Invoice.owner_id == Subscription.owner_id,
+        Invoice.status == InvoiceStatus.PAID,
+    )
+    unpaid = every.where(Plan.price > 0, ~settled)
+    counts = {
+        "all": _rows_in(db, every),
+        UNPAID: _rows_in(db, unpaid),
+    }
+    query = unpaid if state == UNPAID else every
     rows = db.scalars(
         query.order_by(Subscription.expires_at, Subscription.id)
         .offset(offset)
         .limit(PAGE_SIZE)
     )
-    return SubscriptionPage(rows=tuple(rows), total=int(total or 0), offset=offset)
+    return SubscriptionPage(
+        rows=tuple(rows), total=counts[state or "all"], offset=offset, counts=counts
+    )
+
+
+def _rows_in(db: Session, query: Select[Any]) -> int:
+    return int(db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+
+
+def settled_owners(db: Session, owners: Iterable[UUID]) -> frozenset[UUID]:
+    """Which of these accounts ever had a bill settled."""
+    return frozenset(
+        db.scalars(
+            select(Invoice.owner_id)
+            .where(
+                Invoice.owner_id.in_(set(owners)),
+                Invoice.status == InvoiceStatus.PAID,
+            )
+            .distinct()
+        )
+    )
+
+
+def business_names(db: Session, owners: Iterable[UUID]) -> dict[UUID, str]:
+    """The first profile each account made, for a list's customer line."""
+    names: dict[UUID, str] = {}
+    rows = db.execute(
+        select(Business.user_id, Business.name)
+        .where(Business.user_id.in_(set(owners)))
+        .order_by(Business.created_at)
+    )
+    for owner_id, name in rows:
+        names.setdefault(owner_id, name)
+    return names

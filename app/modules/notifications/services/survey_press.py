@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 from telegramkit import BotClient, ButtonPress
 
 from app.common.cache import cache
@@ -32,7 +32,7 @@ from app.modules.notifications.services.survey_words import (
 )
 from app.modules.surveys.constants import SNOOZE_SECONDS, QuestionKind
 from app.modules.surveys.selectors.due import DueSurvey
-from app.modules.surveys.services import snooze_survey
+from app.modules.surveys.services import note_later, snooze_survey
 
 
 def is_survey_press(data: str) -> bool:
@@ -173,6 +173,7 @@ def _later(
     once the wait is up - unless something else asked it first."""
     from app.modules.notifications.tasks import resend_survey_task
 
+    note_later(object_session(chat), survey_id=due.survey_id, owner_id=chat.owner_id)
     snooze_survey(user=chat.owner)
     token = uuid.uuid4().hex
     state["resume"] = token

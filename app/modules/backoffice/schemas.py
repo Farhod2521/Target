@@ -28,9 +28,7 @@ class CanOut(BaseModel):
         description="Plan, days, slots, a payment, the referral switch "
         "(Support, Finance, Owner)."
     )
-    grant: bool = Field(
-        description="Money: payouts, promo codes (Finance, Owner)."
-    )
+    grant: bool = Field(description="Money: payouts, promo codes (Finance, Owner).")
     owner: bool = Field(
         description="The roster, the journal, the payments screen, adding a page, "
         "deleting."
@@ -58,6 +56,7 @@ class WaitingOut(BaseModel):
 class MeOut(BaseModel):
     user: PersonOut
     roles: list[ChoiceOut] = Field(description="The roles this reader holds.")
+    sections: list[str] = Field(description="The office screens they may open.")
     can: CanOut
     waiting: WaitingOut
 
@@ -1038,8 +1037,15 @@ class PaymentTotalsOut(BaseModel):
     )
     unpaid: int = Field(description="Open bills, every currency.")
     unpaid_sums: list[dict[str, Any]] = Field(description="The same, per currency.")
+    earned_count: int = Field(description="Bills paid this month.")
+    earned_before: list[dict[str, Any]] = Field(
+        description="Paid last month, per currency."
+    )
     stuck: int = Field(description="Attempts holding a bill for over 12 hours.")
+    stuck_sums: list[dict[str, Any]] = Field(description="The same, per currency.")
+    stuck_after_hours: int
     refunded: int = Field(description="Bills refunded this month.")
+    refunded_sums: list[dict[str, Any]] = Field(description="The same, per currency.")
 
 
 class PaymentHoldOut(BaseModel):
@@ -1047,6 +1053,8 @@ class PaymentHoldOut(BaseModel):
     number: str
     customer: PersonOut | None = Field(description="Gone when the account was deleted.")
     email: str
+    business: str
+    plan: str
     provider: str
     amount_minor: int
     currency: str
@@ -1059,6 +1067,9 @@ class PaymentSubscriptionOut(BaseModel):
     plan: PlanLineOut
     status: str
     status_label: str
+    state: str = Field(description="`active`, `trial`, `blocked` or `unpaid`.")
+    days_left: int
+    activated_by: PersonOut | None = Field(description="Who gave it by hand.")
     expires_at: datetime
 
 
@@ -1068,6 +1079,332 @@ class PaymentsSummaryOut(BaseModel):
     running_out: list[PaymentSubscriptionOut] = Field(
         description="Live subscriptions ending within 7 days, soonest first."
     )
+
+
+class SurveyTimesOut(BaseModel):
+    active: bool
+    published_at: datetime | None
+    starts_at: datetime | None
+    ends_at: datetime | None
+    ask_after_days: int = Field(description="Days on a plan before it is asked.")
+    phase: str = Field(
+        description="`draft`, `scheduled`, `live`, `ended` or `closed`, read now."
+    )
+    state: str = Field(description="`draft`, `translating`, `ready` or `failed`.")
+    created_at: datetime
+
+
+class SurveyRowOut(SurveyTimesOut):
+    id: str
+    name: str
+    audience: str
+    plans: list[str]
+    people: int
+    questions: int
+    answers: int
+
+
+class SurveyQuestionOut(BaseModel):
+    position: int
+    kind: str
+    text: str
+    options: list[str]
+    allows_many: bool
+    min_value: int | None
+    max_value: int | None
+    is_required: bool
+    show_if: int = Field(description="The earlier question's position; 0: always.")
+    show_options: list[int]
+
+
+class SurveyTabOut(BaseModel):
+    code: str
+    source: bool
+    filled: bool
+
+
+class SurveyDetailOut(SurveyTimesOut):
+    id: str
+    name: str
+    source_language: str
+    title: str
+    intro: str
+    questions: list[SurveyQuestionOut]
+    people: list[str]
+    plans: list[str]
+    answers: int
+    lost: bool = Field(description="The translation has not come back for too long.")
+    tabs: list[SurveyTabOut]
+
+
+class SurveyPersonOut(BaseModel):
+    id: str
+    name: str
+    email: str
+    phone: str
+    plan_id: str
+    plan: str
+    trial: bool
+
+
+class SurveyPlanOut(BaseModel):
+    id: str
+    name: str
+    total: int
+
+
+class SurveyRosterOut(BaseModel):
+    persons: list[SurveyPersonOut]
+    plans: list[SurveyPlanOut]
+
+
+class WordingQuestionOut(BaseModel):
+    position: int
+    text: str
+    options: list[str]
+
+
+class SurveyWordingOut(BaseModel):
+    title: str
+    intro: str
+    questions: list[WordingQuestionOut]
+
+
+class SurveySourceOut(BaseModel):
+    title: str
+    intro: str
+    questions: list[SurveyQuestionOut]
+
+
+class SurveyTranslationOut(BaseModel):
+    language: str
+    source: SurveySourceOut
+    wording: SurveyWordingOut
+
+
+class SurveyRefOut(BaseModel):
+    id: str
+    name: str
+
+
+class SurveyResponseRowOut(BaseModel):
+    id: str
+    customer: PersonOut
+    survey: SurveyRefOut
+    channel: str
+    language: str
+    gist: str
+    replied: bool
+    at: datetime
+
+
+class SurveyResponsesOut(BaseModel):
+    rows: list[SurveyResponseRowOut]
+    total: int
+    offset: int
+    next_offset: int
+    has_more: bool
+
+
+class SurveyAnswerLineOut(BaseModel):
+    question: str
+    kind: str
+    answer: str | None
+
+
+class SurveyResponseOut(SurveyResponseRowOut):
+    lines: list[SurveyAnswerLineOut]
+
+
+class SurveyFunnelOut(BaseModel):
+    meant: int = Field(description="Live customers it is for, and who answered.")
+    seen: int
+    later: int = Field(description="Put it off at least once.")
+    answered: int
+    rate_percent: float
+
+
+class SurveyDayOut(BaseModel):
+    day: date
+    count: int
+
+
+class SurveyOptionResultOut(BaseModel):
+    label: str
+    count: int
+    percent: float
+
+
+class SurveyNumberResultOut(BaseModel):
+    value: int
+    count: int
+    percent: float
+    low: bool
+
+
+class SurveyTextResultOut(BaseModel):
+    response_id: str
+    name: str
+    text: str
+
+
+class SurveyQuestionResultOut(BaseModel):
+    position: int
+    kind: str
+    text: str
+    asked: int = Field(description="Reached it: its condition held.")
+    answered: int
+    options: list[SurveyOptionResultOut]
+    numbers: list[SurveyNumberResultOut]
+    average: float | None
+    min_value: int | None
+    max_value: int | None
+    texts: list[SurveyTextResultOut] = Field(description="The latest 50.")
+
+
+class SurveyLowScoreOut(BaseModel):
+    response_id: str
+    customer_id: str
+    name: str
+    question: str
+    number: int
+    max_value: int | None
+    replied: bool
+    at: datetime
+
+
+class SurveyResultsOut(BaseModel):
+    funnel: SurveyFunnelOut
+    days: list[SurveyDayOut]
+    channels: dict[str, int]
+    languages: dict[str, int]
+    questions: list[SurveyQuestionResultOut]
+    low_scores: list[SurveyLowScoreOut] = Field(
+        description="The lowest 40% of a scale, unanswered first, 50 at most."
+    )
+    low_total: int
+
+
+class CustomerSurveyOut(BaseModel):
+    id: str
+    survey: str
+    channel: str
+    gist: str
+    replied: bool
+    at: datetime
+
+
+class CustomerSurveysOut(BaseModel):
+    rows: list[CustomerSurveyOut]
+
+
+class FeedbackCustomerOut(PersonOut):
+    business: str
+
+
+class FeedbackPieceOut(BaseModel):
+    id: str
+    customer: FeedbackCustomerOut
+    kind: str = Field(description="`text`, `audio` or `video`.")
+    text: str
+    file_url: str = Field(description="Empty for a text. Needs `?token=` in a player.")
+    created_at: datetime
+    plan_name: str
+    reward_percent: int
+    reward_minor: int | None = Field(description="Null: this plan gives no reward.")
+    currency: str
+
+
+class FeedbackDecisionOut(BaseModel):
+    id: str
+    name: str
+    approved: bool
+    amount_minor: int
+    currency: str
+    reason: str
+    by: PersonOut | None
+    at: datetime
+
+
+class FeedbackQueueOut(BaseModel):
+    rows: list[FeedbackPieceOut]
+    recent: list[FeedbackDecisionOut]
+
+
+class PublishablePieceOut(BaseModel):
+    id: str
+    customer: FeedbackCustomerOut
+    kind: str
+    text: str
+    file_url: str
+    decided_at: datetime
+
+
+class PublishableOut(BaseModel):
+    rows: list[PublishablePieceOut]
+
+
+class TestimonialOut(BaseModel):
+    id: str
+    kind: str = Field(description="`image`, `video`, `audio` or `text`.")
+    image: str = Field(description="The picture, or a video's cover.")
+    video: str
+    audio: str
+    text: str
+    from_customer: bool
+    name: str = Field(description="The customer's, on a card from their feedback.")
+    business: str
+    size_bytes: int | None = Field(description="Null: a file is missing from disk.")
+    is_active: bool
+    sort_order: int
+
+
+class PayoutCustomerOut(PersonOut):
+    business: str
+
+
+class PayoutMoneyOut(BaseModel):
+    amount_minor: int
+    currency: str
+    method_label: str
+    card_last4: str = Field(description="Empty for a payout recorded by hand.")
+
+
+class PayoutAskOut(PayoutMoneyOut):
+    id: str
+    customer: PayoutCustomerOut
+    card_number: str | None = Field(
+        description="All digits, in fours. Finance and Owner only."
+    )
+    card_holder: str | None = Field(description="Finance and Owner only.")
+    created_at: datetime
+    overdue: bool = Field(description="Waiting longer than 48 hours.")
+
+
+class PayoutQueueOut(BaseModel):
+    can_act: bool = Field(description="False for Support: no card, no answers.")
+    totals: list[AmountOut] = Field(description="One per currency, never summed.")
+    rows: list[PayoutAskOut]
+
+
+class PayoutRowOut(PayoutMoneyOut):
+    id: str
+    customer: PayoutCustomerOut
+    status: str
+    pay_reference: str
+    reason: str = Field(description="Why it was turned down or voided.")
+    by: PersonOut | None
+    at: datetime
+
+
+class PayoutHistoryOut(BaseModel):
+    rows: list[PayoutRowOut]
+    total: int
+    offset: int
+    next_offset: int
+    has_more: bool
+    states: list[ChoiceOut]
+    counts: dict[str, int] = Field(description="Rows per state, inside the search.")
 
 
 class PaymentTransactionOut(BaseModel):
@@ -1093,6 +1430,7 @@ class PaymentInvoicesOut(BaseModel):
     next_offset: int
     has_more: bool
     states: list[ChoiceOut]
+    counts: dict[str, int] = Field(description="Bills per chip, inside the search.")
 
 
 class PaymentSubscriptionsOut(BaseModel):
@@ -1102,3 +1440,4 @@ class PaymentSubscriptionsOut(BaseModel):
     next_offset: int
     has_more: bool
     states: list[ChoiceOut]
+    counts: dict[str, int] = Field(description="Rows per chip, inside the search.")
