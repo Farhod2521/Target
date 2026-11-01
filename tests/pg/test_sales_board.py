@@ -3,15 +3,17 @@
 from datetime import timedelta
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common import tokens
 from app.common.db import utcnow
 from app.modules.accounts.models import Group, User, UserGroup
 from app.modules.backoffice.constants import Role
+from app.modules.billing.models import Invoice
 from app.modules.public.models import ConsultRequest
-from app.modules.sales.models import ContactHold, LostReason, SalesClaim
+from app.modules.sales.models import ContactHold, LostReason, SalesClaim, SaleSource
+from tests.pg.test_office_actions import _shop
 
 
 def _seller(db: Session, *, role: Role = Role.SALES_LEAD) -> dict[str, str]:
@@ -152,3 +154,54 @@ def test_public_consult_and_deletion(client: TestClient) -> None:
     assert status.json()["is_open"] is True
     home = client.get("/api/v1/public/home")
     assert home.status_code == 200, home.text
+
+
+def test_a_request_is_deleted_with_its_card_unless_it_sold(
+    client: TestClient, db: Session
+) -> None:
+    lead = _seller(db)
+    seller = _seller(db, role=Role.SALES)
+    spam = ConsultRequest(name="Spam", phone_e164="+998901112233", language="uz")
+    sold = ConsultRequest(name="Sotildi", phone_e164="+998901112244", language="uz")
+    db.add_all([spam, sold])
+    db.commit()
+    url = "/api/v1/office/sales/clients"
+    assert client.post(f"{url}/{spam.id}/take", headers=lead).status_code == 200
+    assert client.post(f"{url}/{sold.id}/take", headers=lead).status_code == 200
+    claim = db.scalar(select(SalesClaim).where(SalesClaim.consult_id == sold.id))
+    assert claim is not None
+    shop, plan = _shop(db)
+    bill = Invoice(
+        owner_id=shop.id,
+        number="S-1",
+        plan_id=plan.id,
+        amount_minor=1,
+        currency="UZS",
+        period_days=30,
+        expires_at=utcnow(),
+    )
+    db.add(bill)
+    db.flush()
+    db.add(
+        SaleSource(
+            owner_id=shop.id, invoice_id=bill.id, claim_id=claim.id, paid_at=utcnow()
+        )
+    )
+    db.commit()
+
+    assert client.delete(f"{url}/{spam.id}", headers=seller).status_code == 404
+    gone = client.delete(f"{url}/{spam.id}", headers=lead)
+    kept = client.delete(f"{url}/{sold.id}", headers=lead)
+    person = client.delete(f"{url}/{shop.id}", headers=lead)
+
+    assert gone.status_code == 200, gone.text
+    assert client.get(f"{url}/{spam.id}", headers=lead).status_code == 404
+    assert (
+        db.scalar(
+            select(func.count(SalesClaim.id)).where(SalesClaim.consult_id == spam.id)
+        )
+        == 0
+    )
+    assert kept.json()["code"] == "ariza_sold"
+    assert db.get(ConsultRequest, sold.id) is not None
+    assert person.status_code == 404

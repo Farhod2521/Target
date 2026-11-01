@@ -9,7 +9,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -38,6 +38,7 @@ from app.modules.sales.constants import (
 from app.modules.sales.exceptions import (
     AlreadyClaimed,
     AlreadyContacted,
+    ArizaSold,
     CallbackInPast,
     CallbackRequired,
     HoldGone,
@@ -1005,6 +1006,42 @@ def remove_segment(
     db.delete(segment)
     db.flush()
     _settings_trail(db, actor=actor, what="segment_removed", detail=detail, now=now)
+
+
+def delete_ariza(
+    db: Session, *, actor: User, consult: ConsultRequest, now: datetime
+) -> None:
+    """Remove a request that was never worth a call, with its card and history.
+
+    One that led to a sale stays: its bill and commission point at the card. A
+    card a signed-up customer took over is theirs, so it only loses the link."""
+    claims = select(SalesClaim.id).where(SalesClaim.consult_id == consult.id)
+    sold = db.scalar(
+        select(SaleSource.id).where(SaleSource.claim_id.in_(claims)).limit(1)
+    ) or db.scalar(
+        select(SalesCommission.id).where(SalesCommission.claim_id.in_(claims)).limit(1)
+    )
+    if sold is not None:
+        raise ArizaSold
+    detail = {"name": consult.name, "phone": consult.phone_e164}
+    for model in (SalesActivity, ContactHold):
+        db.execute(
+            update(model)
+            .where(model.consult_id == consult.id, model.owner_id.is_not(None))
+            .values(consult_id=None)
+        )
+        db.execute(delete(model).where(model.consult_id == consult.id))
+    db.execute(
+        update(SalesClaim)
+        .where(SalesClaim.consult_id == consult.id, SalesClaim.owner_id.is_not(None))
+        .values(consult_id=None)
+    )
+    db.execute(delete(SalesClaim).where(SalesClaim.consult_id == consult.id))
+    consult_id = consult.id
+    db.delete(consult)
+    db.flush()
+    _settings_trail(db, actor=actor, what="ariza_removed", detail=detail, now=now)
+    announce(db, client_id=consult_id)
 
 
 def note_viewed(db: Session, *, client: User, actor: User) -> None:

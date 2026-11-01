@@ -637,6 +637,18 @@ def _refused(
     return _dialog(db, who, client_id, refusal=exc.message, with_placement=True)
 
 
+@router.delete("/clients/{client_id}", responses={200: {"model": MessageOut}})
+def remove_ariza(client_id: uuid.UUID, db: Db, lead: Lead) -> dict[str, Any]:
+    """A request off the site, gone with its card. A customer's account is not
+    deleted here: that is the Owner's, on the customer's card."""
+    consult = selectors.ariza(db, consult_id=client_id)
+    if consult is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    services.delete_ariza(db, actor=lead, consult=consult, now=utcnow())
+    db.commit()
+    return {"message": "Ariza o'chirildi."}
+
+
 @router.post("/clients/{client_id}/take", responses={200: {"model": DialogOut}})
 def take(client_id: uuid.UUID, db: Db, who: Who) -> dict[str, Any]:
     try:

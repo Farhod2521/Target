@@ -13,6 +13,13 @@ class NotInQueue(DomainError):
         )
 
 
+class ArizaSold(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu arizadan sotuv bo'lgan: uning cheki va komissiyasi saqlanadi."
+        )
+
+
 class CardClosed(DomainError):
     def __init__(self) -> None:
         super().__init__("Bu karta yopilgan. Doskani yangilang.")
