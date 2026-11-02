@@ -3,6 +3,19 @@
 Semantik versiyalash. Meta API versiyasi (`v26.0`) paket versiyasidan
 alohida — u `client.py` dagi konstantada.
 
+## 0.47.0 — 2026-11-02
+
+### Qo'shildi
+- `create_pixel`: reklama akkauntida piksel yaratish.
+
+## 0.46.0 — 2026-11-02
+
+### Qo'shildi
+- `received` bosqichi `TargetologAIInitialLead` nomi bilan yuboriladi.
+
+### Tuzatildi
+- 7 kundan eski hodisa haqidagi izoh: Meta bunday paketni butunlay rad etadi.
+
 ## 0.45.0 — 2026-11-01
 
 ### Qo'shildi

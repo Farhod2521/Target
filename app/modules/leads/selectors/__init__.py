@@ -63,10 +63,10 @@ from app.modules.leads.selectors.reads import (
     owner_form,
     owner_forms,
     owners_holding_leads,
-    owners_with_verdicts,
     page_holders,
     page_of_leads,
     pair_leads,
+    pixel_state,
     qualified_since,
     question_summary,
     recoverable_deliveries,
@@ -86,7 +86,6 @@ from app.modules.leads.selectors.reads import (
     unpriced_adset_ids,
     unread_deliveries,
     usable_forms,
-    verdicts_for,
 )
 
 __all__ = [
@@ -150,10 +149,10 @@ __all__ = [
     "owner_form",
     "owner_forms",
     "owners_holding_leads",
-    "owners_with_verdicts",
     "page_holders",
     "page_of_leads",
     "pair_leads",
+    "pixel_state",
     "priced",
     "qualified_since",
     "question_summary",
@@ -175,5 +174,4 @@ __all__ = [
     "unread_deliveries",
     "usable_forms",
     "verdict_of",
-    "verdicts_for",
 ]

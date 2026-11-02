@@ -344,6 +344,32 @@ def list_pixels(
     return parsed_all(PixelDTO, rows)
 
 
+def create_pixel(
+    *,
+    account_id: str,
+    name: str,
+    token: str,
+    client: GraphClient | None = None,
+    dry_run: bool = True,
+) -> str:
+    """Make a pixel on one ad account. Returns its id; "" in a dry run.
+
+    The one write in this module: an account with no pixel has nowhere for
+    a lead's verdict to go, and a customer with only lead ads has no reason
+    to have opened Events Manager. Meta refuses with ``6200`` when the
+    account already holds one and ``6202`` when it holds several.
+    """
+    if dry_run:
+        return ""
+    graph = client or GraphClient(token=token)
+    try:
+        answer = graph.post(f"{account_id}/adspixels", name=name)
+    finally:
+        if client is None:
+            graph.close()
+    return str(answer["id"])
+
+
 # How far back Meta will answer for a pixel's own figures. Seven days, and
 # it is the provider's window rather than a choice: asking for a month
 # returns the same week, silently, so a caller that believed otherwise

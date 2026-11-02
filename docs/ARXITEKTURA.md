@@ -64,7 +64,7 @@ Modullar bir-birini import qilmasdan ham ta'sir qila oladi:
 | surveys | Haftalik/oylik so'rovnomalar | 1.7k | 3 | 🟡 mijoz tomoni: router `/surveys` (`/due`, `/answer`, `/later`); ofis tomoni (yaratish, tarjima) va Telegram orqali yuborish ⏳ |
 | supportchat | Mijoz va ofis o'rtasidagi chat | 3.5k | 4 | 🟡 mijoz tomoni: router `/support` (ekran, xabar/fayl, tahrir, o'chirish, poll), WebSocket `/support/ws` (Redis pub/sub); ofis servislari bor, ofis endpointlari va Telegram xabarlari ⏳ |
 | backoffice | Ofis (xodimlar paneli) | 10.8k | 1 | 🟡 router `/office`: `/me`, `/journal`, mijozlar (ro'yxat, karta, reklama tabi, kartadagi 13 amal) — [OFIS_API.md](OFIS_API.md); launch tafsiloti, promo, chat, so'rovnomalar, to'lovlar, hamyon, dashboard, jamoa ⏳ |
-| crm | Mijozning o'z CRM doskasi (menejerlar, ustunlar) | 4.6k | 6 | ✅ selectors, services, tasks, router `/crm`; har bir sahifa + reklama akkaunti juftligi alohida CRM (`?pair=`), menejer bitta juftlikda, har sahifaga 1 bepul o'rin; Django'dagi bitta CRM 0006 migratsiyasida juftliklarga taqsimlanadi (`app/modules/crm/backfill.py`). O'rin sotib olish, sifatli lidlarni Meta'ga yuborish, jamoa statistikasi ⏳ |
+| crm | Mijozning o'z CRM doskasi (menejerlar, ustunlar) | 4.6k | 6 | ✅ selectors, services, tasks, router `/crm`; har bir sahifa + reklama akkaunti juftligi alohida CRM (`?pair=`), menejer bitta juftlikda, har sahifaga 1 bepul o'rin; Django'dagi bitta CRM 0006 migratsiyasida juftliklarga taqsimlanadi (`app/modules/crm/backfill.py`). «Sifatsiz lid» ustuni, tungi `lead_signals` navbati orqali Meta'ga yuborish ✅. O'rin sotib olish, jamoa statistikasi ⏳ |
 | sales | Sotuv doskasi (xodimlar) | 5.4k | 9 | ✅ selectors, services, tasks, router `/office/sales`; doska jonli yangilanishi `/pulse` orqali (xodimlar websocket'i yo'q) |
 | content_studio | Video montaj (`D:\TARGET\FASTAPI\Content_Studio` dan qo'shiladi) | 7.1k | 2 | ⏳ |
 
@@ -104,7 +104,7 @@ Django'da `django-celery-beat` (Postgres) edi — vaqtlar uning
   chat 2, billing 2, sales 2, destinations 2, crm 1 (har modulning `schedule.py` fayli)
 - ⏳ 10 tasi vazifa kodi ko'chirilgach qo'shiladi: notifications 8 (xabarlar,
   kunlik/haftalik hisobot, chastota xabari, obuna tugashi, nosozlik, so'rovnoma),
-  montaj 1, crm `sweep_quality_task` 1
+  montaj 1, leads `sweep_lead_signals_task` 1
 
 Beat `compose.yaml`da `beat` profili ortida: eski Django o'chirilgandan keyin
 `docker compose --profile beat up -d beat` bilan yoqiladi. Ikkala beat bir

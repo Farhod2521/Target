@@ -203,6 +203,7 @@ class EventName(Choices):
     CRM_CARD_CHANGED = "crm.card_changed"
     CRM_CARD_WON = "crm.card_won"
     CRM_CARD_LOST = "crm.card_lost"
+    CRM_CARD_UNQUALIFIED = "crm.card_unqualified"
     CAMPAIGN_ACTIVATED = "campaign.activated"
     CAMPAIGN_PAUSED = "campaign.paused"
     CAMPAIGN_DELETED = "campaign.deleted"
@@ -326,6 +327,7 @@ EVENT_NAME_LABELS = {
     EventName.CRM_CARD_CHANGED: "CRM kartasi o'zgardi",
     EventName.CRM_CARD_WON: "CRM kartasi sotildi",
     EventName.CRM_CARD_LOST: "CRM kartasi rad etildi",
+    EventName.CRM_CARD_UNQUALIFIED: "CRM kartasi sifatsiz deb belgilandi",
     EventName.CAMPAIGN_ACTIVATED: "Kampaniya yoqildi",
     EventName.CAMPAIGN_PAUSED: "Kampaniya to'xtatildi",
     EventName.CAMPAIGN_DELETED: "Kampaniya o'chirildi",

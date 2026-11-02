@@ -7,8 +7,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 from email_validator import EmailNotValidError, validate_email
-from sqlalchemy import func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy.orm import Session, joinedload
 
 from app.common import tokens
 from app.common.config import settings
@@ -24,6 +24,7 @@ from app.modules.audit.models import ActionLog
 from app.modules.audit.services import emit
 from app.modules.crm.constants import (
     ACTION_TARGET_PROVIDER,
+    ASKING_KINDS,
     BACKFILL_LIMIT,
     CLOSING_KINDS,
     COLORS,
@@ -34,6 +35,9 @@ from app.modules.crm.constants import (
     MAX_STAGES,
     PRESET_LABELS,
     PRESETS,
+    SIGNAL_CARDS,
+    SIGNAL_DAYS,
+    SIGNAL_WORDS,
     SWEEP_LIMIT,
     SWEEP_WINDOW_HOURS,
     ActivityKind,
@@ -93,7 +97,9 @@ from app.modules.crm.selectors import (
     qualified_count,
     seated_ids,
 )
-from app.modules.leads.models import Lead
+from app.modules.leads.constants import SignalSource, SignalStatus
+from app.modules.leads.models import Lead, LeadSignal
+from core.leads import CardFacts, card_signals
 
 SPACES = (" ", "\xa0", " ", "'", "_")
 GRACE = timedelta(minutes=5)
@@ -281,7 +287,7 @@ def log_card(
 
 
 def qualifies(*, stage: CrmStage) -> bool:
-    if stage.kind in (StageKind.LOST, StageKind.NEW):
+    if stage.kind in (StageKind.LOST, StageKind.JUNK, StageKind.NEW):
         return False
     return stage.counts_as_quality
 
@@ -403,7 +409,7 @@ def welcome_back(
     was = card.stage
     card.lead_id = lead.id
     card.returned += 1
-    if was.kind in (StageKind.WON, StageKind.LOST):
+    if was.kind in CLOSING_KINDS:
         card.stage_id = first.id
         card.closed_at = None
         card.won_amount_minor = None
@@ -892,6 +898,8 @@ def update_stage(
     name = name.strip()[:48]
     if not name:
         raise NameRequired
+    if stage.kind == StageKind.JUNK and name != stage.name:
+        raise StageLocked
     before = stage_state(stage)
     stage.name = name
     if color in COLORS:
@@ -1008,7 +1016,7 @@ def setup_stages(
                 kind=kind,
                 counts_as_quality=False,
             )
-            (closing if kind in (StageKind.WON, StageKind.LOST) else rows).append(row)
+            (closing if kind in CLOSING_KINDS else rows).append(row)
     ready = {preset: (kind, color) for preset, kind, color, _d, _a in PRESETS}
     custom = 0
     for column in columns:
@@ -1450,6 +1458,120 @@ def assign_card(db: Session, *, viewer: Viewer, card_id: str, user_id: str) -> C
     return card
 
 
+def collect_signals(
+    db: Session, *, owner: User, until: datetime, now: datetime
+) -> None:
+    """Put what the finished days' cards say in the queue, as they stand now.
+
+    A stage a card no longer stands at is withdrawn while it is unsent; what
+    has gone stays gone, the provider cannot take an event back.
+    """
+    since = now - timedelta(days=SIGNAL_DAYS)
+    cards = list(
+        db.scalars(
+            select(CrmCard)
+            .join(
+                CrmSetup,
+                and_(
+                    CrmSetup.owner_id == CrmCard.owner_id,
+                    CrmSetup.page_id == CrmCard.page_id,
+                    CrmSetup.ad_account_id == CrmCard.ad_account_id,
+                ),
+            )
+            .where(
+                CrmCard.owner_id == owner.id,
+                CrmCard.ad_account_id.is_not(None),
+                CrmSetup.state == SetupState.ON,
+                or_(
+                    CrmCard.created_at >= since,
+                    CrmCard.qualified_at >= since,
+                    CrmCard.closed_at >= since,
+                ),
+            )
+            .options(joinedload(CrmCard.stage), joinedload(CrmCard.lead))
+            .order_by(CrmCard.created_at.desc())
+            .limit(SIGNAL_CARDS)
+        )
+    )
+    held: dict[tuple[uuid.UUID, str], LeadSignal] = {
+        (row.lead_id, row.stage): row
+        for row in db.scalars(
+            select(LeadSignal).where(
+                LeadSignal.owner_id == owner.id,
+                LeadSignal.lead_id.in_([card.lead_id for card in cards]),
+            )
+        )
+    }
+    for card in cards:
+        stands = {
+            signal.stage: signal
+            for signal in card_signals(_card_facts(card))
+            if since <= signal.occurred_at < until
+        }
+        for stage, signal in stands.items():
+            row = held.get((card.lead_id, stage))
+            if row is None:
+                db.add(
+                    LeadSignal(
+                        owner_id=owner.id,
+                        lead_id=card.lead_id,
+                        ad_account_id=card.ad_account_id,
+                        stage=stage,
+                        source=SignalSource.INTERNAL,
+                        occurred_at=signal.occurred_at,
+                        value_minor=signal.value_minor,
+                        currency=signal.currency,
+                    )
+                )
+            elif row.status in (SignalStatus.PENDING, SignalStatus.WITHDRAWN):
+                row.status = SignalStatus.PENDING
+                row.occurred_at = signal.occurred_at
+                row.value_minor = signal.value_minor
+                row.currency = signal.currency
+    for (lead_id, stage), row in held.items():
+        card = next((c for c in cards if c.lead_id == lead_id), None)
+        if (
+            row.source == SignalSource.INTERNAL
+            and row.status == SignalStatus.PENDING
+            and card is not None
+            and stage not in {s.stage for s in card_signals(_card_facts(card))}
+        ):
+            row.status = SignalStatus.WITHDRAWN
+    db.flush()
+
+
+def _card_facts(card: CrmCard) -> CardFacts:
+    return CardFacts(
+        kind=card.stage.kind,
+        submitted_at=card.lead.submitted_at,
+        placed_at=card.created_at,
+        qualified_at=card.qualified_at,
+        closed_at=card.closed_at,
+        value_minor=card.won_amount_minor,
+        currency=card.currency,
+    )
+
+
+def note_signals_sent(
+    db: Session, *, rows: Sequence[LeadSignal], now: datetime
+) -> None:
+    """Write on each card what its lead just told the provider."""
+    told = {row.lead_id: row for row in rows if row.stage in SIGNAL_WORDS}
+    cards = db.scalars(select(CrmCard).where(CrmCard.lead_id.in_(list(told))))
+    for card in cards:
+        row = told[card.lead_id]
+        if row.stage == "qualified":
+            card.quality_sent_at = now
+        log_card(
+            db,
+            card=card,
+            actor=None,
+            kind=ActivityKind.SENT_TO_META,
+            text=SIGNAL_WORDS[row.stage],
+            now=now,
+        )
+
+
 def _closing_stage(db: Session, *, viewer: Viewer, kind: str) -> CrmStage:
     stage = db.scalar(
         select(CrmStage).where(holds(viewer.scope, CrmStage), CrmStage.kind == kind)
@@ -1593,31 +1715,38 @@ def finish_due(db: Session, *, viewer: Viewer, card_id: str) -> CrmCard:
 def move_card(db: Session, *, viewer: Viewer, card_id: str, stage_id: str) -> CrmCard:
     card = card_for_write(db, viewer=viewer, card_id=card_id, purpose="take")
     target = _stage(db, viewer=viewer, stage_id=stage_id)
-    if target.kind in CLOSING_KINDS:
+    if target.kind in ASKING_KINDS:
         raise UseTheDialog
     if target.id == card.stage_id:
         return card
     now = utcnow()
     was = card.stage
+    unqualified = target.kind == StageKind.JUNK
     if was.kind in CLOSING_KINDS:
         card.closed_at = None
         card.won_amount_minor = None
         card.lost_reason_id = None
         card.lost_reason_name = ""
-        log_card(
-            db,
-            card=card,
-            actor=viewer.user,
-            kind=ActivityKind.REOPENED,
-            text=was.name,
-            now=now,
-        )
+        if not unqualified:
+            log_card(
+                db,
+                card=card,
+                actor=viewer.user,
+                kind=ActivityKind.REOPENED,
+                text=was.name,
+                now=now,
+            )
     if card.assignee_id is None and (
         not viewer.is_owner or target.kind != StageKind.NEW
     ):
         card.assignee_id = viewer.user.id
         card.taken_at = now
     card.stage_id = target.id
+    if unqualified:
+        card.closed_at = now
+        card.due_at = None
+        card.due_note = ""
+        card.qualified_at = None
     became_qualified = card.qualified_at is None and qualifies(stage=target)
     if became_qualified:
         card.qualified_at = now
@@ -1630,6 +1759,15 @@ def move_card(db: Session, *, viewer: Viewer, card_id: str, stage_id: str) -> Cr
         text=f"{was.name} → {target.name}",
         now=now,
     )
+    if unqualified:
+        log_card(
+            db,
+            card=card,
+            actor=viewer.user,
+            kind=ActivityKind.UNQUALIFIED,
+            event=EventName.CRM_CARD_UNQUALIFIED,
+            now=now,
+        )
     if became_qualified:
         log_card(db, card=card, actor=viewer.user, kind=ActivityKind.QUALIFIED, now=now)
     return card

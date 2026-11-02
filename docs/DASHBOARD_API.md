@@ -52,6 +52,7 @@ Dashboardning asosiy so'rovi. Sahifa ochilganda bir marta chaqiriladi.
 ```json
 {
   "crm_qualified": 12,
+  "lead_quality": { "crm": true, "leads": 120, "marked": 60, "qualified": 14, "unqualified": 22, "sent": 30, "waiting": 6, "failed": 0, "expired": 0, "last_sent_at": "2026-10-28T21:40:00Z", "problem": "none" },
   "dashboard": { "...": "pastda" },
   "filters": {
     "key": "30",
@@ -84,6 +85,7 @@ Dashboardning asosiy so'rovi. Sahifa ochilganda bir marta chaqiriladi.
 | Maydon | Izoh |
 |---|---|
 | `crm_qualified` | CRM sanagan sifatli lidlar. CRM o'chiq bo'lsa `null` |
+| `lead_quality` | Oraliq lidlari haqida Meta'ga aytilgan narsa. `sent` xom lidni sanamaydi, `waiting` keyingi tunni kutadi. `problem`: `none`, `no_pixel`, `pixel_unselected`, `connection`. Lid bo'lmasa `null` |
 | `setup` | Sozlash bloki: `steps[]` (`id`, `state`, `optional`), `done`, `total`, `ready`, `can_finish`, `blocked_on`, `page`. Faqat shu so'rovda keladi; `poll` va `refresh`da `null` |
 | `dashboard` | Asosiy ma'lumot — keyingi bo'lim |
 | `filters` | Qo'llangan oraliq. `earliest` — sana tanlagichda eng erta kun |

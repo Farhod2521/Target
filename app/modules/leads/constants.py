@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Final
 
 from app.common.choices import Choices
 
@@ -42,6 +42,24 @@ OUTCOME_STATUS_LABELS = {
     OutcomeStatus.QUALIFIED: "Sifatli",
     OutcomeStatus.UNQUALIFIED: "Sifatsiz",
 }
+
+
+SIGNAL_REPORT_HOUR: Final = 2
+SIGNALS_PER_RUN: Final = 2000
+SIGNALS_PER_BATCH: Final = 200
+
+
+class SignalStatus(Choices):
+    PENDING = "pending"
+    SENT = "sent"
+    EXPIRED = "expired"
+    FAILED = "failed"
+    WITHDRAWN = "withdrawn"
+
+
+class SignalSource(Choices):
+    INTERNAL = "internal"
+    MANUAL = "manual"
 
 
 class OutcomeSource(Choices):
@@ -99,4 +117,3 @@ QUESTION_LABELS: dict[str, Any] = {
     "ZIP": "Pochta indeksi",
     "STREET_ADDRESS": "Manzil",
 }
-VERDICTS_PER_RUN = 500

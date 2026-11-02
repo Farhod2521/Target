@@ -1,6 +1,7 @@
 from app.common.dates import localtime
 from app.common.db import utcnow
 from app.modules.leads import services
+from app.modules.leads.services import signals
 from app.worker import celery_app, task_session
 
 
@@ -63,15 +64,15 @@ def purge_raw_events_task() -> str:
 
 
 @celery_app.task(queue="sync", ignore_result=True)
-def sweep_lead_verdicts_task() -> int:
+def sweep_lead_signals_task() -> int:
     with task_session() as db:
-        return services.sweep_lead_verdicts(db)
+        return signals.sweep_lead_signals(db, now=utcnow())
 
 
 @celery_app.task(queue="sync", ignore_result=True)
-def report_outcomes_task(owner_id: str) -> str:
+def report_signals_task(owner_id: str) -> str:
     with task_session() as db:
-        return services.report_outcomes(db, owner_id=owner_id)
+        return signals.report_signals(db, owner_id=owner_id, now=utcnow())
 
 
 @celery_app.task(queue="sync", ignore_result=True)

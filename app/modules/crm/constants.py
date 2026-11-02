@@ -13,6 +13,16 @@ SWEEP_WINDOW_HOURS: Final = 6
 SWEEP_LIMIT: Final = 200
 LOST_REASONS_SHOWN: Final = 5
 MIN_PASSWORD_LENGTH: Final = 8
+SIGNAL_DAYS: Final = 7
+PIXEL_NAME_LENGTH: Final = 100
+PIXEL_READS: Final = 5
+PIXEL_READS_WINDOW: Final = 300
+SIGNAL_CARDS: Final = 2000
+SIGNAL_WORDS: Final = {
+    "qualified": "Sifatli",
+    "unqualified": "Sifatsiz",
+    "converted": "Sotildi",
+}
 
 
 class SetupState(Choices):
@@ -33,6 +43,7 @@ class StageKind(Choices):
     OPEN = "open"
     WON = "won"
     LOST = "lost"
+    JUNK = "junk"
 
 
 STAGE_KIND_LABELS = {
@@ -40,8 +51,11 @@ STAGE_KIND_LABELS = {
     StageKind.OPEN: "Jarayonda",
     StageKind.WON: "Sotildi",
     StageKind.LOST: "Rad etildi",
+    StageKind.JUNK: "Sifatsiz lid",
 }
-CLOSING_KINDS: Final = (StageKind.WON, StageKind.LOST)
+CLOSING_KINDS: Final = (StageKind.WON, StageKind.LOST, StageKind.JUNK)
+# Closing columns that ask their one question before a card may land in them.
+ASKING_KINDS: Final = (StageKind.WON, StageKind.LOST)
 
 
 class Distribution(Choices):
@@ -87,6 +101,7 @@ class ActivityKind(Choices):
     QUALIFIED = "qualified"
     WON = "won"
     LOST = "lost"
+    UNQUALIFIED = "unqualified"
     REOPENED = "reopened"
     SENT_TO_META = "sent_to_meta"
 
@@ -104,8 +119,9 @@ ACTIVITY_KIND_LABELS = {
     ActivityKind.QUALIFIED: "Sifatli bo'ldi",
     ActivityKind.WON: "Sotildi",
     ActivityKind.LOST: "Rad etildi",
+    ActivityKind.UNQUALIFIED: "Sifatsiz deb belgilandi",
     ActivityKind.REOPENED: "Qayta ochildi",
-    ActivityKind.SENT_TO_META: "Meta'ga sifatli deb yuborildi",
+    ActivityKind.SENT_TO_META: "Meta'ga yuborildi",
 }
 
 
@@ -137,6 +153,7 @@ class Preset(Choices):
     PAYMENT = "payment"
     WON = "won"
     LOST = "lost"
+    JUNK = "junk"
 
 
 PRESET_LABELS = {
@@ -148,6 +165,7 @@ PRESET_LABELS = {
     Preset.PAYMENT: "To'lov kutilmoqda",
     Preset.WON: "Sotildi",
     Preset.LOST: "Rad etildi",
+    Preset.JUNK: "Sifatsiz lid",
 }
 PRESETS: Final = (
     (Preset.NEW, StageKind.NEW, "#0A64E0", True, True),
@@ -158,9 +176,10 @@ PRESETS: Final = (
     (Preset.PAYMENT, StageKind.OPEN, "#C2255C", False, False),
     (Preset.WON, StageKind.WON, "#0E7F5C", True, True),
     (Preset.LOST, StageKind.LOST, "#C2262E", True, True),
+    (Preset.JUNK, StageKind.JUNK, "#4A5878", True, True),
 )
 MAX_CUSTOM_STAGES: Final = 6
-MAX_STAGES: Final = 12
+MAX_STAGES: Final = 13
 DEFAULT_LOST_REASONS: Final = (
     "Qimmat",
     "Aloqaga chiqmadi",

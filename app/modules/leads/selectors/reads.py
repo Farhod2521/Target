@@ -54,8 +54,15 @@ from app.modules.leads.constants import (
     OutcomeSource,
     OutcomeStatus,
     RawEventStatus,
+    SignalStatus,
 )
-from app.modules.leads.models import Lead, LeadForm, LeadOutcome, RawLeadEvent
+from app.modules.leads.models import (
+    Lead,
+    LeadForm,
+    LeadOutcome,
+    LeadSignal,
+    RawLeadEvent,
+)
 from app.modules.leads.selectors.core import (
     EVERYTHING,
     NO_FILTERS,
@@ -71,7 +78,6 @@ from app.modules.leads.selectors.core import (
 from core.leads import (
     DESTINATIONS,
     Answer,
-    Verdict,
     form_signature,
     label_answers,
 )
@@ -174,63 +180,36 @@ def campaign_leads(
     )
 
 
-def _unreported() -> Select[tuple[LeadOutcome]]:
-    return (
-        select(LeadOutcome)
-        .join(Lead, Lead.id == LeadOutcome.lead_id)
-        .where(
-            LeadOutcome.reported_at.is_(None),
-            LeadOutcome.source == OutcomeSource.USER,
-            Lead.is_test.is_(False),
-            Lead.is_organic.is_(False),
-            Lead.anonymized_at.is_(None),
-            Lead.leadgen_id != "",
-            priced(),
-        )
-    )
-
-
-def owners_with_verdicts(db: Session, *, before: datetime) -> tuple[uuid.UUID, ...]:
-    query = _unreported().where(LeadOutcome.updated_at <= before)
-    return tuple(db.scalars(select(distinct(query.subquery().c.owner_id))))
-
-
-def verdicts_for(
-    db: Session, *, owner: User, before: datetime, limit: int
-) -> tuple[Verdict, ...]:
-    rows = db.scalars(
-        _unreported()
-        .where(LeadOutcome.owner_id == owner.id, LeadOutcome.updated_at <= before)
-        .order_by(LeadOutcome.updated_at)
-        .limit(limit)
-    )
-    return tuple(
-        Verdict(
-            lead_external_id=row.lead.leadgen_id,
-            status=row.status,
-            decided_at=row.updated_at,
-            value_minor=row.deal_value_minor,
-            currency=row.currency,
-        )
-        for row in rows
-    )
-
-
 def qualified_since(db: Session, *, owner: User, since: datetime) -> int:
     return _count(
         db,
-        select(LeadOutcome.id)
-        .join(Lead, Lead.id == LeadOutcome.lead_id)
+        select(LeadSignal.id)
+        .join(Lead, Lead.id == LeadSignal.lead_id)
         .where(
-            LeadOutcome.owner_id == owner.id,
-            LeadOutcome.status == OutcomeStatus.QUALIFIED,
-            LeadOutcome.source == OutcomeSource.USER,
-            LeadOutcome.updated_at >= since,
+            LeadSignal.owner_id == owner.id,
+            LeadSignal.stage == "qualified",
+            LeadSignal.status == SignalStatus.SENT,
+            LeadSignal.occurred_at >= since,
             Lead.is_test.is_(False),
             Lead.is_organic.is_(False),
-            priced(),
         ),
     )
+
+
+def pixel_state(db: Session, *, owner: User, ad_account: AdAccount) -> str:
+    """``ready``, ``unselected`` when one waits to be picked, or ``none``."""
+    if reporting_dataset(db, owner=owner, ad_account=ad_account):
+        return "ready"
+    usable = db.scalar(
+        select(PixelAccount.id)
+        .where(
+            PixelAccount.owner_id == owner.id,
+            PixelAccount.ad_account_id == ad_account.id,
+            PixelAccount.is_unavailable.is_(False),
+        )
+        .limit(1)
+    )
+    return "unselected" if usable else "none"
 
 
 def reporting_dataset(db: Session, *, owner: User, ad_account: AdAccount) -> str:

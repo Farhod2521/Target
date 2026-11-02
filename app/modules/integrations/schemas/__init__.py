@@ -197,6 +197,10 @@ class ExternalIdIn(BaseModel):
     external_id: str = Field(min_length=1, max_length=128)
 
 
+class PixelIn(BaseModel):
+    external_id: str = Field("", max_length=128, description="Empty chooses none.")
+
+
 class PagesIn(BaseModel):
     external_ids: list[str] = Field(min_length=1)
     ad_account: str = ""

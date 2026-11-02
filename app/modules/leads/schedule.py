@@ -49,7 +49,7 @@ SCHEDULE: Final = [
     ),
     Periodic(
         "Lid natijalarini Meta'ga yuborish",
-        f"{TASKS}.sweep_lead_verdicts_task",
-        "20,50",
+        f"{TASKS}.sweep_lead_signals_task",
+        "40",
     ),
 ]

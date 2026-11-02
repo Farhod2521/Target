@@ -88,12 +88,10 @@ Level = Literal[
 #   converted    money changed hands. Carries an amount; the other two
 #                never do
 #
-# **"Received" is absent on purpose and its absence is the point.** The
-# provider handed the lead over, so it already knows that one happened, and
-# reporting it back would be telling a platform a fact it is the source of
-# - which trains its optimiser on its own output. The only news this
-# product has is the judgement.
-LeadStage = Literal["qualified", "unqualified", "converted"]
+# **"Received" is told because the provider asks for it.** Meta's Conversion
+# Leads guide wants every stage including the raw lead: the first stage is
+# what the later ones are read against.
+LeadStage = Literal["received", "qualified", "unqualified", "converted"]
 
 # What sort of catalogue row a piece of detailed targeting is.
 #

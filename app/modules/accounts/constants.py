@@ -26,6 +26,7 @@ PURGE_ORDER: tuple[str, ...] = (
     "businesses.CustomCategory",
     "audit.ErrorEvent",
     "leads.LeadOutcome",
+    "leads.LeadSignal",
     "destinations.LeadDelivery",
     "destinations.FormSheet",
     "destinations.SheetLink",

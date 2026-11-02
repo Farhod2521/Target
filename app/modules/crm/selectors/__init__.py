@@ -13,6 +13,7 @@ from app.modules.accounts.models import User
 from app.modules.crm.constants import (
     CARDS_PER_COLUMN,
     CLOSED_DAYS_ON_BOARD,
+    CLOSING_KINDS,
     LOST_REASONS_SHOWN,
     Flag,
     SetupState,
@@ -26,6 +27,7 @@ from app.modules.crm.models import (
     CrmSetup,
     CrmStage,
 )
+from app.modules.integrations.models import PixelAccount
 from app.modules.integrations.selectors import Pair, current_pair, page_pairs
 from app.modules.leads.models import Lead, LeadForm
 
@@ -652,7 +654,7 @@ def _on_board(*, viewer: Viewer, filters: BoardFilters, now: datetime) -> Select
 def _ordered(query: Select[Any], kind: str) -> Select[Any]:
     if kind == StageKind.NEW:
         return query.order_by(CrmCard.created_at.desc(), CrmCard.id)
-    if kind in (StageKind.WON, StageKind.LOST):
+    if kind in CLOSING_KINDS:
         return query.order_by(CrmCard.closed_at.desc(), CrmCard.id)
     return query.order_by(CrmCard.due_at, CrmCard.updated_at.desc(), CrmCard.id)
 
@@ -934,6 +936,44 @@ def qualified_count(
             Lead.campaign_external_id.in_(list(campaign_ids))
         )
     return _count(db, query)
+
+
+def running_owners(db: Session) -> tuple[uuid.UUID, ...]:
+    return tuple(
+        db.scalars(
+            select(CrmSetup.owner_id)
+            .where(CrmSetup.state == SetupState.ON, CrmSetup.page_id.is_not(None))
+            .distinct()
+        )
+    )
+
+
+def has_card(db: Session, *, lead_id: uuid.UUID) -> bool:
+    return db.scalar(select(CrmCard.id).where(CrmCard.lead_id == lead_id)) is not None
+
+
+def pixel_state(db: Session, *, viewer: Viewer) -> str:
+    from app.modules.leads.selectors import pixel_state as state_of
+
+    if viewer.pair is None:
+        return "none"
+    return state_of(db, owner=viewer.owner, ad_account=viewer.pair.account)
+
+
+def pair_pixels(db: Session, *, viewer: Viewer) -> list[PixelAccount]:
+    if viewer.pair is None:
+        return []
+    return list(
+        db.scalars(
+            select(PixelAccount)
+            .where(
+                PixelAccount.owner_id == viewer.owner.id,
+                PixelAccount.ad_account_id == viewer.pair.account.id,
+                PixelAccount.is_unavailable.is_(False),
+            )
+            .order_by(PixelAccount.name)
+        )
+    )
 
 
 def ad_names_for(db: Session, *, owner: User, cards: list[CrmCard]) -> dict[str, str]:

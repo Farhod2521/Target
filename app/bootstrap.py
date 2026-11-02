@@ -17,7 +17,11 @@ def register_providers() -> None:
         return
     registry.register(
         META,
-        meta_bundle(app_id=settings.meta_app_id, app_secret=settings.meta_app_secret),
+        meta_bundle(
+            app_id=settings.meta_app_id,
+            app_secret=settings.meta_app_secret,
+            conversions_test_code=settings.meta_conversions_test_code,
+        ),
     )
     registry.register(
         GOOGLE,

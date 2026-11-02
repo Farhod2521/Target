@@ -2,7 +2,6 @@
 
 import logging
 import uuid
-from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Final
@@ -10,14 +9,11 @@ from typing import Any, Final
 from adskit import (
     ExternalRef,
     LeadDTO,
-    LeadEventDTO,
     LeadSourcePort,
-    MinorUnits,
     registry,
 )
 from adskit.dto import LeadFormDTO
 from adskit.errors import AuthFailed, PermissionDenied, ProviderError, ResultTruncated
-from metaads import PROVIDER as META
 from metaads.webhooks import LeadNotice
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -40,7 +36,7 @@ from app.modules.integrations.constants import (
     USABLE_CONNECTION_STATUSES,
     ConnectionStatus,
 )
-from app.modules.integrations.models import AdAccount, PageAccount, ProviderConnection
+from app.modules.integrations.models import PageAccount, ProviderConnection
 from app.modules.leads.constants import (
     ANONYMIZE_LIMIT,
     FAILED_RETRY_ATTEMPTS,
@@ -59,7 +55,6 @@ from app.modules.leads.constants import (
     UNIMPORTED_REPORT_SAMPLE,
     UNIMPORTED_WINDOW_HOURS,
     UNSIGNED_EVENT_RETENTION_DAYS,
-    VERDICTS_PER_RUN,
     LeadFormStatus,
     OutcomeSource,
     OutcomeStatus,
@@ -82,10 +77,8 @@ from app.modules.leads.selectors import (
     leads_matching_email,
     orphan_pages,
     owners_holding_leads,
-    owners_with_verdicts,
     page_holders,
     recoverable_deliveries,
-    reporting_dataset,
     retired_unread_forms,
     retryable_deliveries,
     shown_page,
@@ -93,8 +86,8 @@ from app.modules.leads.selectors import (
     unerased_lead_ids,
     unimported_deliveries,
     unread_deliveries,
-    verdicts_for,
 )
+from app.modules.leads.services.signals import note_verdict, withdraw_verdict
 from app.modules.leads.trace import (
     LeadTrace,
     record_fetch,
@@ -105,7 +98,7 @@ from app.modules.leads.trace import (
 )
 from app.modules.leads.trace import record_delivery as trace_delivery
 from app.modules.leads.trace import record_outcome as trace_outcome
-from core.leads import SETTLE_MINUTES, Verdict, due, event_key, expired, normalise
+from core.leads import normalise
 
 logger = logging.getLogger(__name__)
 LEAD_LEVEL: Final = "lead"
@@ -555,15 +548,18 @@ def mark_outcome(db: Session, *, user: User, lead_id: str, status: str) -> LeadO
         db.add(outcome)
     else:
         outcome.owner_id = user.id
-        if outcome.status != status:
-            outcome.status = status
-            if outcome.reported_at and outcome.reported_status != status:
-                outcome.reported_at = None
+        outcome.status = status
     db.flush()
+    note_verdict(db, owner=user, lead=lead, status=status)
     return outcome
 
 
 def clear_outcome(db: Session, *, user: User, lead_id: str) -> None:
+    lead = db.scalar(
+        select(Lead).where(Lead.owner_id == user.id, Lead.id == _uuid(lead_id))
+    )
+    if lead is not None:
+        withdraw_verdict(db, lead=lead)
     db.execute(
         delete(LeadOutcome).where(
             LeadOutcome.owner_id == user.id,
@@ -1136,131 +1132,6 @@ def erase_expired_leads(db: Session, *, now: datetime) -> int:
     return erased
 
 
-def sweep_lead_verdicts(db: Session) -> int:
-    from app.modules.leads.tasks import report_outcomes_task
-
-    settled = utcnow() - timedelta(minutes=SETTLE_MINUTES)
-    owners = owners_with_verdicts(db, before=settled)
-    for owner_id in owners:
-        report_outcomes_task.delay(str(owner_id))
-    return len(owners)
-
-
-def report_outcomes(db: Session, *, owner_id: uuid.UUID | str) -> str:
-    owner = db.get(User, _uuid(owner_id))
-    if owner is None:
-        return "gone"
-    account = db.scalar(
-        select(AdAccount).where(
-            AdAccount.owner_id == owner.id,
-            AdAccount.provider == META,
-            AdAccount.is_active.is_(True),
-        )
-    )
-    if account is None:
-        return "no_account"
-    dataset = reporting_dataset(db, owner=owner, ad_account=account)
-    if not dataset:
-        return "no_dataset"
-    connection = account.connection
-    if connection.status not in USABLE_CONNECTION_STATUSES:
-        return "connection_unusable"
-    try:
-        token = decrypt(connection.token_encrypted)
-    except DecryptionFailed:
-        logger.exception("connection %s could not be decrypted", connection.id)
-        return "connection_unusable"
-    now = utcnow()
-    port = registry.get(account.provider).conversions
-    window = port.report_window_days()
-    rehearsing = settings.ads_dry_run
-    verdicts = verdicts_for(
-        db,
-        owner=owner,
-        before=now - timedelta(minutes=SETTLE_MINUTES),
-        limit=VERDICTS_PER_RUN,
-    )
-    if not verdicts:
-        return "nothing_due"
-    ready = due(verdicts=verdicts, now=now, window_days=window)
-    stale = expired(verdicts=verdicts, now=now, window_days=window)
-    if not rehearsing:
-        _close(db, owner=owner, verdicts=stale, at=now, reported="")
-    if not ready:
-        db.commit()
-        return f"expired:{len(stale)}"
-    try:
-        receipt = port.report_leads(
-            dataset=ExternalRef(
-                provider=account.provider, level=DATASET_LEVEL, id=dataset
-            ),
-            events=[
-                _verdict_event(verdict=verdict, stage=stage, provider=account.provider)
-                for verdict, stage in ready
-            ],
-            token=token,
-            dry_run=rehearsing,
-        )
-    except ProviderError as exc:
-        db.commit()
-        logger.warning("verdict reporting failed for %s: %s", owner.id, exc)
-        return "provider_failed"
-    if rehearsing:
-        return f"rehearsed:{len(ready)}"
-    by_stage: dict[str, list[Verdict]] = defaultdict(list)
-    for verdict, stage in ready:
-        by_stage[stage].append(verdict)
-    for stage, group in by_stage.items():
-        _close(db, owner=owner, verdicts=tuple(group), at=now, reported=stage)
-    db.commit()
-    return f"sent:{receipt.accepted}"
-
-
-def _verdict_event(*, verdict: Verdict, stage: str, provider: str) -> LeadEventDTO:
-    return LeadEventDTO(
-        lead=ExternalRef(
-            provider=provider, level=LEAD_LEVEL, id=verdict.lead_external_id
-        ),
-        stage=stage,  # type: ignore[arg-type]
-        occurred_at=verdict.decided_at,
-        event_id=event_key(
-            provider=provider, lead_external_id=verdict.lead_external_id, stage=stage
-        ),
-        value_minor=(
-            MinorUnits(verdict.value_minor)
-            if stage == "converted" and verdict.value_minor is not None
-            else None
-        ),
-        currency=verdict.currency if stage == "converted" else "",
-    )
-
-
-def _close(
-    db: Session,
-    *,
-    owner: User,
-    verdicts: tuple[Verdict, ...],
-    at: datetime,
-    reported: str,
-) -> None:
-    if not verdicts:
-        return
-    leads = select(Lead.id).where(
-        Lead.owner_id == owner.id,
-        Lead.leadgen_id.in_([verdict.lead_external_id for verdict in verdicts]),
-    )
-    db.execute(
-        update(LeadOutcome)
-        .where(
-            LeadOutcome.owner_id == owner.id,
-            LeadOutcome.lead_id.in_(leads),
-            LeadOutcome.source == OutcomeSource.USER,
-            LeadOutcome.reported_at.is_(None),
-        )
-        .values(reported_at=at, reported_status=reported)
-    )
-
-
 __all__ = [
     "ANONYMIZED_FIELDS",
     "CREATED",
@@ -1285,14 +1156,12 @@ __all__ = [
     "recover_leads",
     "refresh_page_forms",
     "report_orphan_deliveries",
-    "report_outcomes",
     "report_unimported_deliveries",
     "request_forms_refresh",
     "retry_deliveries",
     "retry_failed_deliveries",
     "store_lead",
     "subscribe_page",
-    "sweep_lead_verdicts",
     "sweep_unimported_deliveries",
     "sync_page_forms",
     "unsigned_retention_floor",

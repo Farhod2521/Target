@@ -276,3 +276,32 @@ def test_no_test_code_is_sent_in_normal_running() -> None:
     )
 
     assert "test_event_code" not in parse_qs(seen[0].content.decode())
+
+
+def test_the_raw_lead_has_its_own_name() -> None:
+    assert STAGE_EVENTS["received"] == "TargetologAIInitialLead"
+
+
+def test_a_pixel_is_made_on_the_account_and_a_dry_run_makes_none() -> None:
+    from metaads.accounts import create_pixel
+
+    class Graph:
+        asked: tuple[str, dict[str, str]] | None = None
+
+        def post(self, path: str, **data: str) -> dict[str, str]:
+            Graph.asked = (path, data)
+            return {"id": "777"}
+
+    graph = Graph()
+
+    rehearsed = create_pixel(
+        account_id="act_1", name="X", token="t", client=graph, dry_run=True
+    )
+    assert rehearsed == ""
+    assert Graph.asked is None
+
+    made = create_pixel(
+        account_id="act_1", name="X", token="t", client=graph, dry_run=False
+    )
+    assert made == "777"
+    assert Graph.asked == ("act_1/adspixels", {"name": "X"})

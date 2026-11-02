@@ -60,6 +60,7 @@ from app.modules.integrations.schemas import (
     PairIn,
     PairOut,
     PayerOptionOut,
+    PixelIn,
     PixelOut,
     ProfileCardOut,
     RuleAudienceIn,
@@ -433,8 +434,10 @@ def select_page(body: ExternalIdIn, db: Db, user: CurrentUser) -> MessageOut:
 
 
 @router.post("/meta/pixel", response_model=MessageOut)
-def select_pixel(body: ExternalIdIn, db: Db, user: CurrentUser) -> MessageOut:
+def select_pixel(body: PixelIn, db: Db, user: CurrentUser) -> MessageOut:
     pixel = services.select_pixel(db, user=user, external_id=body.external_id)
+    if pixel is None:
+        return _ok(db, "Pixel olib tashlandi.")
     return _ok(db, "Pixel tanlandi: %(name)s" % {"name": pixel})
 
 

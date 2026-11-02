@@ -60,11 +60,20 @@ Ko'pi bilan 12 ta ustun, shundan 6 tasi o'zi yozgan.
 
 - Ega qaysi ustunlar "sifatli" hisoblanishini tanlaydi
   (`stage.counts_as_quality`). Faqat `open` va `won` ustunlar tanlanadi.
+- «Sifatsiz lid» (`kind: junk`) har doskada oxirgi ustun: o'chirilmaydi, ko'chirilmaydi, nomi
+  o'zgarmaydi. Karta unga `POST /crm/cards/{id}/move` bilan tushadi va yopiladi. Yopilgan kartani
+  ustunga qaytarish uchun `can_move` o'qiladi: `can_work` yopilgan kartada `false`.
+- Har tunda (egasining soati 02:40) ustunlar holati `lead_signals` orqali Meta'ga boradi: yangi,
+  sifatli, sifatsiz, sotildi. Shu kuni tuzatilgan xato yuborilmaydi. Doska `pixel_state` bilan juftlik
+  holatini aytadi: `ready`, `unselected`, `none`. Sozlamalardagi `meta` piksellar ro'yxatini beradi;
+  `POST /crm/settings/pixel` shu juftlik akkauntiga piksel tanlaydi, `POST /crm/settings/pixel/refresh`
+  ro'yxatni Meta'dan qayta o'qiydi (5 daqiqada 5 marta). `POST /crm/settings/pixel/create` akkauntda piksel yaratib, uni tanlaydi;
+  `ADS_DRY_RUN` yoqiq bo'lsa `pixel_rehearsed` bilan rad etiladi.
 - Karta shunday ustunga birinchi marta tushganda `card.qualified_at`
   yoziladi va tarixga "Sifatli bo'ldi" qo'shiladi.
 - Bu son dashboardda `crm_qualified` bo'lib chiqadi.
 - ⚠️ Sifatli lidlarni Meta'ga yuborish backendda **hali ko'chirilmagan**
-  (`quality_sent_at` hozircha doim bo'sh).
+  (`quality_sent_at` Meta sifatli hodisani olganda to'ladi).
 
 ---
 
