@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common import tokens
@@ -16,7 +16,12 @@ from app.modules.audit.models import Event
 from app.modules.backoffice.constants import ActionKind, Role
 from app.modules.backoffice.models import StaffAction
 from app.modules.billing.constants import InvoiceStatus, SubscriptionStatus
-from app.modules.billing.models import Invoice, Plan, Subscription
+from app.modules.billing.models import (
+    Invoice,
+    Plan,
+    Subscription,
+    SubscriptionChange,
+)
 from app.modules.integrations.models import (
     AdAccount,
     PageAccount,
@@ -195,6 +200,92 @@ def test_plan_days_slots_payment_and_referral(client: TestClient, db: Session) -
         ActionKind.PAYMENT_RECORDED,
         ActionKind.REFERRAL_CHANGED,
     ]
+
+
+def _plan_of(db: Session, customer: User) -> Subscription:
+    subscription = db.scalar(
+        select(Subscription).where(Subscription.owner_id == customer.id)
+    )
+    assert subscription is not None
+    return subscription
+
+
+def test_days_can_be_taken_back_and_no_money_moves(
+    client: TestClient, db: Session
+) -> None:
+    customer, _ = _shop(db)
+    subscription = _plan_of(db, customer)
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+    base = f"{URL}/{customer.id}"
+    before = subscription.expires_at
+    bills = db.scalar(select(func.count()).select_from(Invoice))
+
+    taken = client.post(
+        f"{base}/days",
+        headers=support,
+        json={"days": 5, "take": True, "reason": "Xato berilgan"},
+    )
+    assert taken.status_code == 200, taken.text
+
+    db.expire_all()
+    assert subscription.expires_at == before - timedelta(days=5)
+    assert subscription.status == SubscriptionStatus.ACTIVE
+    assert subscription.ended_at is None
+    assert "-5" in subscription.note
+    assert db.scalar(select(func.count()).select_from(Invoice)) == bills
+    assert _kinds(db, customer) == [ActionKind.DAYS_TAKEN]
+    change = db.scalar(
+        select(SubscriptionChange).where(SubscriptionChange.owner_id == customer.id)
+    )
+    assert change is not None
+    assert (change.kind, change.days) == ("taken", -5)
+    assert change.expires_before == before
+    assert db.scalar(
+        select(Event).where(Event.name == EventName.SUBSCRIPTION_SHORTENED)
+    )
+
+
+def test_taking_every_day_left_ends_the_plan_only_when_asked(
+    client: TestClient, db: Session
+) -> None:
+    customer, _ = _shop(db)
+    subscription = _plan_of(db, customer)
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+    base = f"{URL}/{customer.id}"
+    before = subscription.expires_at
+    asked = {"days": 25, "take": True, "reason": "Xato berilgan"}
+
+    refused = client.post(f"{base}/days", headers=support, json=asked)
+    assert refused.status_code == 400
+    db.expire_all()
+    assert subscription.expires_at == before
+    assert subscription.status == SubscriptionStatus.ACTIVE
+    assert _kinds(db, customer) == []
+
+    ended = client.post(
+        f"{base}/days", headers=support, json={**asked, "may_end": True}
+    )
+    assert ended.status_code == 200, ended.text
+    db.expire_all()
+    assert subscription.status == SubscriptionStatus.EXPIRED
+    assert subscription.ended_at is not None
+    # The grace days count from here, so the end is never written before now.
+    assert subscription.expires_at == subscription.ended_at
+
+    again = client.post(f"{base}/days", headers=support, json={**asked, "days": 1})
+    assert again.status_code == 400
+
+
+def test_a_taken_day_writes_no_payment(client: TestClient, db: Session) -> None:
+    customer, _ = _shop(db)
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+    refused = client.post(
+        f"{URL}/{customer.id}/days",
+        headers=support,
+        json={"days": 1, "take": True, "paid": True, "amount": "100", "reason": "Xato"},
+    )
+    assert refused.status_code in (400, 422)
+    assert _kinds(db, customer) == []
 
 
 def test_a_refusal_is_a_domain_error_and_roles_are_kept(

@@ -78,6 +78,12 @@ class PlanIn(PaidIn):
 
 class DaysIn(PaidIn):
     days: int = Field(ge=1, le=MAX_GRANT_DAYS)
+    take: bool = Field(False, description="Take days back instead of adding them.")
+    may_end: bool = Field(
+        False,
+        description="`take`: end the subscription if these are all the days left. "
+        "Its adverts are then stopped, and deleted after the grace days.",
+    )
 
 
 class SlotsIn(PaidIn):
@@ -168,8 +174,24 @@ def give_plan(
 def give_days(
     customer_id: uuid.UUID, body: DaysIn, db: Db, actor: Admin
 ) -> dict[str, Any]:
-    """Add days to the entitlement; a lapsed one is reopened on its last plan."""
+    """Add days to the entitlement, or take them back (`take`).
+
+    Added, a lapsed one is reopened on its last plan.
+    """
     customer = _customer(db, customer_id)
+    if body.take:
+        if body.paid:
+            raise InputRefused({"paid": "Ayirilgan kun uchun to'lov yozilmaydi."})
+        services.take_days(
+            db,
+            customer=customer,
+            days=body.days,
+            may_end=body.may_end,
+            actor=actor,
+            reason=body.reason,
+            now=utcnow(),
+        )
+        return _done(db, "Muddat qisqartirildi.")
     services.add_days(
         db,
         customer=customer,

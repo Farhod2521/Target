@@ -24,6 +24,7 @@ from app.modules.billing.services.grants import (
     require_live_subscription,
     require_preparation,
     require_setup_completed,
+    revoke_days,
     revoke_pages,
     start_trial,
 )
@@ -83,6 +84,7 @@ __all__ = [
     "require_live_subscription",
     "require_preparation",
     "require_setup_completed",
+    "revoke_days",
     "revoke_pages",
     "revoke_payment",
     "settle_covered_invoice",
