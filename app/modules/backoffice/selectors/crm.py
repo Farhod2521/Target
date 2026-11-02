@@ -135,6 +135,7 @@ class PairFigures:
     won: int
     won_minor: int
     lost: int
+    junk: int
     qualified: int
     late: int
     today: int
@@ -219,6 +220,7 @@ def pair_figures(
             if kinds.get(stage_id) == StageKind.WON
         ),
         lost=in_kind(StageKind.LOST),
+        junk=in_kind(StageKind.JUNK),
         qualified=flags[0],
         late=flags[1],
         today=flags[2],

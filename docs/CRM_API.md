@@ -582,8 +582,8 @@ Ega amallari, xatolar va cheklovlar 6-7-bo'limlardagidek. Javob: `{"message"}`.
 | `POST /erase` | **Faqat Owner.** `{"email", "reason"}`, `?pair` kerak emas |
 
 `erase` hamma juftlikdagi kartalar, tarix, ustunlar, sabablar, sozlamalar,
-menejerlar va ularning loginlarini o'chiradi. Lidlar va sotib olingan o'rinlar
-qoladi. Mijoz CRM'ni sozlash ustasidan qaytadan boshlaydi.
+menejerlar va ularning loginlarini o'chiradi, Meta'ga hali yuborilmagan
+signallarni bekor qiladi. Lidlar va sotib olingan o'rinlar qoladi. Mijoz CRM'ni sozlash ustasidan qaytadan boshlaydi.
 
 ## 10. Hali backendda yo'q
 

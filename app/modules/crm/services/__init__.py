@@ -1337,8 +1337,10 @@ def erase_crm(db: Session, *, owner: User, actor: User) -> None:
     """The owner's CRM on every pair, gone as if it was never set up.
 
     Cards with their history, columns, lost reasons, setups, the managers and
-    their logins. The leads stay, and so do the seats bought. Taking the setups
-    first holds ``place_lead`` off, which locks one before it lays a card.
+    their logins. The leads stay, and so do the seats bought. What the cards
+    still had to tell the provider is withdrawn; what has gone stays gone. Taking
+    the setups first holds ``place_lead`` off, which locks one before it lays a
+    card.
     """
     from app.modules.accounts.services import remove_member_login
 
@@ -1348,6 +1350,15 @@ def erase_crm(db: Session, *, owner: User, actor: User) -> None:
         )
     )
     logins = list(db.scalars(select(User).where(User.crm_owner_id == owner.id)))
+    db.execute(
+        update(LeadSignal)
+        .where(
+            LeadSignal.owner_id == owner.id,
+            LeadSignal.source == SignalSource.INTERNAL,
+            LeadSignal.status == SignalStatus.PENDING,
+        )
+        .values(status=SignalStatus.WITHDRAWN, updated_at=utcnow())
+    )
     for model in (CrmCard, CrmStage, CrmLostReason, CrmMember, CrmSetup):
         delete_rows(db, model.__table__, model.owner_id == owner.id)
     subjects = [str(login.id) for login in logins]

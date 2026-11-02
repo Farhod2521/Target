@@ -22,7 +22,8 @@ from app.modules.crm.models import (
     CrmSetup,
     CrmStage,
 )
-from app.modules.leads.models import Lead
+from app.modules.leads.constants import SignalSource, SignalStatus
+from app.modules.leads.models import Lead, LeadSignal
 from tests.pg.test_crm_http import (
     CRM,
     LATER,
@@ -130,6 +131,7 @@ def test_the_card_counts_a_running_crm(client: TestClient, db: Session) -> None:
     assert d["enabled_at"] is not None
     f = d["figures"]
     assert (f["leads"], f["cards"], f["open"], f["won"], f["lost"]) == (3, 3, 1, 1, 1)
+    assert f["junk"] == 0
     assert f["won_minor"] > 0
     assert f["unassigned"] == 1
     assert f["last_activity_at"] is not None
@@ -204,6 +206,17 @@ def test_staff_shape_the_columns(client: TestClient, db: Session) -> None:
     assert [s["name"] for s in d["stages"]][1] == "Narx yuborildi"
     assert next(s for s in d["stages"] if s["id"] == won["id"])["name"] == "Yopildi"
 
+    junk = next(s for s in d["stages"] if s["kind"] == "junk")
+    fixed = _write(
+        client,
+        owner,
+        staff,
+        f"/stages/{junk['id']}",
+        {"name": "Boshqa nom"},
+        method="put",
+    )
+    assert fixed.status_code == 400
+    assert fixed.json()["code"] == "stage_locked"
     locked = _write(client, owner, staff, f"/stages/{won['id']}/delete")
     assert locked.status_code == 400
     assert locked.json()["code"] == "stage_locked"
@@ -419,6 +432,27 @@ def test_erasing_takes_the_whole_crm_and_keeps_the_leads(
     assert wrong.status_code == 400
     assert _count(db, CrmCard, owner) == 3
 
+    lead = db.scalar(select(Lead).where(Lead.owner_id == owner.id))
+    assert lead is not None
+    pending, sent, manual = (
+        LeadSignal(
+            owner_id=owner.id,
+            lead_id=lead.id,
+            ad_account_id=cards[0].ad_account_id,
+            stage=stage,
+            source=source,
+            status=status,
+            occurred_at=utcnow(),
+        )
+        for stage, source, status in (
+            ("qualified", SignalSource.INTERNAL, SignalStatus.PENDING),
+            ("converted", SignalSource.INTERNAL, SignalStatus.SENT),
+            ("disqualified", SignalSource.MANUAL, SignalStatus.PENDING),
+        )
+    )
+    db.add_all([pending, sent, manual])
+    db.commit()
+
     done = _write(client, owner, boss, "/erase", {"email": " CRM@example.com "})
     assert done.status_code == 200, done.text
     assert "3 ta karta" in done.json()["message"]
@@ -427,6 +461,10 @@ def test_erasing_takes_the_whole_crm_and_keeps_the_leads(
         assert _count(db, model, owner) == 0, model
     assert db.scalar(select(User).where(User.email == "vali@example.com")) is None
     assert _count(db, Lead, owner) == 3
+    # The night's run must not tell Meta about a CRM that is gone.
+    assert pending.status == SignalStatus.WITHDRAWN
+    assert sent.status == SignalStatus.SENT
+    assert manual.status == SignalStatus.PENDING
     assert client.get(CRM, headers=manager).status_code == 401
     row = db.scalar(
         select(StaffAction).where(

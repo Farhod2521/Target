@@ -473,6 +473,7 @@ class CrmFiguresOut(BaseModel):
     won: int
     won_minor: int = Field(description="In the setup's currency.")
     lost: int
+    junk: int = Field(description="Cards in the «Sifatsiz lid» column.")
     qualified: int
     late: int = Field(description="Open cards whose due time has passed.")
     today: int = Field(description="Open cards due today.")

@@ -869,7 +869,7 @@ def pixel(
         external_id=body.external_id,
     )
     db.commit()
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 @router.post("/settings/pixel/refresh", responses={200: {"model": SettingsOut}})
@@ -879,7 +879,7 @@ def pixel_refresh(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, A
     answer = sync_pixels(db, ad_account_id=account.id)
     if answer in ("gone", "unusable", "failed"):
         raise PixelsUnread
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 @router.post("/settings/pixel/create", responses={200: {"model": SettingsOut}})
@@ -888,7 +888,7 @@ def pixel_create(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, An
     _pixels_allowed(viewer)
     create_pixel(db, account=account, name=_pixel_name(viewer))
     db.commit()
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 def _pixel_name(viewer: Viewer) -> str:
