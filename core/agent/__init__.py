@@ -77,6 +77,7 @@ from core.agent.rules import CODES, UNCAPPED, cap, find, holds, scan
 from core.agent.schemas import (
     AgentReview,
     AudienceProposal,
+    ChatGPTCardDraft,
     ChatQuestions,
     CreativeProposal,
     CreativeSection,
@@ -122,6 +123,7 @@ __all__ = [
     "AudienceProposal",
     "Broadening",
     "Change",
+    "ChatGPTCardDraft",
     "ChatQuestions",
     "ChoiceReading",
     "ChoiceState",

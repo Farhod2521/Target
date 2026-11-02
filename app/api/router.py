@@ -19,6 +19,7 @@ from app.modules.billing.routers import webhooks as billing_webhooks
 from app.modules.businesses.routers import router as businesses
 from app.modules.chat.routers import refusals
 from app.modules.chat.routers import router as chat
+from app.modules.chatgpt.routers import router as chatgpt_ads
 from app.modules.crm.routers import router as crm
 from app.modules.destinations.routers import router as destinations
 from app.modules.integrations.routers import router as integrations
@@ -69,6 +70,7 @@ api_router.include_router(launch_review)
 api_router.include_router(launch_media)
 api_router.include_router(launch_forms)
 api_router.include_router(google_ads)
+api_router.include_router(chatgpt_ads)
 api_router.include_router(chat)
 api_router.include_router(agent)
 api_router.include_router(onboarding)

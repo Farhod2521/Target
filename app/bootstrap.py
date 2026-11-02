@@ -5,6 +5,8 @@ from googleadskit import PROVIDER as GOOGLE
 from googleadskit.adapter import bundle as google_bundle
 from metaads import PROVIDER as META
 from metaads.adapter import bundle as meta_bundle
+from openaiadskit import PROVIDER as CHATGPT
+from openaiadskit.adapter import bundle as chatgpt_bundle
 
 from app.common.config import settings
 
@@ -30,6 +32,9 @@ def register_providers() -> None:
             client_secret=settings.google_oauth_client_secret,
             rehearse_writes=settings.google_ads_dry_run,
         ),
+    )
+    registry.register(
+        CHATGPT, chatgpt_bundle(rehearse_writes=settings.chatgpt_ads_dry_run)
     )
     from app.modules.ads.checks import warn_if_rehearsing
     from app.modules.billing.services.providers import register_payment_providers

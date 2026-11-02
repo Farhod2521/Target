@@ -9,6 +9,7 @@ members = [
     "googlekit",
     "llmkit",
     "metaads",
+    "openaiadskit",
     "paykit",
     "sitekit",
     "speechkit",
@@ -841,6 +842,23 @@ wheels = [
 ]
 
 [[package]]
+name = "openaiadskit"
+version = "0.1.0"
+source = { editable = "packages/openaiadskit" }
+dependencies = [
+    { name = "adskit" },
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "adskit", editable = "packages/adskit" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "pydantic", specifier = ">=2.10" },
+]
+
+[[package]]
 name = "opencv-python-headless"
 version = "4.14.0.94"
 source = { registry = "https://pypi.org/simple" }
@@ -1367,6 +1385,7 @@ dependencies = [
     { name = "llmkit" },
     { name = "maxminddb" },
     { name = "metaads" },
+    { name = "openaiadskit" },
     { name = "paykit" },
     { name = "phonenumbers" },
     { name = "psycopg", extra = ["binary", "pool"] },
@@ -1407,6 +1426,7 @@ requires-dist = [
     { name = "llmkit", editable = "packages/llmkit" },
     { name = "maxminddb", specifier = ">=2.6" },
     { name = "metaads", editable = "packages/metaads" },
+    { name = "openaiadskit", editable = "packages/openaiadskit" },
     { name = "paykit", editable = "packages/paykit" },
     { name = "phonenumbers", specifier = ">=9.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },

@@ -26,6 +26,9 @@ def rehearsing(settings: Env) -> list[str]:
     switches = {
         "ADS_DRY_RUN": settings.ads_dry_run,
         "GOOGLE_ADS_DRY_RUN": settings.google_ads_dry_run,
+        # Only once somebody can reach ChatGPT Ads: off, it rehearses nothing.
+        "CHATGPT_ADS_DRY_RUN": settings.chatgpt_ads_dry_run
+        and (settings.chatgpt_ads_enabled or bool(settings.chatgpt_ads_users)),
     }
     return [name for name, on in switches.items() if on]
 

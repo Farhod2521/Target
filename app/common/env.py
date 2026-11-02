@@ -127,6 +127,9 @@ class Env(BaseSettings):
     google_ads_enabled: bool = Field(default=False, alias="GOOGLE_ADS_ENABLED")
     google_ads_users: CommaList = Field(default=[], alias="GOOGLE_ADS_USERS")
     google_ads_dry_run: bool = Field(default=True, alias="GOOGLE_ADS_DRY_RUN")
+    chatgpt_ads_enabled: bool = Field(default=False, alias="CHATGPT_ADS_ENABLED")
+    chatgpt_ads_users: CommaList = Field(default=[], alias="CHATGPT_ADS_USERS")
+    chatgpt_ads_dry_run: bool = Field(default=True, alias="CHATGPT_ADS_DRY_RUN")
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     anthropic_model: str = Field(default="claude-sonnet-5", alias="ANTHROPIC_MODEL")
     anthropic_input_price_minor: int = Field(
@@ -276,6 +279,7 @@ class Env(BaseSettings):
         "encryption_key_fallbacks",
         "launch_goal_picker_v2_users",
         "google_ads_users",
+        "chatgpt_ads_users",
         mode="before",
     )(_split_csv)
     _normalise_site_url = field_validator("site_url", mode="before")(_strip_site_url)

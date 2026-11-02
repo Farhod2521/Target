@@ -1,0 +1,19 @@
+[project]
+name = "openaiadskit"
+version = "0.1.0"
+description = "ChatGPT Ads (OpenAI Advertiser API) va uning adskit adapteri"
+requires-python = ">=3.13,<3.14"
+# The same three as googleadskit, without googlekit: the stored credential
+# is the advertiser's own API key, used as it is on every call.
+dependencies = [
+    "adskit",
+    "httpx>=0.28",
+    "pydantic>=2.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+adskit = { workspace = true }

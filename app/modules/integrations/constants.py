@@ -6,11 +6,13 @@ from app.common.choices import Choices
 class ConnectionKind(Choices):
     USER_OAUTH = "user_oauth"
     SYSTEM_USER = "system_user"
+    API_KEY = "api_key"
 
 
 CONNECTION_KIND_LABELS = {
     ConnectionKind.USER_OAUTH: "Foydalanuvchi ruxsati",
     ConnectionKind.SYSTEM_USER: "Tizim foydalanuvchisi",
+    ConnectionKind.API_KEY: "API kalit",
 }
 
 

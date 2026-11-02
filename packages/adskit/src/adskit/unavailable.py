@@ -209,7 +209,7 @@ class Unavailable:
         raise self._refuse()
 
     def find_locations(
-        self, *, query: str, country_code: str, token: str
+        self, *, query: str, country_code: str, token: str, language: str = ""
     ) -> list[LocationDTO]:
         raise self._refuse()
 

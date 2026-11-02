@@ -295,6 +295,13 @@ Xatolar (`422`, `problems`): qidiruv bermagan joy yoki joylar soni oshsa
 `GET/POST /google/launch/{id}/answers`, `GET/POST .../words`,
 `GET .../review`, `POST .../create`.
 
+### ChatGPT Ads — `/chatgpt`
+
+Ulanish API kalit orqali (`POST /chatgpt/connect`), ekran jonli o'qiladi.
+`GET /chatgpt/card`, `/screen`, `/campaigns/{id}`, `POST /switch`, `/budget`,
+`/archive`, `GET /places`, `POST /images`, `/draft`, `/campaigns`.
+To'liq tavsif: [CHATGPT_ADS.md](CHATGPT_ADS.md).
+
 ### Lidlar — `/leads`
 
 | Endpoint | Vazifasi |

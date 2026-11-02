@@ -26,6 +26,7 @@ dependencies = [
     "paykit",
     "googlekit",
     "googleadskit",
+    "openaiadskit",
     "sitekit",
     "videokit",
     "speechkit",
@@ -56,6 +57,7 @@ telegramkit = { workspace = true }
 paykit = { workspace = true }
 googlekit = { workspace = true }
 googleadskit = { workspace = true }
+openaiadskit = { workspace = true }
 sitekit = { workspace = true }
 videokit = { workspace = true }
 speechkit = { workspace = true }

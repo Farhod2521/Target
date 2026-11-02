@@ -717,3 +717,45 @@ class GoogleSearchDraft(
         description="Ikkinchi so'z, 15 belgidan oshmasin. path1 bo'lmasa bo'sh.",
         max_length=15,
     )
+
+
+class ChatGPTCardDraft(
+    BaseModel,
+    json_schema_extra={
+        "description": (
+            "One ChatGPT advert: the card shown under a ChatGPT answer, and "
+            "the topics of conversation it should be shown beside."
+        )
+    },
+):
+    """What the ChatGPT form's «AI yozib bersin» fills in, from one call.
+
+    The limits are OpenAI's (title 3-50, body up to 100) and are named in
+    each description as well as enforced, for the reason
+    ``GoogleSearchDraft`` gives.
+    """
+
+    titles: list[str] = Field(
+        description=(
+            "3-5 ta sarlavha varianti, har biri 3-50 belgi (bo'sh joy ham "
+            "hisoblanadi). Xizmat va foyda aniq. Emoji va undov belgisi yo'q."
+        ),
+        min_length=1,
+        max_length=5,
+    )
+    bodies: list[str] = Field(
+        description=(
+            "3-5 ta matn varianti, har biri 100 belgidan OSHMASIN. Aniq foyda "
+            "va nima qilish kerakligi."
+        ),
+        min_length=1,
+        max_length=5,
+    )
+    context_hints: list[str] = Field(
+        description=(
+            "5-10 ta suhbat mavzusi: odamlar ChatGPT'dan nimani so'raganda shu "
+            "reklama o'rinli bo'ladi. Har biri qisqa jumla, 120 belgigacha."
+        ),
+        min_length=1,
+        max_length=10,
+    )

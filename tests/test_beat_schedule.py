@@ -111,6 +111,19 @@ def test_both_switches_are_named(caplog: pytest.LogCaptureFixture) -> None:
     assert "ADS_DRY_RUN and GOOGLE_ADS_DRY_RUN are on" in caplog.text
 
 
+def test_chatgpt_rehearses_aloud_only_once_it_is_on() -> None:
+    quiet = {"debug": False, "ads_dry_run": False, "google_ads_dry_run": False}
+    off = settings.model_copy(
+        update=quiet | {"chatgpt_ads_dry_run": True, "chatgpt_ads_enabled": False}
+    )
+    on = settings.model_copy(
+        update=quiet | {"chatgpt_ads_dry_run": True, "chatgpt_ads_enabled": True}
+    )
+
+    assert rehearsing(off) == []
+    assert rehearsing(on) == ["CHATGPT_ADS_DRY_RUN"]
+
+
 def test_a_deployment_that_spends_is_silent(caplog: pytest.LogCaptureFixture) -> None:
     live = settings.model_copy(
         update={"debug": False, "ads_dry_run": False, "google_ads_dry_run": False}

@@ -131,6 +131,8 @@ def ad_providers() -> None:
     from googleadskit.adapter import bundle as google_bundle
     from metaads import PROVIDER as META
     from metaads.adapter import bundle as meta_bundle
+    from openaiadskit import PROVIDER as CHATGPT
+    from openaiadskit.adapter import bundle as chatgpt_bundle
 
     from app.common.config import settings
 
@@ -143,6 +145,7 @@ def ad_providers() -> None:
             client_secret=settings.google_oauth_client_secret,
             rehearse_writes=settings.google_ads_dry_run,
         ),
+        CHATGPT: lambda: chatgpt_bundle(rehearse_writes=settings.chatgpt_ads_dry_run),
     }
     for name, build in wanted.items():
         try:
