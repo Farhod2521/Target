@@ -746,7 +746,8 @@ def test_a_night_is_over_by_each_account_s_own_clock(
     db.execute(
         update(MetricsDaily)
         .where(MetricsDaily.ad_account_id == far.id)
-        .values(synced_at=_ended() + timedelta(hours=13))
+        # Past its own end and re-read, in winter time or summer time alike.
+        .values(synced_at=_ended() + timedelta(hours=15))
     )
     db.commit()
     assert night_has_passed(db, owner=user, account=clock, now=MORNING)
