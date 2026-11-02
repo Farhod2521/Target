@@ -41,9 +41,28 @@ class AccountOut(BaseModel):
     timezone: str
 
 
+class LeadQualityOut(BaseModel):
+    crm: bool = Field(description="A CRM runs on this page.")
+    leads: int
+    marked: int = Field(description="Leads a CRM card moved past «Yangi lid».")
+    qualified: int
+    unqualified: int
+    sent: int = Field(description="Quality events Meta took; raw leads not counted.")
+    waiting: int = Field(description="Queued for a coming night.")
+    failed: int = Field(description="Meta refused these.")
+    expired: int = Field(description="Older than Meta's window, never sent.")
+    last_sent_at: datetime | None
+    problem: str = Field(
+        description="`none`, `no_pixel`, `pixel_unselected` or `connection`."
+    )
+
+
 class NumbersOut(BaseModel):
     crm_qualified: int | None = Field(
         description="Qualified leads counted by the CRM; null when the CRM is off."
+    )
+    lead_quality: LeadQualityOut | None = Field(
+        description="What the CRM told Meta about the range; null with no leads."
     )
     dashboard: Dashboard
     filters: RangeOut = Field(description="The range applied.")

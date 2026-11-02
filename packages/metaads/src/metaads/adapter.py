@@ -1824,11 +1824,8 @@ class MetaConversions:
     ) -> ConversionReceiptDTO:
         """Send a batch of verdicts. Answers with Meta's own count.
 
-        ``accepted`` is what came back rather than what went out, and the
-        difference is the whole reason this returns anything. Meta answers
-        200 to a batch containing leads older than its window and simply
-        does not count them, so a caller reading the length of its own list
-        would stamp them reported and never send them again.
+        ``accepted`` is what came back rather than what went out, so a
+        caller can tell a short answer from a whole one.
         """
         with session(token) as graph:
             row = send_lead_events(

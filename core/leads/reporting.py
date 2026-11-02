@@ -1,99 +1,104 @@
-"""Which verdicts go back to the provider, and when."""
+"""What a card says about a lead, and when it may go back to the provider."""
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Final
 
 from adskit import LeadStage
 
-SETTLE_MINUTES: Final = 30
+STAGE_ORDER: Final[tuple[LeadStage, ...]] = (
+    "received",
+    "qualified",
+    "unqualified",
+    "converted",
+)
+# Sent at night, so a day's margin on the window is not needed; an hour keeps
+# an event at the very edge from being refused and taking its batch with it.
+WINDOW_MARGIN: Final = timedelta(hours=1)
+# The provider discards an event stamped before the lead it names.
+AFTER_THE_LEAD: Final = timedelta(seconds=1)
 
 
 @dataclass(frozen=True, slots=True)
-class Verdict:
-    """One judgement, as the rules below need it."""
+class CardFacts:
+    """A card as the rules below need it."""
 
-    lead_external_id: str
-    status: str
-    decided_at: datetime
+    kind: str
+    submitted_at: datetime
+    placed_at: datetime
+    qualified_at: datetime | None = None
+    closed_at: datetime | None = None
     value_minor: int | None = None
     currency: str = ""
 
 
-STAGE_OF: Final[dict[str, LeadStage]] = {
-    "qualified": "qualified",
-    "unqualified": "unqualified",
-    "converted": "converted",
-}
+@dataclass(frozen=True, slots=True)
+class Signal:
+    """One stage of one lead, as it would be told."""
+
+    stage: LeadStage
+    occurred_at: datetime
+    value_minor: int | None = None
+    currency: str = ""
 
 
-def stage_of(status: str) -> LeadStage | None:
-    """The stage this verdict reports as, or nothing at all."""
-    return STAGE_OF.get(status.strip().casefold())
+def card_signals(card: CardFacts) -> tuple[Signal, ...]:
+    """Every stage this card stands at now, earliest first.
+
+    Asked of the card as it stands at night, so a mistake put right the same
+    day says nothing. A card lost or put back in «Yangi lid» keeps only that
+    it arrived: a qualification it no longer stands by is not told.
+    """
+    found = [Signal("received", _after_lead(card, card.placed_at))]
+    closed = card.closed_at
+    if card.kind == "junk" and closed is not None:
+        found.append(Signal("unqualified", _after_lead(card, closed)))
+        return tuple(found)
+    if card.kind == "won" and closed is not None:
+        found.append(
+            Signal("qualified", _after_lead(card, card.qualified_at or closed))
+        )
+        found.append(
+            Signal(
+                "converted",
+                _after_lead(card, closed),
+                value_minor=card.value_minor,
+                currency=card.currency,
+            )
+        )
+        return tuple(found)
+    if card.qualified_at is not None and card.kind == "open":
+        found.append(Signal("qualified", _after_lead(card, card.qualified_at)))
+    return tuple(found)
+
+
+def _after_lead(card: CardFacts, at: datetime) -> datetime:
+    return max(at, card.submitted_at + AFTER_THE_LEAD)
 
 
 def event_key(*, provider: str, lead_external_id: str, stage: str) -> str:
-    """The idempotency key one verdict is sent under."""
+    """The idempotency key one stage is sent under."""
     return f"{provider}:{lead_external_id}:{stage}"
 
 
-def is_settled(*, decided_at: datetime, now: datetime, minutes: int) -> bool:
-    """Whether this verdict has stood long enough to be worth sending."""
-    return now - decided_at >= timedelta(minutes=minutes)
+def is_reportable(*, occurred_at: datetime, now: datetime, window_days: int) -> bool:
+    """Whether the provider would still take an event stamped this far back."""
+    return now - occurred_at <= timedelta(days=window_days) - WINDOW_MARGIN
 
 
-def is_reportable(*, decided_at: datetime, now: datetime, window_days: int) -> bool:
-    """Whether the provider would still count an event stamped this far back."""
-    return now - decided_at <= timedelta(days=window_days)
-
-
-def due(
-    *,
-    verdicts: Iterable[Verdict],
-    now: datetime,
-    window_days: int,
-    settle_minutes: int = SETTLE_MINUTES,
-) -> tuple[tuple[Verdict, LeadStage], ...]:
-    """The verdicts to send now, each with the stage it goes out as."""
-    ready: list[tuple[Verdict, LeadStage]] = []
-    for verdict in verdicts:
-        stage = stage_of(verdict.status)
-        if stage is None:
-            continue
-        if not is_settled(
-            decided_at=verdict.decided_at, now=now, minutes=settle_minutes
-        ):
-            continue
-        if not is_reportable(
-            decided_at=verdict.decided_at, now=now, window_days=window_days
-        ):
-            continue
-        ready.append((verdict, stage))
-    return tuple(ready)
-
-
-def expired(
-    *, verdicts: Iterable[Verdict], now: datetime, window_days: int
-) -> tuple[Verdict, ...]:
-    """The ones the provider will never count, however often they are sent."""
-    return tuple(
-        verdict
-        for verdict in verdicts
-        if not is_reportable(
-            decided_at=verdict.decided_at, now=now, window_days=window_days
-        )
-    )
+def stage_rank(stage: str) -> int:
+    """Where a stage falls in a lead's journey: earlier ones are told first."""
+    return STAGE_ORDER.index(stage)
 
 
 __all__ = [
-    "SETTLE_MINUTES",
-    "STAGE_OF",
-    "Verdict",
-    "due",
+    "AFTER_THE_LEAD",
+    "STAGE_ORDER",
+    "WINDOW_MARGIN",
+    "CardFacts",
+    "Signal",
+    "card_signals",
     "event_key",
-    "expired",
     "is_reportable",
-    "is_settled",
-    "stage_of",
+    "stage_rank",
 ]

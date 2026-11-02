@@ -8,6 +8,7 @@ from pydantic import AwareDatetime, BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db, current_user
+from app.common import throttle
 from app.common.db import get_db, utcnow
 from app.modules.accounts.models import User
 from app.modules.crm import selectors, services
@@ -15,6 +16,9 @@ from app.modules.crm.constants import (
     COLORS,
     DISTRIBUTION_LABELS,
     MAX_CUSTOM_STAGES,
+    PIXEL_NAME_LENGTH,
+    PIXEL_READS,
+    PIXEL_READS_WINDOW,
     PRESET_LABELS,
     PRESETS,
     SINCE_LABELS,
@@ -22,6 +26,7 @@ from app.modules.crm.constants import (
     SetupState,
     Since,
 )
+from app.modules.crm.exceptions import PixelsUnread
 from app.modules.crm.models import CrmCard, CrmMember, CrmStage
 from app.modules.crm.schemas import (
     BoardOut,
@@ -42,6 +47,9 @@ from app.modules.crm.schemas import (
     StageOut,
 )
 from app.modules.crm.selectors import Viewer
+from app.modules.integrations.models import AdAccount
+from app.modules.integrations.services.cabinet import choose_pixel
+from app.modules.integrations.services.sync import create_pixel, sync_pixels
 
 router = APIRouter(prefix="/crm", tags=["crm"])
 STEPS = (1, 2, 3, 4)
@@ -265,6 +273,7 @@ def board(
         "filters": asdict(filters),
         "members": team_out(db, viewer),
         "ads": selectors.board_ads(db, viewer=viewer, now=now),
+        "pixel_state": selectors.pixel_state(db, viewer=viewer),
     }
 
 
@@ -345,6 +354,7 @@ def card(
         "reasons": [{"id": str(r.id), "name": r.name} for r in view.reasons],
         "currency": view.currency,
         "can_work": view.can_work,
+        "can_move": viewer.is_owner or view.card.assignee_id == viewer.user.id,
     }
 
 
@@ -503,6 +513,7 @@ def _settings(db: Session, viewer: Viewer) -> dict[str, Any]:
             "take_new_ads": setup.take_new_ads,
             "distribution": setup.distribution,
             "currency": setup.currency,
+            "enabled_at": setup.enabled_at,
         }
         if setup
         else None,
@@ -541,6 +552,23 @@ def _settings(db: Session, viewer: Viewer) -> dict[str, Any]:
         "since_choices": [{"value": k, "label": v} for k, v in SINCE_LABELS.items()],
         "distribution_choices": [
             {"value": k, "label": v} for k, v in DISTRIBUTION_LABELS.items()
+        ],
+        "meta": _meta(db, viewer),
+    }
+
+
+def _meta(db: Session, viewer: Viewer) -> dict[str, Any]:
+    pixels = selectors.pair_pixels(db, viewer=viewer)
+    return {
+        "state": selectors.pixel_state(db, viewer=viewer),
+        "selected": next((p.external_id for p in pixels if p.is_active), None),
+        "pixels": [
+            {
+                "external_id": pixel.external_id,
+                "name": pixel.name,
+                "last_fired_at": pixel.last_fired_at,
+            }
+            for pixel in pixels
         ],
     }
 
@@ -804,6 +832,69 @@ def quality(
     services.save_quality(db, viewer=viewer, stage_ids=body.quality)
     db.commit()
     return _settings(db, viewer)
+
+
+class PixelIn(BaseModel):
+    external_id: str = Field(min_length=1, max_length=128)
+
+
+def _pixels_allowed(viewer: Viewer) -> None:
+    if not throttle.hit(
+        bucket="crm-pixels",
+        key=str(viewer.owner.id),
+        limit=PIXEL_READS,
+        window_seconds=PIXEL_READS_WINDOW,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.",
+        )
+
+
+def _pair_account(viewer: Viewer) -> AdAccount:
+    services.require_owner(viewer)
+    if viewer.pair is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return viewer.pair.account
+
+
+@router.post("/settings/pixel", responses={200: {"model": SettingsOut}})
+def pixel(
+    body: PixelIn, db: Db, viewer: Viewer = Depends(owner_viewer)
+) -> dict[str, Any]:
+    choose_pixel(
+        db,
+        owner=viewer.owner,
+        account=_pair_account(viewer),
+        external_id=body.external_id,
+    )
+    db.commit()
+    return _settings(db, viewer)
+
+
+@router.post("/settings/pixel/refresh", responses={200: {"model": SettingsOut}})
+def pixel_refresh(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, Any]:
+    account = _pair_account(viewer)
+    _pixels_allowed(viewer)
+    answer = sync_pixels(db, ad_account_id=account.id)
+    if answer in ("gone", "unusable", "failed"):
+        raise PixelsUnread
+    return _settings(db, viewer)
+
+
+@router.post("/settings/pixel/create", responses={200: {"model": SettingsOut}})
+def pixel_create(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, Any]:
+    account = _pair_account(viewer)
+    _pixels_allowed(viewer)
+    create_pixel(db, account=account, name=_pixel_name(viewer))
+    db.commit()
+    return _settings(db, viewer)
+
+
+def _pixel_name(viewer: Viewer) -> str:
+    assert viewer.pair is not None
+    page = viewer.pair.page
+    return f"{page.name or page.external_id} CRM"[:PIXEL_NAME_LENGTH]
 
 
 class ReasonIn(WrittenIn):

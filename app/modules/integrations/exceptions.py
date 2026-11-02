@@ -278,3 +278,28 @@ class GoogleNoFreeSlot(DomainError):
 class GoogleAccountNotInSubscription(DomainError):
     def __init__(self) -> None:
         super().__init__("Bu Google Ads akkaunti obunaga qo'shilmagan.")
+
+
+class PixelRehearsed(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Sinov rejimi yoqiq: piksel Meta'da yaratilmadi.")
+
+
+class PixelAlreadyThere(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu akkauntda piksel allaqachon bor. Ro'yxatdan tanlang.")
+
+
+class PixelNotAllowed(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Meta piksel yaratishga ruxsat bermadi. Reklama akkauntidagi "
+            "rolingizni tekshiring yoki pikselni Events Manager'da yarating."
+        )
+
+
+class PixelNotCreated(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Pikselni yaratib bo'lmadi. Meta ulanishini tekshirib, qayta urining."
+        )

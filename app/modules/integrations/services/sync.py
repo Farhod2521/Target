@@ -18,6 +18,9 @@ from googleadskit import (
 )
 from metaads import PROVIDER
 from metaads.accounts import (
+    create_pixel as make_pixel,
+)
+from metaads.accounts import (
     list_ad_accounts,
     list_pages,
     list_pixels,
@@ -27,18 +30,21 @@ from metaads.accounts import (
     pixel_events,
 )
 from metaads.dto import AdAccountDTO, PageDTO, PixelDTO
-from metaads.errors import MetaError
+from metaads.errors import MetaAPIError, MetaError
 from metaads.instagram import read_instagram_profile
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.common.cache import cache
+from app.common.config import settings
 from app.common.crypto import decrypt, encrypt, fingerprint
 from app.common.db import on_commit, utcnow
 from app.common.exceptions import DecryptionFailed
 from app.modules.accounts.models import User
 from app.modules.integrations.constants import (
     AUDIENCE_STALE_MINUTES,
+    PERMISSION_CODE,
+    PIXEL_THERE_CODES,
     REFRESH_COOLDOWN_SECONDS,
     USABLE_CONNECTION_STATUSES,
     ConnectionStatus,
@@ -51,6 +57,10 @@ from app.modules.integrations.exceptions import (
     NoActivePage,
     NoConnection,
     NoInstagram,
+    PixelAlreadyThere,
+    PixelNotAllowed,
+    PixelNotCreated,
+    PixelRehearsed,
     RefreshTooSoon,
     UnknownPage,
 )
@@ -355,6 +365,47 @@ def sync_pixels(db: Session, *, ad_account_id: object) -> str:
     _store_pixels(db, account=account, pixels=found)
     db.commit()
     return str(len(found))
+
+
+def create_pixel(db: Session, *, account: AdAccount, name: str) -> PixelAccount:
+    """Make a pixel on this account and choose it; Meta's refusal in plain words."""
+    if settings.ads_dry_run:
+        raise PixelRehearsed
+    token = _usable_token(account.connection)
+    if token is None:
+        raise PixelNotCreated
+    try:
+        external_id = make_pixel(
+            account_id=account.external_id, name=name, token=token, dry_run=False
+        )
+    except MetaAPIError as exc:
+        logger.info("pixel not made on %s: %s", account.external_id, exc)
+        if exc.code in PIXEL_THERE_CODES:
+            sync_pixels(db, ad_account_id=account.id)
+            raise PixelAlreadyThere from exc
+        if exc.code == PERMISSION_CODE:
+            raise PixelNotAllowed from exc
+        raise PixelNotCreated from exc
+    except MetaError as exc:
+        logger.info("pixel not made on %s: %s", account.external_id, exc)
+        raise PixelNotCreated from exc
+    db.execute(
+        update(PixelAccount)
+        .where(PixelAccount.ad_account_id == account.id)
+        .values(is_active=False)
+    )
+    row = PixelAccount(
+        owner_id=account.owner_id,
+        provider=account.provider,
+        external_id=external_id,
+        connection_id=account.connection_id,
+        ad_account_id=account.id,
+        name=name,
+        is_active=True,
+    )
+    db.add(row)
+    db.flush()
+    return row
 
 
 def _store_pixels(db: Session, *, account: AdAccount, pixels: list[PixelDTO]) -> None:

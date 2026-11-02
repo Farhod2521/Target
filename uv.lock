@@ -19,7 +19,7 @@ members = [
 
 [[package]]
 name = "adskit"
-version = "0.27.0"
+version = "0.28.0"
 source = { editable = "packages/adskit" }
 dependencies = [
     { name = "pydantic" },
@@ -775,7 +775,7 @@ wheels = [
 
 [[package]]
 name = "metaads"
-version = "0.45.0"
+version = "0.47.0"
 source = { editable = "packages/metaads" }
 dependencies = [
     { name = "adskit" },

@@ -323,3 +323,406 @@ def test_bad_input_is_refused_not_a_crash(client: TestClient, db: Session) -> No
     assert kpi.json()["code"] == "bad_kpi"
     assert banana.status_code == 422
     assert client.get(CRM, headers=head).json()["running"] is True
+
+
+def _junk(board: dict[str, Any]) -> dict[str, Any]:
+    return next(c["stage"] for c in board["columns"] if c["stage"]["kind"] == "junk")
+
+
+def test_every_new_board_ends_in_the_unqualified_column(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+
+    last = board["columns"][-1]["stage"]
+
+    assert (last["kind"], last["name"]) == ("junk", "Sifatsiz lid")
+    assert [c["stage"]["kind"] for c in board["columns"][-3:]] == [
+        "won",
+        "lost",
+        "junk",
+    ]
+
+
+def test_the_unqualified_column_cannot_be_taken_away(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    junk = _junk(_running(client, head))
+    url = f"{CRM}/settings/stages/{junk['id']}"
+
+    refused = [
+        client.delete(url, headers=head),
+        client.post(f"{url}/move", headers=head, json={"way": "up"}),
+        client.put(
+            url, headers=head, json={"name": "Boshqa nom", "color": junk["color"]}
+        ),
+    ]
+    painted = client.put(
+        url, headers=head, json={"name": junk["name"], "color": "#C2262E"}
+    )
+    added = client.post(
+        f"{CRM}/settings/stages", headers=head, json={"name": "Yangi", "color": ""}
+    )
+    quality = client.post(
+        f"{CRM}/settings/quality", headers=head, json={"quality": [junk["id"]]}
+    )
+
+    assert [r.json().get("code") for r in refused] == ["stage_locked"] * 3
+    assert painted.status_code == added.status_code == quality.status_code == 200
+    kinds = [
+        c["stage"]["kind"] for c in client.get(CRM, headers=head).json()["columns"]
+    ]
+    assert kinds[-1] == "junk"
+    assert not next(s for s in quality.json()["stages"] if s["kind"] == "junk")[
+        "counts_as_quality"
+    ]
+
+
+def test_a_card_dropped_in_unqualified_closes_without_a_question(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    board = _running(client, head)
+    card = board["columns"][0]["cards"][0]["id"]
+    url = f"{CRM}/cards/{card}"
+    junk = _junk(board)
+    client.post(f"{url}/due", headers=head, json={"due": LATER})
+
+    moved = client.post(f"{url}/move", headers=head, json={"to": junk["id"]})
+
+    assert moved.status_code == 200
+    assert moved.json()["closed_at"] is not None
+    assert moved.json()["due_at"] is None
+    view = client.get(url, headers=head).json()
+    assert view["can_work"] is False
+    assert view["can_move"] is True
+    assert [line["kind"] for line in view["history"]][:2] == ["unqualified", "moved"]
+    note = client.post(f"{url}/note", headers=head, json={"text": "x"})
+    assert note.json()["code"] == "card_is_closed"
+
+
+def test_a_mistaken_unqualified_goes_back_and_qualifies_again(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    card = board["columns"][0]["cards"][0]["id"]
+    url = f"{CRM}/cards/{card}"
+    working = next(c["stage"] for c in board["columns"] if c["stage"]["kind"] == "open")
+    client.post(
+        f"{CRM}/settings/quality", headers=head, json={"quality": [working["id"]]}
+    )
+    assert client.post(f"{url}/move", headers=head, json={"to": working["id"]}).json()[
+        "qualified_at"
+    ]
+
+    junked = client.post(f"{url}/move", headers=head, json={"to": _junk(board)["id"]})
+    back = client.post(f"{url}/move", headers=head, json={"to": working["id"]})
+
+    assert junked.json()["qualified_at"] is None
+    assert back.json()["closed_at"] is None
+    assert back.json()["qualified_at"] is not None
+
+
+def test_a_card_won_can_be_called_unqualified_and_won_again(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    card = board["columns"][0]["cards"][0]["id"]
+    url = f"{CRM}/cards/{card}"
+    client.post(f"{url}/win", headers=head, json={"amount": "150"})
+
+    junked = client.post(f"{url}/move", headers=head, json={"to": _junk(board)["id"]})
+    won = client.post(f"{url}/win", headers=head, json={"amount": "90"})
+
+    assert junked.json()["won_amount_minor"] is None
+    assert junked.json()["closed_at"] is not None
+    assert won.status_code == 200
+    assert won.json()["won_amount_minor"] == 9000
+
+
+def test_settings_say_since_when_the_crm_runs(client: TestClient, db: Session) -> None:
+    head = _auth(_owner(db))
+    _running(client, head)
+
+    settings = client.get(f"{CRM}/settings", headers=head).json()
+
+    assert settings["setup"]["enabled_at"] is not None
+
+
+def test_the_migration_gives_every_board_the_column_once(
+    client: TestClient, db: Session
+) -> None:
+    from importlib import import_module
+
+    from sqlalchemy import text
+
+    from app.modules.crm.models import CrmStage
+
+    head = _auth(_owner(db))
+    _running(client, head)
+    db.execute(text("DELETE FROM crm_stages WHERE kind = 'junk'"))
+    db.commit()
+    migration = import_module("migrations.versions.20261102_0013_crm_junk_stage")
+
+    db.execute(text(migration.ADD_COLUMN))
+    db.execute(text(migration.ADD_COLUMN))
+    db.commit()
+
+    stages = sorted(db.query(CrmStage).all(), key=lambda s: s.position)
+    assert [s.kind for s in stages][-3:] == ["won", "lost", "junk"]
+    assert [s.position for s in stages] == list(range(len(stages)))
+
+
+def _pixels(db: Session, owner: User, *names: str) -> None:
+    from app.modules.integrations.models import PixelAccount
+
+    account = db.query(AdAccount).filter_by(owner_id=owner.id).one()
+    for name in names:
+        db.add(
+            PixelAccount(
+                owner_id=owner.id,
+                ad_account_id=account.id,
+                connection_id=account.connection_id,
+                provider=PROVIDER,
+                external_id=name,
+                name=name,
+                is_active=False,
+            )
+        )
+    db.commit()
+
+
+def test_the_pixel_state_tells_none_from_unselected_from_ready(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    assert _running(client, head)["pixel_state"] == "none"
+    _pixels(db, owner, "px_a", "px_b")
+
+    meta = client.get(f"{CRM}/settings", headers=head).json()["meta"]
+    assert client.get(CRM, headers=head).json()["pixel_state"] == "unselected"
+    assert meta["state"] == "unselected"
+    assert meta["selected"] is None
+    assert [p["external_id"] for p in meta["pixels"]] == ["px_a", "px_b"]
+
+    chosen = client.post(
+        f"{CRM}/settings/pixel", headers=head, json={"external_id": "px_b"}
+    )
+
+    assert chosen.status_code == 200
+    assert chosen.json()["meta"] | {"pixels": []} == {
+        "state": "ready",
+        "selected": "px_b",
+        "pixels": [],
+    }
+    assert client.get(CRM, headers=head).json()["pixel_state"] == "ready"
+
+
+def test_a_pixel_of_another_account_cannot_be_chosen(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+
+    answer = client.post(
+        f"{CRM}/settings/pixel", headers=head, json={"external_id": "px_foreign"}
+    )
+
+    assert answer.json()["code"] == "unknown_account"
+
+
+def test_a_manager_cannot_choose_the_pixel(client: TestClient, db: Session) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    _pixels(db, owner, "px_a")
+    _, staff = _member(client, head, "menejer@example.com")
+    new = "Yz4$kW8nRt2q"
+    client.post(f"{CRM}/password", headers=staff, json={"password": new, "again": new})
+
+    answer = client.post(
+        f"{CRM}/settings/pixel", headers=staff, json={"external_id": "px_a"}
+    )
+
+    assert answer.status_code == 404
+
+
+def test_reading_pixels_again_finds_a_new_one(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.crm import routers
+
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+
+    def found(session: Session, *, ad_account_id: object) -> str:
+        _pixels(session, owner, "px_new")
+        return "1"
+
+    monkeypatch.setattr(routers, "sync_pixels", found)
+    monkeypatch.setattr(routers.throttle, "hit", lambda **_: True)
+
+    answer = client.post(f"{CRM}/settings/pixel/refresh", headers=head)
+
+    assert answer.status_code == 200
+    assert answer.json()["meta"]["pixels"][0]["external_id"] == "px_new"
+
+
+def test_a_failed_read_says_so(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.crm import routers
+
+    head = _auth(_owner(db))
+    _running(client, head)
+    monkeypatch.setattr(routers, "sync_pixels", lambda *_, **__: "unusable")
+    monkeypatch.setattr(routers.throttle, "hit", lambda **_: True)
+
+    answer = client.post(f"{CRM}/settings/pixel/refresh", headers=head)
+
+    assert answer.status_code == 400
+    assert answer.json()["code"] == "pixels_unread"
+
+
+def test_reading_pixels_again_is_limited(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.crm import routers
+
+    head = _auth(_owner(db))
+    _running(client, head)
+    monkeypatch.setattr(routers.throttle, "hit", lambda **_: False)
+
+    answer = client.post(f"{CRM}/settings/pixel/refresh", headers=head)
+
+    assert answer.status_code == 429
+
+
+def test_no_pixel_can_be_chosen_on_the_connections_screen(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    _pixels(db, owner, "px_a")
+    picked = client.post(
+        "/api/v1/connections/meta/pixel", headers=head, json={"external_id": "px_a"}
+    )
+    assert picked.status_code == 200
+
+    cleared = client.post(
+        "/api/v1/connections/meta/pixel", headers=head, json={"external_id": ""}
+    )
+
+    assert cleared.status_code == 200
+    assert client.get(CRM, headers=head).json().get("pixel_state") in (
+        None,
+        "unselected",
+    )
+
+
+def _no_rehearsal(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.modules.crm import routers
+    from app.modules.integrations.services import sync
+
+    monkeypatch.setattr(sync.settings, "ads_dry_run", False)
+    monkeypatch.setattr(sync, "_usable_token", lambda _: "token")
+    monkeypatch.setattr(routers.throttle, "hit", lambda **_: True)
+
+
+def test_a_pixel_made_here_is_chosen_and_named_after_the_page(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.integrations.services import sync
+
+    _no_rehearsal(monkeypatch)
+    asked: dict[str, Any] = {}
+
+    def made(**kwargs: Any) -> str:
+        asked.update(kwargs)
+        return "px_made"
+
+    monkeypatch.setattr(sync, "make_pixel", made)
+    head = _auth(_owner(db))
+    _running(client, head)
+
+    answer = client.post(f"{CRM}/settings/pixel/create", headers=head)
+
+    assert answer.status_code == 200
+    assert answer.json()["meta"]["state"] == "ready"
+    assert answer.json()["meta"]["selected"] == "px_made"
+    assert (asked["account_id"], asked["name"]) == ("act_1", "Sahifa CRM")
+    assert asked["dry_run"] is False
+    assert client.get(CRM, headers=head).json()["pixel_state"] == "ready"
+
+
+def test_a_rehearsal_makes_no_pixel(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.crm import routers
+    from app.modules.integrations.services import sync
+
+    monkeypatch.setattr(sync.settings, "ads_dry_run", True)
+    monkeypatch.setattr(routers.throttle, "hit", lambda **_: True)
+    head = _auth(_owner(db))
+    _running(client, head)
+
+    answer = client.post(f"{CRM}/settings/pixel/create", headers=head)
+
+    assert answer.json()["code"] == "pixel_rehearsed"
+
+
+@pytest.mark.parametrize(
+    ("meta_code", "ours"),
+    [
+        (6200, "pixel_already_there"),
+        (6202, "pixel_already_there"),
+        (200, "pixel_not_allowed"),
+        (100, "pixel_not_created"),
+    ],
+)
+def test_metas_refusal_reads_in_plain_words(
+    client: TestClient,
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    meta_code: int,
+    ours: str,
+) -> None:
+    from metaads.errors import MetaAPIError
+
+    from app.modules.integrations.services import sync
+
+    _no_rehearsal(monkeypatch)
+
+    def refused(**_: Any) -> str:
+        raise MetaAPIError("no", code=meta_code)
+
+    monkeypatch.setattr(sync, "make_pixel", refused)
+    monkeypatch.setattr(sync, "sync_pixels", lambda *_, **__: "1")
+    head = _auth(_owner(db))
+    _running(client, head)
+
+    answer = client.post(f"{CRM}/settings/pixel/create", headers=head)
+
+    assert answer.status_code == 400
+    assert answer.json()["code"] == ours
+
+
+def test_a_manager_cannot_make_a_pixel(client: TestClient, db: Session) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    _, staff = _member(client, head, "menejer@example.com")
+    new = "Yz4$kW8nRt2q"
+    client.post(f"{CRM}/password", headers=staff, json={"password": new, "again": new})
+
+    answer = client.post(f"{CRM}/settings/pixel/create", headers=staff)
+
+    assert answer.status_code == 404

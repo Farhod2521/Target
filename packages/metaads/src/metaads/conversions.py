@@ -30,9 +30,8 @@ Three of Meta's rules shape everything below.
   Conversion Leads integration requires both, and an event without them is
   filed as an ordinary server event that no lead stage counts.
 
-The window is Meta's, not ours: an event older than
-:data:`REPORT_WINDOW_DAYS` is accepted with a 200 and silently not counted,
-which is the worst possible failure shape - so callers ask for the window
+The window is Meta's, not ours: a batch holding one event older than
+:data:`REPORT_WINDOW_DAYS` is refused whole, so callers ask for the window
 before they build a batch rather than reading it out of the answer.
 """
 
@@ -78,6 +77,7 @@ LEAD_EVENT_SOURCE: Final = "TargetologAI"
 # and a name collision would merge two populations that mean different
 # things into one conversion.
 STAGE_EVENTS: Final[dict[LeadStage, str]] = {
+    "received": "TargetologAIInitialLead",
     "qualified": "TargetologAIQualifiedLead",
     "unqualified": "TargetologAIDisqualifiedLead",
     "converted": "TargetologAIConvertedLead",

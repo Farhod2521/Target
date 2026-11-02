@@ -360,7 +360,7 @@ class VerdictIn(BaseModel):
 def verdict(
     pk: uuid.UUID, body: VerdictIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
-    if body.status and body.status == body.current:
+    if not body.status or body.status == body.current:
         services.clear_outcome(db, user=user, lead_id=str(pk))
     else:
         services.mark_outcome(db, user=user, lead_id=str(pk), status=body.status)

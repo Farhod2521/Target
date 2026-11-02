@@ -473,31 +473,42 @@ def select_page(db: Session, *, user: User, external_id: str) -> PageAccount:
     return page
 
 
-def select_pixel(db: Session, *, user: User, external_id: str) -> PixelAccount:
+def select_pixel(db: Session, *, user: User, external_id: str) -> PixelAccount | None:
     account = active_ad_account(db, owner=user)
     if account is None:
         raise UnknownAccount
-    pixel = db.scalar(
-        select(PixelAccount).where(
-            PixelAccount.owner_id == user.id,
-            PixelAccount.provider == PROVIDER,
-            PixelAccount.ad_account_id == account.id,
-            PixelAccount.external_id == external_id,
+    return choose_pixel(db, owner=user, account=account, external_id=external_id)
+
+
+def choose_pixel(
+    db: Session, *, owner: User, account: AdAccount, external_id: str
+) -> PixelAccount | None:
+    """Make this account's pixel the chosen one; an empty id chooses none."""
+    pixel = None
+    if external_id:
+        pixel = db.scalar(
+            select(PixelAccount).where(
+                PixelAccount.owner_id == owner.id,
+                PixelAccount.provider == PROVIDER,
+                PixelAccount.ad_account_id == account.id,
+                PixelAccount.external_id == external_id,
+                PixelAccount.is_unavailable.is_(False),
+            )
         )
-    )
-    if pixel is None:
-        raise UnknownAccount
+        if pixel is None:
+            raise UnknownAccount
     db.execute(
         update(PixelAccount)
         .where(
-            PixelAccount.owner_id == user.id,
+            PixelAccount.owner_id == owner.id,
             PixelAccount.provider == PROVIDER,
             PixelAccount.ad_account_id == account.id,
             PixelAccount.is_active.is_(True),
         )
         .values(is_active=False)
     )
-    pixel.is_active = True
+    if pixel is not None:
+        pixel.is_active = True
     db.flush()
     return pixel
 

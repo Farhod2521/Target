@@ -26,6 +26,13 @@ class CardIsClosed(DomainError):
         super().__init__("Bu karta yopilgan. Avval uni boshqa ustunga o'tkazing.")
 
 
+class PixelsUnread(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Meta'dan piksellarni o'qib bo'lmadi. Meta ulanishini tekshiring."
+        )
+
+
 class UseTheDialog(DomainError):
     def __init__(self) -> None:
         super().__init__("Natijani dialogda belgilang.")

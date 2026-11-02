@@ -113,6 +113,7 @@ def numbers_context(
         has_cooled,
     )
     from app.modules.metrics.selectors.dashboard import cabinet_today, dashboard
+    from app.modules.metrics.selectors.lead_quality import lead_quality
     from app.modules.metrics.selectors.scope import page_campaigns
 
     page = page_campaigns(db, owner=user)
@@ -128,6 +129,9 @@ def numbers_context(
     now = utcnow()
     return {
         "crm_qualified": _crm_qualified(
+            db, owner=user, page=page, since=chosen.since, until=chosen.until
+        ),
+        "lead_quality": lead_quality(
             db, owner=user, page=page, since=chosen.since, until=chosen.until
         ),
         "dashboard": jsonable_encoder(

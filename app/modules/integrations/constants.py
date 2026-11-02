@@ -109,3 +109,7 @@ NIGHT_LEADS_HOUR: Final = 0
 NIGHT_FIGURES_HOUR: Final = 1
 NIGHT_DIAGNOSIS_HOUR: Final = 3
 NIGHT_AGENT_HOUR: Final = 4
+
+# Meta's numbers for a refused new pixel.
+PIXEL_THERE_CODES: Final = (6200, 6202)
+PERMISSION_CODE: Final = 200

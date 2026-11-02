@@ -131,6 +131,9 @@ class BoardOut(PairsOut):
     today: int | None = Field(None, description="Cards due today.")
     cursor: str | None = Field(None, description="Send to `GET /crm/pulse`.")
     filters: BoardFilters | None = None
+    pixel_state: str | None = Field(
+        None, description="`ready`, `unselected` or `none`: where verdicts can go."
+    )
     members: list[MemberOut] | None = None
     ads: list[tuple[str, str]] | None = Field(
         None, description="`[ad id, title]` pairs for the advert filter."
@@ -169,6 +172,9 @@ class CardViewOut(BaseModel):
     reasons: list[ReasonOut]
     currency: str
     can_work: bool = Field(description="False once the card is closed.")
+    can_move: bool = Field(
+        description="May put the card in another column, closed or not."
+    )
     pair: str | None = Field(description="The pair the card is on.")
 
 
@@ -183,6 +189,7 @@ class SetupOut(BaseModel):
     take_new_ads: bool
     distribution: str = Field(description="`round_robin`, `claim` or `manual`.")
     currency: str
+    enabled_at: datetime | None
 
 
 class PresetOut(BaseModel):
@@ -194,8 +201,21 @@ class PresetOut(BaseModel):
     always: bool = Field(description="Cannot be unticked.")
 
 
+class PixelRowOut(BaseModel):
+    external_id: str
+    name: str
+    last_fired_at: datetime | None
+
+
+class MetaOut(BaseModel):
+    state: str = Field(description="`ready`, `unselected` or `none`.")
+    selected: str | None
+    pixels: list[PixelRowOut]
+
+
 class SettingsOut(PairsOut):
     setup: SetupOut | None
+    meta: MetaOut
     stages: list[StageOut]
     members: list[MemberOut]
     reasons: list[ReasonOut]
