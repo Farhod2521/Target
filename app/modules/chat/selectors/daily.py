@@ -68,15 +68,6 @@ MONTHS: Final = (
     "noyabr",
     "dekabr",
 )
-WEEKDAYS: Final = (
-    "dushanba",
-    "seshanba",
-    "chorshanba",
-    "payshanba",
-    "juma",
-    "shanba",
-    "yakshanba",
-)
 
 
 def daily_book(
@@ -104,7 +95,7 @@ def daily_book(
         clock=clock,
         since=day,
         until=day,
-        day_text=_day_said(day),
+        day_text=_date_said(day),
         final=day < latest
         or (not ongoing and night_has_passed(db, owner=owner, account=clock, now=now)),
         ongoing=ongoing,
@@ -231,11 +222,6 @@ def _waiting(
 def _date_said(day: date) -> str:
     """«1-noyabr»."""
     return f"{day.day}-{MONTHS[day.month - 1]}"
-
-
-def _day_said(day: date) -> str:
-    """«1-noyabr, yakshanba»."""
-    return f"{_date_said(day)}, {WEEKDAYS[day.weekday()]}"
 
 
 def _totals(reports: Iterable[DailyReport]) -> tuple[DayTotal, ...]:
