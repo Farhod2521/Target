@@ -5,9 +5,13 @@ spent, with that pair's money on it. A press replaces the message in place with
 that pair's figures - see
 :mod:`app.modules.notifications.services.compose_day_pair`.
 
-**Sections with room around them.** A message is short blocks with a rule and
-a blank line either side, figures in bold, so the eye finds the total and the
-results without reading the words between them.
+**Twenty buttons to a message, and no message left nearly empty.** Past twenty
+the pairs are shared out evenly, so twenty-one are eleven and ten rather than
+twenty and a lone button. The total stands on the first message only.
+
+**Sections with room around them.** A message is short blocks with one blank
+line between them, figures in bold, so the eye finds the total and the results
+without reading the words between them.
 
 Figures only. Nothing here judges a day: no verdict, no warning, no reading
 by a model. Somebody who wants to know whether a figure is good asks the
@@ -17,6 +21,7 @@ Built by :mod:`app.modules.notifications.services.compose`'s rules: HTML, and
 every value escaped before it meets a tag.
 """
 
+from math import ceil
 from typing import Final
 
 from telegramkit import Button
@@ -32,28 +37,53 @@ from app.modules.notifications.services.compose import (
 from core.chat.day_report import DailyReport, DayBook
 
 SEPARATOR: Final = " · "
-# Short enough not to wrap on a narrow phone, where a rule broken in two is
-# worse than none.
-RULE: Final = "──────────────"
 # The longest a button may run: a phone draws it one line high and clips the
 # rest, which is why the money goes first and the name is what is cut.
 BUTTON_CHARS: Final = 40
-# Telegram takes a hundred buttons under one message.
-MAX_PAIR_BUTTONS: Final = 90
+MAX_PAIRS_PER_MESSAGE: Final = 20
 MAX_QUIET_NAMES: Final = 5
 
 
 def sectioned(*sections: list[str]) -> str:
-    """The sections that have anything in them, a rule between each two."""
-    filled = ["\n".join(lines) for lines in sections if lines]
-    return f"\n\n{RULE}\n\n".join(filled)
+    """The sections that have anything in them, a blank line between each two."""
+    return "\n\n".join("\n".join(lines) for lines in sections if lines)
 
 
-def list_message(*, book: DayBook) -> Message:
-    """The period's total. The buttons under it carry each pair's share."""
+def list_parts(book: DayBook) -> tuple[tuple[DailyReport, ...], ...]:
+    """The pairs that spent, message by message, the biggest spenders first.
+
+    Evenly, the odd ones on the earlier messages. Always at least one message:
+    money on unchosen pages alone is still told.
+    """
+    spent = book.spent
+    count = max(ceil(len(spent) / MAX_PAIRS_PER_MESSAGE), 1)
+    size, extra = divmod(len(spent), count)
+    parts = []
+    start = 0
+    for place in range(count):
+        end = start + size + (1 if place < extra else 0)
+        parts.append(spent[start:end])
+        start = end
+    return tuple(parts)
+
+
+def part_of(book: DayBook, report: DailyReport) -> int:
+    """Which message of the list holds this pair's button."""
+    for place, part in enumerate(list_parts(book)):
+        if any(item.pair == report.pair for item in part):
+            return place
+    return 0
+
+
+def list_message(*, book: DayBook, part: int = 0) -> Message:
+    """The period's total, or on a later message only what it continues."""
+    count = len(list_parts(book))
+    head = [heading(book, part=part, parts=count), escaped(book.day_text)]
+    if part:
+        return Message(text=sectioned(head, status_section(book)))
     return Message(
         text=sectioned(
-            [heading(book), escaped(book.day_text)],
+            head,
             _total_section(book),
             *closing_sections(book),
             status_section(book),
@@ -61,8 +91,8 @@ def list_message(*, book: DayBook) -> Message:
     )
 
 
-def list_buttons(*, book: DayBook) -> tuple[Button, ...]:
-    """A button for each pair that spent, and the cabinet."""
+def list_buttons(*, book: DayBook, part: int = 0) -> tuple[Button, ...]:
+    """A button for each pair on this message, and the cabinet."""
     return (
         *(
             Button(
@@ -70,7 +100,7 @@ def list_buttons(*, book: DayBook) -> tuple[Button, ...]:
                 data=pair_press(book, report),
                 row="own",
             )
-            for report in book.spent[:MAX_PAIR_BUTTONS]
+            for report in list_parts(book)[part]
         ),
         *miniapp_button(route="metrics:dashboard", label="Kabinetda ochish"),
     )
@@ -82,12 +112,14 @@ def pair_press(book: DayBook, report: DailyReport) -> str:
     return daily_pair_data(day=book.day, pair=report.pair)
 
 
-def heading(book: DayBook) -> str:
+def heading(book: DayBook, *, part: int = 0, parts: int = 1) -> str:
+    """The report's name, with «(2/2)» when it takes more than one message."""
     if book.weekly:
         name = "Haftalik hisobot"
     else:
         name = "Bugun" if book.ongoing else "Kunlik hisobot"
-    return f"📊 {_bold(name.upper())}"
+    place = f" ({part + 1}/{parts})" if parts > 1 else ""
+    return f"📊 {_bold(name.upper() + place)}"
 
 
 def status_section(book: DayBook) -> list[str]:
@@ -153,14 +185,15 @@ def _button_title(book: DayBook, report: DailyReport) -> str:
 
 
 __all__ = [
-    "RULE",
     "SEPARATOR",
     "closing_sections",
     "compared",
     "heading",
     "list_buttons",
     "list_message",
+    "list_parts",
     "pair_press",
+    "part_of",
     "sectioned",
     "status_section",
 ]

@@ -554,6 +554,9 @@ class AdCampaignOut(BaseModel):
     external_id: str
     name: str
     objective: str
+    objective_label: str
+    special_ad_categories: list[str]
+    status: str = Field(description="Meta's own status word, as the sync saw it.")
     delivery_label: str
     is_running: bool
     daily_budget_minor: int | None
@@ -604,6 +607,28 @@ class LaunchAdOut(BaseModel):
     post_url: str = Field(description="The post it was built from; empty for none.")
 
 
+class FormQuestionOut(BaseModel):
+    label: str
+    kind_label: str
+    options: list[str]
+    by: str = Field(
+        description="`ai`, `owner`, `system` (added by the rules), or empty "
+        "on a ready form, whose questions nobody here wrote."
+    )
+    by_label: str
+
+
+class FormSetupOut(BaseModel):
+    origin: str = Field(description="`new`: this launch made it. `ready`: it stood.")
+    origin_label: str
+    by: str
+    by_label: str
+    name: str
+    higher_intent: bool = Field(description="Meta's review step before sending.")
+    depth_label: str
+    questions: list[FormQuestionOut] = Field(description="Empty on a ready form.")
+
+
 class AdSettingsOut(BaseModel):
     goal: str
     goal_text: str = Field(description="The customer's own words about the goal.")
@@ -630,6 +655,12 @@ class AdSettingsOut(BaseModel):
     attribution: str
     frequency_cap: dict[str, int] | None
     buys_qualified_leads: bool
+    form: FormSetupOut | None
+    bid_strategy: str = Field(description="As asked at the launch; never mirrored.")
+    bid_strategy_label: str
+    budget_level: str = Field(description="`campaign` or `adset`.")
+    budget_level_label: str
+    budget_sharing: bool
     decisions: list[AdDecisionOut] = Field(description="Who settled each part.")
     ads: list[LaunchAdOut]
 
@@ -659,6 +690,11 @@ class LiveAdOut(BaseModel):
     post: AdPostOut | None
 
 
+class FormEndingOut(BaseModel):
+    words: str = Field(description="The last screen's button.")
+    target: str
+
+
 class LiveFormOut(BaseModel):
     external_id: str
     is_synced: bool = Field(description="False: only the id is known so far.")
@@ -669,6 +705,10 @@ class LiveFormOut(BaseModel):
     collecting: bool
     privacy_url: str
     locale: str
+    created_at: datetime | None
+    is_own: bool = Field(description="False: a ready form the launch only pointed at.")
+    rows: list[FormQuestionOut]
+    ending: FormEndingOut | None
 
 
 class AdLiveOut(BaseModel):
@@ -677,6 +717,9 @@ class AdLiveOut(BaseModel):
     error: str
     delivery_note: str
     qualified: bool
+    started_at: datetime | None
+    delivery_started_at: datetime | None
+    finished_at: datetime | None
     ads: list[LiveAdOut]
     forms: list[LiveFormOut]
 
@@ -696,6 +739,15 @@ class AdGroupOut(BaseModel):
     name: str
     delivery_label: str
     optimization_goal: str
+    optimization_goal_label: str
+    billing_event: str
+    billing_event_label: str
+    destination_type: str
+    destination_label: str
+    pixel_id: str
+    conversion_event: str = Field(description="`promoted_object.custom_event_type`.")
+    start_time: datetime | None
+    end_time: datetime | None
     daily_budget_minor: int | None
     is_learning: bool
     problem: str

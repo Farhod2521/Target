@@ -12,11 +12,14 @@ from app.common.db import utcnow
 from app.modules.ads.models import (
     AdCreative,
     AdPreview,
+    AdSet,
+    Campaign,
     CampaignLaunch,
     LaunchCreative,
     MediaAsset,
 )
 from app.modules.backoffice.constants import Role
+from app.modules.backoffice.schemas import CustomerAdOut
 from tests.pg.conftest import sign_up
 from tests.pg.test_chat import _account
 from tests.pg.test_chat import _mirror as _campaigns
@@ -195,6 +198,66 @@ def test_one_advert_says_who_decided_what(client: TestClient, db: Session) -> No
     assert by["form"]["by"] == "owner"
     assert by["form"]["value"] == "Mijoz savollarni o'zi yozdi"
     assert [ad["words_by"] for ad in settings["ads"]] == ["ai", "owner"]
+
+
+def test_every_question_of_a_new_form_says_who_put_it_there(
+    client: TestClient, db: Session
+) -> None:
+    owner, launch, headers = _launched(client, db)
+    _set_up(db, owner, launch)
+    launch.answers = {
+        **launch.answers,
+        "lead_form_questions": [
+            {"kind": "full_name", "label": ""},
+            {"kind": "custom_1", "label": "Qaysi tort?", "options": ["Asal", "Olma"]},
+        ],
+    }
+    launch.draft = {
+        **launch.draft,
+        "form": {
+            "ai": [{"kind": "full_name", "label": "Ismingiz"}],
+            "chosen": None,
+        },
+    }
+    db.commit()
+
+    body = client.get(f"{URL}/{owner.id}/ads/{launch.id}", headers=headers).json()
+    form = body["settings"]["form"]
+    assert form["origin"] == "new" and form["by"] == "owner"
+    rows = {row["label"]: row for row in form["questions"]}
+    assert rows["Ism va familiya"]["by"] == "ai"
+    assert rows["Qaysi tort?"]["by"] == "owner"
+    assert rows["Qaysi tort?"]["kind_label"] == "Variantli savol"
+    assert rows["Qaysi tort?"]["options"] == ["Asal", "Olma"]
+    assert rows["Telefon raqamingiz"]["by"] == "system"
+    CustomerAdOut.model_validate(body)
+
+
+def test_the_settings_read_as_they_stand_in_ads_manager(
+    client: TestClient, db: Session
+) -> None:
+    owner, launch, headers = _launched(client, db)
+    campaign = db.scalar(select(Campaign).where(Campaign.owner_id == owner.id))
+    group = db.scalar(select(AdSet).where(AdSet.owner_id == owner.id))
+    assert campaign is not None and group is not None
+    campaign.objective_raw = "OUTCOME_LEADS"
+    group.optimization_goal_raw = "LEAD_GENERATION"
+    group.billing_event_raw = "IMPRESSIONS"
+    group.destination_type_raw = "ON_AD"
+    group.promoted_object_raw = {"pixel_id": "px1", "custom_event_type": "LEAD"}
+    launch.max_result_cost_minor = 500
+    db.commit()
+
+    body = client.get(f"{URL}/{owner.id}/ads/{launch.id}", headers=headers).json()
+    assert body["campaign"]["objective_label"] == "Lidlar"
+    [line] = body["groups"]
+    assert line["optimization_goal_label"] == "Lid formalar"
+    assert line["billing_event_label"] == "Ko'rsatish uchun"
+    assert line["destination_label"] == "Reklama ichidagi forma"
+    assert line["pixel_id"] == "px1" and line["conversion_event"] == "LEAD"
+    assert body["settings"]["bid_strategy"] == "COST_CAP"
+    assert body["settings"]["bid_strategy_label"] == "Natija narxi chegarasi"
+    CustomerAdOut.model_validate(body)
 
 
 def test_a_form_the_ai_picked_says_so(client: TestClient, db: Session) -> None:

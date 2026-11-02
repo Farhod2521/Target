@@ -65,6 +65,7 @@ class ActionKind(Choices):
     PROMO_REJECTED = "promo_rejected"
     PLAN_GIVEN = "plan_given"
     DAYS_GRANTED = "days_granted"
+    DAYS_TAKEN = "days_taken"
     PAGES_GRANTED = "pages_granted"
     PAGES_REVOKED = "pages_revoked"
     PAGE_ADDED = "page_added"
@@ -113,6 +114,7 @@ ACTION_KIND_LABELS = {
     ActionKind.PROMO_REJECTED: "Promo rad etildi",
     ActionKind.PLAN_GIVEN: "Tarif berildi",
     ActionKind.DAYS_GRANTED: "Kun berildi",
+    ActionKind.DAYS_TAKEN: "Kun ayirildi",
     ActionKind.PAGES_GRANTED: "O'rin berildi",
     ActionKind.PAGES_REVOKED: "O'rin olindi",
     ActionKind.PAGE_ADDED: "Qo'shimcha sahifa yoqildi",

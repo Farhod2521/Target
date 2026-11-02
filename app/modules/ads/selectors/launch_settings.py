@@ -24,16 +24,23 @@ from app.modules.ads.constants import (
     BUTTON_LABELS,
     CALL_TO_ACTION,
     CAMPAIGN_TYPE_LABELS,
+    FORM_DEPTH_LABELS,
     FREQUENCY_CAP,
+    HIGHER_INTENT,
+    LEAD_FORM_NAME,
     LEAD_FORM_QUESTIONS,
     MEDIA_KIND_LABELS,
     PLACEMENT_MODE_LABELS,
+    QUESTION_TYPES,
     TARGETING_MODE_LABELS,
     DraftSection,
+    FormDepth,
     LaunchStep,
     MediaKind,
 )
+from app.modules.ads.manager_words import BID_LABELS, BUDGET_LEVEL_LABELS
 from app.modules.ads.models import CampaignLaunch, LaunchCreative, MediaAsset
+from app.modules.ads.selectors.budget_level import budget_level, shares_budget
 from app.modules.ads.selectors.campaign_type import (
     campaign_type_source,
     effective_campaign_type,
@@ -42,7 +49,9 @@ from app.modules.ads.selectors.conversion_event import (
     chosen_conversion_event,
     conversion_event_source,
 )
+from app.modules.ads.selectors.lead_form import form_depth
 from app.modules.ads.selectors.tracking import chosen_url_tags, effective_button
+from app.modules.leads.constants import QUESTION_LABELS
 from core.targeting.spelled import AudienceWords, Place, spell
 
 PLATFORM_LABELS: dict[str, str] = {
@@ -67,9 +76,11 @@ POSITION_LABELS: dict[str, str] = {
     "marketplace": "Marketplace",
     "search": "qidiruv",
 }
+BY_SYSTEM: Final = "system"
 BY_LABELS: Final[dict[str, str]] = {
     draft_field.BY_AI: "AI",
     draft_field.BY_OWNER: "Mijoz",
+    BY_SYSTEM: "Tizim",
 }
 UNKNOWN_BY: Final = "Noma'lum"
 READY_FORM: Final[dict[str, str]] = {
@@ -81,6 +92,13 @@ NEW_FORM: Final[dict[str, str]] = {
     draft_field.BY_OWNER: "Mijoz savollarni o'zi yozdi",
 }
 UNKNOWN_FORM: Final = "Forma manbasi noma'lum"
+ORIGIN_NEW: Final = "new"
+ORIGIN_READY: Final = "ready"
+AUTOFILLED: Final = "Avtomatik to'ldiriladi"
+WITH_OPTIONS: Final = "Variantli savol"
+OPEN_ANSWER: Final = "Ochiq savol"
+BID_LOWEST_COST: Final = "LOWEST_COST_WITHOUT_CAP"
+BID_COST_CAP: Final = "COST_CAP"
 _PIN: Final = "a pin at "
 _COUNTRIES: Final = dict(COUNTRIES)
 
@@ -139,6 +157,38 @@ class LaunchAd:
 
 
 @dataclass(frozen=True, slots=True)
+class FormQuestion:
+    """One question of a lead form, and who put it there."""
+
+    label: str
+    kind_label: str
+    options: tuple[str, ...]
+    by: str
+
+    @property
+    def by_label(self) -> str:
+        return BY_LABELS.get(self.by, UNKNOWN_BY)
+
+
+@dataclass(frozen=True, slots=True)
+class FormSetup:
+    """How this launch came by its form. ``questions`` is empty for a ready
+    form: those are the provider's, and the mirror reads them."""
+
+    origin: str
+    origin_label: str
+    by: str
+    name: str
+    higher_intent: bool
+    depth_label: str
+    questions: tuple[FormQuestion, ...]
+
+    @property
+    def by_label(self) -> str:
+        return BY_LABELS.get(self.by, UNKNOWN_BY)
+
+
+@dataclass(frozen=True, slots=True)
 class LaunchSettings:
     id: UUID
     goal: str
@@ -168,6 +218,18 @@ class LaunchSettings:
     buys_qualified_leads: bool
     decisions: tuple[Decision, ...]
     ads: tuple[LaunchAd, ...]
+    form: FormSetup | None
+    bid_strategy: str
+    budget_level: str
+    budget_sharing: bool
+
+    @property
+    def bid_strategy_label(self) -> str:
+        return BID_LABELS.get(self.bid_strategy, self.bid_strategy)
+
+    @property
+    def budget_level_label(self) -> str:
+        return BUDGET_LEVEL_LABELS.get(self.budget_level, self.budget_level)
 
 
 def launch_settings(db: Session, *, launch: CampaignLaunch) -> LaunchSettings:
@@ -204,6 +266,11 @@ def launch_settings(db: Session, *, launch: CampaignLaunch) -> LaunchSettings:
         buys_qualified_leads=launch.buy_qualified_leads,
         decisions=_decisions(launch, stored, button=button),
         ads=_ads(db, launch, stored),
+        form=_form_setup(launch, stored),
+        # Sent once at the launch and not mirrored back: what this product asked for.
+        bid_strategy=BID_COST_CAP if launch.max_result_cost_minor else BID_LOWEST_COST,
+        budget_level=budget_level(launch=launch),
+        budget_sharing=shares_budget(launch=launch),
     )
 
 
@@ -313,6 +380,126 @@ def _form_decision(launch: CampaignLaunch, stored: dict[str, Any]) -> Decision |
         by = _new_form_by(stored, proposed=proposed, written=written)
         value = NEW_FORM.get(by, UNKNOWN_FORM)
     return Decision(key="form", label="Lid formasi", value=value, by=by)
+
+
+def _form_setup(launch: CampaignLaunch, stored: dict[str, Any]) -> FormSetup | None:
+    decision = _form_decision(launch, stored)
+    if decision is None:
+        return None
+    answers = launch.answers or {}
+    ready = is_ready_form(launch)
+    return FormSetup(
+        origin=ORIGIN_READY if ready else ORIGIN_NEW,
+        origin_label=decision.value,
+        by=decision.by,
+        name=str(answers.get(LEAD_FORM_NAME) or ""),
+        higher_intent=bool(answers.get(HIGHER_INTENT)),
+        depth_label=str(FORM_DEPTH_LABELS[FormDepth(form_depth(launch=launch))]),
+        questions=() if ready else _written_questions(launch, stored),
+    )
+
+
+def is_ready_form(launch: CampaignLaunch) -> bool:
+    """The launch points at a form that was on the page before it."""
+    refs = launch.created_refs if isinstance(launch.created_refs, dict) else {}
+    picked = launch.lead_form_external_id
+    return bool(picked) and picked not in ref_field.ref_ids(refs, LaunchStep.FORM)
+
+
+def _rows(value: Any) -> list[dict[str, Any]]:
+    return (
+        [row for row in value or [] if isinstance(row, dict)]
+        if isinstance(value, list)
+        else []
+    )
+
+
+def _picked_questions(
+    launch: CampaignLaunch, stored: dict[str, Any]
+) -> list[dict[str, Any]]:
+    return _rows((launch.answers or {}).get(LEAD_FORM_QUESTIONS)) or _rows(
+        draft_field.chosen(stored, DraftSection.FORM)
+    )
+
+
+def _written_questions(
+    launch: CampaignLaunch, stored: dict[str, Any]
+) -> tuple[FormQuestion, ...]:
+    picked = _picked_questions(launch, stored)
+    return tuple(
+        FormQuestion(
+            label=_question_label(row),
+            kind_label=_question_kind(str(row.get("kind", "")), row.get("options")),
+            options=tuple(str(item) for item in row.get("options") or ()),
+            by=_question_by(row, launch=launch, stored=stored),
+        )
+        for row in draft_field.with_phone(picked)
+    )
+
+
+def _question_by(
+    row: dict[str, Any], *, launch: CampaignLaunch, stored: dict[str, Any]
+) -> str:
+    """A question the AI proposed stays the AI's, even when the owner kept it;
+    one nobody picked is the phone the rules add to every form."""
+    key = _question_key(row)
+    proposed = _rows(draft_field.proposal(stored, DraftSection.FORM))
+    if key in {_question_key(item) for item in proposed}:
+        return draft_field.BY_AI
+    picked = _picked_questions(launch, stored)
+    if key in {_question_key(item) for item in picked}:
+        return draft_field.BY_OWNER
+    return BY_SYSTEM
+
+
+def _question_key(row: dict[str, Any]) -> str:
+    kind = str(row.get("kind", ""))
+    if kind in QUESTION_TYPES:
+        return kind
+    return str(row.get("label", "")).strip().casefold()
+
+
+def _question_label(row: dict[str, Any]) -> str:
+    label = str(row.get("label", "")).strip()
+    kind = QUESTION_TYPES.get(str(row.get("kind", "")), "")
+    return label or str(QUESTION_LABELS.get(kind, ""))
+
+
+def _question_kind(kind: str, options: Any) -> str:
+    if kind in QUESTION_TYPES:
+        return AUTOFILLED
+    return WITH_OPTIONS if options else OPEN_ANSWER
+
+
+def mirrored_questions(
+    raw: object, *, launch: CampaignLaunch, ours: bool
+) -> tuple[FormQuestion, ...]:
+    """A form as the provider holds it. Only a form this launch made can say
+    who wrote each question; on a ready one nobody here wrote them."""
+    stored = dict(launch.draft) if isinstance(launch.draft, dict) else {}
+    kinds = {meta: kind for kind, meta in QUESTION_TYPES.items()}
+    found = []
+    for item in raw if isinstance(raw, list) else ():
+        if not isinstance(item, dict):
+            continue
+        kind = kinds.get(str(item.get("type", "")).strip().upper(), "")
+        options = [
+            str(option.get("value", "") if isinstance(option, dict) else option).strip()
+            for option in item.get("options") or []
+        ]
+        options = [option for option in options if option]
+        row = {"kind": kind, "label": str(item.get("label", "")), "options": options}
+        label = _question_label(row)
+        if label:
+            found.append(
+                FormQuestion(
+                    label=label,
+                    kind_label=_question_kind(kind, options),
+                    options=tuple(options),
+                    by=_question_by(row, launch=launch, stored=stored) if ours else "",
+                )
+            )
+    return tuple(found)
 
 
 def _new_form_by(
@@ -510,10 +697,14 @@ __all__ = [
     "POST_KINDS",
     "AudienceLines",
     "Decision",
+    "FormQuestion",
+    "FormSetup",
     "LaunchAd",
     "LaunchSettings",
     "audience_lines",
+    "is_ready_form",
     "launch_settings",
+    "mirrored_questions",
     "post_address",
     "video_address",
 ]

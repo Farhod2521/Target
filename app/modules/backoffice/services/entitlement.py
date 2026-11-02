@@ -28,6 +28,7 @@ from app.modules.billing.services import (
     grant_pages,
     grant_plan,
     record_payment,
+    revoke_days,
     revoke_pages,
 )
 from app.modules.referrals.constants import ReferralMode
@@ -125,6 +126,41 @@ def add_days(
             "days": days,
             "until": subscription.expires_at.isoformat(),
             **money(invoice),
+        },
+    )
+    return subscription
+
+
+def take_days(
+    db: Session,
+    *,
+    customer: User,
+    days: int,
+    may_end: bool,
+    actor: User,
+    reason: str,
+    now: datetime,
+) -> Subscription:
+    """Shorten the entitlement; any money stays where it is."""
+    subscription = revoke_days(
+        db,
+        owner=customer,
+        days=days,
+        may_end=may_end,
+        actor=actor,
+        reason=reason,
+        now=now,
+    )
+    record(
+        db,
+        customer=customer,
+        actor=actor,
+        kind=ActionKind.DAYS_TAKEN,
+        reason=reason,
+        detail={
+            "days": days,
+            "until": subscription.expires_at.isoformat(),
+            "ended": subscription.ended_at is not None,
         },
     )
     return subscription

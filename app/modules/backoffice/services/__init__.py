@@ -17,6 +17,7 @@ from app.modules.backoffice.services.entitlement import (
     add_slots,
     give_plan,
     set_referral,
+    take_days,
     take_payment,
     take_slots,
 )
@@ -95,6 +96,7 @@ __all__ = [
     "set_customer_password",
     "set_referral",
     "set_roles",
+    "take_days",
     "take_payment",
     "take_slots",
     "unblock_customer",

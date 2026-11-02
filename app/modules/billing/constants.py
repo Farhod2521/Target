@@ -35,6 +35,7 @@ class HistoryKind(Choices):
     TRIAL = "trial"
     PAID = "paid"
     GIVEN = "given"
+    TAKEN = "taken"
     PROMO = "promo"
     REFUNDED = "refunded"
     PAGES = "pages"
@@ -45,6 +46,7 @@ HISTORY_KIND_LABELS = {
     HistoryKind.TRIAL: "Sinov boshlandi",
     HistoryKind.PAID: "To'lov",
     HistoryKind.GIVEN: "Ofis berdi",
+    HistoryKind.TAKEN: "Ofis kamaytirdi",
     HistoryKind.PROMO: "Promo kod",
     HistoryKind.REFUNDED: "Pul qaytarildi",
     HistoryKind.PAGES: "Qo'shimcha sahifa",

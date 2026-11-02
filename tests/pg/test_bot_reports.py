@@ -5,6 +5,7 @@ import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta
+from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 import pytest
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from metaads import PROVIDER
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
+from telegramkit import Button, TelegramError
 
 from app.common.cache import cache
 from app.common.config import settings
@@ -29,10 +31,13 @@ from app.modules.metrics.constants import MetricLevel
 from app.modules.metrics.models import MetricsDaily
 from app.modules.miniapp.constants import NEXT_FIELD
 from app.modules.miniapp.routers import safe_next
+from app.modules.notifications.keys import daily_list_data
 from app.modules.notifications.models import TelegramChat
+from app.modules.notifications.selectors import chat_for
 from app.modules.notifications.selectors.daily import day_book, week_book
 from app.modules.notifications.services import announce_frequency as frequency_module
 from app.modules.notifications.services import announce_reports as reports_module
+from app.modules.notifications.services import commands as commands_module
 from app.modules.notifications.services import (
     handle_update,
 )
@@ -41,6 +46,7 @@ from app.modules.notifications.services.announce_frequency import (
     deliver_frequency_for,
 )
 from app.modules.notifications.services.announce_reports import (
+    LIST_MOVED,
     daily_report_audience,
     deliver_daily_report_for,
     deliver_report_for,
@@ -50,8 +56,10 @@ from app.modules.notifications.services.announce_reports import (
     unfinished_report_audience,
     unfinished_week_audience,
 )
-from app.modules.notifications.services.compose_daily import RULE
+from app.modules.notifications.services.compose import escaped
+from app.modules.notifications.services.compose_daily import list_parts
 from app.modules.notifications.services.compose_day_pair import pair_message
+from core.chat.day_report import DailyReport, DayBook, DayTotal, Figure
 from tests.pg.test_actions_inbox import _owner, _page_with_campaign, _run, _suggestion
 from tests.pg.test_office_telegram import FakeBot, _press, _text
 
@@ -484,7 +492,7 @@ def test_a_goal_the_screens_leave_uncounted_has_meta_s_count_and_its_name(
     assert "<blockquote>" in text
 
 
-def test_sections_are_ruled_apart_and_a_name_said_twice_is_said_once(
+def test_sections_stand_a_blank_line_apart_and_a_name_said_twice_is_said_once(
     client: TestClient, db: Session
 ) -> None:
     user = _cabinet(client, db)
@@ -498,7 +506,8 @@ def test_sections_are_ruled_apart_and_a_name_said_twice_is_said_once(
     (report,) = book.reports
     text = pair_message(book=book, report=report).text
     assert report.title == "Bahor kafesi"
-    assert text.count(f"\n\n{RULE}\n\n") >= 2
+    assert "\n\n" in text and "───" not in text and "\n\n\n" not in text
+    assert report.day_text.count(",") == 0
     assert "Akkaunt:" not in text
     assert not book.final and text.rstrip().endswith("yakuniy emas</i>")
     assert report.spend.endswith(",00")
@@ -1142,3 +1151,183 @@ def test_a_week_s_button_for_an_unknown_pair_says_so(
     assert handle_update(
         db, payload=_press("700", data, message_id=9), now=_monday()
     ) == ("daily_gone")
+
+
+def _many(pairs: int, *, final: bool = True, weekly: bool = False) -> DayBook:
+    """A period with this many pairs that spent, biggest first."""
+    return DayBook(
+        day=YESTERDAY,
+        until=YESTERDAY,
+        day_text="1-noyabr",
+        weekly=weekly,
+        final=final,
+        totals=(DayTotal(spend="$99,00"),),
+        reports=tuple(
+            DailyReport(
+                day=YESTERDAY,
+                day_text="1-noyabr",
+                currency="USD",
+                pair=f"pair_{number}",
+                page=f"Sahifa {number}",
+                page_id=f"p_{number}",
+                account=f"Akkaunt {number}",
+                account_id=f"act_{number}",
+                figure=Figure(spend="$1,00", spend_minor=100),
+            )
+            for number in range(pairs)
+        ),
+    )
+
+
+def _pair_buttons(message: dict) -> list[Button]:
+    return [button for button in message["buttons"] if button.data]
+
+
+@pytest.mark.parametrize(
+    ("pairs", "sizes"),
+    [
+        (0, [0]),
+        (2, [2]),
+        (20, [20]),
+        (21, [11, 10]),
+        (22, [11, 11]),
+        (40, [20, 20]),
+        (41, [14, 14, 13]),
+    ],
+)
+def test_pairs_are_shared_out_evenly_past_twenty(pairs: int, sizes: list[int]) -> None:
+    book = _many(pairs)
+    parts = list_parts(book)
+    assert [len(part) for part in parts] == sizes
+    assert [item for part in parts for item in part] == list(book.spent)
+
+
+def test_twenty_one_pairs_are_two_messages_and_only_the_first_has_the_total(
+    client: TestClient, db: Session, phone: FakeBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = _cabinet(client, db)
+    _linked(db, user)
+    monkeypatch.setattr(reports_module, "day_book", lambda *_a, **_k: _many(21))
+
+    deliver_daily_report_for(db, owner=user, now=MORNING)
+    deliver_daily_report_for(db, owner=user, now=MORNING)
+
+    first, second = _sent(phone)
+    assert "(1/2)" in first["text"] and "Jami sarf" in first["text"]
+    assert "(2/2)" in second["text"] and "Jami sarf" not in second["text"]
+    assert len(_pair_buttons(first)) == 11 and len(_pair_buttons(second)) == 10
+    assert not {button.data for button in _pair_buttons(first)} & {
+        button.data for button in _pair_buttons(second)
+    }
+
+
+def test_a_second_message_refused_is_owed_and_the_first_is_not_sent_again(
+    client: TestClient, db: Session, phone: FakeBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = _cabinet(client, db)
+    _linked(db, user)
+    monkeypatch.setattr(reports_module, "day_book", lambda *_a, **_k: _many(21))
+    accepted = phone.send_message
+
+    def refused(**fields: Any) -> Any:
+        if "(2/2)" in fields["text"]:
+            raise TelegramError("no")
+        return accepted(**fields)
+
+    monkeypatch.setattr(phone, "send_message", refused)
+    deliver_daily_report_for(db, owner=user, now=MORNING)
+    assert len(_sent(phone)) == 1
+
+    monkeypatch.setattr(phone, "send_message", accepted)
+    deliver_daily_report_for(db, owner=user, now=MORNING)
+
+    first, second = _sent(phone)
+    assert "(1/2)" in first["text"] and "(2/2)" in second["text"]
+
+
+@pytest.mark.parametrize(("weekly", "back_prefix"), [(False, "dl:"), (True, "wl:")])
+def test_a_pair_on_the_second_message_stays_on_it_and_goes_back_to_it(
+    client: TestClient,
+    db: Session,
+    phone: FakeBot,
+    monkeypatch: pytest.MonkeyPatch,
+    weekly: bool,
+    back_prefix: str,
+) -> None:
+    user = _cabinet(client, db)
+    _linked(db, user)
+    book = _many(21, weekly=weekly)
+    for name in ("day_book", "week_book"):
+        monkeypatch.setattr(commands_module, name, lambda *_a, **_k: book)
+    commands_module.send_yesterday(
+        db, client=phone, chat=chat_for(db, owner=user), now=MORNING
+    )
+    second = _sent(phone)[1]
+    own = _pair_buttons(second)
+
+    handle_update(db, payload=_press("700", own[-1].data, message_id=102), now=MORNING)
+
+    back, following, _detail = _edits(phone)[-1]["buttons"]
+    assert following.data == own[0].data
+    assert back.data.startswith(back_prefix) and back.data.endswith(":1")
+
+    handle_update(db, payload=_press("700", back.data, message_id=102), now=MORNING)
+
+    listed = _edits(phone)[-1]
+    assert "(2/2)" in listed["text"]
+    assert [button.data for button in _pair_buttons(listed)] == [
+        button.data for button in _pair_buttons(second)
+    ]
+
+
+def test_a_part_the_list_no_longer_has_opens_its_last(
+    client: TestClient, db: Session, phone: FakeBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = _cabinet(client, db)
+    _linked(db, user)
+    monkeypatch.setattr(commands_module, "day_book", lambda *_a, **_k: _many(5))
+    data = daily_list_data(day=YESTERDAY, part=1)
+
+    handle_update(db, payload=_press("700", data, message_id=102), now=MORNING)
+
+    assert "Jami sarf" in _edits(phone)[-1]["text"]
+
+
+def test_finished_figures_reach_every_message_and_a_grown_list_gets_a_new_one(
+    client: TestClient, db: Session, phone: FakeBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = _cabinet(client, db)
+    _linked(db, user)
+    monkeypatch.setattr(
+        reports_module, "day_book", lambda *_a, **_k: _many(21, final=False)
+    )
+    deliver_daily_report_for(db, owner=user, now=MORNING)
+    assert len(_sent(phone)) == 2
+
+    monkeypatch.setattr(reports_module, "day_book", lambda *_a, **_k: _many(41))
+    assert finish_daily_report_for(db, owner=user, now=MORNING)
+
+    assert [edited["message_id"] for edited in _edits(phone)] == [101, 102]
+    assert all("yakuniy emas" not in edited["text"] for edited in _edits(phone))
+    assert len(_sent(phone)) == 3 and "(3/3)" in _sent(phone)[2]["text"]
+
+
+def test_a_message_a_shorter_list_no_longer_needs_says_so(
+    client: TestClient, db: Session, phone: FakeBot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user = _cabinet(client, db)
+    _linked(db, user)
+    monkeypatch.setattr(
+        reports_module, "day_book", lambda *_a, **_k: _many(21, final=False)
+    )
+    deliver_daily_report_for(db, owner=user, now=MORNING)
+
+    monkeypatch.setattr(reports_module, "day_book", lambda *_a, **_k: _many(20))
+    assert finish_daily_report_for(db, owner=user, now=MORNING)
+
+    first, second = _edits(phone)
+    assert first["message_id"] == 101 and len(_pair_buttons(first)) == 20
+    assert "(1/" not in first["text"]
+    assert second["message_id"] == 102 and second["text"] == escaped(LIST_MOVED)
+    assert not second["buttons"]
+    assert len(_sent(phone)) == 2

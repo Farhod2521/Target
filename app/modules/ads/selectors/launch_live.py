@@ -8,6 +8,7 @@ launch's money. Nothing asks the provider anything.
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Final
 
 from metaads.writing import is_dry_run_id
@@ -27,6 +28,9 @@ from app.modules.ads.constants import (
 from app.modules.ads.models import Ad, AdCreative, AdSet, CampaignLaunch, MediaAsset
 from app.modules.ads.selectors.launch_settings import (
     POST_KINDS,
+    FormQuestion,
+    is_ready_form,
+    mirrored_questions,
     post_address,
     video_address,
 )
@@ -77,6 +81,8 @@ class LiveForm:
     collecting: bool = True
     privacy_url: str = ""
     locale: str = ""
+    rows: tuple[FormQuestion, ...] = ()
+    ours: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +94,9 @@ class LaunchLive:
     qualified: bool
     ads: tuple[LiveAd, ...]
     forms: tuple[LiveForm, ...]
+    started_at: datetime | None = None
+    delivery_started_at: datetime | None = None
+    finished_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +120,9 @@ def launch_live(db: Session, *, launch: CampaignLaunch) -> LaunchLive:
             _live(ad, creatives.get(ad.creative_external_id), library) for ad in ads
         ),
         forms=_forms(db, launch, ads),
+        started_at=launch.started_at,
+        delivery_started_at=launch.delivery_started_at,
+        finished_at=launch.finished_at,
     )
 
 
@@ -281,6 +293,9 @@ def _forms(db: Session, launch: CampaignLaunch, ads: list[Ad]) -> tuple[LiveForm
         if row is None:
             forms.append(LiveForm(external_id=external_id, card=None))
             continue
+        ours = not (
+            is_ready_form(launch) and external_id == launch.lead_form_external_id
+        )
         forms.append(
             LiveForm(
                 external_id=external_id,
@@ -288,6 +303,8 @@ def _forms(db: Session, launch: CampaignLaunch, ads: list[Ad]) -> tuple[LiveForm
                 collecting=row.status == LeadFormStatus.ACTIVE,
                 privacy_url=row.privacy_policy_url,
                 locale=row.locale,
+                rows=mirrored_questions(row.questions_raw, launch=launch, ours=ours),
+                ours=ours,
             )
         )
     return tuple(forms)

@@ -145,6 +145,19 @@ class SlotsOutOfRange(DomainError):
         )
 
 
+class NoDaysToTake(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu akkauntda jonli obuna yo'q, ayiradigan kun qolmagan.")
+
+
+class TakingDaysEndsPlan(DomainError):
+    def __init__(self, *, until: datetime) -> None:
+        day = date_format(localtime(until), "j F Y")
+        super().__init__(
+            "Obuna %(day)s gacha. Shuncha kun ayirilsa, obuna tugaydi." % {"day": day}
+        )
+
+
 class NoSlotsToTake(DomainError):
     def __init__(self, *, held: int) -> None:
         super().__init__(

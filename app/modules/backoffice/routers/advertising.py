@@ -21,9 +21,15 @@ from app.modules.ads.constants import (
 )
 from app.modules.ads.contract.detail import campaign_page
 from app.modules.ads.contract.shapes import CampaignDetail
+from app.modules.ads.manager_words import OBJECTIVE_LABELS
 from app.modules.ads.selectors import fresh_preview, launched_campaign
 from app.modules.ads.selectors.launch_live import LiveForm, launch_ads
-from app.modules.ads.selectors.launch_settings import AudienceLines, LaunchSettings
+from app.modules.ads.selectors.launch_settings import (
+    AudienceLines,
+    FormQuestion,
+    FormSetup,
+    LaunchSettings,
+)
 from app.modules.backoffice.constants import ADMIN_ROLES
 from app.modules.backoffice.exceptions import CampaignNotMirrored
 from app.modules.backoffice.permissions import staff_required
@@ -133,6 +139,31 @@ def audience_out(lines: AudienceLines | None) -> dict[str, Any] | None:
     }
 
 
+def question_out(row: FormQuestion) -> dict[str, Any]:
+    return {
+        "label": row.label,
+        "kind_label": row.kind_label,
+        "options": list(row.options),
+        "by": row.by,
+        "by_label": row.by_label if row.by else "",
+    }
+
+
+def form_setup_out(found: FormSetup | None) -> dict[str, Any] | None:
+    if found is None:
+        return None
+    return {
+        "origin": found.origin,
+        "origin_label": found.origin_label,
+        "by": found.by,
+        "by_label": found.by_label,
+        "name": found.name,
+        "higher_intent": found.higher_intent,
+        "depth_label": found.depth_label,
+        "questions": [question_out(row) for row in found.questions],
+    }
+
+
 def settings_out(found: LaunchSettings) -> dict[str, Any]:
     cap = found.frequency_cap
     return {
@@ -161,6 +192,12 @@ def settings_out(found: LaunchSettings) -> dict[str, Any]:
         "attribution": found.attribution,
         "frequency_cap": {"times": cap[0], "days": cap[1]} if cap else None,
         "buys_qualified_leads": found.buys_qualified_leads,
+        "form": form_setup_out(found.form),
+        "bid_strategy": found.bid_strategy,
+        "bid_strategy_label": found.bid_strategy_label,
+        "budget_level": found.budget_level,
+        "budget_level_label": found.budget_level_label,
+        "budget_sharing": found.budget_sharing,
         "decisions": [
             {
                 "key": row.key,
@@ -194,6 +231,7 @@ def settings_out(found: LaunchSettings) -> dict[str, Any]:
 
 def form_out(form: LiveForm) -> dict[str, Any]:
     card = form.card
+    ending = card.ending if card is not None else None
     return {
         "external_id": form.external_id,
         "is_synced": card is not None,
@@ -204,6 +242,12 @@ def form_out(form: LiveForm) -> dict[str, Any]:
         "collecting": form.collecting,
         "privacy_url": form.privacy_url,
         "locale": form.locale,
+        "created_at": card.created_time if card is not None else None,
+        "is_own": form.ours,
+        "rows": [question_out(row) for row in form.rows],
+        "ending": {"words": ending.words, "target": ending.target}
+        if ending is not None
+        else None,
     }
 
 
@@ -215,6 +259,9 @@ def live_out(found: AdReading) -> dict[str, Any]:
         "error": live.error,
         "delivery_note": live.delivery_note,
         "qualified": live.qualified,
+        "started_at": live.started_at,
+        "delivery_started_at": live.delivery_started_at,
+        "finished_at": live.finished_at,
         "ads": [
             {
                 "external_id": ad.external_id,
@@ -266,6 +313,15 @@ def group_out(group: GroupLine) -> dict[str, Any]:
         "name": group.name,
         "delivery_label": group.delivery_label,
         "optimization_goal": group.optimization_goal,
+        "optimization_goal_label": group.optimization_goal_label,
+        "billing_event": group.billing_event,
+        "billing_event_label": group.billing_event_label,
+        "destination_type": group.destination_type,
+        "destination_label": group.destination_label,
+        "pixel_id": group.pixel_id,
+        "conversion_event": group.conversion_event,
+        "start_time": group.start_time,
+        "end_time": group.end_time,
         "daily_budget_minor": group.daily_budget_minor,
         "is_learning": group.is_learning,
         "problem": group.problem,
@@ -313,6 +369,11 @@ def campaign_out(found: AdReading) -> dict[str, Any] | None:
         "external_id": campaign.external_id,
         "name": campaign.name,
         "objective": campaign.objective_raw,
+        "objective_label": OBJECTIVE_LABELS.get(
+            campaign.objective_raw, campaign.objective_raw
+        ),
+        "special_ad_categories": list(campaign.special_ad_categories or ()),
+        "status": campaign.effective_status or campaign.status,
         "delivery_label": row.delivery_label,
         "is_running": row.is_running,
         "daily_budget_minor": campaign.daily_budget_minor,

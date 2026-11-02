@@ -67,13 +67,15 @@ def weekly_done_subject(*, since: date) -> str:
     return f"week:{since.isoformat()}"
 
 
-def weekly_subject(*, since: date) -> str:
-    """The week's one message."""
-    return f"week:{since.isoformat()}:list"
+def weekly_subject(*, since: date, part: int) -> str:
+    """One message of a week's list. The first keeps the subject it has always
+    had, so a week already sent is not sent again."""
+    suffix = f":{part}" if part else ""
+    return f"week:{since.isoformat()}:list{suffix}"
 
 
 def weekly_final_subject(*, since: date) -> str:
-    """The week's message carries the finished figures."""
+    """The week's messages carry the finished figures."""
     return f"week:{since.isoformat()}:final"
 
 
@@ -88,7 +90,7 @@ def daily_done_subject(*, day: date) -> str:
 
 
 def daily_final_subject(*, day: date) -> str:
-    """The day's message carries the night's finished figures."""
+    """The day's messages carry the night's finished figures."""
     return f"{day.isoformat()}:final"
 
 
@@ -240,10 +242,10 @@ def weekly_pair_data(*, since: date, pair: str) -> str:
     return f"{CALLBACK_WEEKLY_PAIR}{sep}{since:%Y%m%d}{sep}{pair_digest(pair)}"
 
 
-def weekly_list_data(*, since: date) -> str:
-    """«Back to the list»: ``wl:<Monday>:0``."""
+def weekly_list_data(*, since: date, part: int) -> str:
+    """«Back to the list»: ``wl:<Monday>:<which message>``."""
     sep = CALLBACK_SEPARATOR
-    return f"{CALLBACK_WEEKLY_LIST}{sep}{since:%Y%m%d}{sep}0"
+    return f"{CALLBACK_WEEKLY_LIST}{sep}{since:%Y%m%d}{sep}{part}"
 
 
 def read_daily_press(data: str) -> tuple[str, date, str] | None:
@@ -257,7 +259,7 @@ def read_daily_press(data: str) -> tuple[str, date, str] | None:
         day = datetime.strptime(day_text, "%Y%m%d").date()
     except ValueError:
         return None
-    if action in LIST_PRESSES and value.isdigit():
+    if action in LIST_PRESSES and value.isdecimal():
         return action, day, value
     if action in PAIR_PRESSES and _DIGEST.fullmatch(value):
         return action, day, value

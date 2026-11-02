@@ -17,6 +17,11 @@ from sqlalchemy.orm import Session, joinedload
 from app.modules.accounts.models import User
 from app.modules.ads import refs as ref_field
 from app.modules.ads.constants import DELIVERY_LABELS, LaunchStep
+from app.modules.ads.manager_words import (
+    BILLING_LABELS,
+    DESTINATION_LABELS,
+    OPTIMIZATION_LABELS,
+)
 from app.modules.ads.models import Ad, AdSet, Campaign, CampaignLaunch
 from app.modules.ads.selectors.launch_live import LaunchLive, launch_live
 from app.modules.ads.selectors.launch_settings import (
@@ -122,6 +127,24 @@ class GroupLine:
     leads: int
     lead_cost_minor: int | None
     ads: tuple[AdLine, ...]
+    billing_event: str = ""
+    destination_type: str = ""
+    pixel_id: str = ""
+    conversion_event: str = ""
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+
+    @property
+    def optimization_goal_label(self) -> str:
+        return OPTIMIZATION_LABELS.get(self.optimization_goal, self.optimization_goal)
+
+    @property
+    def billing_event_label(self) -> str:
+        return BILLING_LABELS.get(self.billing_event, self.billing_event)
+
+    @property
+    def destination_label(self) -> str:
+        return DESTINATION_LABELS.get(self.destination_type, self.destination_type)
 
 
 @dataclass(frozen=True, slots=True)
@@ -440,9 +463,20 @@ def _groups(
                     for ad in ads
                     if ad.adset_id == adset.id
                 ),
+                billing_event=adset.billing_event_raw,
+                destination_type=adset.destination_type_raw,
+                pixel_id=_promoted(adset, "pixel_id"),
+                conversion_event=_promoted(adset, "custom_event_type"),
+                start_time=adset.start_time,
+                end_time=adset.end_time,
             )
         )
     return (*lines, *_gone(figures=figures, ads=ads, by_ad=by_ad))
+
+
+def _promoted(adset: AdSet, key: str) -> str:
+    raw = adset.promoted_object_raw
+    return str(raw.get(key) or "") if isinstance(raw, dict) else ""
 
 
 def _gone(

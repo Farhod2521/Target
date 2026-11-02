@@ -24,6 +24,7 @@ from app.modules.billing.constants import (
 from app.modules.billing.exceptions import (
     CheaperPlanWaits,
     DaysOutOfRange,
+    NoDaysToTake,
     NoSlotsToTake,
     NothingToExtend,
     PlanNotOpened,
@@ -36,6 +37,7 @@ from app.modules.billing.exceptions import (
     SetupIncomplete,
     SlotsOutOfRange,
     SubscriptionExpired,
+    TakingDaysEndsPlan,
 )
 from app.modules.billing.models import Plan, PromoCode, PromoRedemption, Subscription
 from app.modules.billing.selectors import (
@@ -247,6 +249,76 @@ def grant_days(
             "from": previous.isoformat(),
             "to": subscription.expires_at.isoformat(),
             "plan": subscription.plan.code,
+            "reason": reason.strip(),
+            "actor_id": str(actor.id),
+        },
+        occurred_at=now,
+    )
+    return subscription
+
+
+def revoke_days(
+    db: Session,
+    *,
+    owner: User,
+    days: int,
+    may_end: bool,
+    actor: User,
+    reason: str,
+    now: datetime,
+) -> Subscription:
+    """Shorten a live entitlement; no money moves. Ending it is asked for by
+    name: the lapse sweep then stops the customer's adverts and in time deletes
+    them, and it counts from the end written here, so that is never before now.
+    """
+    if not reason.strip():
+        raise ReasonRequired
+    if days < 1 or days > MAX_GRANT_DAYS:
+        raise DaysOutOfRange(limit=MAX_GRANT_DAYS)
+    subscription = latest_locked(db, owner=owner)
+    if subscription is None or subscription.expires_at <= now:
+        raise NoDaysToTake
+    if subscription.status not in (
+        SubscriptionStatus.TRIAL,
+        SubscriptionStatus.ACTIVE,
+    ):
+        raise NoDaysToTake
+    previous = subscription.expires_at
+    shorter = previous - timedelta(days=days)
+    ended = shorter <= now
+    if ended and not may_end:
+        raise TakingDaysEndsPlan(until=previous)
+    subscription.expires_at = max(shorter, now)
+    if ended:
+        subscription.status = SubscriptionStatus.EXPIRED
+        subscription.ended_at = now
+    subscription.note = _note(
+        subscription.note,
+        f"{now:%d.%m.%Y} · -{days} · {actor.email} · {reason.strip()}",
+    )
+    db.flush()
+    record_change(
+        db,
+        subscription=subscription,
+        kind=HistoryKind.TAKEN,
+        from_plan=subscription.plan,
+        move=None,
+        days=-days,
+        expires_before=previous,
+        now=now,
+        actor=actor,
+        reason=reason,
+    )
+    emit(
+        db,
+        owner_id=owner.id,
+        name=EventName.SUBSCRIPTION_SHORTENED,
+        aggregate_type=SUBSCRIPTION,
+        aggregate_id=subscription.id,
+        payload={
+            "expires_at": subscription.expires_at.isoformat(),
+            "days_removed": days,
+            "ended": ended,
             "reason": reason.strip(),
             "actor_id": str(actor.id),
         },
