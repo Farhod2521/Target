@@ -497,7 +497,7 @@ def first_password(body: PasswordIn, db: Db, user: CurrentUser) -> dict[str, boo
     return {"ok": True}
 
 
-def _settings(db: Session, viewer: Viewer) -> dict[str, Any]:
+def settings_out(db: Session, viewer: Viewer) -> dict[str, Any]:
     owner = viewer.owner
     setup = selectors.setup_of(db, scope=viewer.scope)
     stages = selectors.stages_of(db, scope=viewer.scope)
@@ -575,7 +575,7 @@ def _meta(db: Session, viewer: Viewer) -> dict[str, Any]:
 
 @router.get("/settings", responses={200: {"model": SettingsOut}})
 def settings_view(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, Any]:
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 class SetupStepIn(BaseModel):
@@ -653,7 +653,7 @@ def setup_step(
         services.save_quality(db, viewer=viewer, stage_ids=body.quality, advance_to=4)
         placed = services.enable_crm(db, viewer=viewer)
     db.commit()
-    return {"next": min(step + 1, 5), "placed": placed} | _settings(db, viewer)
+    return {"next": min(step + 1, 5), "placed": placed} | settings_out(db, viewer)
 
 
 class StateIn(BaseModel):
@@ -804,7 +804,7 @@ def distribution(
 ) -> dict[str, Any]:
     services.save_distribution(db, viewer=viewer, distribution=body.distribution)
     db.commit()
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 @router.post("/settings/flow", responses={200: {"model": SettingsOut}})
@@ -822,7 +822,7 @@ def flow(
         take_new_ads=body.take_new_ads,
     )
     db.commit()
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 @router.post("/settings/quality", responses={200: {"model": SettingsOut}})
@@ -831,7 +831,7 @@ def quality(
 ) -> dict[str, Any]:
     services.save_quality(db, viewer=viewer, stage_ids=body.quality)
     db.commit()
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 class PixelIn(BaseModel):
@@ -869,7 +869,7 @@ def pixel(
         external_id=body.external_id,
     )
     db.commit()
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 @router.post("/settings/pixel/refresh", responses={200: {"model": SettingsOut}})
@@ -879,7 +879,7 @@ def pixel_refresh(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, A
     answer = sync_pixels(db, ad_account_id=account.id)
     if answer in ("gone", "unusable", "failed"):
         raise PixelsUnread
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 @router.post("/settings/pixel/create", responses={200: {"model": SettingsOut}})
@@ -888,7 +888,7 @@ def pixel_create(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, An
     _pixels_allowed(viewer)
     create_pixel(db, account=account, name=_pixel_name(viewer))
     db.commit()
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 def _pixel_name(viewer: Viewer) -> str:

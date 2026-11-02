@@ -63,6 +63,11 @@ class EmailMismatch(DomainError):
         super().__init__("Email mos kelmadi — akkaunt o'chirilmadi.")
 
 
+class CrmEmailMismatch(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Email mos kelmadi — CRM o'chirilmadi.")
+
+
 class AlreadyBlocked(DomainError):
     def __init__(self) -> None:
         super().__init__("Bu akkaunt allaqachon bloklangan.")

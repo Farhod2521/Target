@@ -6,6 +6,7 @@ from app.modules.backoffice.services.accounts import (
     unblock_customer,
 )
 from app.modules.backoffice.services.archive import archive_invoice
+from app.modules.backoffice.services.crm import erase_customer_crm
 from app.modules.backoffice.services.directions import (
     create_direction,
     delete_direction,
@@ -76,6 +77,7 @@ __all__ = [
     "delete_account",
     "delete_code",
     "delete_direction",
+    "erase_customer_crm",
     "free_hold",
     "give_plan",
     "holds_any_role",

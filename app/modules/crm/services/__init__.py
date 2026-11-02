@@ -1333,6 +1333,56 @@ def disable_crm(db: Session, *, viewer: Viewer) -> CrmSetup:
     return setup
 
 
+def erase_crm(db: Session, *, owner: User, actor: User) -> None:
+    """The owner's CRM on every pair, gone as if it was never set up.
+
+    Cards with their history, columns, lost reasons, setups, the managers and
+    their logins. The leads stay, and so do the seats bought. What the cards
+    still had to tell the provider is withdrawn; what has gone stays gone. Taking
+    the setups first holds ``place_lead`` off, which locks one before it lays a
+    card.
+    """
+    from app.modules.accounts.services import remove_member_login
+
+    list(
+        db.scalars(
+            select(CrmSetup.id).where(CrmSetup.owner_id == owner.id).with_for_update()
+        )
+    )
+    logins = list(db.scalars(select(User).where(User.crm_owner_id == owner.id)))
+    db.execute(
+        update(LeadSignal)
+        .where(
+            LeadSignal.owner_id == owner.id,
+            LeadSignal.source == SignalSource.INTERNAL,
+            LeadSignal.status == SignalStatus.PENDING,
+        )
+        .values(status=SignalStatus.WITHDRAWN, updated_at=utcnow())
+    )
+    for model in (CrmCard, CrmStage, CrmLostReason, CrmMember, CrmSetup):
+        delete_rows(db, model.__table__, model.owner_id == owner.id)
+    subjects = [str(login.id) for login in logins]
+    for login in logins:
+        remove_member_login(db, user=login)
+
+    def sign_out() -> None:
+        for subject in subjects:
+            tokens.revoke_all(subject=subject, now=utcnow())
+
+    on_commit(db, sign_out)
+    record_config(
+        db,
+        owner=owner,
+        actor=actor,
+        level="crm",
+        target_id=owner.id,
+        before={},
+        after={"erased": True, "managers": len(subjects)},
+        event=EventName.CRM_ERASED,
+        now=utcnow(),
+    )
+
+
 def add_reason(db: Session, *, viewer: Viewer, name: str) -> CrmLostReason:
     scope = require_owner(viewer)
     setup = setup_for_update(db, scope=scope)
