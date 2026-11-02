@@ -315,8 +315,8 @@ def test_a_lone_pair_s_day_is_sent_once_with_no_list_in_front_of_it(
     assert daily_report_audience(db, now=MORNING) == [str(user.id)]
     assert deliver_daily_report_for(db, owner=user, now=MORNING)
     (message,) = _sent(phone)
-    assert "Kunlik hisobot" in message["text"]
-    assert "Jami sarf" in message["text"] and "Natijalar" in message["text"]
+    assert "KUNLIK HISOBOT" in message["text"]
+    assert "Jami sarf" in message["text"] and "NATIJALAR" in message["text"]
     (opened,) = message["buttons"]
     assert opened.text == "Batafsil — kabinetda"
     assert opened.web_app
@@ -350,16 +350,16 @@ def test_two_pairs_are_a_total_and_a_button_each_with_its_money(
 
     (message,) = _sent(phone)
     assert "Jami sarf" in message["text"]
-    assert "Bahor" not in message["text"] and "Natijalar" not in message["text"]
+    assert "Bahor" not in message["text"] and "NATIJALAR" not in message["text"]
     first, second, cabinet = message["buttons"]
-    assert first.text.endswith("Bahor kafesi · Asosiy") or "·" in first.text
+    assert first.text.endswith("Bahor kafesi") and "Asosiy" not in first.text
     assert first.text[0] == "$" and first.data.startswith("dd:")
     assert second.data.startswith("dd:")
     assert cabinet.text == "Kabinetda ochish"
 
     handle_update(db, payload=_press("700", first.data, message_id=101), now=MORNING)
     opened = _edits(phone)[-1]
-    assert "Natijalar" in opened["text"]
+    assert "NATIJALAR" in opened["text"]
     assert "Guruh" not in opened["text"] and "Reklama" not in opened["text"]
     back, following, detail = opened["buttons"]
     assert back.data.startswith("dl:") and following.data == second.data
@@ -417,6 +417,37 @@ def test_every_goal_has_a_line_and_the_lines_add_up_to_the_total(
     assert report.figure.uncounted == "$400,00"
 
 
+def test_two_pairs_of_one_page_keep_the_account_on_their_buttons(
+    client: TestClient, db: Session, phone: FakeBot
+) -> None:
+    user = _cabinet(client, db)
+    _spent(db, user)
+    first = _account(db, user)
+    other = AdAccount(
+        owner_id=user.id,
+        connection_id=first.connection_id,
+        provider=PROVIDER,
+        external_id="act_3",
+        name="Ikkinchi",
+        currency=first.currency,
+        timezone=first.timezone,
+        is_active=True,
+    )
+    db.add(other)
+    db.flush()
+    page = _page_of(db, user, "page_1")
+    db.add(PagePair(owner_id=user.id, page_id=page.id, ad_account_id=other.id))
+    db.commit()
+    _group(db, user, other, "c_2", "s_2", spend=30000, built=False)
+    _linked(db, user)
+
+    deliver_daily_report_for(db, owner=user, now=MORNING)
+
+    first_button, second_button, _opened = _sent(phone)[0]["buttons"]
+    assert first_button.text.endswith("Bahor kafesi · Asosiy")
+    assert second_button.text.endswith("Bahor kafesi · Ikkinchi")
+
+
 def test_a_goal_the_screens_leave_uncounted_has_meta_s_count_and_its_name(
     client: TestClient, db: Session
 ) -> None:
@@ -449,7 +480,8 @@ def test_a_goal_the_screens_leave_uncounted_has_meta_s_count_and_its_name(
     text = pair_message(book=book, report=report).text
     assert "Ro'yxatdan o'tish" in text and "Xabar orqali xarid" in text
     assert "Boshqa natija" in text and "Natijasi sanalmaydi" not in text
-    assert "2 ta · bittasi $100,00" in text
+    assert "Natija: <b>2 ta</b>" in text and "Narxi: <b>$100,00</b>" in text
+    assert "<blockquote>" in text
 
 
 def test_sections_are_ruled_apart_and_a_name_said_twice_is_said_once(
@@ -466,7 +498,8 @@ def test_sections_are_ruled_apart_and_a_name_said_twice_is_said_once(
     (report,) = book.reports
     text = pair_message(book=book, report=report).text
     assert report.title == "Bahor kafesi"
-    assert text.count(RULE) >= 2
+    assert text.count(f"\n\n{RULE}\n\n") >= 2
+    assert "Akkaunt:" not in text
     assert not book.final and text.rstrip().endswith("yakuniy emas</i>")
     assert report.spend.endswith(",00")
 
@@ -520,7 +553,7 @@ def test_an_owner_only_in_ads_manager_is_told_their_day(
     assert deliver_daily_report_for(db, owner=user, now=MORNING)
 
     (message,) = _sent(phone)
-    assert "Ads Manager: $" in message["text"]
+    assert "Ads Manager: <b>$" in message["text"]
     assert "Platformadan" not in message["text"]
 
 
@@ -755,7 +788,7 @@ def test_hisobot_sends_yesterday_and_bugun_says_today_is_quiet(
     assert handle_update(db, payload=_text("700", "/hisobot"), now=MORNING) == (
         "report_sent"
     )
-    assert "Kunlik hisobot" in _sent(phone)[-1]["text"]
+    assert "KUNLIK HISOBOT" in _sent(phone)[-1]["text"]
     assert handle_update(db, payload=_text("700", "/bugun"), now=MORNING) == (
         "report_quiet"
     )
@@ -911,10 +944,10 @@ def test_monday_s_week_is_sent_once_with_its_goals_against_the_week_before(
     assert deliver_report_for(db, owner=user, now=monday)
 
     (message,) = _sent(phone)
-    assert "Haftalik hisobot" in message["text"]
+    assert "HAFTALIK HISOBOT" in message["text"]
     assert "14 ta" in message["text"]
-    assert "Oldingi hafta: 14 ta · bittasi" in message["text"]
-    assert "Oldingi hafta: $" in message["text"]
+    assert "Oldingi hafta: 14 ta · $" in message["text"]
+    assert "Oldingi hafta: <b>$" in message["text"]
     (opened,) = message["buttons"]
     assert opened.text == "Batafsil — kabinetda"
     sunday = _sunday(monday)
@@ -942,12 +975,12 @@ def test_two_pairs_are_one_message_of_the_week_with_a_button_each(
 
     handle_update(db, payload=_press("700", first.data, message_id=101), now=monday)
     opened = _edits(phone)[-1]
-    assert "Natijalar" in opened["text"]
+    assert "NATIJALAR" in opened["text"]
     back, following, _detail = opened["buttons"]
     assert back.data.startswith("wl:") and following.data == second.data
 
     handle_update(db, payload=_press("700", back.data, message_id=101), now=monday)
-    assert "Haftalik hisobot" in _edits(phone)[-1]["text"]
+    assert "HAFTALIK HISOBOT" in _edits(phone)[-1]["text"]
 
 
 def test_an_owner_only_in_ads_manager_is_told_their_week(
@@ -1024,7 +1057,7 @@ def test_hafta_sends_the_last_week_and_a_quiet_week_says_so(
     assert handle_update(db, payload=_text("700", "/hafta"), now=_monday()) == (
         "report_sent"
     )
-    assert "Haftalik hisobot" in _sent(phone)[-1]["text"]
+    assert "HAFTALIK HISOBOT" in _sent(phone)[-1]["text"]
 
 
 def test_a_quiet_week_is_marked_done_without_a_message(
