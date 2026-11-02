@@ -106,6 +106,11 @@ class ActionKind(Choices):
     SALES_HOLD_LIFTED = "sales_hold_lifted"
     SALES_SETTINGS_CHANGED = "sales_settings"
     REFUSAL_EDITED = "refusal_edited"
+    CRM_STATE_CHANGED = "crm_state_changed"
+    CRM_STAGES_CHANGED = "crm_stages_changed"
+    CRM_SETTINGS_CHANGED = "crm_settings_changed"
+    CRM_MEMBERS_CHANGED = "crm_members_changed"
+    CRM_ERASED = "crm_erased"
 
 
 ACTION_KIND_LABELS = {
@@ -155,6 +160,11 @@ ACTION_KIND_LABELS = {
     ActionKind.SALES_HOLD_LIFTED: "Qo'ng'iroq taqiqi olindi",
     ActionKind.SALES_SETTINGS_CHANGED: "Sotuv sozlamalari o'zgardi",
     ActionKind.REFUSAL_EDITED: "Meta xatosi javobi tahrirlandi",
+    ActionKind.CRM_STATE_CHANGED: "CRM yoqildi yoki to'xtatildi",
+    ActionKind.CRM_STAGES_CHANGED: "CRM ustunlari o'zgartirildi",
+    ActionKind.CRM_SETTINGS_CHANGED: "CRM sozlamalari o'zgartirildi",
+    ActionKind.CRM_MEMBERS_CHANGED: "CRM menejerlari o'zgartirildi",
+    ActionKind.CRM_ERASED: "CRM butunlay o'chirildi",
 }
 READ_KINDS = (
     ActionKind.VIEW,

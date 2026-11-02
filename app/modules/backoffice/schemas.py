@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.modules.crm.schemas import SettingsOut
 from app.modules.supportchat.schemas import ComposerOut
 from app.modules.supportchat.schemas import MessageOut as ChatMessageOut
 
@@ -430,6 +431,69 @@ class MessageOut(BaseModel):
 class DeletedOut(MessageOut):
     rows: int
     receipts_kept: int
+
+
+class CrmPairLineOut(BaseModel):
+    key: str = Field(description="Send as `pair`.")
+    page: str
+    account: str
+    state: str = Field(description="`none`, `draft`, `on` or `off`.")
+    cards: int
+    managers: int
+
+
+class CrmTotalsOut(BaseModel):
+    """What erasing the CRM takes away, every pair's."""
+
+    setups: int
+    stages: int
+    reasons: int
+    cards: int
+    history: int
+    managers: int
+
+
+class CrmStageFigureOut(BaseModel):
+    stage_id: str
+    cards: int
+    won_minor: int
+
+
+class CrmManagerFigureOut(BaseModel):
+    user_id: str
+    open: int
+    won: int
+    won_minor: int
+
+
+class CrmFiguresOut(BaseModel):
+    leads: int = Field(description="Leads this pair's CRM could take.")
+    cards: int
+    open: int
+    won: int
+    won_minor: int = Field(description="In the setup's currency.")
+    lost: int
+    qualified: int
+    late: int = Field(description="Open cards whose due time has passed.")
+    today: int = Field(description="Open cards due today.")
+    unassigned: int = Field(description="Open cards nobody holds.")
+    returned: int
+    last_activity_at: datetime | None
+    stages: list[CrmStageFigureOut]
+    managers: list[CrmManagerFigureOut]
+
+
+class CustomerCrmOut(SettingsOut):
+    pair_lines: list[CrmPairLineOut]
+    cards_elsewhere: int = Field(
+        description="Cards on pairs the subscription no longer holds: on no board, "
+        "gone with the rest when the CRM is erased."
+    )
+    totals: CrmTotalsOut
+    enabled_at: datetime | None
+    disabled_at: datetime | None
+    seats: UsedOut
+    figures: CrmFiguresOut | None = Field(description="Null when there is no pair.")
 
 
 class AdRowOut(BaseModel):

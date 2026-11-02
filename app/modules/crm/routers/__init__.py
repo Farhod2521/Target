@@ -487,7 +487,7 @@ def first_password(body: PasswordIn, db: Db, user: CurrentUser) -> dict[str, boo
     return {"ok": True}
 
 
-def _settings(db: Session, viewer: Viewer) -> dict[str, Any]:
+def settings_out(db: Session, viewer: Viewer) -> dict[str, Any]:
     owner = viewer.owner
     setup = selectors.setup_of(db, scope=viewer.scope)
     stages = selectors.stages_of(db, scope=viewer.scope)
@@ -547,7 +547,7 @@ def _settings(db: Session, viewer: Viewer) -> dict[str, Any]:
 
 @router.get("/settings", responses={200: {"model": SettingsOut}})
 def settings_view(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, Any]:
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 class SetupStepIn(BaseModel):
@@ -625,7 +625,7 @@ def setup_step(
         services.save_quality(db, viewer=viewer, stage_ids=body.quality, advance_to=4)
         placed = services.enable_crm(db, viewer=viewer)
     db.commit()
-    return {"next": min(step + 1, 5), "placed": placed} | _settings(db, viewer)
+    return {"next": min(step + 1, 5), "placed": placed} | settings_out(db, viewer)
 
 
 class StateIn(BaseModel):
@@ -776,7 +776,7 @@ def distribution(
 ) -> dict[str, Any]:
     services.save_distribution(db, viewer=viewer, distribution=body.distribution)
     db.commit()
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 @router.post("/settings/flow", responses={200: {"model": SettingsOut}})
@@ -794,7 +794,7 @@ def flow(
         take_new_ads=body.take_new_ads,
     )
     db.commit()
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 @router.post("/settings/quality", responses={200: {"model": SettingsOut}})
@@ -803,7 +803,7 @@ def quality(
 ) -> dict[str, Any]:
     services.save_quality(db, viewer=viewer, stage_ids=body.quality)
     db.commit()
-    return _settings(db, viewer)
+    return settings_out(db, viewer)
 
 
 class ReasonIn(WrittenIn):

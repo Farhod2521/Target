@@ -551,7 +551,32 @@ POST /crm/settings/members
 | Sozlamalar | `GET /crm/settings` + `/crm/settings/*` |
 | Menejer birinchi kirishi | `409 password` → `POST /crm/password` |
 
-## 9. Hali backendda yo'q
+## 9. Ofisdan boshqarish
+
+Xodim mijoz CRM'ini kartasidagi «CRM» tabidan boshqaradi. Yo'llar
+`/api/v1/office/customers/{id}/crm` ostida; Support, Finance va Owner uchun,
+boshqalarga `404`. Har yozuv `?pair=<kalit>` so'raydi: juftlik mijozda yo'q bo'lsa
+`404` (joriy juftlikka tushib ketmaydi) va `reason` so'raydi: jurnalga yoziladi.
+Ega amallari, xatolar va cheklovlar 6-7-bo'limlardagidek. Javob: `{"message"}`.
+
+| Endpoint | Izoh |
+|---|---|
+| `GET /` | Sozlamalar + `figures`, `pair_lines`, `seats`, `totals`. Lid ma'lumoti kelmaydi |
+| `POST /state` | `{"on": true}` |
+| `POST /stages`, `PUT /stages/{id}` | `{"name", "color"}` |
+| `POST /stages/{id}/move` | `{"way"}`; `reason` shart emas |
+| `POST /stages/{id}/delete` | Kartalar birinchi ustunga o'tadi |
+| `POST /quality`, `/distribution`, `/flow` | 6-bo'limdagi body'lar |
+| `POST /reasons`, `/reasons/{id}/delete` | Rad etish sabablari |
+| `POST /members`, `PUT /members/{id}` | Sotuv menejeri |
+| `POST /members/{id}/password`, `/members/{id}/delete` | Parol jurnalga yozilmaydi |
+| `POST /erase` | **Faqat Owner.** `{"email", "reason"}`, `?pair` kerak emas |
+
+`erase` hamma juftlikdagi kartalar, tarix, ustunlar, sabablar, sozlamalar,
+menejerlar va ularning loginlarini o'chiradi. Lidlar va sotib olingan o'rinlar
+qoladi. Mijoz CRM'ni sozlash ustasidan qaytadan boshlaydi.
+
+## 10. Hali backendda yo'q
 
 - Qo'shimcha menejer o'rnini sotib olish.
 - Sifatli lidlarni Meta'ga yuborish (`sent_to_meta` tarixda hozircha

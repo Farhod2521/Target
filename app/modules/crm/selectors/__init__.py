@@ -85,10 +85,13 @@ class Viewer:
     # Whether a manager sits in a seat: the free one of their page, or a
     # bought one. Always true for the owner.
     seated: bool = True
+    # A member of staff working the customer's CRM from the office: the owner's
+    # reach, under their own name in the log.
+    staff: bool = False
 
     @property
     def is_owner(self) -> bool:
-        return self.member is None and self.user.id == self.owner.id
+        return self.staff or (self.member is None and self.user.id == self.owner.id)
 
     @property
     def scope(self) -> Scope | None:
@@ -151,6 +154,20 @@ def viewer_for(db: Session, *, user: User, wanted: str = "") -> Viewer:
         pair=pair_of_row(pairs, member),
         pairs=pairs,
         seated=member.id in seated_ids(db, owner=owner, at=utcnow()),
+    )
+
+
+def office_viewer(
+    db: Session, *, customer: User, staff: User, wanted: str = ""
+) -> Viewer:
+    pairs = tuple(page_pairs(db, owner=customer))
+    return Viewer(
+        owner=customer,
+        user=staff,
+        member=None,
+        pair=chosen_pair(db, owner=customer, wanted=wanted, pairs=pairs),
+        pairs=pairs,
+        staff=True,
     )
 
 

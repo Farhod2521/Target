@@ -196,6 +196,7 @@ class EventName(Choices):
     CRM_SETUP_SAVED = "crm.setup_saved"
     CRM_ENABLED = "crm.enabled"
     CRM_DISABLED = "crm.disabled"
+    CRM_ERASED = "crm.erased"
     CRM_MEMBER_SAVED = "crm.member_saved"
     CRM_MEMBER_REMOVED = "crm.member_removed"
     CRM_CARD_PLACED = "crm.card_placed"
@@ -318,6 +319,7 @@ EVENT_NAME_LABELS = {
     EventName.CRM_SETUP_SAVED: "CRM sozlamasi saqlandi",
     EventName.CRM_ENABLED: "CRM yoqildi",
     EventName.CRM_DISABLED: "CRM o'chirildi",
+    EventName.CRM_ERASED: "CRM butunlay o'chirildi",
     EventName.CRM_MEMBER_SAVED: "CRM menejeri saqlandi",
     EventName.CRM_MEMBER_REMOVED: "CRM menejeri o'chirildi",
     EventName.CRM_CARD_PLACED: "Lid CRM doskasiga tushdi",
