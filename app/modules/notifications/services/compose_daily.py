@@ -5,8 +5,9 @@ spent, with that pair's money on it. A press replaces the message in place with
 that pair's figures - see
 :mod:`app.modules.notifications.services.compose_day_pair`.
 
-**Sections, ruled apart.** A message is short blocks with a line between them,
-so the eye finds the total and the results without reading the rest.
+**Sections with room around them.** A message is short blocks with a rule and
+a blank line either side, figures in bold, so the eye finds the total and the
+results without reading the words between them.
 
 Figures only. Nothing here judges a day: no verdict, no warning, no reading
 by a model. Somebody who wants to know whether a figure is good asks the
@@ -45,7 +46,7 @@ MAX_QUIET_NAMES: Final = 5
 def sectioned(*sections: list[str]) -> str:
     """The sections that have anything in them, a rule between each two."""
     filled = ["\n".join(lines) for lines in sections if lines]
-    return f"\n{RULE}\n".join(filled)
+    return f"\n\n{RULE}\n\n".join(filled)
 
 
 def list_message(*, book: DayBook) -> Message:
@@ -65,7 +66,7 @@ def list_buttons(*, book: DayBook) -> tuple[Button, ...]:
     return (
         *(
             Button(
-                text=_button_title(report),
+                text=_button_title(book, report),
                 data=pair_press(book, report),
                 row="own",
             )
@@ -86,7 +87,7 @@ def heading(book: DayBook) -> str:
         name = "Haftalik hisobot"
     else:
         name = "Bugun" if book.ongoing else "Kunlik hisobot"
-    return f"📊 {_bold(name)}"
+    return f"📊 {_bold(name.upper())}"
 
 
 def status_section(book: DayBook) -> list[str]:
@@ -103,11 +104,14 @@ def closing_sections(book: DayBook) -> list[list[str]]:
     fell outside the subscription."""
     sections = []
     if book.quiet:
-        sections.append(["⏸ Sarf bo'lmagan", *_quiet_names(book.quiet)])
+        sections.append([f"⏸ {_bold("Sarf bo'lmagan")}", *_quiet_names(book.quiet)])
     if book.outside:
         money = SEPARATOR.join(book.outside)
         sections.append(
-            ["📁 Tanlanmagan sahifalar", escaped(f"Yana {money} (jamiga kirmaydi)")]
+            [
+                f"📁 {_bold('Tanlanmagan sahifalar')}",
+                f"Yana {_bold(money)} {escaped('(jamiga kirmaydi)')}",
+            ]
         )
     return sections
 
@@ -115,7 +119,7 @@ def closing_sections(book: DayBook) -> list[list[str]]:
 def _total_section(book: DayBook) -> list[str]:
     lines: list[str] = []
     for total in book.totals:
-        lines.append(f"💰 Jami sarf: {_bold(total.spend)}")
+        lines.append(f"💰 {_bold(f'Jami sarf: {total.spend}')}")
         if line := compared(book, total.before, total.change):
             lines.append(line)
     return lines
@@ -127,18 +131,22 @@ def compared(book: DayBook, before: str, change: str) -> str:
         return ""
     word = "Oldingi hafta" if book.weekly else "Oldingi kun"
     moved = f" ({change})" if change else ""
-    return escaped(f"{word}: {before}{moved}")
+    return f"{escaped(word)}: {_bold(before)}{escaped(moved)}"
 
 
 def _quiet_names(reports: tuple[DailyReport, ...]) -> list[str]:
-    names = [escaped(report.title) for report in reports[:MAX_QUIET_NAMES]]
+    names = [escaped(f"• {report.title}") for report in reports[:MAX_QUIET_NAMES]]
     left = len(reports) - MAX_QUIET_NAMES
-    return [*names, escaped(f"Yana {left} ta")] if left > 0 else names
+    return [*names, escaped(f"• Yana {left} ta")] if left > 0 else names
 
 
-def _button_title(report: DailyReport) -> str:
+def _button_title(book: DayBook, report: DailyReport) -> str:
+    """Money and the page. The account joins only to tell two pairs of one page
+    apart: on a button it is what gets cut off."""
     money = report.spend if report.spend_minor > 0 else report.other_currency[0]
-    title = f"{money}{SEPARATOR}{report.title}"
+    pages = [item.page for item in book.reports].count(report.page)
+    name = report.title if pages > 1 else report.page or report.title
+    title = f"{money}{SEPARATOR}{name}"
     if len(title) <= BUTTON_CHARS:
         return title
     return title[: BUTTON_CHARS - 1].rstrip() + "…"
