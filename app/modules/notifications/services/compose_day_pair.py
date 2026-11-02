@@ -34,7 +34,9 @@ from app.modules.notifications.services.compose_daily import (
     heading,
     list_buttons,
     list_message,
+    list_parts,
     pair_press,
+    part_of,
     sectioned,
     status_section,
 )
@@ -55,13 +57,23 @@ GOAL_NAMES: Final[dict[str, str]] = {
 }
 
 
-def day_view(*, book: DayBook) -> tuple[Message, tuple[Button, ...]]:
-    """What the day opens on: the list, or the lone pair's day."""
+def day_view(*, book: DayBook, part: int = 0) -> tuple[Message, tuple[Button, ...]]:
+    """What a message of the day opens on: its list, or the lone pair's day. A
+    part the list no longer has - it can shrink before the day is final - is
+    its last."""
     report = book.only
     if report is None:
-        return list_message(book=book), list_buttons(book=book)
+        part = min(part, len(list_parts(book)) - 1)
+        return list_message(book=book, part=part), list_buttons(book=book, part=part)
     return pair_message(book=book, report=report), pair_buttons(
         book=book, report=report
+    )
+
+
+def day_views(*, book: DayBook) -> tuple[tuple[Message, tuple[Button, ...]], ...]:
+    """Every message the day is sent as, in order."""
+    return tuple(
+        day_view(book=book, part=part) for part in range(len(list_parts(book)))
     )
 
 
@@ -107,23 +119,25 @@ def _notes(book: DayBook, report: DailyReport) -> list[str]:
 
 
 def pair_buttons(*, book: DayBook, report: DailyReport) -> tuple[Button, ...]:
-    """Back to the list and on to the next pair, then the pair in the cabinet."""
+    """Back to the list and on to the next pair of the same message, so one
+    message never ends up showing what another does; then the cabinet."""
     return (*_steps(book, report), *_cabinet(book, report))
 
 
 def _steps(book: DayBook, report: DailyReport) -> tuple[Button, ...]:
     if book.only is not None:
         return ()
-    spent = book.spent
+    part = part_of(book, report)
+    spent = list_parts(book)[part]
     place = next(
         (index for index, item in enumerate(spent) if item.pair == report.pair), 0
     )
     following = spent[(place + 1) % len(spent)] if len(spent) > 1 else None
     back = Button(
         text="◀ Ro'yxat",
-        data=weekly_list_data(since=book.day)
+        data=weekly_list_data(since=book.day, part=part)
         if book.weekly
-        else daily_list_data(day=book.day, part=0),
+        else daily_list_data(day=book.day, part=part),
     )
     if following is None:
         return (back,)
@@ -208,4 +222,4 @@ def _week_before(result: Result) -> str:
     return f"Oldingi hafta: {count} ta · {result.before_cost}"
 
 
-__all__ = ["day_view", "pair_buttons", "pair_message"]
+__all__ = ["day_view", "day_views", "pair_buttons", "pair_message"]

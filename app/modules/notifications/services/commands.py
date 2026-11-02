@@ -29,6 +29,7 @@ from app.modules.notifications.selectors.daily import day_book, week_book
 from app.modules.notifications.services.compose import Message, escaped, miniapp_button
 from app.modules.notifications.services.compose_day_pair import (
     day_view,
+    day_views,
     pair_buttons,
     pair_message,
 )
@@ -149,7 +150,7 @@ def _reply(
     if book is None:
         return None
     if action in LIST_PRESSES:
-        message, buttons = day_view(book=book)
+        message, buttons = day_view(book=book, part=int(value))
         return message, buttons, "daily_list"
     report = next(
         (item for item in book.reports if pair_digest(item.pair) == value), None
@@ -175,8 +176,10 @@ def _send_book(
     if book is None or book.is_quiet:
         send_to(db, client=client, chat=chat, text=escaped(empty), now=now)
         return "report_quiet"
-    message, buttons = day_view(book=book)
-    send_to(db, client=client, chat=chat, text=message.text, buttons=buttons, now=now)
+    for message, buttons in day_views(book=book):
+        send_to(
+            db, client=client, chat=chat, text=message.text, buttons=buttons, now=now
+        )
     return "report_sent"
 
 
