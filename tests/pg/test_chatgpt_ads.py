@@ -106,7 +106,7 @@ def _owner(db: Session, email: str = "gpt@example.com") -> tuple[User, dict[str,
     owner = User(email=email, full_name="Ega", password="!", date_joined=now)
     db.add(owner)
     db.flush()
-    plan = Plan(price=100, max_adsets=10, llm_cost_limit_minor=0)
+    plan = Plan(code=email, price=100, max_adsets=10, llm_cost_limit_minor=0)
     db.add(plan)
     db.flush()
     db.add(
