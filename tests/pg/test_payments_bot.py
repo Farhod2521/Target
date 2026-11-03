@@ -56,7 +56,7 @@ def group(monkeypatch: pytest.MonkeyPatch) -> FakeBot:
     monkeypatch.setattr(settings, "payments_bot_token", "t")
     monkeypatch.setattr(settings, "payments_bot_username", "pay_bot")
     monkeypatch.setattr(settings, "payments_bot_chat_id", GROUP)
-    monkeypatch.setattr(settings, "payments_bot_thread_id", 7)
+    monkeypatch.setattr(settings, "payments_bot_thread_id", "7")
     monkeypatch.setattr(settings, "site_url", "https://targetolog.test")
     for kind, start in (
         ("day", "2026-11-01"),
@@ -308,3 +308,14 @@ def test_the_first_brings_the_month_and_a_quiet_day_says_so(
 def test_no_report_after_the_early_morning(db: Session, group: FakeBot) -> None:
     assert send_reports(db, now=MONDAY_NIGHT + timedelta(hours=6)) == 0
     assert group.calls == []
+
+
+@pytest.mark.parametrize("value", ["", " ", "abc", "-5"])
+def test_a_topic_that_is_not_a_number_means_the_general_topic(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    from app.modules.notifications.bot import payments_thread_id
+
+    monkeypatch.setattr(settings, "payments_bot_thread_id", value)
+
+    assert payments_thread_id() == 0

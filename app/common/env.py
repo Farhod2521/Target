@@ -211,7 +211,7 @@ class Env(BaseSettings):
     payments_bot_token: str = Field(default="", alias="PAYMENTS_BOT_TOKEN")
     payments_bot_username: str = Field(default="", alias="PAYMENTS_BOT_USERNAME")
     payments_bot_chat_id: str = Field(default="", alias="PAYMENTS_BOT_CHAT_ID")
-    payments_bot_thread_id: int = Field(default=0, alias="PAYMENTS_BOT_THREAD_ID")
+    payments_bot_thread_id: str = Field(default="", alias="PAYMENTS_BOT_THREAD_ID")
     billing_currency: str = Field(default="USD", alias="BILLING_CURRENCY")
     payme_merchant_id: str = Field(default="", alias="PAYME_MERCHANT_ID")
     payme_key: str = Field(default="", alias="PAYME_KEY")

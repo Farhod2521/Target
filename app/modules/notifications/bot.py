@@ -109,7 +109,10 @@ def payments_chat_id() -> str:
 
 
 def payments_thread_id() -> int:
-    return int(settings.payments_bot_thread_id or 0)
+    """The topic the payments bot writes in; anything but a number is the
+    group's General topic, never a reason for the app not to start."""
+    value = str(settings.payments_bot_thread_id).strip()
+    return int(value) if value.isdigit() else 0
 
 
 __all__ = [
