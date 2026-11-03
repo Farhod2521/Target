@@ -42,10 +42,10 @@ from openaiadskit import (
     translate_error,
 )
 from openaiadskit.accounts import AdAccountInfo, PlaceInfo
-from openaiadskit.campaigns import ads_of, campaigns_of, groups_of
+from openaiadskit.campaigns import ads_of, campaign_found, campaigns_of, groups_of
 from openaiadskit.launch import campaign_body, upload_image
 from openaiadskit.metrics import Totals, report_totals
-from openaiadskit.rows import minor_to_micros
+from openaiadskit.rows import Locations, minor_to_micros
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -343,6 +343,7 @@ class CampaignDetail:
     groups: list[tuple[Any, Totals, list[tuple[Any, Totals]]]] = field(
         default_factory=list
     )
+    locations: Locations = field(default_factory=Locations)
 
 
 def period_of(account: AdAccount, key: str) -> Period:
@@ -394,16 +395,10 @@ def campaign_detail(
     shown = period_of(account, period)
     currency = account.currency
     with openai_refusals("read"), AdsClient(api_key=key) as client:
-        campaign = next(
-            (
-                c
-                for c in campaigns_of(client, currency=currency)
-                if c.ref.id == campaign_id
-            ),
-            None,
-        )
-        if campaign is None:
+        found = campaign_found(client, campaign_id=campaign_id, currency=currency)
+        if found is None:
             raise _refused(NotFound("campaign"), operation="read")
+        campaign, locations = found
         groups = groups_of(client, campaign_id=campaign_id, currency=currency)
         ads = {
             group.ref.id: ads_of(client, ad_group_id=group.ref.id) for group in groups
@@ -422,6 +417,7 @@ def campaign_detail(
         account=account,
         period=shown,
         campaign=campaign,
+        locations=locations,
         figures=by_campaign.get(campaign_id, EMPTY),
         groups=[
             (

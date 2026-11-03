@@ -13,13 +13,25 @@ from adskit.errors import AuthFailed, InvalidRequest, NotFound, RateLimited
 from adskit.refs import ExternalRef
 from openaiadskit import PROVIDER, AdsClient, read_ad_account
 from openaiadskit.adapter import _PROVIDER, bundle
-from openaiadskit.campaigns import OpenAICampaigns
+from openaiadskit.campaigns import OpenAICampaigns, campaign_found
 from openaiadskit.client import BASE_URL
 from openaiadskit.connect import KeyConnect
 from openaiadskit.errors import OpenAIAdsAPIError, OpenAIAdsError
-from openaiadskit.launch import ChatCardSpec, ImageSpec, create_chat_campaign
+from openaiadskit.launch import (
+    ChatCardSpec,
+    ImageSpec,
+    campaign_body,
+    create_chat_campaign,
+)
 from openaiadskit.metrics import OpenAIMetrics
-from openaiadskit.rows import delivery_of, micros_to_minor, minor_to_micros
+from openaiadskit.rows import (
+    Locations,
+    Place,
+    delivery_of,
+    locations_of,
+    micros_to_minor,
+    minor_to_micros,
+)
 from openaiadskit.translate import translate_error
 
 Handler = Callable[[httpx.Request], httpx.Response]
@@ -260,6 +272,47 @@ def test_campaigns_are_listed_without_the_archived() -> None:
     assert found[0].daily_budget_minor == 500
     assert found[0].delivery == "active"
     assert found[0].currency == "USD"
+
+
+def test_a_campaign_is_found_with_where_it_runs() -> None:
+    targeting = {
+        "locations": {
+            "countries": ["KZ"],
+            "include": [
+                {"id": "2001959", "canonical_name": "Toshkent (City), Uzbekistan"}
+            ],
+        }
+    }
+    wire = Wire(
+        {
+            ("GET", "campaigns"): _page(
+                _campaign("c1"), _campaign("c2", targeting=targeting)
+            ),
+        }
+    )
+
+    with AdsClient(api_key=KEY, http=wire.http()) as client:
+        found = campaign_found(client, campaign_id="c2", currency="USD")
+        missing = campaign_found(client, campaign_id="c9", currency="USD")
+
+    assert found is not None
+    campaign, locations = found
+    assert campaign.ref.id == "c2"
+    assert locations == Locations(
+        countries=("KZ",),
+        places=(Place(id="2001959", name="Toshkent (City), Uzbekistan"),),
+    )
+    assert missing is None
+
+
+def test_locations_read_back_what_a_launch_writes() -> None:
+    sent = campaign_body(_spec(countries=("UZ",), place_ids=("2001959", "2001960")))
+
+    assert locations_of(sent) == Locations(
+        countries=("UZ",), places=(Place(id="2001959"), Place(id="2001960"))
+    )
+    assert locations_of({}) == Locations()
+    assert locations_of({"targeting": {"locations": None}}) == Locations()
 
 
 def test_groups_and_ads_learn_their_parent_from_the_walk() -> None:

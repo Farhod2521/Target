@@ -169,11 +169,25 @@ class ScreenOut(Camel):
     dry_run: bool
 
 
+class LocationPlace(Camel):
+    id: str
+    name: str = Field(description="Empty when OpenAI sent the id alone.")
+
+
+class LocationsOut(Camel):
+    """Where the campaign runs, in the shape `POST /chatgpt/campaigns` takes."""
+
+    countries: list[str]
+    place_ids: list[str]
+    places: list[LocationPlace]
+
+
 class DetailOut(Camel):
     period: Literal["today", "7", "30"]
     since: date
     until: date
     campaign: CampaignOut
+    locations: LocationsOut
     groups: list[GroupOut]
 
 
@@ -296,6 +310,14 @@ def detail_out(detail: CampaignDetail) -> DetailOut:
         since=detail.period.since,
         until=detail.period.until,
         campaign=campaign_out(detail.campaign, detail.figures, currency=currency),
+        locations=LocationsOut(
+            countries=list(detail.locations.countries),
+            place_ids=[place.id for place in detail.locations.places],
+            places=[
+                LocationPlace(id=place.id, name=place.name)
+                for place in detail.locations.places
+            ],
+        ),
         groups=[
             GroupOut(
                 id=group.ref.id,
@@ -364,6 +386,8 @@ __all__ = [
     "DraftIn",
     "DraftOut",
     "ImageOut",
+    "LocationPlace",
+    "LocationsOut",
     "NewCampaignIn",
     "PlaceOut",
     "Pressed",

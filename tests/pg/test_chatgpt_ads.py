@@ -242,6 +242,56 @@ def test_the_screen_reads_campaigns_and_figures_live(
     assert body["totals"]["impressions"] == 1000
 
 
+def test_a_campaign_shows_where_it_runs_so_a_copy_can_keep_it(
+    client: TestClient, db: Session, wire: Wire
+) -> None:
+    _, auth = _owner(db)
+    _connect(client, auth)
+    wire.routes |= {
+        ("GET", "campaigns"): _page(
+            {
+                "id": "c1",
+                "name": "Gul",
+                "status": "active",
+                "budget": {"daily_spend_limit_micros": 10_000_000},
+                "targeting": {
+                    "locations": {"countries": ["UZ"], "include": [{"id": "2001959"}]}
+                },
+            }
+        ),
+        ("GET", "ad_groups"): _page(),
+        ("GET", "ad_account/insights"): _page(),
+    }
+
+    answer = client.get("/api/v1/chatgpt/campaigns/c1", headers=auth)
+
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["locations"] == {
+        "countries": ["UZ"],
+        "placeIds": ["2001959"],
+        "places": [{"id": "2001959", "name": ""}],
+    }
+
+
+def test_the_connections_page_carries_the_chatgpt_card(
+    client: TestClient, db: Session, wire: Wire
+) -> None:
+    _, auth = _owner(db)
+    before = client.get("/api/v1/connections", headers=auth).json()["chatgpt"]
+    _connect(client, auth)
+    after = client.get("/api/v1/connections", headers=auth).json()["chatgpt"]
+    client.post("/api/v1/chatgpt/disconnect", headers=auth)
+    gone = client.get("/api/v1/connections", headers=auth).json()["chatgpt"]
+
+    assert before["chatgpt_ads_on"] is True and before["connected"] is False
+    assert before["connection"] is None
+    assert after["connected"] is True
+    assert after["account"]["external_id"] == "adacct_1"
+    assert after["connection"]["status"] == "active"
+    assert gone["connected"] is False and gone["account"] is None
+    assert gone["connection"]["status"] == "revoked"
+
+
 def test_a_press_goes_to_openai_and_a_rehearsal_does_not(
     client: TestClient, db: Session, wire: Wire, monkeypatch: pytest.MonkeyPatch
 ) -> None:

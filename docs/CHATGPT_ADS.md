@@ -129,6 +129,11 @@ Ulanmagan bo'lsa: `400` va `chatgpt_not_connected`.
 {
   "period": "7", "since": "...", "until": "...",
   "campaign": { ...screen'dagi kampaniya shakli },
+  "locations": {
+    "countries": ["UZ"],
+    "placeIds": ["2001959"],
+    "places": [{"id": "2001959", "name": ""}]
+  },
   "groups": [
     {
       "id": "adgrp_1", "name": "...", "delivery": "active", "issues": [],
@@ -145,6 +150,32 @@ Ulanmagan bo'lsa: `400` va `chatgpt_not_connected`.
   ]
 }
 ```
+
+`locations` — kampaniya qayerda ko'rsatilishi. Shakli `POST /campaigns` dagi
+`countries` va `placeIds` bilan bir xil, shuning uchun «Nusxa olish»da ularni
+formaga to'g'ridan-to'g'ri qo'yish mumkin. `places[].name` bo'sh kelishi
+mumkin: OpenAI ba'zan faqat id qaytaradi.
+
+### «Ulanishlar» sahifasi: `GET /connections`
+
+`/connections` javobida Google kartasi yonida `chatgpt` kartasi bor. Bu javob
+snake_case'da keladi:
+
+```json
+"chatgpt": {
+  "chatgpt_ads_on": true,
+  "connection": {"id": "...", "provider": "chatgpt", "status": "active", ...},
+  "connected": true,
+  "account": {"external_id": "adacct_1", "name": "Gul do'koni", "currency": "USD", ...},
+  "dry_run": false
+}
+```
+
+- `chatgpt_ads_on: false` bo'lsa, kartani ko'rsatmang.
+- `connection: null` bo'lsa, kalit hech qachon ulanmagan.
+- `connected: false` va `connection.status` `revoked` bo'lsa, kalit uzilgan.
+- Ulash va uzish tugmalari ChatGPT ekraniga olib boradi (`/chatgpt/connect`,
+  `/chatgpt/disconnect`).
 
 ### Tugmalar: `/switch`, `/budget`, `/archive`
 

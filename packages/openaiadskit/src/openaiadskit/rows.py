@@ -11,6 +11,7 @@ serving, which is delivery.
 budgets and bids, and as a decimal in reports.
 """
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Final
@@ -194,15 +195,55 @@ def ad_dto(item: dict[str, Any], *, ad_group_id: str) -> AdDTO:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class Place:
+    id: str
+    # Empty when OpenAI echoes only the id.
+    name: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Locations:
+    """Where a campaign runs: whole countries and chosen places.
+
+    Read back in the same two halves ``launch.campaign_body`` writes, so a
+    copy of a campaign can be sent again as it is.
+    """
+
+    countries: tuple[str, ...] = ()
+    places: tuple[Place, ...] = ()
+
+
+def locations_of(item: dict[str, Any]) -> Locations:
+    targeting = item.get("targeting") or {}
+    found = targeting.get("locations") if isinstance(targeting, dict) else None
+    if not isinstance(found, dict):
+        return Locations()
+    places = []
+    for row in found.get("include") or ():
+        if isinstance(row, dict) and row.get("id"):
+            name = row.get("canonical_name") or row.get("name") or ""
+            places.append(Place(id=str(row["id"]), name=str(name)))
+        elif isinstance(row, str | int) and str(row):
+            places.append(Place(id=str(row)))
+    return Locations(
+        countries=tuple(str(code) for code in found.get("countries") or () if code),
+        places=tuple(places),
+    )
+
+
 __all__ = [
     "ARCHIVED",
     "PROVIDER",
+    "Locations",
+    "Place",
     "ad_dto",
     "amount_to_minor",
     "campaign_dto",
     "delivery_of",
     "group_dto",
     "issue_codes",
+    "locations_of",
     "micros_to_minor",
     "minor_to_micros",
     "ref",

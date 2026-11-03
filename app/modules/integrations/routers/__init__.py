@@ -41,6 +41,7 @@ from app.modules.integrations.schemas import (
     AudienceOut,
     AudiencesOut,
     CabinetOut,
+    ChatGPTCardOut,
     ConnectionOut,
     ConnectionsOut,
     ExternalIdIn,
@@ -183,6 +184,28 @@ def profile_card(
     )
 
 
+def chatgpt_card(db: Session, *, owner: User) -> ChatGPTCardOut:
+    from app.modules.chatgpt import selectors as chatgpt
+
+    dry_run = settings.chatgpt_ads_dry_run
+    if not chatgpt.chatgpt_ads_on(user=owner):
+        return ChatGPTCardOut(chatgpt_ads_on=False, dry_run=dry_run)
+    connection = chatgpt.chatgpt_connection(db, owner=owner)
+    account = chatgpt.chatgpt_account(db, owner=owner)
+    connected = (
+        connection is not None
+        and connection.status in USABLE_CONNECTION_STATUSES
+        and account is not None
+    )
+    return ChatGPTCardOut(
+        chatgpt_ads_on=True,
+        connection=ConnectionOut.model_validate(connection) if connection else None,
+        connected=connected,
+        account=AdAccountOut.model_validate(account) if connected else None,
+        dry_run=dry_run,
+    )
+
+
 def google_card(db: Session, *, owner: User) -> GoogleCardOut:
     from app.modules.businesses.selectors import google_profile
 
@@ -300,6 +323,7 @@ def connections(
         active_pixel=PixelOut.model_validate(pixel) if pixel else None,
         instagram=profile_card(db, owner=user),
         google=google_card(db, owner=user),
+        chatgpt=chatgpt_card(db, owner=user),
         add_page=add_page_context(db, owner=user, add_page=add_page, pay_from=pay_from),
     )
 

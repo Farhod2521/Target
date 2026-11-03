@@ -43,11 +43,13 @@ from openaiadskit.errors import OpenAIAdsError
 from openaiadskit.rows import (
     ARCHIVED,
     PROVIDER,
+    Locations,
     ad_dto,
     campaign_dto,
     delivery_of,
     group_dto,
     issue_codes,
+    locations_of,
     micros_to_minor,
     minor_to_micros,
 )
@@ -98,6 +100,16 @@ def campaigns_of(client: AdsClient, *, currency: str) -> list[CampaignDTO]:
         campaign_dto(row, currency=currency)
         for row in live(client.pages("campaigns", _ISSUES))
     ]
+
+
+def campaign_found(
+    client: AdsClient, *, campaign_id: str, currency: str
+) -> tuple[CampaignDTO, Locations] | None:
+    """One live campaign and where it runs, which its DTO does not carry."""
+    for row in live(client.pages("campaigns", _ISSUES)):
+        if str(row["id"]) == campaign_id:
+            return campaign_dto(row, currency=currency), locations_of(row)
+    return None
 
 
 def groups_of(client: AdsClient, *, campaign_id: str, currency: str) -> list[AdSetDTO]:
@@ -350,6 +362,7 @@ __all__ = [
     "COLLECTIONS",
     "OpenAICampaigns",
     "ads_of",
+    "campaign_found",
     "campaigns_of",
     "collection",
     "groups_of",

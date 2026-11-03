@@ -152,6 +152,16 @@ class GoogleCardOut(BaseModel):
     has_subscription: bool = False
 
 
+class ChatGPTCardOut(BaseModel):
+    """ChatGPT Ads on the connections page. Connecting happens on its own screen."""
+
+    chatgpt_ads_on: bool
+    connection: ConnectionOut | None = None
+    connected: bool = False
+    account: AdAccountOut | None = None
+    dry_run: bool = False
+
+
 class ConnectionsOut(BaseModel):
     connection: ConnectionOut | None
     is_connected: bool
@@ -170,6 +180,7 @@ class ConnectionsOut(BaseModel):
     active_pixel: PixelOut | None
     instagram: ProfileCardOut
     google: GoogleCardOut
+    chatgpt: ChatGPTCardOut
     add_page: dict[str, Any]
 
 
