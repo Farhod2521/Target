@@ -36,7 +36,23 @@ from paykit.dto import (
     Settled,
 )
 from paykit.errors import MalformedCallback, ProviderMisconfigured, ProviderUnavailable
-from paykit.multicard.client import MulticardClient
+from paykit.multicard.cards import (
+    DECLINED,
+    NEEDS_CODE,
+    PENDING,
+    UNSETTLED_CODES,
+    BindSession,
+    BoundCard,
+    Charge,
+    bound_card_of,
+    charge_of,
+)
+from paykit.multicard.cards import DRAFT as DRAFT_STATUS
+from paykit.multicard.client import (
+    MulticardClient,
+    MulticardOutcomeUnknown,
+    MulticardRefused,
+)
 from paykit.multicard.codes import (
     CURRENCY,
     LANGUAGES,
@@ -118,23 +134,12 @@ class MulticardAdapter:
         tiyin = _tiyin(request.amount_minor, request.decimal_places)
         if tiyin <= 0:
             raise ProviderMisconfigured("multicard cannot take an empty amount")
-        item: dict[str, Any] = {
-            **self._ofd,
-            "name": request.description or self._ofd["name"],
-            "qty": 1,
-            "price": tiyin,
-            "total": tiyin,
-        }
-        if self._vat is not None:
-            item["vat"] = self._vat
-        if self._tin:
-            item["tin"] = self._tin
         payload: dict[str, Any] = {
             "store_id": _store(self._store_id),
             "amount": tiyin,
             "invoice_id": request.number,
             "callback_url": self._callback_url,
-            "ofd": [item],
+            "ofd": [self._receipt_item(tiyin, request.description)],
         }
         if request.return_url:
             payload["return_url"] = request.return_url
@@ -153,6 +158,108 @@ class MulticardAdapter:
             url=url,
             reference=str(data.get("uuid", "")),
         )
+
+    # --- Saved cards (paykit.multicard.cards) ---------------------------
+
+    def start_card_binding(
+        self, *, phone: str, redirect_url: str, decline_url: str, callback_url: str
+    ) -> BindSession:
+        """A Multicard page, good for 15 minutes, where the payer adds a card."""
+        data = self._client.bind_card(
+            {
+                "store_id": _store(self._store_id),
+                "phone": phone,
+                "redirect_url": redirect_url,
+                "redirect_decline_url": decline_url,
+                "callback_url": callback_url,
+            }
+        )
+        session_id = str(data.get("session_id") or "")
+        form_url = str(data.get("form_url") or "")
+        if not session_id or not form_url:
+            raise ProviderUnavailable("multicard opened a card page without a link")
+        return BindSession(session_id=session_id, form_url=form_url)
+
+    def bound_card(self, *, session_id: str) -> BoundCard | None:
+        """The card a binding page added, or ``None`` while there is none yet."""
+        try:
+            data = self._client.bound_card(session_id)
+        except MulticardRefused:
+            return None
+        return bound_card_of(data) if data else None
+
+    def revoke_card(self, *, token: str) -> None:
+        """The token stops working at Multicard."""
+        self._client.revoke_card(token)
+
+    def charge_card(
+        self,
+        *,
+        token: str,
+        number: str,
+        amount_minor: int,
+        decimal_places: int,
+        currency: str,
+        description: str = "",
+    ) -> Charge:
+        """Take an invoice's amount from a saved card, with nobody at the screen.
+
+        The debit settles the invoice through the ordinary signed payment
+        callback; what comes back here only says how far the attempt got.
+        """
+        if currency and currency.upper() != CURRENCY:
+            raise ProviderMisconfigured(
+                f"multicard takes only {CURRENCY}, not {currency}"
+            )
+        tiyin = _tiyin(amount_minor, decimal_places)
+        if tiyin <= 0:
+            raise ProviderMisconfigured("multicard cannot take an empty amount")
+        try:
+            created = self._client.create_payment(
+                {
+                    "card": {"token": token},
+                    "amount": tiyin,
+                    "store_id": _store(self._store_id),
+                    "invoice_id": number,
+                    "callback_url": self._callback_url,
+                    "ofd": [self._receipt_item(tiyin, description)],
+                }
+            )
+        except MulticardRefused as exc:
+            # Nothing was debited: a payment that was never created moves no money.
+            return Charge(outcome=DECLINED, code=exc.code, details=exc.details)
+        uuid = str(created.get("uuid") or "")
+        if not uuid:
+            raise ProviderUnavailable("multicard created a payment without a uuid")
+        if created.get("otp_hash"):
+            return Charge(outcome=NEEDS_CODE, uuid=uuid, status=DRAFT_STATUS)
+        try:
+            return charge_of(self._client.confirm_payment(uuid))
+        except MulticardRefused as exc:
+            outcome = PENDING if exc.code in UNSETTLED_CODES else DECLINED
+            return Charge(
+                outcome=outcome, uuid=uuid, code=exc.code, details=exc.details
+            )
+        except MulticardOutcomeUnknown:
+            return Charge(outcome=PENDING, uuid=uuid)
+
+    def charge_status(self, *, uuid: str) -> Charge:
+        """A charge read again, for one that was left :data:`PENDING`."""
+        return charge_of(self._client.payment(uuid))
+
+    def _receipt_item(self, tiyin: int, description: str) -> dict[str, Any]:
+        item: dict[str, Any] = {
+            **self._ofd,
+            "name": description or self._ofd["name"],
+            "qty": 1,
+            "price": tiyin,
+            "total": tiyin,
+        }
+        if self._vat is not None:
+            item["vat"] = self._vat
+        if self._tin:
+            item["tin"] = self._tin
+        return item
 
     def authenticate(self, *, request: RawRequest) -> bool:
         """Whether this request came from Multicard, for our shop."""

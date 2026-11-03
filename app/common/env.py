@@ -245,6 +245,12 @@ class Env(BaseSettings):
     multicard_ofd_vat: int | None = Field(default=None, alias="MULTICARD_OFD_VAT")
     multicard_ofd_tin: str = Field(default="", alias="MULTICARD_OFD_TIN")
     multicard_allowed_ips: str = Field(default="", alias="MULTICARD_ALLOWED_IPS")
+    multicard_autopay_enabled: bool = Field(
+        default=False, alias="MULTICARD_AUTOPAY_ENABLED"
+    )
+    multicard_card_callback_url: str = Field(
+        default="", alias="MULTICARD_CARD_CALLBACK_URL"
+    )
     sentry_dsn: str = Field(default="", alias="SENTRY_DSN")
     sentry_traces_sample_rate: float = Field(
         default=0.1, alias="SENTRY_TRACES_SAMPLE_RATE"

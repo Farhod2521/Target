@@ -1,4 +1,4 @@
-"""The two calls this product makes to Multicard: a token, and an invoice.
+"""The calls this product makes to Multicard: a token, an invoice, a saved card.
 
 The only provider here that is *called* rather than only answered: its
 checkout page exists once an invoice has been created through its API. The
@@ -22,6 +22,19 @@ from paykit.multicard.codes import TOKEN_MARGIN_SECONDS, TOKEN_ZONE
 logger = logging.getLogger(__name__)
 
 TIMEOUT_SECONDS = 15.0
+
+
+class MulticardRefused(ProviderUnavailable):
+    """Multicard answered and said no; ``code`` is its own word for why."""
+
+    def __init__(self, message: str, *, code: str = "", details: str = "") -> None:
+        super().__init__(message)
+        self.code = code
+        self.details = details
+
+
+class MulticardOutcomeUnknown(ProviderUnavailable):
+    """The request left and no answer came back: a debit may have happened."""
 
 
 class MulticardClient:
@@ -52,6 +65,32 @@ class MulticardClient:
         """``GET /payment/invoice/{uuid}``; the invoice as Multicard holds it."""
         return self._call("GET", f"/payment/invoice/{uuid}")
 
+    def bind_card(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """``POST /payment/card/bind``: a page where the payer adds a card."""
+        return self._call("POST", "/payment/card/bind", json=dict(payload))
+
+    def bound_card(self, session_id: str) -> dict[str, Any]:
+        """``GET /payment/card/bind/{session_id}``: the card that page added."""
+        return self._call("GET", f"/payment/card/bind/{session_id}")
+
+    def revoke_card(self, token: str) -> dict[str, Any]:
+        """``DELETE /payment/card/{token}``: the token stops working."""
+        return self._call("DELETE", f"/payment/card/{token}")
+
+    def create_payment(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """``POST /payment``: a payment from a saved card, not yet debited."""
+        return self._call("POST", "/payment", json=dict(payload))
+
+    def confirm_payment(
+        self, uuid: str, payload: Mapping[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """``PUT /payment/{uuid}``: the debit itself."""
+        return self._call("PUT", f"/payment/{uuid}", json=dict(payload or {}))
+
+    def payment(self, uuid: str) -> dict[str, Any]:
+        """``GET /payment/{uuid}``: a payment as Multicard holds it."""
+        return self._call("GET", f"/payment/{uuid}")
+
     def _call(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         for attempt in range(2):
             token = self._current_token(fresh=attempt > 0)
@@ -62,8 +101,12 @@ class MulticardClient:
                     headers={"Authorization": f"Bearer {token}"},
                     **kwargs,
                 )
-            except httpx.HTTPError as exc:
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
                 raise ProviderUnavailable(
+                    f"multicard {path}: {type(exc).__name__}"
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise MulticardOutcomeUnknown(
                     f"multicard {path}: {type(exc).__name__}"
                 ) from exc
             if response.status_code == 401 and attempt == 0:
@@ -131,12 +174,14 @@ def _data(response: httpx.Response, *, path: str) -> dict[str, Any]:
                 "details": error.get("details", ""),
             },
         )
-        raise ProviderUnavailable(
+        raise MulticardRefused(
             f"multicard {path}: {error.get('code', response.status_code)}"
-            f" {error.get('details', '')}".rstrip()
+            f" {error.get('details', '')}".rstrip(),
+            code=str(error.get("code") or ""),
+            details=str(error.get("details") or ""),
         )
     data = body.get("data")
     return data if isinstance(data, dict) else {}
 
 
-__all__ = ["MulticardClient"]
+__all__ = ["MulticardClient", "MulticardOutcomeUnknown", "MulticardRefused"]

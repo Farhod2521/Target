@@ -13,6 +13,8 @@ from app.modules.ads.routers.launch_media import router as launch_media
 from app.modules.ads.routers.launch_review import router as launch_review
 from app.modules.ads.routers.v2 import router as campaigns_v2
 from app.modules.agent.routers import router as agent
+from app.modules.autopay.routers import router as autopay
+from app.modules.autopay.routers import webhooks as autopay_webhooks
 from app.modules.backoffice.routers import router as office
 from app.modules.billing.routers import router as billing
 from app.modules.billing.routers import webhooks as billing_webhooks
@@ -48,6 +50,7 @@ api_router.include_router(businesses)
 api_router.include_router(integrations)
 api_router.include_router(refusals)
 api_router.include_router(billing)
+api_router.include_router(autopay)
 api_router.include_router(referrals)
 api_router.include_router(leads)
 api_router.include_router(crm)
@@ -79,6 +82,7 @@ api_router.include_router(support)
 
 public_router = APIRouter()
 public_router.include_router(billing_webhooks)
+public_router.include_router(autopay_webhooks)
 public_router.include_router(referral_landing)
 public_router.include_router(leads_webhooks)
 public_router.include_router(telegram_webhooks)

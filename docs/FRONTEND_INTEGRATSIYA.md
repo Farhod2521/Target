@@ -6,6 +6,7 @@ Batafsil hujjatlar:
 - [DASHBOARD_API.md](DASHBOARD_API.md) — asosiy sahifa raqamlari
 - [CRM_API.md](CRM_API.md) — CRM doskasi va sozlamalari
 - [RAHMAT_TOLOV.md](RAHMAT_TOLOV.md) — Rahmat (Multicard) orqali to'lov
+- [RAHMAT_AVTOTOLOV.md](RAHMAT_AVTOTOLOV.md) — Rahmat kartasini bog'lash va avtomatik to'lov
 
 To'liq va jonli ro'yxat: `https://<api-host>/docs` (Swagger) va
 `/openapi.json` — undan TypeScript tiplarini generatsiya qilsa bo'ladi
