@@ -79,8 +79,11 @@ class BotClient:
         buttons: tuple[Button, ...] = (),
         preview: bool = False,
         reply_to: int = 0,
+        thread_id: int = 0,
     ) -> SentMessage:
-        """Post one message, optionally with a row of inline buttons."""
+        """Post one message, optionally with a row of inline buttons.
+
+        ``thread_id`` puts it in one topic of a forum group."""
         payload: dict[str, Any] = {
             "chat_id": chat_id,
             "text": _fits(text),
@@ -94,6 +97,8 @@ class BotClient:
                 "message_id": reply_to,
                 "allow_sending_without_reply": True,
             }
+        if thread_id:
+            payload["message_thread_id"] = thread_id
 
         answer = self._call("sendMessage", payload)
         return SentMessage(

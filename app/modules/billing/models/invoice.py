@@ -53,6 +53,7 @@ class Invoice(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     archive_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    receipt_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # -- django extras --
     recorded_by: Mapped["User | None"] = relationship(foreign_keys=[recorded_by_id], lazy="select")  # noqa: F821
     archived_by: Mapped["User | None"] = relationship(foreign_keys=[archived_by_id], lazy="select")  # noqa: F821

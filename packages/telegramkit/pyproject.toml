@@ -1,6 +1,6 @@
 [project]
 name = "telegramkit"
-version = "0.9.0"
+version = "0.10.0"
 description = "Telegram Bot API klienti — xabar yuborish va update o'qish"
 requires-python = ">=3.13,<3.14"
 # httpx and pydantic, like metaads, and nothing else. No adskit: a bot has

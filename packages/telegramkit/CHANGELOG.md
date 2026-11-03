@@ -4,6 +4,12 @@ Semantik versiyalash. Telegram Bot API'ning versiyasi yo'q — u
 o'zgarganda eski metodlar ishlashda davom etadi, shuning uchun
 `client.py` da qadab qo'yiladigan versiya konstantasi ham yo'q.
 
+## 0.10.0 — 2026-11-03
+
+### Qo'shildi
+- `send_message(thread_id=...)` — mavzularga bo'lingan guruhda xabarni bitta
+  mavzuga (`message_thread_id`) yozadi. Berilmasa payload o'zgarmaydi.
+
 ## 0.9.0 — 2026-10-21
 
 ### O'zgardi

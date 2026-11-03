@@ -351,3 +351,21 @@ def resend_survey_task(owner_id: str, token: str) -> str:
         if owner is None:
             return "gone"
         return resend_survey_for(db, owner=owner, token=token, now=utcnow())
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def send_payment_receipts_task() -> int:
+    """Every minute: a receipt in the payments group for each newly paid bill."""
+    from app.modules.notifications.services.payments_desk import send_receipts
+
+    with task_session() as db:
+        return send_receipts(db, now=utcnow())
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def send_payment_reports_task() -> int:
+    """Hourly: the day's, week's and month's totals once each has ended."""
+    from app.modules.notifications.services.payments_desk import send_reports
+
+    with task_session() as db:
+        return send_reports(db, now=utcnow())

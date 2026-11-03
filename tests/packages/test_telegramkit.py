@@ -711,6 +711,15 @@ def test_an_answer_can_quote_the_question_it_belongs_to() -> None:
     }
 
 
+def test_a_message_can_go_to_one_topic_of_a_forum_group() -> None:
+    seen: list[httpx.Request] = []
+    client_answering(
+        {"ok": True, "result": {"message_id": 9, "chat": {"id": -100}}}, seen=seen
+    ).send_message(chat_id="-100", text="chek", thread_id=7)
+
+    assert json.loads(seen[0].content)["message_thread_id"] == 7
+
+
 def test_a_notification_quotes_nothing() -> None:
     """It answers no message - it arrives because a sweep ran."""
     seen: list[httpx.Request] = []
