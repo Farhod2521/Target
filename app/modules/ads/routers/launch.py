@@ -109,9 +109,10 @@ def _extras(db: Session, *, launch: CampaignLaunch, goal: str) -> dict[str, Any]
         "ig_needs_permission": instagram_permission_missing(db, owner=launch.owner),
         "needs_pixel": goal_needs_pixel(db, launch=launch, goal=goal),
         "needs_form": goal_needs_form(db, launch=launch, goal=goal),
+        # Sent whichever goal is open: the step shows the site-form method
+        # beside the instant form, and it reads the pixel off this key.
+        "pixel": launch_conversion_source(db, launch=launch),
     }
-    if extras["needs_pixel"]:
-        extras["pixel"] = launch_conversion_source(db, launch=launch)
     if extras["needs_form"]:
         extras["form_choice"] = form_choice(db, launch=launch)
     return extras
@@ -147,7 +148,6 @@ def _plan(
             "max_chat_questions": MAX_CHAT_QUESTIONS,
             "max_question_chars": QUESTION_CHARS,
             **_extras(db, launch=launch, goal=FORM_GOAL),
-            "pixel": launch_conversion_source(db, launch=launch),
         }
     else:
         answer |= {
