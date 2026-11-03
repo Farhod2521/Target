@@ -35,6 +35,7 @@ from app.modules.ads.contract.launch.shapes import (
     PlaceFound,
     ProposalEdit,
 )
+from app.modules.ads.exceptions import NothingToCleanUp
 from app.modules.ads.inputs.media import MediaContinueIn
 from app.modules.ads.routers import launch as plan_routes
 from app.modules.ads.routers import launch_forms as form_routes
@@ -189,8 +190,15 @@ def discard(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> Response:
 
 @router.post("/{draft_id}/clean-up", status_code=status.HTTP_204_NO_CONTENT)
 def clean_up(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> Response:
-    """Remove what a failed creation left at the network."""
-    review_routes.clean_up(draft_id, db, user)
+    """Remove what a failed creation left at the network.
+
+    With nothing left there, the press still means "throw it away and start
+    again", so the draft is discarded instead.
+    """
+    try:
+        review_routes.clean_up(draft_id, db, user)
+    except NothingToCleanUp:
+        review_routes.discard(draft_id, db, user)
     kept.forget(draft_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

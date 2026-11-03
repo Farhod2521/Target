@@ -481,3 +481,39 @@ def test_the_google_screen_answers_the_cabinets_shape(
     )
     assert pressed.status_code == 200, pressed.text
     assert pressed.json()["message"]
+
+
+def _failed(client: TestClient, db: Session, refs: dict) -> tuple[dict[str, str], str]:
+    auth, draft_id = _opened(client, db)
+    launch = db.get(CampaignLaunch, uuid.UUID(draft_id))
+    assert launch is not None
+    launch.status = "failed"
+    launch.created_refs = refs
+    db.commit()
+    return auth, draft_id
+
+
+def test_cleaning_up_with_nothing_at_meta_throws_the_draft_away(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, draft_id = _failed(client, db, {})
+
+    gone = client.post(f"/api/v1/launch/drafts/{draft_id}/clean-up", headers=auth)
+
+    assert gone.status_code == 204, gone.text
+    db.expire_all()
+    assert db.get(CampaignLaunch, uuid.UUID(draft_id)) is None
+    assert not any(name.endswith("clean_up_launch_task") for name, _ in queued)
+
+
+def test_cleaning_up_what_meta_kept_queues_the_rollback(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, draft_id = _failed(client, db, {"campaign": "c_1"})
+
+    sent = client.post(f"/api/v1/launch/drafts/{draft_id}/clean-up", headers=auth)
+
+    assert sent.status_code == 204, sent.text
+    db.expire_all()
+    assert db.get(CampaignLaunch, uuid.UUID(draft_id)) is not None
+    assert any(name.endswith("clean_up_launch_task") for name, _ in queued)
