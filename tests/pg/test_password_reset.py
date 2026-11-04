@@ -24,7 +24,7 @@ from tests.conftest import SIGNUP
 from tests.pg.conftest import sign_up
 from tests.pg.test_office_telegram import FakeBot, _text, fake  # noqa: F401
 
-LINK = re.compile(r"/accounts/parol/([^/]+)/$")
+LINK = re.compile(r"/accounts/reset/([^/]+)/$")
 NEW = {"new_password1": "fresh-secret-7", "new_password2": "fresh-secret-7"}
 CHANGED_TASK = "app.modules.notifications.tasks.deliver_password_changed_task"
 

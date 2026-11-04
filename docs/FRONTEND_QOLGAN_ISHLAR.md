@@ -30,7 +30,7 @@ GET /auth/reset
 `bot_url` ni oching. Bo'sh satr kelsa, bot ulanmagan: Support bilan bog'lanishni
 ko'rsating.
 
-### Yangi sahifa: `/accounts/parol/:token/`
+### Yangi sahifa: `/accounts/reset/:token/`
 
 Bot foydalanuvchini shu sahifaga yuboradi. Havola 15 daqiqa ishlaydi va bir
 marta ishlatiladi.
