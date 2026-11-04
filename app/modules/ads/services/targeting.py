@@ -456,7 +456,7 @@ def apply_placement(db: Session, *, launch: CampaignLaunch) -> None:
     draft = _draft(launch)
     if draft_field.source(draft, draft_field.PLACEMENT_MODE):
         return
-    advice = placement_recommendation()
+    advice = placement_recommendation(db, launch=launch)
     _settle(launch, field="placement_mode", value=advice.value)
     draft_field.set_source(launch.draft, draft_field.PLACEMENT_MODE, draft_field.BY_AI)
 

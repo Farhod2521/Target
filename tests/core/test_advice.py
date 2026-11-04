@@ -13,8 +13,10 @@ which rule fired, and that is the thing worth pinning.
 
 from core.advice import (
     BUILD_A_NEW_ONE,
+    CHAT_ON_FACEBOOK,
+    INSTAGRAM_IS_CONNECTED,
+    NO_INSTAGRAM,
     NOTHING_MATCHES,
-    PROVIDER_DEFAULT,
     PROVIDER_EXPANDS,
     SAME_QUESTIONS,
     FormOffer,
@@ -46,34 +48,42 @@ def test_the_audience_rule_reads_nothing() -> None:
     assert audience_advice.__code__.co_argcount == 0
 
 
-def test_the_two_withdrawn_rules_do_not_share_a_reason_code() -> None:
-    """Both point at the provider's recommendation, but the sentences
-    differ - one is about who the ad is shown to and the other about where.
-    One code for both would put the wrong sentence under one of the two
-    badges."""
-    assert audience_advice().reason != placement_advice().reason
-
-
 # --- Where the ad may appear --------------------------------------------
-def test_every_goal_is_advised_towards_the_provider_default() -> None:
-    """One answer for every goal, and no split between them.
+def test_a_page_with_instagram_is_advised_towards_instagram_only() -> None:
+    advice = placement_advice(has_instagram=True)
 
-    Keeping lead, chat and call campaigns on Facebook and Instagram would
-    be protecting a quality signal that does not exist - a lead carries the
-    ad it came from and never the placement it was seen in. All it does is
-    keep the goals this product exists for out of the cheaper inventory, on
-    no evidence, against the provider's own published recommendation.
-    """
-    advice = placement_advice()
-
-    assert (advice.value, advice.reason) == ("automatic", PROVIDER_DEFAULT)
+    assert (advice.value, advice.reason) == ("instagram", INSTAGRAM_IS_CONNECTED)
 
 
-def test_the_rule_reads_nothing() -> None:
-    """Takes no arguments at all, which is the honest shape for a rule with
-    no inputs: a goal still being passed in would read as a fact the answer
-    turns on, and the next person would go looking for the branch."""
-    assert placement_advice.__code__.co_argcount == 0
+def test_a_page_without_instagram_is_advised_towards_facebook_only() -> None:
+    advice = placement_advice(has_instagram=False)
+
+    assert (advice.value, advice.reason) == ("facebook", NO_INSTAGRAM)
+
+
+def test_a_messenger_chat_stays_on_facebook_even_with_instagram() -> None:
+    """Instagram-only beside a Messenger chat would be handed back to the
+    provider, and the provider's answer includes Threads."""
+    advice = placement_advice(has_instagram=True, chat="messenger")
+
+    assert (advice.value, advice.reason) == ("facebook", CHAT_ON_FACEBOOK)
+
+
+def test_an_instagram_chat_keeps_instagram_only() -> None:
+    advice = placement_advice(has_instagram=True, chat="instagram")
+
+    assert advice.value == "instagram"
+
+
+def test_the_advice_never_leaves_it_to_the_provider() -> None:
+    """``automatic`` lets Meta pick Threads, Messenger and Audience Network."""
+    values = {
+        placement_advice(has_instagram=has, chat=chat).value
+        for has in (True, False)
+        for chat in ("", "messenger", "instagram")
+    }
+
+    assert values <= {"instagram", "facebook"}
 
 
 # --- Which form ----------------------------------------------------------

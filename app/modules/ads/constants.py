@@ -172,7 +172,9 @@ DRAFT_SECTION_LABELS = {
 }
 ADVICE_REASONS: dict[str, Any] = {
     "provider_expands": "Meta reklamaga kim javob berishini o'zi o'rganib, shunday odamlarni topib boradi. Meta ham shuni tavsiya qiladi.",
-    "provider_default": "Meta reklamani hamma joyda sinab ko'radi va qaysi biri arzonroq ishlashini o'zi topadi. Meta ham shuni tavsiya qiladi.",
+    "instagram_is_connected": "Sahifangizga Instagram ulangan - reklama faqat Instagram'da ko'rsatiladi. Xohlasangiz, Facebook'ni tanlashingiz mumkin.",
+    "no_instagram": "Sahifangizga Instagram ulanmagan - reklama faqat Facebook'da ko'rsatiladi.",
+    "chat_on_facebook": "Suhbat Messenger'da bo'ladi - reklama faqat Facebook'da ko'rsatiladi.",
     "same_questions": "Bu formada aynan shu savollar bor — yangisini yasashning hojati yo'q. Meta formani o'chirishga ruxsat bermaydi.",
     "nothing_matches": "Tayyor formalaringiz orasida aynan shu savollarni so'raydigani yo'q.",
     "signal_is_ready": "Siz yetarlicha lidni baholab bo'ldingiz va ular Meta'ga yuborilyapti. Endi Meta shunchaki forma to'ldiruvchini emas, aynan shunday mijozlarni qidira oladi.",

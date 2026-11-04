@@ -38,8 +38,19 @@ def audience_recommendation() -> Recommendation:
     return _rendered(audience_advice())
 
 
-def placement_recommendation() -> Recommendation:
-    return _rendered(placement_advice())
+def placement_recommendation(db: Session, *, launch: CampaignLaunch) -> Recommendation:
+    """Instagram when the launch's page has it, else Facebook."""
+    from app.modules.ads.selectors.goals import chosen_channel, goal_preset
+    from app.modules.ads.selectors.launch_page import launch_page
+
+    page = launch_page(db, launch=launch)
+    preset = goal_preset(db, launch=launch)
+    chat = chosen_channel(launch=launch) if preset and preset.opens_chat else ""
+    return _rendered(
+        placement_advice(
+            has_instagram=page is not None and page.has_instagram, chat=chat
+        )
+    )
 
 
 def buying_recommendation(*, is_offered: bool) -> Recommendation | None:

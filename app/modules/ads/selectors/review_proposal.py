@@ -176,7 +176,7 @@ def proposal_view(
         },
         "advice": {
             "audience": advice.audience_recommendation() if not special else None,
-            "placement": advice.placement_recommendation(),
+            "placement": advice.placement_recommendation(db, launch=launch),
         },
     }
 

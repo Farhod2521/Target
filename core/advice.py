@@ -23,7 +23,9 @@ class FormOffer:
 
 PROVIDER_EXPANDS: Final = "provider_expands"
 
-PROVIDER_DEFAULT: Final = "provider_default"
+INSTAGRAM_IS_CONNECTED: Final = "instagram_is_connected"
+NO_INSTAGRAM: Final = "no_instagram"
+CHAT_ON_FACEBOOK: Final = "chat_on_facebook"
 
 SAME_QUESTIONS: Final = "same_questions"
 NOTHING_MATCHES: Final = "nothing_matches"
@@ -51,9 +53,17 @@ def audience_advice() -> Advice:
     return Advice(value="automatic", reason=PROVIDER_EXPANDS)
 
 
-def placement_advice() -> Advice:
-    """Whether this ad should be allowed off Facebook and Instagram. Always."""
-    return Advice(value="automatic", reason=PROVIDER_DEFAULT)
+def placement_advice(*, has_instagram: bool, chat: str = "") -> Advice:
+    """One app: Instagram when the page has it, else Facebook. Never Threads.
+
+    A chat on Messenger keeps the ad on Facebook - an Instagram-only answer
+    would be handed back to the provider, Threads and all.
+    """
+    if chat == "messenger":
+        return Advice(value="facebook", reason=CHAT_ON_FACEBOOK)
+    if has_instagram:
+        return Advice(value="instagram", reason=INSTAGRAM_IS_CONNECTED)
+    return Advice(value="facebook", reason=NO_INSTAGRAM)
 
 
 def buying_advice(*, is_offered: bool) -> Advice | None:
@@ -106,9 +116,11 @@ def form_advice(
 __all__ = [
     "BUILD_A_NEW_ONE",
     "CAMPAIGN_TYPE_REASONS",
+    "CHAT_ON_FACEBOOK",
+    "INSTAGRAM_IS_CONNECTED",
     "NOTHING_MATCHES",
+    "NO_INSTAGRAM",
     "PROVEN_DEFAULT",
-    "PROVIDER_DEFAULT",
     "PROVIDER_EXPANDS",
     "SAME_QUESTIONS",
     "Advice",
