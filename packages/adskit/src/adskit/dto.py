@@ -382,6 +382,9 @@ class AccountStateDTO(BaseModel):
     # Whether advertising is paid from money put in beforehand. ``None`` for
     # a token that may not read it.
     prepaid: bool | None = None
+    # Whether a card, credit line or balance is attached to charge. ``None``
+    # for a token that may not read it, which is not the same as ``False``.
+    has_payment_method: bool | None = None
 
     @property
     def cap_reached(self) -> bool:

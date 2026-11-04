@@ -4,10 +4,10 @@ The connect handshake reads an account once. A card that stops being
 charged does so weeks later, and Meta's only signal is on the account: the
 campaigns go on saying ACTIVE while nothing is delivered.
 
-Two reads at most. The payment method and the prepay flag need a role on
-the account that some tokens do not carry, and Meta refuses the whole read
-rather than leaving those fields out - so a refusal is retried without them
-and the money half still arrives.
+Three reads at most. The prepay flag needs a role on the account that some
+tokens do not carry, and Meta refuses the whole read rather than leaving the
+field out - so a refusal is retried with less each time and the money half
+still arrives.
 """
 
 import logging
@@ -24,7 +24,22 @@ logger = logging.getLogger(__name__)
 
 BASE_FIELDS: Final = "account_status,disable_reason,spend_cap,amount_spent,balance"
 # Readable only with ADVERTISE or MANAGE on the account.
-FUNDING_FIELDS: Final = "is_prepay_account"
+PREPAY_FIELDS: Final = "is_prepay_account"
+# The id of the card, credit line or prepaid balance the account is charged
+# from. Absent on an account nobody has added a payment method to: Meta takes
+# the campaign, the ad set and the creative from such an account and refuses
+# only the ad, 100/1359188, after three objects have been made and must be
+# deleted again.
+#
+# ``funding_source`` and not ``funding_source_details``: Meta's reference asks
+# no role for the first and MANAGE for the second, and a field withheld for
+# want of a role would read here as "no card" - an advertiser with ADVERTISE
+# alone would be stopped with a card on file. Asked apart from the prepay
+# flag all the same, so a refusal costs one field and not the other.
+FUNDING_FIELDS: Final = "funding_source"
+# The reference also says the field is "not available if the account is
+# disabled", so its absence only means "no card" on an active account.
+_ACTIVE: Final = 1
 
 # ``account_status``, as published: 1 active, 2 disabled, 3 unsettled,
 # 7 pending risk review, 8 pending settlement, 9 in grace period,
@@ -58,14 +73,24 @@ def read_account_state(
     """One account's money, translated. Raises ``MetaError`` like any read."""
     path = account.id if account.id.startswith("act_") else f"act_{account.id}"
     try:
-        payload = client.get(path, fields=f"{BASE_FIELDS},{FUNDING_FIELDS}")
+        payload = client.get(
+            path, fields=f"{BASE_FIELDS},{PREPAY_FIELDS},{FUNDING_FIELDS}"
+        )
+        return _state(account=account, payload=payload, funding_read=True)
     except MetaAPIError as exc:
         logger.info("prepay flag unreadable on %s, read without it: %s", path, exc)
-        payload = client.get(path, fields=BASE_FIELDS)
-    return _state(account=account, payload=payload)
+    try:
+        payload = client.get(path, fields=f"{BASE_FIELDS},{FUNDING_FIELDS}")
+        return _state(account=account, payload=payload, funding_read=True)
+    except MetaAPIError as exc:
+        logger.info("payment method unreadable on %s, read without it: %s", path, exc)
+    payload = client.get(path, fields=BASE_FIELDS)
+    return _state(account=account, payload=payload, funding_read=False)
 
 
-def _state(*, account: ExternalRef, payload: dict[str, Any]) -> AccountStateDTO:
+def _state(
+    *, account: ExternalRef, payload: dict[str, Any], funding_read: bool
+) -> AccountStateDTO:
     status = _int(payload.get("account_status"))
     reason = _int(payload.get("disable_reason"))
     prepaid = payload.get("is_prepay_account")
@@ -78,7 +103,16 @@ def _state(*, account: ExternalRef, payload: dict[str, Any]) -> AccountStateDTO:
         amount_spent_minor=_minor(payload.get("amount_spent")),
         balance_minor=_minor(payload.get("balance")),
         prepaid=prepaid if isinstance(prepaid, bool) else None,
+        has_payment_method=_has_funding(payload, status=status)
+        if funding_read
+        else None,
     )
+
+
+def _has_funding(payload: dict[str, Any], *, status: int) -> bool | None:
+    if payload.get("funding_source"):
+        return True
+    return False if status == _ACTIVE else None
 
 
 def _int(value: object) -> int:

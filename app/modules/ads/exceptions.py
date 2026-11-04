@@ -409,6 +409,14 @@ class AdAccountPaymentDue(AdAccountUnavailable):
         )
 
 
+class AdAccountNoPaymentMethod(AdAccountUnavailable):
+    def __init__(self) -> None:
+        DomainError.__init__(
+            self,
+            "Reklama akkauntingizga to'lov usuli qo'shilmagan. Meta'ning to'lov sahifasida karta qo'shing, so'ng reklamani qayta yarating.",
+        )
+
+
 class PageRoleMissing(DomainError):
     def __init__(self, tasks: tuple[str, ...] = ()) -> None:
         self.tasks = tasks

@@ -32,14 +32,23 @@ def test_the_two_numbers_become_one_word(
 class Graph:
     """Answers the full read, or refuses it once when ``refuse`` is set."""
 
-    def __init__(self, payload: dict[str, Any], *, refuse: bool = False) -> None:
+    def __init__(
+        self,
+        payload: dict[str, Any],
+        *,
+        refuse: bool = False,
+        refuse_funding: bool = False,
+    ) -> None:
         self.payload = payload
         self.refuse = refuse
+        self.refuse_funding = refuse_funding
         self.asked: list[str] = []
 
     def get(self, path: str, *, fields: str) -> dict[str, Any]:
         self.asked.append(fields)
         if self.refuse and "is_prepay_account" in fields:
+            raise MetaAPIError("no role", code=200)
+        if self.refuse_funding and "funding_source" in fields:
             raise MetaAPIError("no role", code=200)
         return self.payload
 
@@ -63,11 +72,47 @@ def test_money_arrives_in_minor_units_whatever_its_shape() -> None:
     assert state.prepaid is True
 
 
-def test_a_token_without_the_role_still_gets_the_money_half() -> None:
-    graph = Graph({"account_status": 1}, refuse=True)
+def test_a_token_without_the_role_still_gets_the_money_and_the_card() -> None:
+    graph = Graph({"account_status": 1, "funding_source": "9"}, refuse=True)
 
     state = read_account_state(account=ACCOUNT, token="t", client=graph)  # type: ignore[arg-type]
 
     assert len(graph.asked) == 2
     assert state.standing == "active"
     assert state.prepaid is None
+    assert state.has_payment_method is True
+
+
+def test_a_refused_card_read_still_gets_the_money_half() -> None:
+    graph = Graph({"account_status": 1}, refuse_funding=True)
+
+    state = read_account_state(account=ACCOUNT, token="t", client=graph)  # type: ignore[arg-type]
+
+    assert len(graph.asked) == 3
+    assert state.standing == "active"
+    assert state.has_payment_method is None
+
+
+def test_an_account_with_a_card_has_a_payment_method() -> None:
+    graph = Graph({"account_status": 1, "funding_source": "9"})
+
+    state = read_account_state(account=ACCOUNT, token="t", client=graph)  # type: ignore[arg-type]
+
+    assert state.has_payment_method is True
+
+
+def test_an_account_nobody_added_a_card_to_has_none() -> None:
+    graph = Graph({"account_status": 1})
+
+    state = read_account_state(account=ACCOUNT, token="t", client=graph)  # type: ignore[arg-type]
+
+    assert len(graph.asked) == 1
+    assert state.has_payment_method is False
+
+
+def test_a_disabled_account_without_the_field_is_unknown() -> None:
+    graph = Graph({"account_status": 2})
+
+    state = read_account_state(account=ACCOUNT, token="t", client=graph)  # type: ignore[arg-type]
+
+    assert state.has_payment_method is None

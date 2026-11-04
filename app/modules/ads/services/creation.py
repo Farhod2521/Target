@@ -37,6 +37,7 @@ from app.modules.ads.constants import (
     ManagedLevel,
 )
 from app.modules.ads.exceptions import (
+    AdAccountNoPaymentMethod,
     AdAccountPaymentDue,
     AdAccountUnavailable,
     AudienceEmpty,
@@ -321,6 +322,13 @@ def _create(db: Session, *, launch_id: UUID | str) -> str:
     except AdAccountPaymentDue:
         return _fail(
             db, launch, code="payment_due", message="ad account owes a payment"
+        )
+    except AdAccountNoPaymentMethod:
+        return _fail(
+            db,
+            launch,
+            code="payment_missing",
+            message="ad account has no payment method",
         )
     except AdAccountUnavailable:
         return _fail(

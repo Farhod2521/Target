@@ -22,6 +22,7 @@ from app.modules.ads.constants import (
     ChatChannel,
 )
 from app.modules.ads.exceptions import (
+    AdAccountNoPaymentMethod,
     AdAccountPaymentDue,
     AdAccountUnavailable,
     ChatChannelUnavailable,
@@ -72,6 +73,7 @@ def preflight(db: Session, *, launch: CampaignLaunch) -> None:
     db.refresh(page)
     check_permissions(db, owner=owner)
     _check_account(account=account)
+    _check_payment_method(db, account=account)
     _check_page(page=page, needs_lead_form=_makes_a_form(db, launch))
     _check_form(db, launch=launch, page=page)
     _check_channel(launch=launch, page=page)
@@ -112,6 +114,23 @@ def _check_account(*, account: AdAccount) -> None:
             account.disable_reason or "-",
         )
         raise AdAccountUnavailable
+
+
+def _check_payment_method(db: Session, *, account: AdAccount) -> None:
+    """Meta takes three objects from an account without a card and refuses the
+    fourth. Asked here so the owner hears it before anything is made."""
+    from app.modules.ads.services.stops import read_account_state, store_account_state
+
+    state = read_account_state(account)
+    if state is None:
+        return
+    store_account_state(db, ad_account=account, state=state)
+    db.commit()
+    if state.has_payment_method is False and state.prepaid is not True:
+        logger.warning(
+            "launch refused, ad account %s has no payment method", account.external_id
+        )
+        raise AdAccountNoPaymentMethod
 
 
 def _makes_a_form(db: Session, launch: CampaignLaunch) -> bool:
