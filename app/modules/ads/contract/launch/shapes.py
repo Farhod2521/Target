@@ -494,7 +494,9 @@ class ProposalEdit(Camel):
     interests: list[str]
     habits: list[str]
     ads: list[EditAd]
-    form: LeadFormEdit
+    form: LeadFormEdit | None = Field(
+        None, description="Only a goal with a lead form has one to send."
+    )
     adv: list[AdvRow]
     budget: EditBudget | None = None
 

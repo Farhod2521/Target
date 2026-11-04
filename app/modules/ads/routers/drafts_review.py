@@ -15,7 +15,11 @@ from app.common.exceptions import DomainError, InputRefused, NotFound
 from app.modules.ads.constants import GEO_SEARCHES_PER_MINUTE, MAX_GEO_SEARCH
 from app.modules.ads.contract.launch import taps as kept
 from app.modules.ads.contract.launch.draft import text_in
-from app.modules.ads.contract.launch.edit import edit_from, proposal_patch
+from app.modules.ads.contract.launch.edit import (
+    edit_from,
+    editor_refusal,
+    proposal_patch,
+)
 from app.modules.ads.contract.launch.forms import (
     chat_reading,
     form_variant,
@@ -230,9 +234,13 @@ def save_edit(
     answer = _review(db, user, draft_id)
     if not answer.get("proposal"):
         raise NotFound("Taklif hali tayyor emas.")
-    patch = proposal_patch(body.model_dump(by_alias=False), answer)
-    if patch.model_fields_set:
-        review_routes.save_edit(draft_id, patch, db, user)
+    edit = body.model_dump(by_alias=False)
+    try:
+        patch = proposal_patch(edit, answer)
+        if patch.model_fields_set:
+            review_routes.save_edit(draft_id, patch, db, user)
+    except InputRefused as refusal:
+        raise editor_refusal(refusal, edit, answer) from None
     return _draft(db, user, draft_id)
 
 

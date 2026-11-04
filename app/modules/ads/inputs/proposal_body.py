@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.modules.ads.constants import LAUNCH_NAME_MAX, MAX_GEO_ADDRESS
+from app.modules.ads.constants import AD_LINE_MAX, LAUNCH_NAME_MAX, MAX_GEO_ADDRESS
 from app.modules.ads.inputs.ending import EndingIn
 from app.modules.ads.inputs.questions import QuestionRow
 from core.targeting import MAX_AGE, MAX_RADIUS_KM, MIN_AGE, MIN_RADIUS_KM
@@ -59,8 +59,8 @@ class InterestsIn(BaseModel):
 class CreativeIn(BaseModel):
     position: int = Field(ge=0)
     primary_text: str = ""
-    headline: str | None = Field("", max_length=60)
-    description: str | None = Field("", max_length=120)
+    headline: str | None = Field("", max_length=AD_LINE_MAX)
+    description: str | None = Field("", max_length=AD_LINE_MAX)
     ad_name: str | None = Field(
         "", max_length=LAUNCH_NAME_MAX, description="Null: the generated name."
     )

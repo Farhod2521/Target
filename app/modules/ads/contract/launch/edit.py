@@ -5,7 +5,10 @@ goes back: ``ProposalIn`` is a patch, so a section the editor could not read
 whole is never sent back empty over the AI's answer.
 """
 
+import re
 from typing import Any, Final
+
+from pydantic import ValidationError
 
 from app.common.exceptions import InputRefused
 from app.modules.ads.constants import MAX_GEO_PLACES, PLACEMENT_POSITION_LABELS
@@ -56,6 +59,40 @@ END_OUT: Final = {
 }
 AREA: Final = "area:"
 SECTIONS: Final = ("aud", "geo", "int", "hab", "reach", "ads", "form", "adv", "budget")
+# A refused save, read back to the editor's names: an advert's own words...
+AD_FIELD: Final = {
+    "primary_text": "text",
+    "headline": "headline",
+    "description": "desc",
+    "ad_name": "name",
+}
+AD_LINE_WORDS: Final = {
+    "primary_text": "asosiy matn",
+    "headline": "sarlavha",
+    "description": "qo'shimcha qator",
+    "ad_name": "nomi",
+}
+# ...the fields the editor shows under a field of its own...
+EDITOR_FIELD: Final = {
+    "audience.areas": "audience.places",
+    "audience.radius_km": "geo.km",
+    "interests.queries": "interests",
+    "form.rows": "form.questions",
+    "form.form_depth": "form.depth",
+    "ending.website": "form.endTarget",
+    "ending.telegram": "form.endTarget",
+    "ending.phone": "form.endTarget",
+}
+# ...the ones it already reads under the backend's name...
+EDITOR_KEPT: Final = frozenset(
+    {"audience.places", "audience.geo_mode", "audience.placement_positions"}
+)
+# ...and the rest, by the tab they belong to.
+EDITOR_SECTION: Final = {
+    "audience": "aud",
+    "ending": "form.end",
+    "advanced": "adv",
+}
 
 # What the word check found in an advert, in the owner's words.
 FINDINGS: Final[dict[str, dict[str, str]]] = {
@@ -627,6 +664,38 @@ def proposal_patch(edit: dict[str, Any], answer: dict[str, Any]) -> ProposalIn:
     if not _same(edit["habits"], was["habits"]):
         out["traits"] = edit["habits"]
 
+    creatives = _ads_patch(edit, was, found)
+    if creatives:
+        out["creatives"] = creatives
+
+    lead_form = found.get("lead_form")
+    if lead_form and edit.get("form") and not _same(edit["form"], was["form"]):
+        out["form"] = _form_patch(edit["form"], was["form"], lead_form)
+    switch = next((row for row in edit["adv"] if row["key"] == "review_screen"), None)
+    switch_was = next(
+        (row for row in was["adv"] if row["key"] == "review_screen"), None
+    )
+    if lead_form and switch and switch_was and switch.get("on") != switch_was.get("on"):
+        out["form"] = {**out.get("form", {}), "higher_intent": bool(switch.get("on"))}
+
+    advanced = _advanced_patch(edit["adv"], was["adv"], found["advanced"])
+    if advanced:
+        out["advanced"] = advanced
+    budget, budget_was = edit.get("budget"), was["budget"]
+    if budget is not None and any(
+        budget[key] != budget_was[key] for key in ("level", "sharing")
+    ):
+        out["budget"] = {"level": budget["level"], "sharing": budget["sharing"]}
+    try:
+        return ProposalIn.model_validate(out)
+    except ValidationError as error:
+        raise InputRefused(_refused(error)) from None
+
+
+def _ads_patch(
+    edit: dict[str, Any], was: dict[str, Any], found: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """The adverts whose words the owner changed, in the order they stand."""
     creatives = []
     for variant in found.get("variants") or []:
         key = str(variant["position"])
@@ -647,28 +716,71 @@ def proposal_patch(edit: dict[str, Any], answer: dict[str, Any]) -> ProposalIn:
                 "ad_name": now["name"] or None,
             }
         )
-    if creatives:
-        out["creatives"] = creatives
-
-    lead_form = found.get("lead_form")
-    if lead_form and not _same(edit["form"], was["form"]):
-        out["form"] = _form_patch(edit["form"], was["form"], lead_form)
-    switch = next((row for row in edit["adv"] if row["key"] == "review_screen"), None)
-    switch_was = next(
-        (row for row in was["adv"] if row["key"] == "review_screen"), None
-    )
-    if lead_form and switch and switch_was and switch.get("on") != switch_was.get("on"):
-        out["form"] = {**out.get("form", {}), "higher_intent": bool(switch.get("on"))}
-
-    advanced = _advanced_patch(edit["adv"], was["adv"], found["advanced"])
-    if advanced:
-        out["advanced"] = advanced
-    budget, budget_was = edit.get("budget"), was["budget"]
-    if budget is not None and any(
-        budget[key] != budget_was[key] for key in ("level", "sharing")
-    ):
-        out["budget"] = {"level": budget["level"], "sharing": budget["sharing"]}
-    return ProposalIn.model_validate(out)
+    return creatives
 
 
-__all__ = ["FIELD_OF", "KIND_OF", "edit_from", "proposal_patch"]
+def _refused(error: ValidationError) -> dict[str, str]:
+    """A patch the input's own limits refused, under ``ProposalIn``'s names."""
+    problems: dict[str, str] = {}
+    for row in error.errors():
+        loc = row["loc"]
+        limit = (row.get("ctx") or {}).get("max_length")
+        say = f"{limit} belgidan oshmasin." if limit else "Qiymatni tekshiring."
+        if loc[0] == "creatives" and len(loc) > 2:
+            number = int(loc[1]) + 1
+            key = f"creatives.{number}.{loc[2]}"
+            say = f"{number}-reklama: {AD_LINE_WORDS.get(str(loc[2]), '')} {say}"
+        elif loc[:2] == ("form", "ending") and len(loc) > 2:
+            key = f"ending.{loc[2]}"
+        elif loc[:2] == ("form", "rows"):
+            key = "form.rows"
+            say = f"Savol matni {say}" if limit else say
+        else:
+            key = ".".join(str(part) for part in loc if not isinstance(part, int))
+        problems.setdefault(key, say)
+    return problems
+
+
+def editor_refusal(
+    refusal: InputRefused, edit: dict[str, Any], answer: dict[str, Any]
+) -> InputRefused:
+    """A refusal of the editor's save, under the editor's own field names.
+
+    ``creatives.{n}`` counts only the adverts the patch carried; the editor
+    knows an advert by where it stands among all of them.
+    """
+    positions = [
+        row["position"]
+        for row in _ads_patch(edit, edit_from(answer), answer["proposal"])
+    ]
+    problems: dict[str, str] = {}
+    for key, say in refusal.problems.items():
+        name = key
+        parts = key.split(".")
+        if parts[0] == "creatives" and len(parts) > 1 and parts[1].isdigit():
+            number = int(parts[1])
+            index = next(
+                (
+                    index
+                    for index, row in enumerate(edit["ads"])
+                    if 0 < number <= len(positions)
+                    and row["id"] == str(positions[number - 1])
+                ),
+                None,
+            )
+            if index is not None:
+                name = f"ads.{index}"
+                if len(parts) > 2:
+                    name += f".{AD_FIELD.get(parts[2], 'text')}"
+                say = re.sub(rf"^{number}-reklama", f"{index + 1}-reklama", say)
+            else:
+                name = "ads"
+        elif key in EDITOR_FIELD:
+            name = EDITOR_FIELD[key]
+        elif parts[0] in EDITOR_SECTION and key not in EDITOR_KEPT:
+            name = EDITOR_SECTION[parts[0]]
+        problems[name] = f"{problems[name]} {say}" if name in problems else say
+    return InputRefused(problems, refusal.message, hints=refusal.hints)
+
+
+__all__ = ["FIELD_OF", "KIND_OF", "edit_from", "editor_refusal", "proposal_patch"]

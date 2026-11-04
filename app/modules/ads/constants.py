@@ -630,7 +630,9 @@ START_DAY_CHOICES: tuple[tuple[str, Any], ...] = (
 LAUNCH_NAME_MAX = 80
 MAX_ADS_PER_CAMPAIGN = 10
 DEFAULT_ADSETS_PER_CAMPAIGN = 5
-PRIMARY_TEXT_MAX = 600
+# As Meta takes them, and as editing a running advert already allows.
+PRIMARY_TEXT_MAX = 2000
+AD_LINE_MAX = 255
 SAVED_FLAG = "saved"
 MEDIA_STALE_MINUTES = 720
 LAUNCH_PROGRESS: dict[str, int] = {
