@@ -287,7 +287,12 @@ def apply_form_depth(db: Session, *, launch: CampaignLaunch, depth: str) -> None
     questions = list(kept["questions"])
     draft_field.propose(draft, DraftSection.FORM, questions)
     draft_field.choose(draft, DraftSection.FORM, questions)
-    answers = {**(launch.answers or {}), FORM_DEPTH: depth}
+    # As choosing the depth anywhere else does: «Kam, lekin sifatli» asks Meta for quality too.
+    answers = {
+        **(launch.answers or {}),
+        FORM_DEPTH: depth,
+        HIGHER_INTENT: depth == FormDepth.DEEP,
+    }
     answers.pop(FORM_DEPTH_WANTED, None)
     if answers.get(LEAD_FORM_QUESTIONS):
         answers[LEAD_FORM_QUESTIONS] = questions

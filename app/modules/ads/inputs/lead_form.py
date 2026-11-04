@@ -4,14 +4,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.modules.ads.constants import LEAD_FORM_NAME_MAX, QUESTION_TYPES
+from app.modules.ads.constants import (
+    LEAD_FORM_NAME_MAX,
+    MAX_CUSTOM_QUESTIONS,
+    QUESTION_TYPES,
+)
 from app.modules.ads.inputs import Problems
 from app.modules.ads.inputs.ending import EndingIn, check_ending
-from app.modules.ads.inputs.questions import (
-    MAX_QUESTIONS,
-    TypedQuestion,
-    new_form_questions,
-)
+from app.modules.ads.inputs.questions import TypedQuestion, new_form_questions
 from core.leads.ending import FormEnding
 
 DEFAULT_KINDS = ("full_name", "phone")
@@ -47,8 +47,14 @@ def check_pick(
     kinds = {question["kind"] for question in questions}
     if not questions:
         problems.add("", "Kamida bitta savol tanlang.")
-    elif len(questions) > MAX_QUESTIONS:
-        problems.add("", f"Bitta formada {MAX_QUESTIONS} tadan ortiq savol bo'lmaydi.")
+    elif (
+        sum(question["kind"] not in QUESTION_TYPES for question in questions)
+        > MAX_CUSTOM_QUESTIONS
+    ):
+        # Meta's own fields are not counted: only what the owner typed has a cap.
+        problems.add(
+            "", f"Formada {MAX_CUSTOM_QUESTIONS} tadan ortiq o'z savolingiz bo'lmaydi."
+        )
     elif FULL_NAME in kinds and kinds & NAME_PARTS:
         problems.add(
             "",

@@ -31,7 +31,6 @@ from app.modules.ads.constants import (
     FormDepth,
 )
 from app.modules.ads.inputs.lead_form import DEFAULT_KINDS, LeadFormPickIn, check_pick
-from app.modules.ads.inputs.questions import MAX_QUESTIONS
 from app.modules.ads.launch_schemas import (
     FormChosenOut,
     FormDepthOut,
@@ -134,7 +133,7 @@ def _picker(
             or _default_name(launch, business),
             "open_builder": building,
             "max_options": MAX_OPTIONS,
-            "max_questions": MAX_QUESTIONS,
+            "max_questions": MAX_CUSTOM_QUESTIONS,
             "ending": ending_fields(
                 ending=stored_ending(launch=launch), business=business
             )

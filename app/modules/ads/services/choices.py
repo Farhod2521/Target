@@ -354,6 +354,13 @@ def save_questions(
         for item in chosen_before
         if str(item.get("kind", "")) not in proposed_kinds
     ]
+    # Meta's own fields can be ticked even where the AI typed its questions.
+    pooled = {str(item.get("kind", "")) for item in pool}
+    pool += [
+        draft_field.standard_question(kind)
+        for kind in kinds
+        if kind in QUESTION_TYPES and kind not in pooled
+    ]
     kept = [dict(item) for item in pool if str(item.get("kind", "")) in kinds]
     _reword(kept, labels or {})
     numbered = _typed_questions(

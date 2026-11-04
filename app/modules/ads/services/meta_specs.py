@@ -342,6 +342,10 @@ def _questions(launch: CampaignLaunch) -> tuple[LeadQuestionSpec, ...]:
     chosen = draft_field.with_phone(
         draft_field.chosen(launch.draft, DraftSection.FORM) or []
     )
+    if launch.answers.get(HIGHER_INTENT):
+        # «Kam, lekin sifatli»: the name and the number are typed by the
+        # person, never filled in by Meta - whoever built or edited the form.
+        chosen = draft_field.typed_by_hand(chosen)
     keys = _contact_keys(chosen)
     return tuple(
         LeadQuestionSpec(

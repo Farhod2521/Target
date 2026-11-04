@@ -15,7 +15,6 @@ from app.modules.ads.constants import (
 from app.modules.leads.constants import QUESTION_LABELS
 
 MAX_LABEL = 200
-MAX_QUESTIONS = 10
 
 
 class TypedQuestion(BaseModel):
@@ -123,7 +122,6 @@ def new_form_questions(
 
 
 __all__ = [
-    "MAX_QUESTIONS",
     "QuestionEdit",
     "QuestionRow",
     "TypedQuestion",

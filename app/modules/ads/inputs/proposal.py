@@ -24,6 +24,7 @@ from app.modules.ads.constants import (
     MAX_GEO_PLACES,
     PLACEMENT_POSITION_LABELS,
     PRIMARY_TEXT_MAX,
+    QUESTION_TYPES,
     DraftSection,
     FormDepth,
     LeadBuying,
@@ -433,7 +434,7 @@ def _form(
                 *merged_questions(launch.draft or {}),
                 *kept_questions(launch=launch),
             ]
-        }
+        } | set(QUESTION_TYPES)
         edit = read_rows(body.rows, offered=offered)
         if error := rows_error(edit):
             problems.add("form.rows", error)

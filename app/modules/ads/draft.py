@@ -112,7 +112,7 @@ def standard_contacts(questions: list[Any]) -> list[Any]:
             built.append(item)
         elif kind not in asked:
             asked.add(kind)
-            built.append({"kind": kind, "label": _standard_label(kind), "options": []})
+            built.append(standard_question(kind))
     if "full_name" in asked:
         built = [item for item in built if item.get("kind") not in _NAME_PARTS]
     return built
@@ -179,6 +179,11 @@ def typed_by_hand(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _typed(label: str) -> dict[str, Any]:
     return {"kind": "custom", "label": label, "options": []}
+
+
+def standard_question(kind: str) -> dict[str, Any]:
+    """One of Meta's own questions, as a form row."""
+    return {"kind": kind, "label": _standard_label(kind), "options": []}
 
 
 def _standard_label(kind: str) -> str:

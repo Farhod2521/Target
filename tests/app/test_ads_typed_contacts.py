@@ -38,10 +38,10 @@ TYPED_FORM: list[dict[str, Any]] = [
 ]
 
 
-def _launch(questions: list[dict[str, Any]]) -> Any:
+def _launch(questions: list[dict[str, Any]], **answers: Any) -> Any:
     draft = draft_field.empty_draft()
     draft_field.choose(draft, DraftSection.FORM, questions)
-    return SimpleNamespace(draft=draft)
+    return SimpleNamespace(draft=draft, answers=answers)
 
 
 def test_the_builder_takes_a_typed_name_question() -> None:
@@ -199,3 +199,50 @@ def test_a_copy_carries_the_typed_questions() -> None:
 @pytest.mark.parametrize("raw", [None, [], [{"type": "FULL_NAME"}, {"type": "PHONE"}]])
 def test_a_form_without_typed_questions_copies_nothing(raw: Any) -> None:
     assert custom_questions(raw) == ()
+
+
+@pytest.mark.parametrize(
+    "questions",
+    [
+        [{"kind": "full_name", "label": "Ism"}, {"kind": "phone", "label": "Tel"}],
+        [{"kind": "custom:1", "label": "Qaysi kurs?"}],
+        [
+            {"kind": "custom:1", "label": "Telefon raqamingiz", "options": ["A", "B"]},
+            {"kind": "email", "label": "Email"},
+        ],
+    ],
+)
+def test_a_quality_form_never_has_meta_fill_the_name_or_the_phone(
+    questions: list[dict[str, Any]],
+) -> None:
+    sent = questions_for(_questions(_launch(questions, higher_intent=True)))
+
+    kinds = [row["type"] for row in sent]
+    assert "PHONE" not in kinds
+    assert "FULL_NAME" not in kinds
+    assert "Telefon raqamingiz" in [row.get("label") for row in sent]
+
+
+def test_a_short_form_keeps_meta_filling_the_phone_its_owner_ticked() -> None:
+    sent = questions_for(
+        _questions(_launch([{"kind": "phone", "label": "Tel"}], higher_intent=False))
+    )
+
+    assert [row["type"] for row in sent] == ["PHONE"]
+
+
+def test_the_picker_counts_only_the_owners_own_questions() -> None:
+    _id, questions, _name, _ending = check_pick(
+        LeadFormPickIn(
+            kinds=["full_name", "phone", "email", "city"],
+            typed=[TypedQuestion(label=f"{index}-savol") for index in range(12)],
+            ending=EndingIn(kind="none"),
+        ),
+        default_name="Forma",
+        taken_names=frozenset(),
+        region="UZ",
+        default_title="Rahmat",
+    )
+
+    assert questions is not None
+    assert len(questions) == 16
