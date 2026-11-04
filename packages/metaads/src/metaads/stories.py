@@ -149,7 +149,13 @@ def _carousel_data(spec: CreativeSpec) -> dict[str, Any]:
 
 
 def _card(spec: CreativeSpec, card: CarouselCard) -> dict[str, Any]:
-    """One card. A video card names its still as ``picture``."""
+    """One card. A video card names its still as ``picture``.
+
+    Every card carries the advert's button too. Meta reads a carousel's
+    button off its cards: with the button only beside them it refuses the
+    creative, ``100/1373054`` "No Call To Action Type was parseable", seen
+    in production on lead-form carousels.
+    """
     return _without_empties(
         {
             "link": spec.link_url,
@@ -158,6 +164,7 @@ def _card(spec: CreativeSpec, card: CarouselCard) -> dict[str, Any]:
             "image_hash": card.image_hash,
             "video_id": card.video_id,
             "picture": card.thumbnail_url if card.video_id else "",
+            "call_to_action": _call_to_action(spec),
         }
     )
 

@@ -19,11 +19,12 @@ from metaads.assets import MetaAssets
 from metaads.boosts import BoostSpec, boost_payload, story_counts, story_of_ad
 from metaads.client import GraphClient
 from metaads.launcher import MetaLauncher
-from metaads.specs import CTA_SIGN_UP, CarouselCard, CreativeSpec
+from metaads.specs import CTA_NO_BUTTON, CTA_SIGN_UP, CarouselCard, CreativeSpec
 from metaads.stories import story_spec
 from pydantic import ValidationError
 
 SITE = "https://osh.uz"
+BUTTON = {"type": CTA_SIGN_UP, "value": {"lead_gen_form_id": "777"}}
 
 
 def carousel(**extra: Any) -> CreativeSpec:
@@ -54,22 +55,36 @@ def test_a_carousel_is_one_link_data_block_with_a_card_per_slide() -> None:
             "message": "Uch xil taom",
             "link": SITE,
             "child_attachments": [
-                {"link": SITE, "image_hash": "h1"},
+                {"link": SITE, "image_hash": "h1", "call_to_action": BUTTON},
                 {
                     "link": SITE,
                     "video_id": "v2",
                     "picture": "https://cdn.test/v2.jpg",
+                    "call_to_action": BUTTON,
                 },
-                {"link": SITE, "image_hash": "h3"},
+                {"link": SITE, "image_hash": "h3", "call_to_action": BUTTON},
             ],
             "multi_share_optimized": False,
             "multi_share_end_card": False,
-            "call_to_action": {
-                "type": CTA_SIGN_UP,
-                "value": {"lead_gen_form_id": "777"},
-            },
+            "call_to_action": BUTTON,
         },
     }
+
+
+def test_every_card_carries_the_button() -> None:
+    """Meta reads a carousel's button off its cards. Beside them alone it
+    refused a lead-form carousel in production: ``100/1373054``."""
+    cards = story_spec(carousel())["link_data"]["child_attachments"]
+
+    assert all(card["call_to_action"] == BUTTON for card in cards)
+
+
+def test_a_carousel_without_a_button_has_none_on_its_cards() -> None:
+    cards = story_spec(carousel(call_to_action=CTA_NO_BUTTON, lead_form_id=""))[
+        "link_data"
+    ]["child_attachments"]
+
+    assert all("call_to_action" not in card for card in cards)
 
 
 def test_the_headline_rides_on_every_card() -> None:
