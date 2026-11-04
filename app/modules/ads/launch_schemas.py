@@ -204,6 +204,9 @@ class AssetCardOut(Shape):
     external_id: str
     thumbnail_url: str
     is_instagram: bool
+    permalink_url: str = Field(
+        "", description="Where the post opens; empty for a file, which has no page."
+    )
 
 
 class VariantCardOut(Shape):

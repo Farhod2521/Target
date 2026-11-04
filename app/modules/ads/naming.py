@@ -13,6 +13,7 @@ from app.modules.ads.constants import (
     TargetingMode,
 )
 from app.modules.ads.models import CampaignLaunch
+from app.modules.ads.selectors.budget_level import held_by_campaign
 from app.modules.businesses.models import Business
 
 MAX_NAME: Final = LAUNCH_NAME_MAX
@@ -39,7 +40,9 @@ def goal_campaign_name(
     *, launch: CampaignLaunch, business: Business, number: int
 ) -> str:
     goal = _goal(launch, business)
-    fixed = f"{goal} #{number}" if goal else f"#{number}"
+    # Where the budget sits, as Ads Manager's own people say it.
+    level = "CBO" if held_by_campaign(launch=launch) else "ABO"
+    fixed = f"{goal}{SEPARATOR}{level} #{number}" if goal else f"{level} #{number}"
     return _fitted(house=(business.name or "").strip(), fixed=fixed)
 
 
