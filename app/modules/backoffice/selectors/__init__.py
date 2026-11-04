@@ -90,6 +90,7 @@ class Shell:
             ("payouts", self.can_give and settings.withdrawals_open),
             ("reviews", self.can_give),
             ("surveys", self.can_give),
+            ("tutorials", self.can_give),
             ("sales", self.can_sell),
             ("chat", self.can_answer),
             ("refusals", True),

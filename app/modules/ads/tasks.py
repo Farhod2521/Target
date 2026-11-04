@@ -508,9 +508,11 @@ def sweep_abandoned_uploads_task() -> int:
         drop_stale_partials,
         sweep_abandoned_uploads,
     )
+    from app.modules.tutorials.services import drop_stale_partials as tutorial_partials
 
     now = utcnow()
     drop_stale_partials(now=now)
+    tutorial_partials(now=now)
     with task_session() as db:
         return sweep_abandoned_uploads(db, now=now)
 

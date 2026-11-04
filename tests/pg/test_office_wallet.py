@@ -422,8 +422,8 @@ def test_a_payout_recorded_by_hand_shows_in_the_history(
 @pytest.mark.parametrize(
     ("role", "sections"),
     [
-        (Role.SUPPORT, ["home", "clients", "promo", "payouts", "reviews", "surveys", "chat", "refusals", "tg"]),
-        (Role.FINANCE, ["home", "clients", "promo", "payouts", "reviews", "surveys", "refusals", "tg"]),
+        (Role.SUPPORT, ["home", "clients", "promo", "payouts", "reviews", "surveys", "tutorials", "chat", "refusals", "tg"]),
+        (Role.FINANCE, ["home", "clients", "promo", "payouts", "reviews", "surveys", "tutorials", "refusals", "tg"]),
         (
             Role.OWNER,
             [
@@ -434,6 +434,7 @@ def test_a_payout_recorded_by_hand_shows_in_the_history(
                 "payouts",
                 "reviews",
                 "surveys",
+                "tutorials",
                 "sales",
                 "chat",
                 "refusals",

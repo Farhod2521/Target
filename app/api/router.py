@@ -40,6 +40,7 @@ from app.modules.referrals.routers import router as referrals
 from app.modules.sales.routers import router as sales
 from app.modules.supportchat.routers import router as support
 from app.modules.surveys.routers import router as surveys
+from app.modules.tutorials.routers import router as tutorials
 
 api_v2_router = APIRouter(prefix="/api/v2")
 api_v2_router.include_router(campaigns_v2)
@@ -78,6 +79,7 @@ api_router.include_router(chat)
 api_router.include_router(agent)
 api_router.include_router(onboarding)
 api_router.include_router(surveys)
+api_router.include_router(tutorials)
 api_router.include_router(support)
 
 public_router = APIRouter()

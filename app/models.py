@@ -20,3 +20,4 @@ from app.modules.referrals import models as referrals  # noqa: F401
 from app.modules.sales import models as sales  # noqa: F401
 from app.modules.supportchat import models as supportchat  # noqa: F401
 from app.modules.surveys import models as surveys  # noqa: F401
+from app.modules.tutorials import models as tutorials  # noqa: F401
