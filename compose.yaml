@@ -55,7 +55,14 @@ services:
 
   worker:
     <<: *app
-    command: celery -A app.worker worker -Q sync,webhooks,chat,upload,refresh --concurrency 2 --loglevel INFO
+    command: celery -A app.worker worker -Q sync,upload,refresh --concurrency 2 --loglevel INFO
+
+  # The bots' updates and the assistant's answers there, on slots of their
+  # own: a press has ten seconds before its button gives up, and on the
+  # worker above it waited behind every account sync in the queue.
+  worker-bot:
+    <<: *app
+    command: celery -A app.worker worker -Q webhooks,chat --concurrency 2 --hostname bot@%h --loglevel INFO
 
   # The AI and the launch wizard's own work (goal reading, the proposal,
   # changes to campaigns) on slots of their own, so a person waiting on the
