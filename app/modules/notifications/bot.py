@@ -85,46 +85,12 @@ def staff_webhook_secret() -> str:
     return str(settings.staff_bot_webhook_secret)
 
 
-def payments_bot_configured() -> bool:
-    return bool(
-        settings.payments_bot_token
-        and settings.payments_bot_username
-        and settings.payments_bot_chat_id
-    )
-
-
-@contextmanager
-def payments_bot() -> Iterator[BotClient]:
-    if not payments_bot_configured():
-        raise BotNotConfigured
-    client = BotClient(token=settings.payments_bot_token)
-    try:
-        yield client
-    finally:
-        client.close()
-
-
-def payments_chat_id() -> str:
-    return str(settings.payments_bot_chat_id)
-
-
-def payments_thread_id() -> int:
-    """The topic the payments bot writes in; anything but a number is the
-    group's General topic, never a reason for the app not to start."""
-    value = str(settings.payments_bot_thread_id).strip()
-    return int(value) if value.isdigit() else 0
-
-
 __all__ = [
     "DEEP_LINK",
     "bot",
     "bot_token",
     "deep_link",
     "is_configured",
-    "payments_bot",
-    "payments_bot_configured",
-    "payments_chat_id",
-    "payments_thread_id",
     "sends_expiry_notices",
     "sends_mandatory_notices",
     "staff_bot",

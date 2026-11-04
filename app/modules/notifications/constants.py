@@ -189,9 +189,3 @@ SUPPORT_WAIT_KEY: Final = "notifications:support-wait:{chat_id}"
 SUPPORT_WAIT_TTL_SECONDS: Final = 15 * 60
 # "Parolni unutdingizmi?" opens the bot with this instead of a link code.
 RESET_PAYLOAD: Final = "parol"
-# The payments group: how far back a receipt not yet posted is still owed, and
-# until which office hour a finished day's, week's or month's totals still go.
-RECEIPT_LOOKBACK_HOURS: Final = 48
-PAYMENTS_REPORT_LATEST_HOUR: Final = 6
-PAYMENTS_REPORT_KEY: Final = "notifications:payments-report:{kind}:{start}"
-PAYMENTS_REPORT_SENT_SECONDS: Final = 3 * 24 * 60 * 60
