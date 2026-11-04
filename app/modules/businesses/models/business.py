@@ -42,6 +42,8 @@ class Business(Base):
     working_hours: Mapped[Any] = mapped_column(Json, nullable=False, default=dict)
     locales: Mapped[list[Any]] = mapped_column(ARRAY(SmallInteger), nullable=False, default=list)
     special_ad_category: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    audience_gender: Mapped[str] = mapped_column(String(8), nullable=False, default="all")
+    regions: Mapped[list[Any]] = mapped_column(Json, nullable=False, default=list)
     # -- django extras --
     user: Mapped["User"] = relationship(foreign_keys=[user_id], lazy="select")  # noqa: F821
     ad_account: Mapped["AdAccount | None"] = relationship(foreign_keys=[ad_account_id], lazy="select")  # noqa: F821

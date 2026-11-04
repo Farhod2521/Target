@@ -223,11 +223,20 @@ def _store(
         request_confirmation,
         request_estimate,
     )
-    from app.modules.ads.services.targeting import rebuild_targeting, remember_terms
+    from app.modules.ads.services.targeting import (
+        business_genders,
+        rebuild_targeting,
+        remember_terms,
+    )
     from app.modules.ads.services.variants import reseed_words
 
     payload = answer.model_dump()
     value = _section_value(section, payload, limit=question_limit(launch=launch))
+    if section == DraftSection.AUDIENCE:
+        # Written again, the audience still sells to whom the profile says.
+        genders = business_genders(db, owner=launch.owner, business=business)
+        if genders is not None:
+            value = {**value, "genders": genders}
     draft = fresh(launch, "draft")
     before = draft_field.chosen(draft, section)
     draft_field.propose(draft, section, value)

@@ -355,6 +355,7 @@ def _store(
         apply_lead_form,
         apply_placement,
         apply_url_tags,
+        business_genders,
         rebuild_targeting,
         remember_terms,
         suggested_geo,
@@ -366,6 +367,10 @@ def _store(
         return False
     draft = draft_field.empty_draft()
     audience = proposal.audience.model_dump()
+    # The profile's word on whom the business sells to stands over the AI's guess.
+    genders = business_genders(db, owner=launch.owner, business=business)
+    if genders is not None:
+        audience["genders"] = genders
     draft_field.propose(draft, "audience", audience)
     draft_field.propose(
         draft, "interests", [item.model_dump() for item in proposal.interests]

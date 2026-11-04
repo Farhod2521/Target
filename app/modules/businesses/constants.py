@@ -32,3 +32,13 @@ CATEGORY_TRANSLATIONS: dict[str, tuple[str, str]] = {
     "services": ("Услуги", "Services"),
     "travel": ("Путешествия / туризм", "Travel / tourism"),
 }
+
+
+# Who a new advert is shown to unless the owner says otherwise there.
+AUDIENCE_GENDERS: tuple[str, ...] = ("all", "female", "male")
+GENDER_ALL = "all"
+# As Meta numbers them on an ad set: 1 men, 2 women.
+GENDER_CODES: dict[str, list[int]] = {"male": [1], "female": [2]}
+# Where the business works: as many places as a launch may target.
+MAX_REGIONS = 10
+REGION_KINDS: tuple[str, ...] = ("city", "region", "country")

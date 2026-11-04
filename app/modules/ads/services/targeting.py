@@ -51,6 +51,7 @@ from app.modules.ads.selectors.tracking import (
     chosen_url_tags,
     goal_sends_to_a_site,
 )
+from app.modules.businesses.constants import GENDER_CODES, REGION_KINDS
 from app.modules.businesses.models import Business
 from app.modules.integrations.models import AdAccount, PageAccount
 from core.targeting import (
@@ -181,6 +182,58 @@ def geo_choice(db: Session, *, launch: CampaignLaunch, business: Business) -> Ge
     )
 
 
+def _profiles(db: Session, *, owner: User, business: Business) -> list[Business]:
+    """The launch's own profile, then the account's, for what the first leaves open."""
+    rows = [business]
+    if business.page_id is not None:
+        account = db.scalar(
+            select(Business).where(
+                Business.user_id == owner.id,
+                Business.page_id.is_(None),
+                Business.ad_account_id.is_(None),
+            )
+        )
+        if account is not None:
+            rows.append(account)
+    return rows
+
+
+def business_genders(
+    db: Session, *, owner: User, business: Business
+) -> list[int] | None:
+    """Who the business's profile says it sells to; ``None`` when it does not say.
+
+    A special ad category may not be aimed by gender at all, so it says nothing.
+    """
+    if business.special_ad_category:
+        return None
+    for row in _profiles(db, owner=owner, business=business):
+        if row.audience_gender in GENDER_CODES:
+            return list(GENDER_CODES[row.audience_gender])
+    return None
+
+
+def business_regions(
+    db: Session, *, owner: User, business: Business
+) -> tuple[GeoPlace, ...]:
+    """Where the business's profile says it works, as places a launch targets."""
+    for row in _profiles(db, owner=owner, business=business):
+        places = tuple(
+            GeoPlace(
+                key=str(item["key"]),
+                name=str(item.get("name") or ""),
+                kind=item["kind"],
+            )
+            for item in row.regions or []
+            if isinstance(item, dict)
+            and item.get("key")
+            and item.get("kind") in REGION_KINDS
+        )
+        if places:
+            return places
+    return ()
+
+
 def suggested_geo(
     db: Session,
     *,
@@ -190,6 +243,14 @@ def suggested_geo(
     radius_km: int | None = None,
 ) -> GeoChoice:
     """What to open the geography question on, before anybody answers it."""
+    regions = business_regions(db, owner=owner, business=business)
+    if regions:
+        return GeoChoice(
+            mode="places",
+            places=regions,
+            radius_km=radius_km,
+            country_code=business.country_code,
+        )
     previous = last_geo(db, owner=owner, page=page)
     if previous is not None:
         earlier = geo_field.to_choice(previous, radius_km=_radius(previous))

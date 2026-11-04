@@ -34,6 +34,7 @@ from app.modules.ads.geo_catalogue import CATALOGUES, SeedName, key_for
 from app.modules.ads.models import Campaign, CampaignLaunch, GeoArea
 from app.modules.ads.rows import fresh
 from app.modules.ads.services.access import (
+    account_and_token,
     launch_account_and_token,
     target_account_and_token,
 )
@@ -130,6 +131,53 @@ def confirmed_for_campaign(
             )
         )
     return tuple(places)
+
+
+def owner_places(
+    db: Session, *, owner: Any, query: str, country_code: str
+) -> list[dict[str, str]]:
+    """The place search with no launch yet: the business profile's own."""
+    wanted = country_code.upper()
+    return sorted(
+        _owner_answer(db, owner=owner, query=query),
+        key=lambda row: row["country_code"].upper() != wanted,
+    )
+
+
+def confirmed_for_owner(
+    db: Session, *, owner: Any, picked: Sequence[Mapping[str, str]]
+) -> list[dict[str, str]] | None:
+    """The search's own rows behind these picks; ``None`` when one was not offered."""
+    rows: list[dict[str, str]] = []
+    for pick in picked:
+        query = place_query(pick["name"])
+        hits = _owner_answer(db, owner=owner, query=query) if query else []
+        hit = next((row for row in hits if row["key"] == pick["key"]), None)
+        if hit is None:
+            return None
+        rows.append(
+            {
+                "key": hit["key"],
+                "name": hit["name"],
+                "kind": hit["kind"],
+                "country_code": hit["country_code"],
+            }
+        )
+    return rows
+
+
+def _owner_answer(db: Session, *, owner: Any, query: str) -> list[dict[str, str]]:
+    from app.modules.integrations.selectors import active_ad_account
+
+    account = active_ad_account(db, owner=owner)
+    return _answer(
+        db,
+        provider=account.provider if account is not None else "meta",
+        owner=owner,
+        account=account,
+        credentials=lambda: account_and_token(db, owner=owner),
+        query=query,
+    )
 
 
 def _campaign_answer(

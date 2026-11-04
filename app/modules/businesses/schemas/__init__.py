@@ -1,13 +1,34 @@
 import uuid
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 from app.common.catalogs import COUNTRY_CODES, timezone_choices
 from app.common.phone import is_e164
+from app.modules.businesses.constants import MAX_REGIONS
 
 CUSTOM = "__custom__"
+Gender = Literal["all", "female", "male"]
+
+
+class Region(BaseModel):
+    """A place the business works in, as the provider's search offered it."""
+
+    key: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=255)
+    kind: Literal["city", "region", "country"]
+    country_code: str = Field("", max_length=2)
+
+
+class BusinessPlaceOut(BaseModel):
+    """One row of the place search, as the launch editor's own reads it."""
+
+    id: str
+    name: str
+    type: Literal["city", "region", "country"]
+    context: str = ""
+    country_code: str = ""
 
 
 class ChoiceOut(BaseModel):
@@ -42,6 +63,8 @@ class BusinessOut(BaseModel):
     website: str
     offer_text: str
     working_hours: dict[str, Any]
+    audience_gender: Gender = "all"
+    regions: list[Region] = Field(default_factory=list)
 
 
 class ProfileForm(BaseModel):
@@ -62,6 +85,14 @@ class ProfileIn(BaseModel):
     website: HttpUrl | None = None
     offer_text: str | None = None
     working_hours: dict[str, list[str]] | None = None
+    audience_gender: Gender | None = Field(
+        None, description="Who a new advert is shown to; left out, kept."
+    )
+    regions: list[Region] | None = Field(
+        None,
+        max_length=MAX_REGIONS,
+        description="Where a new advert is shown, picked from `/business/locations`; left out, kept.",
+    )
 
     @field_validator("country_code")
     @classmethod
