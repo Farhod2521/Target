@@ -5,7 +5,8 @@ from typing import Final
 
 from adskit import MinorUnits
 
-from core.metrics.contracts import cost_per, share
+from core.metrics.arithmetic import cost_per
+from core.metrics.contracts import share
 
 MIN_SEGMENT_LEADS: Final = 10
 

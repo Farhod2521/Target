@@ -19,6 +19,7 @@ from typing import Literal
 from adskit import MinorUnits
 
 from core.metrics import lead_count
+from core.metrics.arithmetic import cost_per
 
 # Which way a figure moved, and nothing about whether that is good news.
 # Falling costs and falling leads are both "down", and only the caller knows
@@ -172,39 +173,6 @@ class Movement:
     percent: int = 0
     direction: Direction = "flat"
     is_good: bool = False
-
-
-def cost_per(spend_minor: MinorUnits, count: int) -> MinorUnits | None:
-    """Cost per one of something, or nothing when the division says nothing.
-
-    **The only place this division is written.** Spread over several call
-    sites, some would carry both refusals below and some only one, and the
-    difference would not be visibly wrong: a screen that tests the result
-    for truth before printing it treats nought as false. A guard that holds
-    by luck downstream is a guard that stops holding the day somebody
-    prints the figure without the test.
-
-    Two refusals.
-
-    **No count**: dividing by nought has no answer, and a range with spend
-    and no leads is the most expensive state a campaign can be in rather
-    than a free one.
-
-    **No spend**: the arithmetic works and the answer is a lie. Leads
-    arrive continuously and figures are collected once a night, so an
-    account looked at before its first sync of the day has today's leads
-    against nothing spent - and it would be told each one cost nothing.
-    That is the same reading a cabinet gets when its leads come from
-    somewhere its spend does not, which is the failure this pair of guards
-    exists to make impossible to show.
-
-    Nought is never the honest answer here. Where it is arithmetically
-    true - leads that arrived with no advertising behind them - a *cost*
-    per lead is not the figure being asked for anyway.
-    """
-    if count <= 0 or spend_minor <= 0:
-        return None
-    return MinorUnits(round(spend_minor / count))
 
 
 def share(*, part: int, whole: int) -> int:

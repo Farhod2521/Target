@@ -7,7 +7,8 @@ from typing import Final
 
 from adskit import MinorUnits
 
-from core.metrics.contracts import cost_per, share
+from core.metrics.arithmetic import cost_per
+from core.metrics.contracts import share
 
 PER_MILLE: Final = 1000
 

@@ -4,12 +4,12 @@ from collections.abc import Iterable, Sequence
 
 from adskit import MinorUnits
 
+from core.metrics.arithmetic import cost_per
 from core.metrics.contracts import (
     DayFigures,
     Direction,
     Movement,
     Totals,
-    cost_per,
     share,
 )
 

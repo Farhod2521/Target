@@ -10,6 +10,7 @@ and leave as values, which is what lets the arithmetic be checked without a
 provider, a migration or a fixture.
 """
 
+from core.metrics.arithmetic import cost_per
 from core.metrics.cards import (
     BY_KEY,
     CARDS,
@@ -30,7 +31,6 @@ from core.metrics.contracts import (
     Direction,
     Movement,
     Totals,
-    cost_per,
     share,
 )
 from core.metrics.derive import LEAD_RUNGS, daily_rate, funnel, movement, total
