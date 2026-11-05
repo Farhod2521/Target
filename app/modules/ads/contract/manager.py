@@ -5,6 +5,8 @@ rows come from the list's own filters and every level's figures here.
 """
 
 import uuid
+from collections import defaultdict
+from collections.abc import Iterable
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -33,7 +35,18 @@ def _reach(chips: Any) -> dict[str, int]:
     }
 
 
-def manager(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
+def _by_account(campaigns: Iterable[Any]) -> dict[Any, list[Any]]:
+    grouped: defaultdict[Any, list[Any]] = defaultdict(list)
+    for campaign in campaigns:
+        grouped[campaign.ad_account].append(campaign)
+    return grouped
+
+
+def manager(
+    db: Session, *, owner: User, ask: ListAsk, counted: bool = True
+) -> dict[str, Any]:
+    """Every level's rows. ``counted`` off leaves out the rows' own counts, for
+    a caller that reads its figures elsewhere: the expert table does."""
     from app.modules.metrics.selectors.panel import (
         ad_chips,
         campaign_chips,
@@ -42,19 +55,59 @@ def manager(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
 
     listed = campaign_list(db, owner=owner, ask=ask)
     out: dict[str, list[dict[str, Any]]] = {"campaigns": [], "adsets": [], "ads": []}
+    # The list is the page's already; no page shown is no campaign, as before.
+    if selectors.page_advertising(db, owner=owner).page is None:
+        return out
+    # Every campaign, its controls and its adverts' words in one read each,
+    # not one per campaign: an account may hold a thousand.
+    loaded = selectors.campaigns_detail(
+        db,
+        owner=owner,
+        campaign_ids=[uuid.UUID(row["id"]) for row in listed["campaigns"]],
+    )
+    selectors.with_controls_many(db, owner=owner, campaigns=list(loaded.values()))
+    selectors.with_content(
+        db,
+        owner=owner,
+        ads=[
+            ad
+            for campaign in loaded.values()
+            for group in campaign.adsets
+            for ad in group.ads
+        ],
+    )
+    ranges: dict[Any, Any] = {}
+    campaign_figures: dict[str, Any] = {}
+    group_figures: dict[str, Any] = {}
+    if counted:
+        for account, members in _by_account(loaded.values()).items():
+            chosen, _ = figures_range(db, owner=owner, account=account, ask=ask)
+            ranges[account.id] = chosen
+            campaign_figures |= {
+                found.campaign_id: found
+                for found in campaign_chips(
+                    db,
+                    owner=owner,
+                    campaigns=members,
+                    date_range=chosen,
+                    account=account,
+                )
+            }
+            group_figures |= {
+                found.campaign_id: found
+                for found in group_chips(
+                    db,
+                    owner=owner,
+                    adsets=[group for one in members for group in one.adsets],
+                    date_range=chosen,
+                    tzinfo=account.tzinfo(),
+                )
+            }
     for row in listed["campaigns"]:
-        campaign = selectors.campaign_detail(
-            db, owner=owner, campaign_id=uuid.UUID(row["id"])
-        )
+        campaign = loaded.get(uuid.UUID(row["id"]))
         if campaign is None:
             continue
-        selectors.with_controls(db, owner=owner, campaign=campaign)
-        ads = selectors.with_content(
-            db,
-            owner=owner,
-            ads=[ad for group in campaign.adsets for ad in group.ads],
-        )
-        chosen, _ = figures_range(db, owner=owner, account=campaign.ad_account, ask=ask)
+        ads = [ad for group in campaign.adsets for ad in group.ads]
         at_campaign = campaign.daily_budget_minor is not None
         budget_at = "campaign" if at_campaign else "adset"
         base = {
@@ -63,18 +116,7 @@ def manager(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
             "kind": row["kind"],
             "network": row["network"],
         }
-        own = next(
-            iter(
-                campaign_chips(
-                    db,
-                    owner=owner,
-                    campaigns=[campaign],
-                    date_range=chosen,
-                    account=campaign.ad_account,
-                )
-            ),
-            None,
-        )
+        own = campaign_figures.get(str(campaign.id))
         out["campaigns"].append(
             base
             | {
@@ -96,20 +138,20 @@ def manager(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
             }
         )
         groups = list(campaign.adsets)
-        by_group = {
-            found.campaign_id: found
-            for found in group_chips(
-                db,
-                owner=owner,
-                adsets=groups,
-                date_range=chosen,
-                tzinfo=campaign.ad_account.tzinfo(),
-            )
-        }
-        by_ad = {
-            found.ad_id: found
-            for found in ad_chips(db, owner=owner, campaign=campaign, date_range=chosen)
-        }
+        by_group = group_figures
+        by_ad = (
+            {
+                found.ad_id: found
+                for found in ad_chips(
+                    db,
+                    owner=owner,
+                    campaign=campaign,
+                    date_range=ranges[campaign.ad_account_id],
+                )
+            }
+            if counted
+            else {}
+        )
         for group in groups:
             currency = group.currency or campaign.ad_account.currency
             chips = by_group.get(group.external_id)

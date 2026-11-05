@@ -5,6 +5,7 @@ from app.modules.ads.selectors.actions import (
     cabinet_account,
     campaign_detail,
     campaign_history,
+    campaigns_detail,
     campaigns_for,
     goal_under,
     has_cooled,
@@ -146,6 +147,7 @@ from app.modules.ads.selectors.pages import (
 from app.modules.ads.selectors.rejections import with_rejections
 from app.modules.ads.selectors.row_controls import (
     with_controls,
+    with_controls_many,
     with_switches,
 )
 from app.modules.ads.selectors.row_settings import (
@@ -234,6 +236,7 @@ __all__ = [
     "campaign_launch",
     "campaign_names",
     "campaign_on_page",
+    "campaigns_detail",
     "campaigns_for",
     "campaigns_switched_on",
     "ceiling_scope",
@@ -321,6 +324,7 @@ __all__ = [
     "with_badges",
     "with_content",
     "with_controls",
+    "with_controls_many",
     "with_rejections",
     "with_settings",
     "with_switches",

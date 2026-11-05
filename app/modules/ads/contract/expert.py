@@ -87,7 +87,8 @@ def expert_table(
     """Every level's rows and cells. ``campaigns`` and ``adsets`` narrow the
     levels under them, as ticking rows does on the screen, so each level's
     total is the total of the rows it shows."""
-    out = manager(db, owner=owner, ask=ask)
+    # Its figures are the catalogue's, read below; the manager's own are not asked.
+    out = manager(db, owner=owner, ask=ask, counted=False)
     if campaigns:
         keep = set(campaigns)
         for name in ("adsets", "ads"):
