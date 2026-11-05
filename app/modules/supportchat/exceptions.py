@@ -104,3 +104,26 @@ class ThreadNotFound(DomainError):
 class AlreadySent(DomainError):
     def __init__(self) -> None:
         super().__init__("Bu xabar allaqachon yuborilgan.")
+
+
+class GuestChatMissing(DomainError):
+    status_code = 404
+
+    def __init__(self) -> None:
+        super().__init__("Suhbat topilmadi. Yangidan yozing.")
+
+
+class GuestChatMoved(DomainError):
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu suhbat kabinetingizga ko'chirildi. Kabinetdagi «Yordam»dan yozing."
+        )
+
+
+class TooManyGuestChats(DomainError):
+    status_code = 429
+
+    def __init__(self) -> None:
+        super().__init__("Juda ko'p urinish. Bir soatdan keyin qayta yozing.")

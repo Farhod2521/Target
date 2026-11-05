@@ -99,3 +99,11 @@ TYPING_BEAT_MS: Final = 2500
 TYPING_SHOWN_MS: Final = 5000
 WATCH_PARAM: Final = "watch"
 WS_GROUP_PREFIX: Final = "supportchat"
+# The sign-in page's chat, for somebody not signed in.
+GUEST_TOKEN_HEADER: Final = "X-Guest-Token"
+GUEST_START_BUCKET: Final = "supportchat:guest-start"
+GUEST_STARTS_PER_HOUR: Final = 5
+# Every guest chat together: what one spoofed address after another reaches.
+GUEST_STARTS_PER_HOUR_ALL: Final = 100
+GUEST_MESSAGES_SHOWN: Final = 200
+GUEST_FIRST_WORDS: Final = "Parolni tiklash kerak."

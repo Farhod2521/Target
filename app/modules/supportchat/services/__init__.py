@@ -7,6 +7,18 @@ from app.modules.supportchat.services._store import (
 )
 from app.modules.supportchat.services.delete_message import delete_message
 from app.modules.supportchat.services.edit_message import edit_message
+from app.modules.supportchat.services.guests import (
+    GUEST_POSTED,
+    Started,
+    account_for_guest,
+    claim_guest_chat,
+    guest_writes,
+    mark_guest_read,
+    names_account,
+    office_answers_guest,
+    settle_guest,
+    start_guest_chat,
+)
 from app.modules.supportchat.services.mark_read import mark_read
 from app.modules.supportchat.services.post_message import post_message
 from app.modules.supportchat.services.send_to_support import (
@@ -23,19 +35,29 @@ from app.modules.supportchat.services.telegram import (
 from app.modules.supportchat.services.write_to_client import write_to_client
 
 __all__ = [
+    "GUEST_POSTED",
     "QUESTION_POSTED",
     "REPLY_ANSWERS_RELAYS",
     "REPLY_POSTED",
+    "Started",
+    "account_for_guest",
     "chat_of_client",
+    "claim_guest_chat",
     "delete_message",
     "edit_message",
+    "guest_writes",
+    "mark_guest_read",
     "mark_read",
     "mark_relays_answered",
+    "names_account",
+    "office_answers_guest",
     "post_message",
     "record_relay",
     "reply_from_telegram",
     "send_to_support",
     "settle_conversation",
+    "settle_guest",
+    "start_guest_chat",
     "write_from_telegram",
     "write_to_client",
 ]

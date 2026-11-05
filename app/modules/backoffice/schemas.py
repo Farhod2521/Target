@@ -9,7 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.modules.crm.schemas import SettingsOut
-from app.modules.supportchat.schemas import ComposerOut
+from app.modules.supportchat.schemas import ComposerOut, GuestMessageOut
 from app.modules.supportchat.schemas import MessageOut as ChatMessageOut
 
 
@@ -997,6 +997,51 @@ class SupportQueueOut(BaseModel):
     offset: int
     next_offset: int
     has_more: bool
+
+
+class GuestAccountOut(BaseModel):
+    id: str
+    name: str
+    email: str
+    phone: str = Field(description="The phone the account holds.")
+    phone_matches: bool = Field(
+        description="The guest wrote the account's own phone: check before giving a password back."
+    )
+
+
+class GuestOut(BaseModel):
+    id: str = Field(description="`GET /office/support/guests/{id}`.")
+    name: str
+    phone: str
+    email: str
+    created_at: datetime
+    moved: bool = Field(
+        description="Signing in moved it into the account's chat: read-only."
+    )
+    claimed_by: PersonOut | None
+
+
+class GuestRowOut(GuestOut):
+    waiting: bool = Field(description="The guest spoke last and nobody settled it.")
+    last_message_at: datetime | None
+    preview: str
+    last_side: str = Field(description="`client` (the guest) or `office`.")
+
+
+class GuestQueueOut(BaseModel):
+    state: str
+    states: list[ChoiceOut]
+    rows: list[GuestRowOut]
+
+
+class GuestThreadOut(GuestOut):
+    waiting: bool
+    account: GuestAccountOut | None = Field(
+        description="The account behind the guest's email; empty when there is none."
+    )
+    messages: list[GuestMessageOut]
+    guest_read_at: datetime | None = Field(description="The guest's second tick.")
+    max_body_chars: int
 
 
 class SupportThreadOut(BaseModel):

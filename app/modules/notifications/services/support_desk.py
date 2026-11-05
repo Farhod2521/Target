@@ -17,6 +17,7 @@ takes files.
 """
 
 import logging
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -45,11 +46,16 @@ from app.modules.notifications.selectors import staff_chat_by_id, staff_chats_wh
 from app.modules.notifications.services.compose import (
     Message,
     escaped,
+    support_guest_message,
     support_question_message,
 )
 from app.modules.notifications.services.support_confirm import hold_second_reply
 from app.modules.supportchat.constants import MessageKind
-from app.modules.supportchat.models import SupportAttachment, SupportMessage
+from app.modules.supportchat.models import (
+    SupportAttachment,
+    SupportGuestMessage,
+    SupportMessage,
+)
 from app.modules.supportchat.preview import preview_text
 from app.modules.supportchat.selectors import (
     office_answer_after,
@@ -58,6 +64,7 @@ from app.modules.supportchat.selectors import (
     staff_message_for_relay,
 )
 from app.modules.supportchat.services import (
+    GUEST_POSTED,
     QUESTION_POSTED,
     record_relay,
     reply_from_telegram,
@@ -149,6 +156,49 @@ def forward_support_question(db: Session, *, message_id: str, now: datetime) -> 
                 copies += 1
     logger.info(
         "support question relayed",
+        extra={"message_id": str(message.id), "copies": copies},
+    )
+    return copies
+
+
+@on(GUEST_POSTED)
+def queue_guest_question(*, message_id: Any, **_: Any) -> None:
+    """Tell the office from a worker, after the guest's message committed."""
+    from app.modules.notifications.tasks import deliver_guest_question_task
+
+    try:
+        deliver_guest_question_task.delay(str(message_id))
+    except Exception:
+        logger.warning("support guest question not queued", exc_info=True)
+
+
+def forward_guest_question(db: Session, *, message_id: str) -> int:
+    """A guest's message to every member of Support with the staff bot.
+    One way: a guest has no Telegram here, so the answer is written in the
+    office. Returns how many went out."""
+    try:
+        message = db.get(SupportGuestMessage, uuid.UUID(message_id))
+    except ValueError:
+        return 0
+    if message is None or not message.from_guest or not staff_bot_configured():
+        return 0
+    chats = office_chats(db)
+    if not chats:
+        return 0
+    guest = message.chat
+    text = support_guest_message(
+        guest=f"{guest.name} · {guest.phone} · {guest.email}",
+        body=message.body,
+        office_path=reverse("backoffice:support_guest", [guest.id]),
+    ).text
+    with staff_bot() as client:
+        copies = sum(
+            1
+            for chat in chats
+            if _send(client=client, chat_id=chat.chat_id, text=text, reply_to=0)
+        )
+    logger.info(
+        "support guest question sent",
         extra={"message_id": str(message.id), "copies": copies},
     )
     return copies

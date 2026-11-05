@@ -32,7 +32,7 @@ from app.modules.billing.models import PromoRedemption
 from app.modules.referrals.constants import FeedbackStatus, PayoutStatus
 from app.modules.referrals.models import Feedback, WithdrawalRequest
 from app.modules.sales.selectors import waiting_ariza_count
-from app.modules.supportchat.selectors import awaiting_reply_count
+from app.modules.supportchat.selectors import awaiting_reply_count, guests_waiting_count
 
 
 def _count(db: Session, model: Any, where: ColumnElement[bool]) -> int:
@@ -124,7 +124,9 @@ def office_shell(db: Session, *, user: User, now: datetime) -> Shell:
         waiting_promos=waiting_promo_count(db) if can_give else 0,
         waiting_asks=waiting_ask_count(db) if can_give else 0,
         waiting_feedback=waiting_feedback_count(db) if may_answer_feedback else 0,
-        waiting_support=awaiting_reply_count(db) if can_answer else 0,
+        waiting_support=(
+            awaiting_reply_count(db) + guests_waiting_count(db) if can_answer else 0
+        ),
         waiting_arizas=waiting_ariza_count(db, now=now) if can_sell else 0,
     )
 

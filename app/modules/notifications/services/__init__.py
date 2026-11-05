@@ -47,7 +47,9 @@ from app.modules.notifications.services.support_answered import (
     queue_support_answered,
 )
 from app.modules.notifications.services.support_desk import (
+    forward_guest_question,
     forward_support_question,
+    queue_guest_question,
     queue_support_question,
 )
 
@@ -65,6 +67,7 @@ __all__ = [
     "deactivate",
     "edit",
     "edit_buttons",
+    "forward_guest_question",
     "forward_support_question",
     "handle_staff_update",
     "handle_update",
@@ -75,6 +78,7 @@ __all__ = [
     "link_staff_chat",
     "mark_seen",
     "queue_feedback_notice",
+    "queue_guest_question",
     "queue_launch_failure",
     "queue_password_changed",
     "queue_referral_notice",

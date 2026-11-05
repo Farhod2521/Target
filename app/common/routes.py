@@ -132,6 +132,7 @@ ROUTES: dict[str, str] = {
     "backoffice:support_delete": "/ofis/chat/xabar/<uuid:message_id>/ochirish/",
     "backoffice:support_edit": "/ofis/chat/xabar/<uuid:message_id>/tahrir/",
     "backoffice:support_file": "/ofis/chat/fayl/<uuid:message_id>/",
+    "backoffice:support_guest": "/ofis/chat/mehmon/<uuid:chat_id>/",
     "backoffice:support_send": "/ofis/chat/<uuid:thread_id>/xabar/",
     "backoffice:support_settle": "/ofis/chat/<uuid:thread_id>/hal/",
     "backoffice:support_start": "/ofis/chat/mijoz/<uuid:customer_id>/yozish/",

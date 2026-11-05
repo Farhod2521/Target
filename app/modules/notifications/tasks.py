@@ -8,6 +8,7 @@ from app.modules.notifications.services import (
     announce_support_answered,
     announce_support_reply,
     announce_withdrawal,
+    forward_guest_question,
     forward_support_question,
     handle_staff_update,
     handle_update,
@@ -119,6 +120,12 @@ def deliver_support_question_task(message_id: str) -> int:
         copies = forward_support_question(db, message_id=message_id, now=utcnow())
         db.commit()
         return copies
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def deliver_guest_question_task(message_id: str) -> int:
+    with task_session() as db:
+        return forward_guest_question(db, message_id=message_id)
 
 
 @celery_app.task(queue="webhooks", ignore_result=True)

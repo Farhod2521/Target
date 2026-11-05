@@ -14,6 +14,16 @@ from app.modules.supportchat.selectors.conversations import (
     staff_conversations,
     unread_reply,
 )
+from app.modules.supportchat.selectors.guests import (
+    GuestRow,
+    guest_chat,
+    guest_chat_by_token,
+    guest_message_view,
+    guest_messages,
+    guest_queue,
+    guests_waiting_count,
+    is_guest_waiting,
+)
 from app.modules.supportchat.selectors.messages import (
     Drawn,
     MessagePage,
@@ -41,6 +51,7 @@ from app.modules.supportchat.selectors.views import message_view, message_views
 
 __all__ = [
     "Drawn",
+    "GuestRow",
     "MessagePage",
     "QueuePage",
     "QueueRow",
@@ -50,7 +61,14 @@ __all__ = [
     "chat_of",
     "conversation_for_owner",
     "drawn",
+    "guest_chat",
+    "guest_chat_by_token",
+    "guest_message_view",
+    "guest_messages",
+    "guest_queue",
+    "guests_waiting_count",
     "has_unread_reply",
+    "is_guest_waiting",
     "is_unread",
     "is_waiting",
     "last_change",

@@ -28,6 +28,7 @@ from app.modules.backoffice.routers.promo import router as promo
 from app.modules.backoffice.routers.refusals import router as refusals
 from app.modules.backoffice.routers.reviews import router as reviews
 from app.modules.backoffice.routers.support import router as support
+from app.modules.backoffice.routers.support_guests import router as support_guests
 from app.modules.backoffice.routers.surveys import customer_router as customer_surveys
 from app.modules.backoffice.routers.surveys import router as surveys
 from app.modules.backoffice.routers.team import router as team
@@ -47,6 +48,8 @@ router.include_router(facebook)
 router.include_router(activity)
 router.include_router(promo)
 router.include_router(directions)
+# Before the account chats: their `/support/{id}` would take `guests`.
+router.include_router(support_guests)
 router.include_router(support)
 router.include_router(dashboard)
 router.include_router(payments)

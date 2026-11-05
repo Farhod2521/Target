@@ -110,3 +110,40 @@ class WidgetOut(BaseModel):
     preview: str = Field(
         description="The office's newest message in a line, when unread."
     )
+
+
+class GuestMessageOut(BaseModel):
+    id: str
+    side: str = Field(description="`client` (the guest) or `office`.")
+    own: bool = Field(description="The reader wrote it: drawn on the right.")
+    who: str = Field(
+        description="`Siz` / `Qo'llab-quvvatlash` for the guest; names for the office."
+    )
+    body: str
+    created_at: datetime
+    at: int = Field(description="`created_at` in milliseconds.")
+    read: bool = Field(description="Own message the other side has read: two ticks.")
+
+
+class GuestChatOut(BaseModel):
+    name: str
+    phone: str
+    email: str
+    moved: bool = Field(
+        description="Signing in moved it into the account's chat; it takes no more."
+    )
+    messages: list[GuestMessageOut] = Field(description="The newest 200, oldest first.")
+    office_read_at: datetime | None
+    max_body_chars: int
+
+
+class GuestStartedOut(BaseModel):
+    token: str = Field(description="Send as `X-Guest-Token` from now on. Shown once.")
+    chat: GuestChatOut
+
+
+class GuestClaimOut(BaseModel):
+    moved: int = Field(
+        description="Messages moved into the account's chat; 0 when the token "
+        "names nothing, was moved already, or names another account."
+    )

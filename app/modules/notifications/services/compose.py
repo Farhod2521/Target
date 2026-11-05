@@ -351,6 +351,18 @@ def support_question_message(
     return Message(text="\n".join(lines))
 
 
+def support_guest_message(*, guest: str, body: str, office_path: str) -> Message:
+    lines = [_bold("Kirish sahifasidan yangi xabar"), escaped(guest), ""]
+    if body:
+        lines.append(_quote(body))
+    lines += [
+        "",
+        _italic("Bu odam kabinetga kirmagan: javobni ofisdan yozing."),
+        _link(path=office_path, label="Ofisda ochish"),
+    ]
+    return Message(text="\n".join(lines))
+
+
 def support_answered_message(
     *, question: Message, name: str, at: str, answer: str
 ) -> Message:
@@ -479,6 +491,7 @@ __all__ = [
     "spend_guard_message",
     "suggestion_message",
     "suggestion_notice",
+    "support_guest_message",
     "support_question_message",
     "support_reply_message",
     "trouble_message",
