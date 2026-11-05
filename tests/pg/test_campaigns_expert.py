@@ -142,7 +142,9 @@ def test_ticked_campaigns_narrow_the_levels_under_them(
     headers, _, _ = _figures(client, db, goal="LINK_CLICKS")
 
     other = client.get(f"{EXPERT}?period=7d&campaigns=c_other", headers=headers).json()
-    own = client.get(f"{EXPERT}?period=7d&campaigns=c_1&adsets=s_1", headers=headers).json()
+    own = client.get(
+        f"{EXPERT}?period=7d&campaigns=c_1&adsets=s_1", headers=headers
+    ).json()
 
     assert [row["id"] for row in other["campaigns"]] == ["c_1"]
     assert other["adsets"] == [] and other["ads"] == []
