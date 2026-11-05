@@ -8,7 +8,7 @@ never divides.
 """
 
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from decimal import Decimal
 from typing import Any, Final, cast
 
@@ -31,7 +31,6 @@ from app.modules.metrics.selectors.facts import People
 from core.metrics.catalogue import (
     BY_KEY,
     MISSING_WORDS,
-    ORDER,
     Answer,
     Figures,
     Level,
@@ -77,8 +76,27 @@ def _network(provider: str) -> Any:
     return provider if provider in ("meta", "google", "chatgpt") else "meta"
 
 
-def expert_table(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
+def expert_table(
+    db: Session,
+    *,
+    owner: User,
+    ask: ListAsk,
+    campaigns: Collection[str] = (),
+    adsets: Collection[str] = (),
+) -> dict[str, Any]:
+    """Every level's rows and cells. ``campaigns`` and ``adsets`` narrow the
+    levels under them, as ticking rows does on the screen, so each level's
+    total is the total of the rows it shows."""
     out = manager(db, owner=owner, ask=ask)
+    if campaigns:
+        keep = set(campaigns)
+        for name in ("adsets", "ads"):
+            out[name] = [
+                row for row in out[name] if row["campaign_external_id"] in keep
+            ]
+    if adsets:
+        keep = set(adsets)
+        out["ads"] = [row for row in out["ads"] if row.get("adset_external_id") in keep]
     campaigns = _campaigns_by_id(
         db, owner=owner, ids=[row["campaign_external_id"] for row in out["campaigns"]]
     )
@@ -268,8 +286,9 @@ def chosen_columns(db: Session, *, owner: User) -> list[str]:
             MetricPreference.owner_id == owner.id
         )
     )
+    # Until the owner picks, the general set: every column at once is too wide to read.
     if not isinstance(stored, list):
-        return list(ORDER)
+        return list(PRESETS["general"])
     return [key for key in stored if key in BY_KEY]
 
 

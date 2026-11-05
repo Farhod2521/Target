@@ -29,6 +29,8 @@ from app.modules.ads.routers import _detail, _groups, _pick
 from app.modules.metrics.ranges import Range
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns v2"])
+# The expert table, served on both versions: the screens call ``/api/v1``.
+expert_router = APIRouter(prefix="/campaigns", tags=["campaigns expert"])
 
 PERIODS = ("today", "7d", "30d", "90d", "custom")
 
@@ -97,7 +99,7 @@ def campaign_manager(
     return manager_v2(db, owner=user, ask=ask)
 
 
-@router.get("/expert", response_model=ExpertTable)
+@expert_router.get("/expert", response_model=ExpertTable)
 def campaign_expert(
     db: Db,
     user: CurrentUser,
@@ -107,14 +109,23 @@ def campaign_expert(
     network: str = Query("all"),
     since: date | None = Query(None),
     until: date | None = Query(None),
+    campaigns: str = Query("", description="Campaign ids, comma-separated"),
+    adsets: str = Query("", description="Ad set ids, comma-separated"),
 ) -> dict[str, Any]:
     """Every level with a cell per metric, a total per level, and when the
-    figures were read. The screen formats the cells; it computes nothing."""
+    figures were read. The screen formats the cells; it computes nothing.
+    ``campaigns`` and ``adsets`` narrow the levels under them."""
     ask = _ask(period, status, source, network, since, until)
-    return expert_table(db, owner=user, ask=ask)
+    return expert_table(
+        db,
+        owner=user,
+        ask=ask,
+        campaigns=[one for one in campaigns.split(",") if one],
+        adsets=[one for one in adsets.split(",") if one],
+    )
 
 
-@router.get("/expert/columns", response_model=ExpertColumns)
+@expert_router.get("/expert/columns", response_model=ExpertColumns)
 def campaign_expert_columns(
     db: Db, user: CurrentUser, network: str = Query("meta")
 ) -> dict[str, Any]:
@@ -123,7 +134,7 @@ def campaign_expert_columns(
     return columns(db, owner=user, network=network)
 
 
-@router.put("/expert/columns", response_model=ExpertColumns)
+@expert_router.put("/expert/columns", response_model=ExpertColumns)
 def campaign_expert_columns_save(
     body: ColumnsIn, db: Db, user: CurrentUser
 ) -> dict[str, Any]:

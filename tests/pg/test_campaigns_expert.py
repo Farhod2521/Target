@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.ads.contract.expert import PRESETS
 from app.modules.metrics.models import MetricsDaily
-from core.metrics.catalogue import ORDER
 from tests.pg.test_campaigns_v2 import IMPRESSIONS, LINK_CLICKS, REACH, SPEND, _figures
 
 EXPERT = "/api/v2/campaigns/expert"
@@ -102,7 +102,7 @@ def test_the_columns_are_the_catalogue_and_the_choice_is_kept(
     headers, _, _ = _figures(client, db, goal="LINK_CLICKS")
 
     first = client.get(f"{EXPERT}/columns", headers=headers).json()
-    assert first["chosen"] == list(ORDER)
+    assert first["chosen"] == list(PRESETS["general"])
     campaign = [column["key"] for column in first["levels"]["campaigns"]]
     ad = [column["key"] for column in first["levels"]["ads"]]
     assert "hook_rate" in ad and "hook_rate" not in campaign
@@ -123,3 +123,29 @@ def test_the_columns_are_the_catalogue_and_the_choice_is_kept(
     assert saved.json()["chosen"] == ["cpm", "spend"]
     again = client.get(f"{EXPERT}/columns", headers=headers).json()
     assert again["chosen"] == ["cpm", "spend"]
+
+
+def test_the_screens_version_answers_the_same(client: TestClient, db: Session) -> None:
+    headers, _, _ = _figures(client, db, goal="LINK_CLICKS")
+
+    old = client.get("/api/v1/campaigns/expert?period=7d", headers=headers)
+    columns = client.get("/api/v1/campaigns/expert/columns", headers=headers)
+
+    assert old.status_code == 200, old.text
+    assert old.json()["totals"] == _table(client, headers)["totals"]
+    assert columns.status_code == 200, columns.text
+
+
+def test_ticked_campaigns_narrow_the_levels_under_them(
+    client: TestClient, db: Session
+) -> None:
+    headers, _, _ = _figures(client, db, goal="LINK_CLICKS")
+
+    other = client.get(f"{EXPERT}?period=7d&campaigns=c_other", headers=headers).json()
+    own = client.get(f"{EXPERT}?period=7d&campaigns=c_1&adsets=s_1", headers=headers).json()
+
+    assert [row["id"] for row in other["campaigns"]] == ["c_1"]
+    assert other["adsets"] == [] and other["ads"] == []
+    assert other["totals"]["adsets"]["count"] == 0
+    assert [row["id"] for row in own["ads"]] == ["a_1"]
+    assert own["totals"]["ads"]["cells"]["spend"]["value"] == SPEND

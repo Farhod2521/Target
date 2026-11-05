@@ -16,7 +16,11 @@ Avtorizatsiya: `Authorization: Bearer <access_token>`.
 
 `/expert` ning query parametrlari `/manager` niki bilan bir xil: `period`
 (`today`, `7d`, `30d`, `90d`, `custom`), `since`, `until`, `status`, `source`,
-`network`.
+`network`. Qo'shimcha: `campaigns` va `adsets` (vergul bilan id'lar) pastki
+darajalarni toraytiradi, ekranda qatorlarni belgilagandek. Shunda har
+darajaning Jamisi shu darajada ko'rinib turgan qatorlarniki bo'ladi.
+
+Manzil `/api/v1/campaigns/expert` da ham bor: front v1 orqali chaqiradi.
 
 ## `GET /api/v2/campaigns/expert`
 
@@ -112,7 +116,7 @@ qiladi, jadval tepasida ogohlantirish chiqishi kerak.
 
 - `levels.*`: ustunlar jadvaldagi tartibda.
 - `chosen`: foydalanuvchi tanlagan ustunlar va tartibi. Hali saqlanmagan
-  bo'lsa, hammasi.
+  bo'lsa, "Umumiy" to'plami.
 - `presets`: Umumiy, Video, Lid sifati, Sotuv.
 - `hint` va `norm`: ustun izohi uchun. Masalan, Hook rate uchun
   "25–30% va undan yuqori".

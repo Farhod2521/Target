@@ -56,7 +56,7 @@ Qiymat o'rniga `–` va uning sababi chiqadi:
 | 7 ✅ | Expert mode (backend) | Foydalanuvchi sozlamasida saqlash va API |
 | 8 ✅ | Ads Manager bilan solishtirish | Kechki avtomatik tekshiruv: bizning yig'indi va Meta'ning davr bo'yicha jami raqami. Staging'da o'lchanadi |
 | 9 ✅ | Front: Expert mode tugmasi | Tepaga chiqadi. Namuna so'raladi |
-| 10 | Front: Reklama redesign (Expert) | Jadval katalogdan quriladi; ustun to'plamlari (Umumiy, Video, Lid sifati, Sotuv), izohlar va normalar, reyting ranglari, Jami qatori. Namuna so'raladi |
+| 10 ✅ | Front: Reklama redesign (Expert) | Jadval katalogdan quriladi; ustun to'plamlari (Umumiy, Video, Lid sifati, Sotuv), izohlar va normalar, reyting ranglari, Jami qatori. Namuna so'raladi |
 | 11 | Front: Dashboard redesign (Expert) | Namuna so'raladi |
 | 12 | Oddiy mode'dan formulalarni olib tashlash | Ko'rinish o'zgarmaydi; `Manager.tsx`, `dashboard.ts` dagi hisoblar backendga o'tadi |
 | 13 | Google | Google metrikalari katalogning o'z qismiga |
@@ -96,3 +96,6 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
   - **Hisobot:** `python -m app.modules.metrics.check` (oxirgi 7 kun) yoki `--days 30`.
   - **Tekshirilmagan:** haqiqiy Meta hisobida. Staging'da o'lchash uchun deploy kerak (14-bosqich bilan yoki oldinroq staging'ga).
 - **9-bosqich (2026-11-05):** front, `feat/ads-metrics` branchi, commit d585a1f. Headerda biznes tanlagichning chap tomonida Expert tugmasi turadi: belgi, "Expert" yozuvi va tumbler, telefonda belgi va tumbler. Tanlov akkauntda saqlanadi (`PUT /account/expert-mode`). Reklama bo'limidagi "Oddiy / Targetolog" tanlovi va `?rejim=targetolog` olib tashlandi. Expert yoqilganda Reklama hozircha eski uch darajali jadvalni ko'rsatadi, yangisi 10-bosqichda. Dashboard 11-bosqichgacha o'zgarmaydi.
+- **10-bosqich (2026-11-05):** front 09f84bb. Expert mode'da Reklama jadvali faqat backend kataklaridan quriladi. Bor narsalar: ustun to'plamlari (Umumiy, Video, Lid sifati, Sotuv), ustunlarni tanlash va tartiblash (akkauntda saqlanadi), har ustunda izoh va norma, "–" va uning sababi, reytinglar rangda, har darajaning Jamisi backenddan. Eski jadvaldagi front hisoblari olib tashlandi.
+  - Backend: Expert endpoint'lari `/api/v1` da ham ochildi. `campaigns` va `adsets` parametrlari pastki darajalarni toraytiradi, shunda Jami ko'rinib turgan qatorlarniki bo'ladi. Ustunlar hali tanlanmagan bo'lsa, "Umumiy" to'plami chiqadi.
+  - Topilma (rejadan tashqari): 983 kampaniyali akkauntda `/manager` 36 soniya oladi (lokal production nusxasi, 23–29-oktabr). Expert unga taxminan 1 soniya qo'shadi. Alohida tuzatish kerak.
