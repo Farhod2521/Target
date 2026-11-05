@@ -7,7 +7,8 @@ networks.
 
 from typing import Final
 
-from core.metrics.arithmetic import percent, ratio
+from core.metrics import formulas as f
+from core.metrics.arithmetic import hundredths
 from core.metrics.catalogue.spec import (
     AD_ONLY,
     META_ONLY,
@@ -35,7 +36,7 @@ def _reach(figures: Figures, setting: Setting) -> Answer:
 def _frequency(figures: Figures, setting: Setting) -> Answer:
     if figures.reach is None:
         return missing("not_asked")
-    return known(ratio(part=figures.impressions, whole=figures.reach))
+    return known(hundredths(f.frequency(figures.impressions, figures.reach)))
 
 
 def _unique_link_clicks(figures: Figures, setting: Setting) -> Answer:
@@ -53,13 +54,15 @@ def _is_video(figures: Figures) -> bool:
 def _hook_rate(figures: Figures, setting: Setting) -> Answer:
     if not _is_video(figures):
         return missing("not_video")
-    return known(percent(part=figures.video_views_3s, whole=figures.impressions))
+    return known(hundredths(f.hook_rate(figures.video_views_3s, figures.impressions)))
 
 
 def _hold_rate(figures: Figures, setting: Setting) -> Answer:
     if not _is_video(figures):
         return missing("not_video")
-    return known(percent(part=figures.video_thruplays, whole=figures.video_views_3s))
+    return known(
+        hundredths(f.hold_rate(figures.video_thruplays, figures.video_views_3s))
+    )
 
 
 def _ranking(name: str) -> Formula:

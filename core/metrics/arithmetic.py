@@ -1,9 +1,10 @@
 """The divisions every figure is built from, written once.
 
-Three shapes and no more. A cost is money over a count and stays in minor
-units. A percentage and a ratio are exact decimals rounded to hundredths,
-because an expert reads a CTR of 1.47% and a whole-number 1% hides the
-difference between a creative that works and one that does not.
+A cost is money over a count and stays in minor units. A rate is an exact
+decimal, rounded only where it is shown: to hundredths for an expert, who
+reads a CTR of 1.47% and not 1%, or to a whole number or basis points for a
+screen or a rule that was built on those. Rounding the hundredths again
+would round twice, so each representation is taken from the exact value.
 """
 
 from decimal import ROUND_HALF_UP, Decimal
@@ -12,6 +13,8 @@ from typing import Final
 from adskit import MinorUnits
 
 HUNDREDTHS: Final = Decimal("0.01")
+WHOLE: Final = Decimal(1)
+BASIS_POINTS: Final = 10_000
 
 
 def cost_per(spend_minor: MinorUnits, count: int) -> MinorUnits | None:
@@ -47,20 +50,81 @@ def cost_per(spend_minor: MinorUnits, count: int) -> MinorUnits | None:
     return MinorUnits(round(spend_minor / count))
 
 
-def percent(*, part: int, whole: int) -> Decimal | None:
-    """``part`` as a percentage of ``whole``, to hundredths. Nothing over nought."""
+def exact_percent(*, part: int, whole: int) -> Decimal | None:
+    """``part`` as a percentage of ``whole``, unrounded. Nothing over nought."""
     if whole <= 0:
         return None
-    return (Decimal(part) * 100 / Decimal(whole)).quantize(
-        HUNDREDTHS, rounding=ROUND_HALF_UP
-    )
+    return Decimal(part) * 100 / Decimal(whole)
+
+
+def exact_ratio(*, part: int, whole: int) -> Decimal | None:
+    """``part`` over ``whole``, unrounded. Nothing over nought."""
+    if whole <= 0:
+        return None
+    return Decimal(part) / Decimal(whole)
+
+
+def hundredths(value: Decimal | None) -> Decimal | None:
+    """An exact rate to two places, as an expert's table shows it."""
+    if value is None:
+        return None
+    return value.quantize(HUNDREDTHS, rounding=ROUND_HALF_UP)
+
+
+def whole_number(value: Decimal | None) -> int:
+    """An exact rate to a whole number. Nothing reads as nought, as before."""
+    if value is None:
+        return 0
+    return int(value.quantize(WHOLE, rounding=ROUND_HALF_UP))
+
+
+def basis_points(value: Decimal | None) -> int:
+    """An exact value in whole hundredths: a percentage in basis points, a
+    ratio such as a frequency in hundredths. Nothing reads as nought."""
+    if value is None:
+        return 0
+    return whole_number(value * 100)
+
+
+def percent(*, part: int, whole: int) -> Decimal | None:
+    """``part`` as a percentage of ``whole``, to hundredths."""
+    return hundredths(exact_percent(part=part, whole=whole))
 
 
 def ratio(*, part: int, whole: int) -> Decimal | None:
-    """``part`` over ``whole``, to hundredths. Nothing over nought."""
-    if whole <= 0:
+    """``part`` over ``whole``, to hundredths."""
+    return hundredths(exact_ratio(part=part, whole=whole))
+
+
+def share(*, part: int, whole: int) -> int:
+    """``part`` as a whole percentage of ``whole``. Zero divides to zero."""
+    return whole_number(exact_percent(part=part, whole=whole))
+
+
+def rate_bp(*, part: int, whole: int) -> int:
+    """``part`` per ten thousand of ``whole``, rounded. Nought over nought."""
+    return basis_points(exact_percent(part=part, whole=whole))
+
+
+def change_pct(*, now: float, before: float) -> int | None:
+    """How far ``now`` moved from ``before``, in whole per cent of ``before``."""
+    if not before:
         return None
-    return (Decimal(part) / Decimal(whole)).quantize(HUNDREDTHS, rounding=ROUND_HALF_UP)
+    return round((now - before) * 100 / before)
 
 
-__all__ = ["HUNDREDTHS", "cost_per", "percent", "ratio"]
+__all__ = [
+    "BASIS_POINTS",
+    "HUNDREDTHS",
+    "basis_points",
+    "change_pct",
+    "cost_per",
+    "exact_percent",
+    "exact_ratio",
+    "hundredths",
+    "percent",
+    "rate_bp",
+    "ratio",
+    "share",
+    "whole_number",
+]

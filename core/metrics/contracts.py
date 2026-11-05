@@ -18,8 +18,8 @@ from typing import Literal
 
 from adskit import MinorUnits
 
-from core.metrics import lead_count
-from core.metrics.arithmetic import cost_per
+from core.metrics import formulas, lead_count
+from core.metrics.arithmetic import share, whole_number
 
 # Which way a figure moved, and nothing about whether that is good news.
 # Falling costs and falling leads are both "down", and only the caller knows
@@ -103,7 +103,7 @@ class Totals:
         "free", and a range with spend and no leads is the opposite of
         free - it is the most expensive state a campaign can be in.
         """
-        return cost_per(self.spend_minor, self.leads)
+        return formulas.cpl(self.spend_minor, self.leads)
 
     @property
     def counted_leads(self) -> int:
@@ -126,7 +126,7 @@ class Totals:
         the advertiser has. The gap between it and :attr:`cpl_minor` is the
         product's entire claim.
         """
-        return cost_per(self.spend_minor, self.qualified)
+        return formulas.cpql(self.spend_minor, self.qualified)
 
     @property
     def reported_cpl_minor(self) -> MinorUnits | None:
@@ -146,7 +146,7 @@ class Totals:
         lost, a test submission, a lead either side of midnight. Whoever
         shows it has to say whose count it is.
         """
-        return cost_per(self.spend_minor, self.leads_reported)
+        return formulas.cpl(self.spend_minor, self.leads_reported)
 
     @property
     def quality_share(self) -> int:
@@ -157,7 +157,7 @@ class Totals:
         the owner marks a good one and stalls when they stop looking, which
         makes it a measure of their attention rather than of the campaign.
         """
-        return share(part=self.qualified, whole=self.leads)
+        return whole_number(formulas.qualified_share(self.qualified, self.leads))
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,8 +175,4 @@ class Movement:
     is_good: bool = False
 
 
-def share(*, part: int, whole: int) -> int:
-    """``part`` as a whole percentage of ``whole``. Zero divides to zero."""
-    if whole <= 0:
-        return 0
-    return round(part / whole * 100)
+__all__ = ["DayFigures", "Direction", "Movement", "Totals", "share"]
