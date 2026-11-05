@@ -50,6 +50,15 @@ Menejer alohida login bilan kiradi (`POST /auth/login`), unga faqat `/crm`,
   → sahifa sotib olish bilan bir xil `CheckoutOut`. To'langach `GET
   /billing/invoice/{number}` → `back_url: /app/crm/sozlamalar/#menejerlar`.
   Xatolar: `seats_need_paid_plan`, `seats_not_sold`, `seat_count_out_of_range`.
+- **Uzaytirish**: `GET /billing?plan=…` → `chosen.seats`, `seats_minor`,
+  `seat_credit_minor` va `renewal` (pullik sahifalar va pullik o'rindagi
+  menejerlar ro'yxati). Kerak bo'lmaganini `drop_pages`, `drop_members`,
+  `drop_empty_pages` bilan narxdan chiqariladi (`GET` query va
+  `POST /billing/checkout` body). Ular to'lovdan keyingina uziladi: menejer
+  jamoadan chiqariladi, sahifa uziladi, uning reklamalari to'xtatilib 3 kundan
+  so'ng o'chiriladi (sahifa qayta ulansa o'chirilmaydi). Xatolar:
+  `unknown_drop_page`, `too_many_drop_pages`, `unknown_drop_member`,
+  `too_many_drop_empty`.
 - `GET /crm/settings/seats` (faqat ega) — hamma juftliklardagi faol
   menejerlar: `members[]` → `{member, pair, page, account, seat: "free"|"paid"|"none"}`,
   hamda `free`, `free_used`, `paid`, `paid_used`, `paid_open`, `waiting`.

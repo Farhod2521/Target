@@ -155,6 +155,8 @@ def invoice_out(invoice: Invoice, *, paid_via: str = "") -> dict[str, Any]:
         "period_days": invoice.period_days,
         "pages": invoice.pages,
         "pages_minor": invoice.pages_minor,
+        "seats": invoice.seats,
+        "seats_minor": invoice.seats_minor,
         "expires_at": invoice.expires_at,
         "paid_at": invoice.paid_at,
         "created_at": invoice.created_at,
@@ -825,7 +827,7 @@ def invoice_status(
     paid = invoice.status == InvoiceStatus.PAID
     back_url = ""
     if invoice.kind == InvoiceKind.SEATS:
-        back_url = "/app/crm/sozlamalar/#menejerlar"
+        back_url = "/app/billing/"
     elif invoice.kind != InvoiceKind.PAGES:
         if selectors.setup_pending(db, owner=user):
             back_url = "/app/start"

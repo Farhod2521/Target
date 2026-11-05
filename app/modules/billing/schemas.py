@@ -61,7 +61,7 @@ class SubscriptionOut(BaseModel):
 
 class InvoiceOut(BaseModel):
     number: str
-    kind: str = Field(description="`plan` or `pages`.")
+    kind: str = Field(description="`plan`, `pages` or `seats`.")
     status: str = Field(description="`pending`, `held`, `paid`, ...")
     plan: PlanOut | None
     amount_minor: int = Field(description="What is due, in minor units.")
@@ -71,6 +71,8 @@ class InvoiceOut(BaseModel):
     period_days: int
     pages: int
     pages_minor: int
+    seats: int = Field(0, description="CRM manager seats on the bill.")
+    seats_minor: int = 0
     expires_at: datetime | None
     paid_at: datetime | None
     created_at: datetime
