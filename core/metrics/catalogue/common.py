@@ -194,6 +194,7 @@ COMMON: Final[tuple[Metric, ...]] = (
         group="result",
         unit="count",
         formula=_results,
+        by_goal=True,
     ),
     Metric(
         key="cost_per_result",
@@ -203,6 +204,7 @@ COMMON: Final[tuple[Metric, ...]] = (
         unit="money",
         formula=_cost_per_result,
         lower_is_better=True,
+        by_goal=True,
     ),
     Metric(
         key="impressions",
@@ -262,6 +264,7 @@ COMMON: Final[tuple[Metric, ...]] = (
         group="result",
         unit="percent",
         formula=_form_conversion,
+        by_goal=True,
     ),
     Metric(
         key="qualified",
@@ -319,6 +322,7 @@ COMMON: Final[tuple[Metric, ...]] = (
         unit="money",
         formula=_cost_per_purchase,
         lower_is_better=True,
+        by_goal=True,
     ),
     Metric(
         key="purchase_value",

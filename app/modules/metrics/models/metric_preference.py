@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, UniqueConstraint, Uuid
@@ -21,5 +21,7 @@ class MetricPreference(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     chosen: Mapped[Any] = mapped_column(Json, nullable=False, default=list)
+    # The expert table's columns; ``None`` is every column, in order.
+    expert_chosen: Mapped[Any] = mapped_column(Json, nullable=True, default=None)
     # -- django extras --
-    owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
+    owner: Mapped[User] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821

@@ -15,6 +15,7 @@ from core.metrics.catalogue import (
     ORDER,
     Figures,
     Setting,
+    add_up,
     compute,
     metrics_for,
 )
@@ -275,3 +276,41 @@ def test_without_a_crm_the_crm_figures_say_so_rather_than_nought() -> None:
         == 1_000
     )
     assert value("leads", figures) == 40
+
+
+# -- the total row --------------------------------------------------------------------
+
+
+def test_a_total_divides_its_sums_rather_than_averaging_the_rows() -> None:
+    cheap = Figures(spend_minor=MinorUnits(1_000), impressions=1_000, link_clicks=50)
+    dear = Figures(spend_minor=MinorUnits(9_000), impressions=9_000, link_clicks=90)
+
+    total = add_up([cheap, dear])
+
+    assert value("ctr", total, CAMPAIGN) == Decimal("1.40")
+    assert value("cpc", total, CAMPAIGN) == 71
+
+
+def test_a_total_does_not_add_people_up() -> None:
+    rows = [Figures(impressions=10, reach=8), Figures(impressions=10, reach=7)]
+
+    assert why("reach", add_up(rows), CAMPAIGN) == "not_asked"
+    assert value("reach", add_up(rows[:1]), CAMPAIGN) == 8
+
+
+def test_a_total_over_goals_or_currencies_that_do_not_add_up() -> None:
+    rows = [Figures(spend_minor=MinorUnits(100), results=3)] * 2
+    mixed = Setting(level="campaign", mixed=True)
+
+    assert why("results", add_up(rows), mixed) == "mixed_goals"
+    assert value("spend", add_up(rows), mixed) == 200
+    assert why("spend", add_up(rows, currencies=2), CAMPAIGN) == "mixed_currency"
+    assert value("impressions", add_up(rows, currencies=2), CAMPAIGN) == 0
+
+
+def test_every_reason_has_words() -> None:
+    from typing import get_args
+
+    from core.metrics.catalogue import MISSING_WORDS, Missing
+
+    assert set(MISSING_WORDS) == set(get_args(Missing))

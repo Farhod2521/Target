@@ -54,7 +54,29 @@ Missing = Literal[
     "not_here",
     # Qualified leads and sales are the CRM's word, and no CRM is on here.
     "no_crm",
+    # A total over rows bought for different goals: their results are not
+    # the same thing and do not add up.
+    "mixed_goals",
+    # A total over accounts that pay in different currencies.
+    "mixed_currency",
 ]
+
+# What each reason says to the person looking at the ``–``.
+MISSING_WORDS: Final[dict[str, str]] = {
+    "not_read": "Meta hali bu kunlarni o'qimagan",
+    "not_asked": "Bu davr uchun Meta'dan hali so'ralmagan",
+    "no_base": "Hisoblash uchun ma'lumot yo'q",
+    "no_spend": "Bu davrda sarf yo'q",
+    "no_link": "Xabar kampaniyasida havola yo'q",
+    "not_video": "Rasmli reklama, video yo'q",
+    "few_impressions": "Meta 500 ko'rsatishdan keyin baholaydi",
+    "other_goal": "Bu kampaniya maqsadiga tegishli emas",
+    "uncounted": "Bu maqsadning natijasi bu yerda sanalmaydi",
+    "not_here": "Bu darajada yoki tarmoqda bunday ko'rsatkich yo'q",
+    "no_crm": "CRM yoqilmagan",
+    "mixed_goals": "Maqsadlari har xil, natijalarni qo'shib bo'lmaydi",
+    "mixed_currency": "Valyutalari har xil, pulni qo'shib bo'lmaydi",
+}
 
 type Value = MinorUnits | int | Decimal | str
 
@@ -97,6 +119,8 @@ class Figures:
     # Whether a CRM is on for the object's account. ``False`` turns every
     # qualified and CRM-sold figure into ``no_crm`` rather than nought.
     crm: bool = True
+    # A total over accounts in different currencies: no money adds up.
+    mixed_currency: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +130,8 @@ class Setting:
     level: Level
     network: Network = "meta"
     outcome: Outcome = "lead"
+    # A total over rows bought for different goals.
+    mixed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +184,8 @@ class Metric:
     from_network: bool = True
     # Whether it needs the CRM's verdicts, so ``crm=False`` hides it.
     from_crm: bool = False
+    # Whether its meaning depends on the goal, so a mixed total hides it.
+    by_goal: bool = False
 
     def exists(self, setting: Setting) -> bool:
         return setting.level in self.levels and setting.network in self.networks
@@ -168,6 +196,7 @@ __all__ = [
     "ALL_LEVELS",
     "ALL_NETWORKS",
     "META_ONLY",
+    "MISSING_WORDS",
     "Answer",
     "Figures",
     "Formula",

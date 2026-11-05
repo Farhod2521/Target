@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query
 
 from app.api.deps import CurrentUser, Db
 from app.modules.ads import selectors
+from app.modules.ads.contract.expert import columns, expert_table, save_columns
 from app.modules.ads.contract.figures_v2 import (
     campaign_list_v2,
     detail_v2,
@@ -17,6 +18,7 @@ from app.modules.ads.contract.figures_v2 import (
 )
 from app.modules.ads.contract.listing import ListAsk
 from app.modules.ads.contract.shapes import CampaignTree
+from app.modules.ads.contract.shapes_expert import ColumnsIn, ExpertColumns, ExpertTable
 from app.modules.ads.contract.shapes_v2 import (
     CampaignDetailV2,
     CampaignListV2,
@@ -93,6 +95,42 @@ def campaign_manager(
     """Every level with link clicks, and `reach: null` where it was not counted."""
     ask = _ask(period, status, source, network, since, until)
     return manager_v2(db, owner=user, ask=ask)
+
+
+@router.get("/expert", response_model=ExpertTable)
+def campaign_expert(
+    db: Db,
+    user: CurrentUser,
+    period: str | None = Query(None),
+    status: str | None = Query(None),
+    source: str | None = Query(None),
+    network: str = Query("all"),
+    since: date | None = Query(None),
+    until: date | None = Query(None),
+) -> dict[str, Any]:
+    """Every level with a cell per metric, a total per level, and when the
+    figures were read. The screen formats the cells; it computes nothing."""
+    ask = _ask(period, status, source, network, since, until)
+    return expert_table(db, owner=user, ask=ask)
+
+
+@router.get("/expert/columns", response_model=ExpertColumns)
+def campaign_expert_columns(
+    db: Db, user: CurrentUser, network: str = Query("meta")
+) -> dict[str, Any]:
+    """The metrics each level has, the owner's chosen ones, the presets and
+    the words for every reason a cell is empty."""
+    return columns(db, owner=user, network=network)
+
+
+@router.put("/expert/columns", response_model=ExpertColumns)
+def campaign_expert_columns_save(
+    body: ColumnsIn, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    """Keep these columns on, in this order. Unknown keys are dropped."""
+    save_columns(db, owner=user, keys=body.chosen)
+    db.commit()
+    return columns(db, owner=user)
 
 
 @router.get("/{campaign_id}/tree", response_model=CampaignTree)

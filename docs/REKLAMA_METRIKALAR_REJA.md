@@ -50,8 +50,8 @@ Qiymat o'rniga `–` va uning sababi chiqadi:
 | 1 ✅ | Formulalar katalogi | `core/metrics` ichida bitta katalog: umumiy, Meta, Google qismlari. Formulalar hujjatdagi misollar bilan test qilinadi |
 | 2 ✅ | Eski formulalarni ko'chirish | Hozirgi 15 ga yaqin joy katalogdan oladi: panel, dashboard, chat, bot, AI, backoffice. Natija o'zgarmasligi testlar bilan tekshiriladi |
 | 3 ✅ | Ma'lumotni to'ldirish (Meta) | Noyob kliklar davr bo'yicha o'qiladi; pixel `Purchase` soni va summasi olinadi. Migratsiya, 90 kunni qayta o'qish |
-| 4 | Ma'lumotni to'ldirish (CRM) | Sifatli lid va CRM sotuvlari guruh va reklama darajasida |
-| 5 | Reklama bo'limi API'si (Expert) | 3 daraja tayyor qiymatlar bilan; Jami qatori, ustunlar katalogi, ustun tanlovini saqlash, "–" sababi, yangilanish vaqti, attribution oynasi |
+| 4 ✅ | Ma'lumotni to'ldirish (CRM) | Sifatli lid va CRM sotuvlari guruh va reklama darajasida |
+| 5 ✅ | Reklama bo'limi API'si (Expert) | 3 daraja tayyor qiymatlar bilan; Jami qatori, ustunlar katalogi, ustun tanlovini saqlash, "–" sababi, yangilanish vaqti, attribution oynasi |
 | 6 | Dashboard API'si (Expert) | Katalogdan. Nima chiqishi avval kelishib olinadi |
 | 7 | Expert mode (backend) | Foydalanuvchi sozlamasida saqlash va API |
 | 8 | Ads Manager bilan solishtirish | Kechki avtomatik tekshiruv: bizning yig'indi va Meta'ning davr bo'yicha jami raqami. Staging'da o'lchanadi |
@@ -85,3 +85,5 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
   - Tekshirilmagan: haqiqiy Meta hisobida sotuv nomi (`fetch_action_totals` bilan tekshirish mumkin).
 - **4-bosqich (2026-11-05):** sifatli lid va CRM sotuvi faqat CRM bo'yicha, ta'rif bitta joyda: `app/modules/crm/quality.py` (CAPI bilan bir xil). Lid kelgan kun bo'yicha sanaladi. CRM yoqilmagan bo'lsa, `no_crm`. Qo'lda baho sanalmaydi.
   - Keyinga qoldirildi: lidlar sahifasidagi qo'lda baho tugmalari va ularning CAPI signali.
+- **5-bosqich (2026-11-05):** `GET /api/v2/campaigns/expert`, `GET/PUT /api/v2/campaigns/expert/columns`, hujjat `docs/API_EXPERT.md`. Migratsiya `0024` (`metric_preferences.expert_chosen`). Qatorlar `/manager` dan, eski raqamlarsiz; kataklar katalogdan; Jami katalogning `add_up` idan.
+  - Hali yo'q: Jami qatorida qamrov, noyob kliklar va chastota (bir qatordan ortiq bo'lsa `not_asked`). Ular uchun hisob darajasida davr bo'yicha qamrovni o'qish kerak, 8-bosqich bilan birga qilinadi.

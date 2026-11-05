@@ -8,8 +8,11 @@ The common metrics hold for every network. A network's own metrics are in
 its module and exist only on it.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
+from dataclasses import fields, replace
 from typing import Final
+
+from adskit import MinorUnits
 
 from core.metrics.catalogue.common import COMMON, leads, result_count, sales
 from core.metrics.catalogue.meta import META, RANKED_FROM
@@ -18,6 +21,7 @@ from core.metrics.catalogue.spec import (
     ALL_LEVELS,
     ALL_NETWORKS,
     META_ONLY,
+    MISSING_WORDS,
     Answer,
     Figures,
     Group,
@@ -66,6 +70,47 @@ ORDER: Final[tuple[str, ...]] = (
 CATALOGUE: Final[tuple[Metric, ...]] = tuple(BY_KEY[key] for key in ORDER)
 
 
+# The counts a total adds up. People (reach, unique clicks) and the rankings
+# are not among them: two rows can hold the same person, and a ranking is one
+# advert's.
+ADDED: Final[tuple[str, ...]] = tuple(
+    one.name
+    for one in fields(Figures)
+    if one.name
+    not in {
+        "reach",
+        "unique_link_clicks",
+        "quality_ranking",
+        "engagement_rate_ranking",
+        "conversion_rate_ranking",
+        "read",
+        "crm",
+        "mixed_currency",
+    }
+)
+
+
+def add_up(rows: Sequence[Figures], *, currencies: int = 1) -> Figures:
+    """The total row: counts summed, people only where one row stands alone.
+
+    Its rates are then computed from these sums like any row's, never as the
+    mean of the rows' rates.
+    """
+    if len(rows) == 1:
+        return replace(rows[0], mixed_currency=currencies > 1)
+    summed = {name: sum(int(getattr(row, name)) for row in rows) for name in ADDED}
+    summed["spend_minor"] = MinorUnits(summed["spend_minor"])
+    summed["purchase_value_site_minor"] = MinorUnits(
+        summed["purchase_value_site_minor"]
+    )
+    return Figures(
+        **summed,
+        read=bool(rows) and all(row.read for row in rows),
+        crm=any(row.crm for row in rows),
+        mixed_currency=currencies > 1,
+    )
+
+
 def metrics_for(*, level: Level, network: Network) -> tuple[Metric, ...]:
     """The metrics that exist at this level on this network, in column order."""
     setting = Setting(level=level, network=network)
@@ -77,6 +122,10 @@ def compute(key: str, figures: Figures, setting: Setting) -> Answer:
     metric = BY_KEY[key]
     if not metric.exists(setting):
         return missing("not_here")
+    if setting.mixed and metric.by_goal:
+        return missing("mixed_goals")
+    if figures.mixed_currency and (metric.unit == "money" or metric.key == "roas"):
+        return missing("mixed_currency")
     if metric.from_crm and not figures.crm:
         return missing("no_crm")
     if metric.from_network and not figures.read:
@@ -91,12 +140,14 @@ def compute_many(
 
 
 __all__ = [
+    "ADDED",
     "AD_ONLY",
     "ALL_LEVELS",
     "ALL_NETWORKS",
     "BY_KEY",
     "CATALOGUE",
     "META_ONLY",
+    "MISSING_WORDS",
     "ORDER",
     "RANKED_FROM",
     "Answer",
@@ -109,6 +160,7 @@ __all__ = [
     "Setting",
     "Unit",
     "Value",
+    "add_up",
     "compute",
     "compute_many",
     "leads",
