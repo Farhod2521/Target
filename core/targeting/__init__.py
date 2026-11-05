@@ -37,6 +37,7 @@ from core.targeting.campaign_types import (
     ObjectiveGroup,
     campaign_type,
     default_type,
+    fallback_goal,
     type_built_as,
     types_for,
 )
@@ -298,6 +299,7 @@ __all__ = [
     "event_for_snippet",
     "events_for",
     "fallback",
+    "fallback_goal",
     "geo_locations",
     "is_local",
     "is_open",

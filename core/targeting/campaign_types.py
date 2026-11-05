@@ -19,6 +19,9 @@ class CampaignType:
     provider_goal_label: str
     objective_group: ObjectiveGroup
     destination_type: str = ""
+    # The older goal the provider buys the same result with, sent where an
+    # account is not yet open to ``optimization_goal``. Empty for most rows.
+    fallback_goal: str = ""
 
     @property
     def provider_goal_name(self) -> str:
@@ -115,6 +118,10 @@ CAMPAIGN_TYPES: Final[tuple[CampaignType, ...]] = (
         "Instagram profile visits",
         "traffic",
         destination_type="INSTAGRAM_PROFILE",
+        # PROFILE_VISIT is opened account by account; Ads Manager offers the
+        # rest this one for the same visit (33 accounts on staging used it
+        # alone, 2026-10-29).
+        fallback_goal="VISIT_INSTAGRAM_PROFILE",
     ),
     CampaignType(
         "meta",
@@ -246,14 +253,12 @@ class ShapeIndex:
     @classmethod
     def of(cls, rows: tuple[CampaignType, ...]) -> "ShapeIndex":
         return cls(
+            # A row sent with its fallback goal is still that row.
             exact={
-                (
-                    row.provider,
-                    row.objective,
-                    row.destination_type,
-                    row.optimization_goal,
-                ): row
+                (row.provider, row.objective, row.destination_type, goal): row
                 for row in rows
+                for goal in (row.fallback_goal, row.optimization_goal)
+                if goal
             },
             claimed=frozenset(
                 (row.provider, row.destination_type)
@@ -300,6 +305,24 @@ def campaign_type(*, provider: str, goal: str, key: str) -> CampaignType | None:
     return found[0] if found else None
 
 
+def fallback_goal(
+    *, provider: str, destination_type: str, optimization_goal: str
+) -> str:
+    """The goal to send instead where the account is not open to this one.
+
+    Empty when the table names none.
+    """
+    for row in CAMPAIGN_TYPES:
+        if (
+            row.provider == provider
+            and row.destination_type == destination_type
+            and row.optimization_goal == optimization_goal
+            and row.fallback_goal
+        ):
+            return row.fallback_goal
+    return ""
+
+
 def type_built_as(
     *, provider: str, objective: str, destination_type: str, optimization_goal: str
 ) -> CampaignType | None:
@@ -320,6 +343,7 @@ __all__ = [
     "ShapeIndex",
     "campaign_type",
     "default_type",
+    "fallback_goal",
     "type_built_as",
     "types_for",
 ]

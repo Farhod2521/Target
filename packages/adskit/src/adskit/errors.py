@@ -207,6 +207,17 @@ class BidStrategyRefused(ProviderError):
     """
 
 
+class GoalNotOpen(InvalidRequest):
+    """The account is not yet open to this optimisation goal.
+
+    The provider opens some newer goals account by account, so the same
+    pairing is kept for one advertiser and refused for the next while its
+    own screen offers the second an older goal for the same result. Its own
+    class so a launch can send that older goal instead; where there is
+    none, it is still a refused payload.
+    """
+
+
 class LocationNotRecognized(ProviderError):
     """The audience names a place the provider does not recognise.
 

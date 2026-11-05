@@ -10,7 +10,7 @@ from typing import Final, Literal
 
 from adskit import registry
 from adskit.dto import ActionResult, AdDTO, AdSetDTO, CampaignDTO
-from adskit.errors import NotFound, ProviderError, TemporaryFailure
+from adskit.errors import GoalNotOpen, NotFound, ProviderError, TemporaryFailure
 from adskit.refs import ExternalRef, Level, ProviderName
 from metaads.launcher import MetaLauncher
 from metaads.leadforms import questions_for
@@ -50,7 +50,7 @@ from app.modules.ads.services.launch_media import UploadedMedia, upload_all
 from app.modules.ads.trace import LaunchTrace, NoTrace
 from app.modules.businesses.models import Business
 from app.modules.integrations.models import AdAccount, PageAccount
-from core.targeting import BuiltTargeting
+from core.targeting import BuiltTargeting, fallback_goal
 
 logger = logging.getLogger(__name__)
 CLOCK_SKEW = timedelta(minutes=5)
@@ -269,21 +269,17 @@ def _adsets(
             daily_budget_minor=group.daily_budget_minor,
         )
         watch.inputs("spec", adset_spec.model_dump())
-        with _reply_may_be_lost(
+        adset_spec, adset = _adset_made(
             db,
             launch=launch,
-            step=LaunchStep.ADSET,
-            level="adset",
-            name=adset_spec.name,
-            parent_id=campaign_id,
+            spec=adset_spec,
+            launcher=launcher,
             provider=provider,
             account_ref=account_ref,
             token=token,
+            dry_run=dry_run,
             watch=watch,
-        ):
-            adset = launcher.create_adset(
-                account=account_ref, spec=adset_spec, token=token, dry_run=dry_run
-            )
+        )
         advance(
             db,
             launch,
@@ -294,6 +290,87 @@ def _adsets(
         )
         made.append((group, adset_spec, adset))
     return made
+
+
+def _adset_made(
+    db: Session,
+    *,
+    launch: CampaignLaunch,
+    spec: MetaAdSetSpec,
+    launcher: MetaLauncher,
+    provider: ProviderName,
+    account_ref: ExternalRef,
+    token: str,
+    dry_run: bool,
+    watch: LaunchTrace,
+) -> tuple[MetaAdSetSpec, ActionResult]:
+    """One ad set, sent once more with the older goal if the account is not open
+    to the one asked for - the spec returned is the one Meta kept."""
+    try:
+        return spec, _send_adset(
+            db,
+            launch=launch,
+            spec=spec,
+            launcher=launcher,
+            provider=provider,
+            account_ref=account_ref,
+            token=token,
+            dry_run=dry_run,
+            watch=watch,
+        )
+    except GoalNotOpen:
+        older = fallback_goal(
+            provider=provider,
+            destination_type=spec.destination_type,
+            optimization_goal=spec.optimization_goal,
+        )
+        if not older:
+            raise
+    watch.decision(
+        "maqsad almashtirildi",
+        {"rad_etilgan": spec.optimization_goal, "yuborildi": older},
+    )
+    spec = spec.model_copy(update={"optimization_goal": older})
+    return spec, _send_adset(
+        db,
+        launch=launch,
+        spec=spec,
+        launcher=launcher,
+        provider=provider,
+        account_ref=account_ref,
+        token=token,
+        dry_run=dry_run,
+        watch=watch,
+    )
+
+
+def _send_adset(
+    db: Session,
+    *,
+    launch: CampaignLaunch,
+    spec: MetaAdSetSpec,
+    launcher: MetaLauncher,
+    provider: ProviderName,
+    account_ref: ExternalRef,
+    token: str,
+    dry_run: bool,
+    watch: LaunchTrace,
+) -> ActionResult:
+    with _reply_may_be_lost(
+        db,
+        launch=launch,
+        step=LaunchStep.ADSET,
+        level="adset",
+        name=spec.name,
+        parent_id=spec.campaign_id,
+        provider=provider,
+        account_ref=account_ref,
+        token=token,
+        watch=watch,
+    ):
+        return launcher.create_adset(
+            account=account_ref, spec=spec, token=token, dry_run=dry_run
+        )
 
 
 def _adset_name(

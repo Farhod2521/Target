@@ -141,6 +141,7 @@ FAILURE_CODES: Final[dict[str, str]] = {
     "TemporaryFailure": "temporary",
     "NotFound": "refused",
     "InvalidRequest": "refused",
+    "GoalNotOpen": "refused",
     "LocationNotRecognized": "location_invalid",
     "LocationsOverlap": "location_overlap",
     "MediaTooLarge": "media_too_large",
