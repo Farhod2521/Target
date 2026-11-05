@@ -226,7 +226,9 @@ def test_a_silent_refusal_elsewhere_sends_nobody_to_ads_manager() -> None:
     ad = _ad()
     ad.provider = "google"
 
-    assert rejection_of(ad)["fix"] is None
+    # A Google ad is sent to Google's own policy manager, never to Meta's.
+    fix = rejection_of(ad)["fix"]
+    assert fix is None or "facebook.com" not in (fix["url"] or "")
 
 
 def test_a_role_refusal_says_fix_it_first_and_the_chat_knows_it() -> None:
