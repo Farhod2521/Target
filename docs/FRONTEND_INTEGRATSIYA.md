@@ -295,6 +295,13 @@ Xatolar (`422`, `problems`): qidiruv bermagan joy yoki joylar soni oshsa
 `GET/POST /google/launch/{id}/answers`, `GET/POST .../words`,
 `GET .../review`, `POST .../create`.
 
+`GET /google/screen`: har kampaniya va guruhda `rejectedAds` (Google rad
+etgan reklamalar soni) va `rejection` (birinchisining sababi, `Refusal`
+shaklida, yo'q bo'lsa `null`). Google'da `key` doim `null` — AI javobi
+so'ralmaydi, `GET /refusals/answer` chaqirilmaydi; `providerWords` —
+Google'ning policy kodi va u ko'rsatgan matn, `fix` — Google Ads «Policy
+manager» havolasi.
+
 ### ChatGPT Ads — `/chatgpt`
 
 Ulanish API kalit orqali (`POST /chatgpt/connect`), ekran jonli o'qiladi.

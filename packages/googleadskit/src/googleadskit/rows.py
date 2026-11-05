@@ -7,7 +7,14 @@ stays a size somebody can read. Nothing here calls Google.
 from decimal import Decimal
 from typing import Any, Final
 
-from adskit.dto import AdDTO, AdSetDTO, CampaignDTO, RecommendationDTO
+from adskit.dto import (
+    AdDTO,
+    AdSetDTO,
+    CampaignDTO,
+    IssueDTO,
+    RecommendationDTO,
+    ReviewFeedbackDTO,
+)
 from adskit.money import ISO_MONEY
 from adskit.refs import Delivery, ExternalRef, Level, MinorUnits, ProviderName
 
@@ -30,6 +37,16 @@ _PRIMARY: Final[dict[str, Delivery]] = {
 # Google's word for a campaign held back by its budget, carried as advice:
 # the campaign serves, and could serve more.
 BUDGET_CONSTRAINED: Final = "BUDGET_CONSTRAINED"
+
+# An ad's policy review. A refusal stops it; the narrowed approvals let it
+# serve to fewer people, which the owner should hear but is not a refusal.
+DISAPPROVED: Final = "DISAPPROVED"
+_NARROWED: Final = frozenset({"APPROVED_LIMITED", "AREA_OF_INTEREST_ONLY"})
+# The kinds of finding that hold an ad back. DESCRIPTIVE and BROADENING
+# only describe it and are left out.
+_HOLDING: Final = frozenset(
+    {"PROHIBITED", "LIMITED", "FULLY_LIMITED", "AREA_OF_INTEREST_ONLY"}
+)
 
 _MICROS_EXPONENT: Final = -6
 
@@ -106,6 +123,14 @@ def ad_dto(row: dict[str, Any]) -> AdDTO:
     ad = node.get("ad", {})
     status = str(node.get("status") or "")
     primary = str(node.get("primaryStatus") or "")
+    policy = node.get("policySummary") or {}
+    approval = str(policy.get("approvalStatus") or "")
+    findings = [
+        entry
+        for entry in policy.get("policyTopicEntries") or ()
+        if isinstance(entry, dict) and entry.get("topic")
+    ]
+    refused = approval == DISAPPROVED
     return AdDTO(
         ref=_ref("ad", str(node.get("resourceName") or "")),
         adset_ref=_ref("adset", str(row.get("adGroup", {}).get("resourceName") or "")),
@@ -113,7 +138,56 @@ def ad_dto(row: dict[str, Any]) -> AdDTO:
         name=str(ad.get("name") or ad.get("type") or ""),
         status=status,
         effective_status=primary,
-        delivery=delivery_of(status=status, primary_status=primary),
+        # A paused ad stays paused: its refusal is said, not its delivery.
+        delivery="rejected"
+        if refused and status != "PAUSED"
+        else delivery_of(status=status, primary_status=primary),
+        issues=_narrowings(findings) if approval in _NARROWED else (),
+        # ``None`` when Google named no policy: an empty mapping would read
+        # downstream as a refusal with words.
+        review_feedback=ReviewFeedbackDTO(
+            overall={str(entry["topic"]): _finding(entry) for entry in findings}
+        )
+        if refused and findings
+        else None,
+    )
+
+
+def _finding(entry: dict[str, Any]) -> str:
+    """Google's kind of finding, then the words it caught, if it quoted any."""
+    caught = _evidence(entry.get("evidences") or ())
+    kind = str(entry.get("type") or "")
+    return " — ".join(part for part in (kind, "; ".join(caught)) if part)
+
+
+def _evidence(evidences: Any) -> list[str]:
+    """The quoted text, sites and broken addresses, as Google lists them."""
+    found: list[str] = []
+    for evidence in evidences:
+        if not isinstance(evidence, dict):
+            continue
+        found += evidence.get("textList", {}).get("texts", ())
+        found += evidence.get("websiteList", {}).get("websites", ())
+        found += evidence.get("destinationTextList", {}).get("destinationTexts", ())
+        broken = evidence.get("destinationNotWorking") or {}
+        if broken.get("expandedUrl"):
+            code = broken.get("httpErrorCode") or broken.get("dnsErrorType") or ""
+            found.append(f"{broken['expandedUrl']} {code}".strip())
+    return [str(item) for item in found if item]
+
+
+def _narrowings(findings: list[dict[str, Any]]) -> tuple[IssueDTO, ...]:
+    """An approval that narrows who sees the ad, one issue per policy."""
+    return tuple(
+        IssueDTO(
+            code=str(entry["topic"])[:32],
+            summary=str(entry["topic"]),
+            message=_finding(entry),
+            level="ad",
+            kind=str(entry.get("type") or ""),
+        )
+        for entry in findings
+        if str(entry.get("type") or "") in _HOLDING
     )
 
 
@@ -140,6 +214,7 @@ def node_key(resource: str) -> str:
 
 __all__ = [
     "BUDGET_CONSTRAINED",
+    "DISAPPROVED",
     "ad_dto",
     "campaign_dto",
     "delivery_of",

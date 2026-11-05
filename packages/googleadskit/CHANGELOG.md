@@ -3,6 +3,19 @@
 Semantik versiyalash. Google Ads API versiyasi (`v25`) paket versiyasidan
 alohida — u `client.py` dagi `API_VERSION` konstantasida.
 
+## 0.10.0 — 2026-11-02
+
+### Qo'shildi
+- Reklama o'qilganda policy tekshiruvi ham keladi
+  (`ad_group_ad.policy_summary`). `DISAPPROVED` — `delivery="rejected"`
+  (pauzadagi reklama pauzada qoladi) va `review_feedback.overall`
+  `{policy: "TURI — Google ko'rsatgan matn/sayt"}` ko'rinishida. Google
+  policy nomini bermasa `review_feedback` `None` qoladi.
+- `APPROVED_LIMITED` va `AREA_OF_INTEREST_ONLY` — rad etish emas: reklama
+  ishlaydi, har cheklovchi policy `issues` ga bittadan (`kind` — Google'ning
+  `PROHIBITED`/`LIMITED`/`FULLY_LIMITED`/`AREA_OF_INTEREST_ONLY`).
+  `DESCRIPTIVE` va `BROADENING` tashlab ketiladi.
+
 ## 0.9.0 — 2026-11-01
 
 ### O'zgardi

@@ -447,3 +447,137 @@ def test_objects_are_read_by_name_one_search_per_level_asked() -> None:
     seen = handler.seen  # type: ignore[attr-defined]
     assert len(seen) == 1
     assert f"campaign.resource_name IN ('{CAMPAIGN}')" in _query(seen[0])
+
+
+# --- Policy review ------------------------------------------------------
+
+
+def _ad_row(*, status: str = "ENABLED", primary: str, policy: dict) -> dict:
+    return {
+        "adGroupAd": {
+            "resourceName": AD,
+            "status": status,
+            "primaryStatus": primary,
+            "ad": {"type": "RESPONSIVE_SEARCH_AD"},
+            "policySummary": policy,
+        },
+        "adGroup": {"resourceName": GROUP},
+    }
+
+
+def _ads(*rows: dict) -> list:
+    handler = _answer(*rows)
+    found = GoogleCampaigns(http=_http(handler)).list_ads(account=ACCOUNT, token="tok")
+    return found
+
+
+def test_the_ad_query_asks_for_the_policy_review() -> None:
+    handler = _answer()
+    GoogleCampaigns(http=_http(handler)).list_ads(account=ACCOUNT, token="tok")
+
+    query = _query(handler.seen[0])  # type: ignore[attr-defined]
+    assert "ad_group_ad.policy_summary.approval_status" in query
+    assert "ad_group_ad.policy_summary.policy_topic_entries" in query
+
+
+def test_a_disapproved_ad_is_rejected_with_googles_policy_and_words() -> None:
+    (ad,) = _ads(
+        _ad_row(
+            primary="NOT_ELIGIBLE",
+            policy={
+                "approvalStatus": "DISAPPROVED",
+                "reviewStatus": "REVIEWED",
+                "policyTopicEntries": [
+                    {
+                        "topic": "DESTINATION_NOT_WORKING",
+                        "type": "PROHIBITED",
+                        "evidences": [
+                            {
+                                "destinationNotWorking": {
+                                    "expandedUrl": "https://bahor.uz",
+                                    "httpErrorCode": "404",
+                                }
+                            }
+                        ],
+                    },
+                    {
+                        "topic": "PUNCTUATION",
+                        "type": "PROHIBITED",
+                        "evidences": [{"textList": {"texts": ["Arzon!!!"]}}],
+                    },
+                    {"type": "PROHIBITED"},
+                ],
+            },
+        )
+    )
+
+    assert ad.delivery == "rejected"
+    assert ad.review_feedback is not None
+    assert ad.review_feedback.overall == {
+        "DESTINATION_NOT_WORKING": "PROHIBITED — https://bahor.uz 404",
+        "PUNCTUATION": "PROHIBITED — Arzon!!!",
+    }
+    assert ad.issues == ()
+
+
+def test_a_disapproval_without_a_named_policy_has_no_feedback() -> None:
+    (ad,) = _ads(
+        _ad_row(primary="NOT_ELIGIBLE", policy={"approvalStatus": "DISAPPROVED"})
+    )
+
+    assert ad.delivery == "rejected"
+    assert ad.review_feedback is None
+
+
+def test_a_paused_disapproved_ad_stays_paused_and_keeps_its_reason() -> None:
+    (ad,) = _ads(
+        _ad_row(
+            status="PAUSED",
+            primary="PAUSED",
+            policy={
+                "approvalStatus": "DISAPPROVED",
+                "policyTopicEntries": [{"topic": "TRADEMARKS", "type": "PROHIBITED"}],
+            },
+        )
+    )
+
+    assert ad.delivery == "paused"
+    assert ad.review_feedback is not None
+    assert ad.review_feedback.overall == {"TRADEMARKS": "PROHIBITED"}
+
+
+def test_a_limited_approval_serves_and_names_what_limits_it() -> None:
+    (ad,) = _ads(
+        _ad_row(
+            primary="ELIGIBLE",
+            policy={
+                "approvalStatus": "APPROVED_LIMITED",
+                "policyTopicEntries": [
+                    {"topic": "HEALTHCARE_AND_MEDICINES", "type": "LIMITED"},
+                    {"topic": "COPYRIGHTED_CONTENT", "type": "DESCRIPTIVE"},
+                ],
+            },
+        )
+    )
+
+    assert ad.delivery == "active"
+    assert ad.review_feedback is None
+    assert [(i.code, i.kind, i.level) for i in ad.issues] == [
+        ("HEALTHCARE_AND_MEDICINES", "LIMITED", "ad")
+    ]
+
+
+def test_an_approved_ad_says_nothing() -> None:
+    (ad,) = _ads(
+        _ad_row(
+            primary="ELIGIBLE",
+            policy={
+                "approvalStatus": "APPROVED",
+                "policyTopicEntries": [{"topic": "X", "type": "DESCRIPTIVE"}],
+            },
+        )
+    )
+
+    assert ad.delivery == "active"
+    assert ad.review_feedback is None
+    assert ad.issues == ()

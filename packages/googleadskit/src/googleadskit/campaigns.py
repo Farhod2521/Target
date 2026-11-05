@@ -69,7 +69,9 @@ _GROUP_FIELDS: Final = (
 )
 _AD_FIELDS: Final = (
     "ad_group_ad.resource_name, ad_group_ad.ad.name, ad_group_ad.ad.type, "
-    "ad_group_ad.status, ad_group_ad.primary_status, ad_group.resource_name"
+    "ad_group_ad.status, ad_group_ad.primary_status, "
+    "ad_group_ad.policy_summary.approval_status, "
+    "ad_group_ad.policy_summary.policy_topic_entries, ad_group.resource_name"
 )
 
 _FROM: Final[dict[str, tuple[str, str]]] = {
