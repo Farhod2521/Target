@@ -13,6 +13,7 @@ from core.targeting import (
     build,
     campaign_type,
     fallback,
+    fallback_goal,
     type_built_as,
     types_for,
 )
@@ -397,3 +398,39 @@ def test_a_site_visit_on_link_clicks_still_is_one() -> None:
 @pytest.mark.parametrize("destination", STORED_DESTINATIONS)
 def test_profile_visits_elsewhere_are_not_guessed(destination: str) -> None:
     assert profile_read(destination, "PROFILE_VISIT") is None
+
+
+# --- A goal Meta opens account by account --------------------------------
+def test_a_closed_profile_visit_falls_back_to_the_older_goal() -> None:
+    assert (
+        fallback_goal(
+            provider=PROVIDER,
+            destination_type="INSTAGRAM_PROFILE",
+            optimization_goal="PROFILE_VISIT",
+        )
+        == "VISIT_INSTAGRAM_PROFILE"
+    )
+
+
+def test_a_goal_with_no_older_one_names_none() -> None:
+    assert (
+        fallback_goal(
+            provider=PROVIDER,
+            destination_type="PHONE_CALL",
+            optimization_goal="QUALITY_CALL",
+        )
+        == ""
+    )
+
+
+@pytest.mark.parametrize("goal", ["PROFILE_VISIT", "VISIT_INSTAGRAM_PROFILE"])
+def test_a_profile_visit_reads_back_as_itself_with_either_goal(goal: str) -> None:
+    found = type_built_as(
+        provider=PROVIDER,
+        objective="OUTCOME_TRAFFIC",
+        destination_type="INSTAGRAM_PROFILE",
+        optimization_goal=goal,
+    )
+
+    assert found is not None
+    assert found.key == "profile_visits"

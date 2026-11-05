@@ -62,6 +62,7 @@ from adskit.errors import (
     AuthFailed,
     BidStrategyRefused,
     BudgetTooLow,
+    GoalNotOpen,
     InvalidRequest,
     LeadFormPrivacyMissing,
     LocationNotRecognized,
@@ -298,6 +299,12 @@ _PAYMENT_SUBCODES = frozenset({1359188})
 # rejected payload the screen would send the advertiser to their text.
 _BID_SUBCODES = frozenset({1885204, 2446166})
 
+# "Ad account isn't eligible for Profile Visit ads": a goal Meta opens
+# account by account, refused on the rest with code 100 beside it. Seen in
+# production on the ad set, for PROFILE_VISIT, on two accounts whose Ads
+# Manager still buys the same visit.
+_GOAL_SUBCODES = frozenset({2016153})
+
 # "Location not recognized": the ad set names a place Meta cannot put on a
 # map - a pin in open sea, a key its catalogue does not have. The code
 # beside it is 100 again, and as a rejected payload the screen would send
@@ -517,6 +524,8 @@ def _translated(exc: MetaError) -> ProviderError:
             return PaymentMethodMissing(str(exc), code=str(exc.subcode or ""), **words)
         if exc.subcode in _BID_SUBCODES:
             return BidStrategyRefused(str(exc), code=str(exc.subcode or ""), **words)
+        if exc.subcode in _GOAL_SUBCODES:
+            return GoalNotOpen(str(exc), code=str(exc.subcode or ""), **words)
         if exc.subcode in _LOCATION_SUBCODES:
             return LocationNotRecognized(str(exc), code=str(exc.subcode or ""), **words)
         if exc.subcode in _OVERLAP_SUBCODES:

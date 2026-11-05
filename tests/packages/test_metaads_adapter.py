@@ -23,6 +23,7 @@ from adskit.errors import (
     AuthFailed,
     BidStrategyRefused,
     BudgetTooLow,
+    GoalNotOpen,
     InvalidRequest,
     LeadFormPrivacyMissing,
     LocationNotRecognized,
@@ -1014,6 +1015,23 @@ def test_a_cost_cap_the_goal_does_not_take_is_its_own_failure(
     assert isinstance(translated, BidStrategyRefused)
     assert translated.code == str(subcode)
     assert not translated.retryable
+
+
+def test_a_goal_the_account_is_not_open_to_is_its_own_failure() -> None:
+    """Seen in production for PROFILE_VISIT. Still a refused payload to
+    anything that only knows that much."""
+    refusal = MetaAPIError(
+        "Invalid parameter",
+        code=100,
+        subcode=2016153,
+        user_title="Ad account isn't eligible for Profile Visit ads",
+    )
+
+    translated = translate_error(refusal)
+
+    assert isinstance(translated, GoalNotOpen)
+    assert isinstance(translated, InvalidRequest)
+    assert translated.code == "2016153"
 
 
 # --- A catalogue entry Meta has withdrawn --------------------------------
