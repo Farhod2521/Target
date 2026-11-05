@@ -47,6 +47,30 @@ def authenticate(db: Session, *, init_data: str, now: datetime) -> User:
     return chat.owner
 
 
+def link_launch(db: Session, *, owner: User, init_data: str, now: datetime) -> bool:
+    """Tie the Telegram account a Mini App launch came from to ``owner``'s
+    cabinet, so the bot's «Kabinetga kirish» opens it next time. A CRM
+    manager's sign-in links nothing: the bot speaks to owners."""
+    from app.modules.notifications.services.link import attach_chat
+
+    if not is_configured():
+        raise MiniAppUnavailable
+    if not init_data:
+        raise NotInsideTelegram
+    verified = _verify(init_data=init_data, now=now)
+    if owner.crm_owner_id is not None:
+        return False
+    attach_chat(
+        db,
+        owner=owner,
+        chat_id=str(verified.user.id),
+        username=verified.user.username or "",
+        now=now,
+    )
+    logger.info("miniapp_linked", extra={"owner": str(owner.id)})
+    return True
+
+
 def _verify(*, init_data: str, now: datetime) -> VerifiedInitData:
     try:
         return parse_init_data(

@@ -22,4 +22,10 @@ class AuthOut(BaseModel):
     message: str | None = None
 
 
-__all__ = ["AuthOut", "EntryOut"]
+class LinkOut(BaseModel):
+    linked: bool = Field(
+        description="False for a CRM manager: the bot speaks to owners only."
+    )
+
+
+__all__ = ["AuthOut", "EntryOut", "LinkOut"]
