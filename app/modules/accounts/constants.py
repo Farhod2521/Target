@@ -86,6 +86,7 @@ PURGE_ORDER: tuple[str, ...] = (
     "metrics.MetricsBreakdown",
     "metrics.MetricsDaily",
     "metrics.PeopleCount",
+    "metrics.MetricsCheck",
     "metrics.MetricPreference",
     "referrals.Feedback",
     "referrals.FeedbackPrompt",

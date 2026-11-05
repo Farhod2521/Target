@@ -126,6 +126,11 @@ DEFAULT_SOURCE: Final = Source.HERE
 NUMBERS_FILTERS_SESSION_KEY: Final = "metrics:numbers_filters"
 RANGE_MAX_DAYS: Final = 90
 RESTATE_DAYS: Final = 14
+# The nightly check against Ads Manager: the closed days it reads again, and
+# the gap past which a day is ours wrong rather than Meta still settling it -
+# over this share of Meta's figure and over a unit of it.
+CHECK_DAYS: Final = 7
+CHECK_TOLERANCE_PCT: Final = 1
 OBSERVED_RESTATE_DAYS: Final = 30
 RECONCILE_PCT: Final = 10
 RECONCILE_FROM: Final = 5

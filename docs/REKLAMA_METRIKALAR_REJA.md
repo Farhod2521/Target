@@ -54,7 +54,7 @@ Qiymat o'rniga `–` va uning sababi chiqadi:
 | 5 ✅ | Reklama bo'limi API'si (Expert) | 3 daraja tayyor qiymatlar bilan; Jami qatori, ustunlar katalogi, ustun tanlovini saqlash, "–" sababi, yangilanish vaqti, attribution oynasi |
 | 6 ✅ | Dashboard API'si (Expert) | Katalogdan. Nima chiqishi avval kelishib olinadi |
 | 7 ✅ | Expert mode (backend) | Foydalanuvchi sozlamasida saqlash va API |
-| 8 | Ads Manager bilan solishtirish | Kechki avtomatik tekshiruv: bizning yig'indi va Meta'ning davr bo'yicha jami raqami. Staging'da o'lchanadi |
+| 8 ✅ | Ads Manager bilan solishtirish | Kechki avtomatik tekshiruv: bizning yig'indi va Meta'ning davr bo'yicha jami raqami. Staging'da o'lchanadi |
 | 9 | Front: Expert mode tugmasi | Tepaga chiqadi. Namuna so'raladi |
 | 10 | Front: Reklama redesign (Expert) | Jadval katalogdan quriladi; ustun to'plamlari (Umumiy, Video, Lid sifati, Sotuv), izohlar va normalar, reyting ranglari, Jami qatori. Namuna so'raladi |
 | 11 | Front: Dashboard redesign (Expert) | Namuna so'raladi |
@@ -90,3 +90,8 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
 - **6-bosqich (2026-11-05):** `GET /api/v1/metrics/expert`, hujjat `docs/API_EXPERT.md`. Tarkib siz bilan kelishilgan: asosiy ko'rsatkichlar, kunlik grafik, voronka, maqsad bo'yicha, eng yaxshi va eng yomon kampaniyalar, diqqat talab reklamalar, kesimlar, lid sifati. Mantiq `core/metrics/catalogue/board.py` da, normalar `catalogue/meta.py` da. Kesimlar hozirgi Dashboard bilan bitta funksiyadan (`page_segments`).
   - Hold ostonasi: 10% (foydalanuvchi qarori, 2026-11-05). AI agent ham katalogdagi `HOLD_WEAK_PCT`, `HOOK_WEAK_PCT` ni oladi, son bitta joyda.
 - **7-bosqich (2026-11-05):** `users.expert_mode` (migratsiya `0025`), `GET /api/v1/account` da `expert_mode`, `PUT /api/v1/account/expert-mode`.
+- **8-bosqich (2026-11-05):**
+  - **Jami qatoridagi Qamrov, Noyob kliklar, Chastota:** odamlar soni endi hisob darajasida ham o'qiladi (`metrics_people_count`, `level = 'account'`, xuddi shu davrlar). Jami shu sonni oladi, lekin faqat bitta hisob bo'lsa va davrda ko'rsatilgan hamma ob'ekt qatorlarda bo'lsa (`whole_account_people`). Aks holda `not_asked`. Reklama jadvali va Expert Dashboard ikkalasi ham shundan oladi. Meta'ga har odamlar o'qishida (taxminan 25 daqiqada bir) 2 ta qo'shimcha so'rov: asosiy davrlar va qo'shimcha davrlar.
+  - **Har kechki solishtirish:** kechki o'qishdan keyin Meta'ning butun hisob bo'yicha jamisi yopilgan oxirgi 7 kun uchun qayta o'qiladi va bizdagi guruh qatorlari yig'indisi bilan solishtiriladi (`app/modules/metrics/services/check.py`). Solishtiriladi: Sarf, Ko'rsatildi, Klik, Link klik, Sotuv (sayt). Lidlar solishtirilmaydi: hisob darajasida hamma turdagi lid sanaladi, guruhda faqat o'z maqsadi. Farq 1% dan va 1 birlikdan oshsa, kun "farq qiladi" deb belgilanadi va logga yoziladi. Natija `metrics_checks` jadvalida (migratsiya `0026`). Meta'ga kechasiga 1 ta qo'shimcha so'rov. Solishtirish ishlamasa ham kechki o'qish to'xtamaydi.
+  - **Hisobot:** `python -m app.modules.metrics.check` (oxirgi 7 kun) yoki `--days 30`.
+  - **Tekshirilmagan:** haqiqiy Meta hisobida. Staging'da o'lchash uchun deploy kerak (14-bosqich bilan yoki oldinroq staging'ga).

@@ -386,6 +386,7 @@ def sync_insights(db: Session, *, ad_account: AdAccount) -> InsightSummary:
                 )
                 stopped, why = str(kind), exc.cause
                 break
+        _check(db, ad_account=ad_account, today=today)
         summary = InsightSummary(
             levels=tuple(done),
             breakdowns=tuple(cuts),
@@ -401,6 +402,19 @@ def sync_insights(db: Session, *, ad_account: AdAccount) -> InsightSummary:
             "" if summary.complete else f", stopped at {stopped} ({why})",
         )
         return summary
+
+
+def _check(db: Session, *, ad_account: AdAccount, today: date) -> None:
+    """The night's check against Ads Manager; one that cannot run stops
+    nothing the night read."""
+    from app.modules.metrics.services.check import check_account
+
+    try:
+        check_account(db, ad_account=ad_account, today=today)
+    except SyncFailed as exc:
+        logger.info(
+            "check against Meta for %s stopped (%s)", ad_account.external_id, exc.cause
+        )
 
 
 # -- today -------------------------------------------------------------------------------

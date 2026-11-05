@@ -105,6 +105,14 @@ def test_the_ranking_fields_are_asked_for_at_ad_level_only() -> None:
     assert "quality_ranking" not in fields_for("campaign")
 
 
+def test_the_account_asks_only_for_its_totals() -> None:
+    """No campaign or goal fields, which the account level has none of."""
+    asked = fields_for("account").split(",")
+    assert {"spend", "impressions", "inline_link_clicks", "actions"} <= set(asked)
+    assert "optimization_goal" not in asked
+    assert "campaign_id" not in asked
+
+
 def test_the_three_verdicts_reach_the_row() -> None:
     row = read(
         [
