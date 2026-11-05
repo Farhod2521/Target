@@ -313,6 +313,13 @@ Kampaniya `id` si ekrandagi `id` (`customers/111/campaigns/5`).
 - Manager (MCC) ostidagi akkauntlar ulanishlar ro'yxatida oddiy akkaunt kabi
   chiqadi, frontend uchun alohida ish yo'q.
 
+`GET /google/screen`: har kampaniya va guruhda `rejectedAds` (Google rad
+etgan reklamalar soni) va `rejection` (birinchisining sababi, `Refusal`
+shaklida, yo'q bo'lsa `null`). Google'da `key` doim `null` — AI javobi
+so'ralmaydi, `GET /refusals/answer` chaqirilmaydi; `providerWords` —
+Google'ning policy kodi va u ko'rsatgan matn, `fix` — Google Ads «Policy
+manager» havolasi.
+
 ### ChatGPT Ads — `/chatgpt`
 
 Ulanish API kalit orqali (`POST /chatgpt/connect`), ekran jonli o'qiladi.

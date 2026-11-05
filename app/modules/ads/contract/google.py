@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from app.common.contract import Camel, Money, money, zero_or
+from app.common.contract import Camel, Money, Refusal, money, zero_or
 from app.modules.ads.contract.words import Status, status_word
 from app.modules.ads.selectors.google import (
     CampaignRow,
@@ -12,6 +12,7 @@ from app.modules.ads.selectors.google import (
     GoogleScreen,
     GroupRow,
 )
+from app.modules.ads.selectors.rejections import rejection_of
 
 
 class GoogleFigures(Camel):
@@ -28,6 +29,10 @@ class GoogleGroup(Camel):
     delivery: Status
     pending: bool = Field(description="A press on it is still on its way to Google.")
     figures: GoogleFigures
+    rejected_ads: int = Field(description="Its adverts Google refused.")
+    rejection: Refusal | None = Field(
+        description="Why the first of them was refused; null when none was."
+    )
 
 
 class GoogleCampaign(Camel):
@@ -41,6 +46,10 @@ class GoogleCampaign(Camel):
         description="Campaigns sharing this budget: a new amount applies to them too."
     )
     figures: GoogleFigures
+    rejected_ads: int = Field(description="Adverts Google refused, in every group.")
+    rejection: Refusal | None = Field(
+        description="Why the first of them was refused; null when none was."
+    )
     groups: list[GoogleGroup]
 
 
@@ -89,6 +98,8 @@ def _group(
         "delivery": "paused_above" if parent_paused and own != "paused" else own,
         "pending": row.pending,
         "figures": _figures(row.figures, currency=currency, provider=provider),
+        "rejected_ads": len(row.rejected),
+        "rejection": rejection_of(row.rejected[0]) if row.rejected else None,
     }
 
 
@@ -105,6 +116,8 @@ def _campaign(row: CampaignRow, *, currency: str, provider: str) -> dict[str, An
         "budget_held": row.budget_held,
         "shares_with": list(row.shares_with),
         "figures": _figures(row.figures, currency=currency, provider=provider),
+        "rejected_ads": len(row.rejected),
+        "rejection": rejection_of(row.rejected[0]) if row.rejected else None,
         "groups": [
             _group(
                 group,

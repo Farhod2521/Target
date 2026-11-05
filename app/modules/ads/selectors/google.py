@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 from app.common.db import utcnow
 from app.common.money import provider_money
 from app.modules.accounts.models import User
-from app.modules.ads.constants import ACTION_STALE_MINUTES
-from app.modules.ads.models import AdSet, Campaign, GoogleLaunch
+from app.modules.ads.constants import ACTION_STALE_MINUTES, Delivery
+from app.modules.ads.models import Ad, AdSet, Campaign, GoogleLaunch
 from app.modules.audit.constants import ActionStatus
 from app.modules.audit.models import ActionLog
 from app.modules.businesses.models import Business
@@ -96,6 +96,8 @@ class GroupRow:
     group: AdSet
     figures: Figures
     pending: bool
+    # Its adverts Google refused, oldest first.
+    rejected: tuple[Ad, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +107,10 @@ class CampaignRow:
     pending: bool
     groups: tuple[GroupRow, ...] = ()
     shares_with: tuple[str, ...] = ()
+
+    @property
+    def rejected(self) -> tuple[Ad, ...]:
+        return tuple(ad for group in self.groups for ad in group.rejected)
 
     @property
     def budget_held(self) -> bool:
@@ -193,6 +199,7 @@ def _rows(
         owner,
         [row.external_id for row in campaigns] + [row.external_id for row in groups],
     )
+    refused = _rejected(db, owner, [group.id for group in groups])
     groups_of: dict[UUID, list[GroupRow]] = defaultdict(list)
     for group in groups:
         groups_of[group.campaign_id].append(
@@ -200,6 +207,7 @@ def _rows(
                 group=group,
                 figures=by_group.get(group.external_id, Figures()),
                 pending=group.external_id in pending,
+                rejected=tuple(refused.get(group.id, ())),
             )
         )
     sharing = _by_shared_budget(campaigns)
@@ -217,6 +225,25 @@ def _rows(
         )
         for campaign in campaigns
     )
+
+
+def _rejected(db: Session, owner: User, group_ids: list[UUID]) -> dict[UUID, list[Ad]]:
+    """Each group's refused adverts, in one read for the whole screen."""
+    found: dict[UUID, list[Ad]] = defaultdict(list)
+    if not group_ids:
+        return found
+    rows = db.scalars(
+        select(Ad)
+        .where(
+            Ad.owner_id == owner.id,
+            Ad.adset_id.in_(group_ids),
+            Ad.delivery == Delivery.REJECTED,
+        )
+        .order_by(Ad.created_at)
+    )
+    for ad in rows:
+        found[ad.adset_id].append(ad)
+    return found
 
 
 def _by_shared_budget(campaigns: list[Campaign]) -> dict[str, list[Campaign]]:

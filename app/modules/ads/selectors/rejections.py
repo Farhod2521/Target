@@ -3,11 +3,13 @@
 The reason lives on the advert: a campaign's own ``issue_summary`` says nothing
 when one of its adverts was turned down. So each level finds its first such
 advert here, and one policy is one key however many adverts break it.
+Google's adverts are told apart in :mod:`google_rejections`.
 """
 
 import hashlib
 from typing import Any, Final
 
+from googleadskit import PROVIDER as GOOGLE
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -27,6 +29,7 @@ from app.modules.ads.selectors.delivery_issues import (
     Trouble,
 )
 from app.modules.ads.selectors.failures import feedback_text, fix_link
+from app.modules.ads.selectors.google_rejections import google_rejection
 from core.agent.refusal_cause import RefusalCause, refusal_cause
 
 # An advert that shows an existing page post: its words are changed on the network.
@@ -131,8 +134,11 @@ def review_key(ad: Any) -> str:
 
     The name is hashed because Meta words it in the token's language and at
     any length, and a key is short. A complaint already written for has none:
-    it never costs a question.
+    it never costs a question. Only Meta's are asked: the prompt speaks of
+    Meta's rules, and Google's policy codes are read without it.
     """
+    if ad.provider != "meta":
+        return ""
     said = complaint_of(ad)
     if not said or known_trouble(ad) is not None:
         return ""
@@ -156,6 +162,8 @@ def rejection_of(ad: Any) -> dict[str, Any] | None:
     """
     if ad is None or not turned_down(ad):
         return None
+    if ad.provider == GOOGLE:
+        return google_rejection(ad)
     said = complaint_of(ad)
     post = (getattr(getattr(ad, "content", None), "kind", "") or "") in POST_KINDS
     silent = not said and ad.provider == "meta"
