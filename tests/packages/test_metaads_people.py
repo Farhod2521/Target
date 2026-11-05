@@ -96,6 +96,7 @@ class TestTheRequest:
         assert query["level"] == ["ad"]
         assert "estimated_ad_recallers" in query["fields"][0].split(",")
         assert "reach" in query["fields"][0].split(",")
+        assert "unique_inline_link_clicks" in query["fields"][0].split(",")
 
 
 class TestTheAnswer:
@@ -107,6 +108,16 @@ class TestTheAnswer:
         assert row.reach == 26_625
         assert row.recallers == 4_100
         assert row.campaign_external_id == "120210"
+
+    def test_unique_link_clicks_are_people_over_the_range(self) -> None:
+        (row,) = read([{**ROW, "unique_inline_link_clicks": "812"}])
+
+        assert row.unique_link_clicks == 812
+
+    def test_a_range_nobody_clicked_reads_as_nought(self) -> None:
+        (row,) = read([ROW])
+
+        assert row.unique_link_clicks == 0
 
     def test_the_level_decides_which_id_is_the_objects_own(self) -> None:
         (row,) = read([ROW], level="campaign")

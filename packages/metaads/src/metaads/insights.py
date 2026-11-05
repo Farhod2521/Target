@@ -372,6 +372,12 @@ SAVE_ACTIONS: Final[tuple[str, ...]] = ("onsite_conversion.post_save",)
 # a view is somebody who stayed for three seconds. Views over impressions
 # is how often the opening stops the scroll.
 LANDING_PAGE_ACTIONS: Final[tuple[str, ...]] = ("landing_page_view",)
+
+# A purchase on the advertiser's website, pixel and server events alike:
+# Ads Manager's "Website purchases". Not ``purchase`` or ``omni_purchase``,
+# which fold in app and offline sales a website never saw. Its value is read
+# under the same name out of ``action_values``, in whole currency.
+PURCHASE_ACTIONS: Final[tuple[str, ...]] = ("offsite_conversion.fb_pixel_purchase",)
 VIDEO_VIEW_ACTIONS: Final[tuple[str, ...]] = ("video_view",)
 
 
@@ -450,9 +456,10 @@ def _read_days(
 
 
 # What a range's people count needs: the object, the range it is about, and
-# the two figures that count people rather than events.
+# the figures that count people rather than events.
 PEOPLE_FIELDS: Final = (
-    "date_start,date_stop,campaign_id,adset_id,ad_id,reach,estimated_ad_recallers"
+    "date_start,date_stop,campaign_id,adset_id,ad_id,reach,estimated_ad_recallers,"
+    "unique_inline_link_clicks"
 )
 
 

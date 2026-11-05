@@ -49,7 +49,7 @@ Qiymat o'rniga `–` va uning sababi chiqadi:
 |---|---|---|
 | 1 ✅ | Formulalar katalogi | `core/metrics` ichida bitta katalog: umumiy, Meta, Google qismlari. Formulalar hujjatdagi misollar bilan test qilinadi |
 | 2 ✅ | Eski formulalarni ko'chirish | Hozirgi 15 ga yaqin joy katalogdan oladi: panel, dashboard, chat, bot, AI, backoffice. Natija o'zgarmasligi testlar bilan tekshiriladi |
-| 3 | Ma'lumotni to'ldirish (Meta) | Noyob kliklar davr bo'yicha o'qiladi; pixel `Purchase` soni va summasi olinadi. Migratsiya, 90 kunni qayta o'qish |
+| 3 ✅ | Ma'lumotni to'ldirish (Meta) | Noyob kliklar davr bo'yicha o'qiladi; pixel `Purchase` soni va summasi olinadi. Migratsiya, 90 kunni qayta o'qish |
 | 4 | Ma'lumotni to'ldirish (CRM) | Sifatli lid va CRM sotuvlari guruh va reklama darajasida |
 | 5 | Reklama bo'limi API'si (Expert) | 3 daraja tayyor qiymatlar bilan; Jami qatori, ustunlar katalogi, ustun tanlovini saqlash, "–" sababi, yangilanish vaqti, attribution oynasi |
 | 6 | Dashboard API'si (Expert) | Katalogdan. Nima chiqishi avval kelishib olinadi |
@@ -69,7 +69,7 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
 - Raqamlar Meta Insights'dan har 30 daqiqada o'qiladi (`packages/metaads/src/metaads/insights.py`, `INSIGHT_FIELDS`) va `metrics_daily` jadvaliga yoziladi.
 - Formulalar ko'p joyda takrorlanadi: `core/metrics/contracts.py` (`Totals`), `core/metrics/panel.py` (`PanelTotals`), `core/metrics/engagement.py`, `app/modules/metrics/selectors/panel.py`, `app/modules/ads/contract/figures_v2.py`, `app/modules/ads/selectors/google.py`, chat, backoffice, agent; frontda `Manager.tsx` va `dashboard.ts`.
 - Front metrikalar katalogidagi ba'zi kartalarni tushirib yuboradi (`packages/api/src/live/bridges/metrics.ts`).
-- `Manager.tsx:307` da pul `/ 100` ga bo'linadi: so'mda xato bo'lishi mumkin, tekshirilmagan.
+- `Manager.tsx:307` da pul `/ 100` ga bo'linadi. So'm ISO 4217 bo'yicha 2 xonali, shuning uchun bugun xato yo'q, lekin bu hisob 12-bosqichda backendga ko'chadi.
 
 ## Bosqichlar holati
 
@@ -77,3 +77,9 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
 - **2-bosqich (2026-11-05):** har metrikaning formulasi `core/metrics/formulas.py` da, bo'lish va yaxlitlash `core/metrics/arithmetic.py` da. Ularga ulandi: `core/metrics` (Totals, PanelTotals, engagement, derive, segment_compare), kabinet selectorlari, chat hisobotlari, office, Google va ChatGPT qatorlari, AI agent. Natija maydoni va 1000 ga narx (`field`, `per`) `formulas.RESULT_OF` dan olinadi. `tests/core/metrics/test_one_place.py` boshqa joyda yozilgan formulani topsa yiqiladi (eski kodda 52 ta topgan). Qoida chegaralari (byudjet ulushi va h.k.), billing va sotuv menejerlari foizlari metrika emas, o'z joyida qoldi.
   - Testlar: 4898 ta, bazali testlar bilan birga, hammasi o'tdi.
   - Farqlar: foizlar endi yarimni yuqoriga yaxlitlaydi (2.5 → 3, avval 2). Sarf 0 bo'lgan qatorda CPM, CPC va natija narxi 0 emas, `–` chiqadi. Office va ChatGPT'dagi CPM va CPC endi pastga kesilmaydi, yaxlitlanadi.
+- **3-bosqich (2026-11-05):** migratsiya `0023` (`0022_support_guests` dan keyin).
+  - `metrics_daily` ga `purchases_site` va `purchase_value_site_minor` qo'shildi. Ular Meta'ning `offsite_conversion.fb_pixel_purchase` eventi, Ads Manager'dagi "Website purchases" (pixel va CAPI), shu kunlik so'rovdan olinadi. `purchase` va `omni_purchase` olinmaydi, chunki ularga ilova va oflayn sotuvlar qo'shiladi.
+  - `metrics_people_count` ga `unique_link_clicks` qo'shildi: qamrov bilan bir so'rovda, butun davr uchun.
+  - Qo'shimcha Meta so'rovi yo'q.
+  - **Deploydan keyin:** migratsiya; keyin `python -m app.modules.metrics.refill` (hisobot) va `--apply` (har Meta hisobini 90 soniya oraliq bilan navbatga qo'yadi, 90 kunni qayta o'qiydi). Noyob kliklar keyingi sinxronlashda o'zi to'ladi.
+  - Tekshirilmagan: haqiqiy Meta hisobida sotuv nomi (`fetch_action_totals` bilan tekshirish mumkin).

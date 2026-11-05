@@ -3,7 +3,16 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Index, String, UniqueConstraint, Uuid
+from sqlalchemy import (
+    BigInteger,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.common.db import Base, utcnow
@@ -31,7 +40,8 @@ class PeopleCount(Base):
     until: Mapped[date] = mapped_column(Date, nullable=False)
     reach: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     recallers: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    unique_link_clicks: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # -- django extras --
-    owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
-    ad_account: Mapped["AdAccount"] = relationship(foreign_keys=[ad_account_id], lazy="select")  # noqa: F821
+    owner: Mapped[User] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
+    ad_account: Mapped[AdAccount] = relationship(foreign_keys=[ad_account_id], lazy="select")  # noqa: F821

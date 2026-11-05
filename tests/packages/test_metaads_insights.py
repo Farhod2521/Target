@@ -906,3 +906,74 @@ def test_profile_visits_take_the_default_window_too() -> None:
     ]
 
     assert read([ROW | {"results": results}])[0].profile_visits == 55
+
+
+# --- Website purchases -----------------------------------------------------
+def test_a_website_purchase_and_its_value_reach_the_row() -> None:
+    """Ads Manager's "Website purchases", and the value in whole currency."""
+    row = read(
+        [
+            ROW
+            | {
+                "actions": [
+                    *ROW["actions"],
+                    {
+                        "action_type": "offsite_conversion.fb_pixel_purchase",
+                        "value": "3",
+                    },
+                ],
+                "action_values": [
+                    {
+                        "action_type": "offsite_conversion.fb_pixel_purchase",
+                        "value": "149.90",
+                    }
+                ],
+            }
+        ]
+    )[0]
+
+    assert row.purchases_site == 3
+    assert row.purchase_value_site_minor == 14_990
+
+
+def test_an_app_or_offline_purchase_is_not_a_website_one() -> None:
+    """``purchase`` and ``omni_purchase`` fold in sales no website saw."""
+    row = read(
+        [
+            ROW
+            | {
+                "actions": [
+                    {"action_type": "omni_purchase", "value": "9"},
+                    {"action_type": "purchase", "value": "9"},
+                ],
+                "action_values": [{"action_type": "purchase", "value": "500"}],
+            }
+        ]
+    )[0]
+
+    assert (row.purchases_site, row.purchase_value_site_minor) == (0, 0)
+
+
+def test_a_purchase_value_in_a_currency_with_no_subunit_is_not_multiplied() -> None:
+    row = read(
+        [
+            ROW
+            | {
+                "account_currency": "JPY",
+                "actions": [
+                    {
+                        "action_type": "offsite_conversion.fb_pixel_purchase",
+                        "value": "1",
+                    }
+                ],
+                "action_values": [
+                    {
+                        "action_type": "offsite_conversion.fb_pixel_purchase",
+                        "value": "25000",
+                    }
+                ],
+            }
+        ]
+    )[0]
+
+    assert row.purchase_value_site_minor == 25_000
