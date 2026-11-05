@@ -29,9 +29,10 @@ from core.agent.benchmark import (
 from core.agent.contracts import Policy
 from core.agent.facts import AdFacts, AdSetFacts, troubled
 from core.agent.frequency import seen_too_often
-from core.agent.funnel import per_ten_thousand
 from core.agent.rules.audience import MIN_HALF_DAYS, MIN_HALF_IMPRESSIONS
 from core.agent.sufficiency import enough_to_decide
+from core.metrics import formulas
+from core.metrics.arithmetic import basis_points_or_none
 
 # **Declared in the brief's order, and the order is the verdict.** The
 # first signal present decides the cause - see
@@ -341,7 +342,7 @@ def _form_stalls(item: AdSetFacts, bench: Benchmark) -> bool:
     leads = lead_count(item)
     if leads == 0:
         return True
-    own = per_ten_thousand(part=leads, whole=clicks)
+    own = basis_points_or_none(formulas.form_conversion(leads, clicks))
     return _below(own, bench.click_to_lead_bp, LOW_CONVERSION_SHARE_PCT)
 
 

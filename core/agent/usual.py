@@ -23,8 +23,9 @@ from dataclasses import dataclass
 from statistics import median_low
 from typing import Literal
 
-from core.agent.funnel import per_ten_thousand
 from core.agent.sufficiency import enough_spent
+from core.metrics import formulas
+from core.metrics.arithmetic import basis_points_or_none
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,16 +141,16 @@ def usual_level(days: Sequence[DayFigures], *, per: int = 1) -> Usual:
         days=len(spent),
         cost_minor=_usual_cost(spent, per=per),
         link_ctr_bp=_middle(
-            per_ten_thousand(part=day.link_clicks, whole=day.impressions)
+            basis_points_or_none(formulas.ctr(day.link_clicks, day.impressions))
             for day in spent
         ),
         cpm_minor=_middle(
-            round(day.spend_minor * 1_000 / day.impressions)
-            for day in spent
-            if day.impressions > 0
+            formulas.cpm(day.spend_minor, day.impressions) for day in spent
         ),
         hook_bp=_middle(
-            per_ten_thousand(part=day.video_views_3s, whole=day.video_impressions)
+            basis_points_or_none(
+                formulas.hook_rate(day.video_views_3s, day.video_impressions)
+            )
             for day in spent
         ),
     )
@@ -163,7 +164,7 @@ def _usual_cost(days: list[DayFigures], *, per: int) -> int | None:
     """
     priced = sorted(
         (
-            round(day.spend_minor * per / day.results) if day.results > 0 else None
+            formulas.cost_per_result(day.spend_minor, day.results, per=per)
             for day in days
         ),
         key=lambda cost: (cost is None, cost or 0),
@@ -171,10 +172,11 @@ def _usual_cost(days: list[DayFigures], *, per: int) -> int | None:
     middle = priced[(len(priced) - 1) // 2]
     if middle is not None:
         return middle
-    results = sum(day.results for day in days)
-    if results <= 0:
-        return None
-    return round(sum(day.spend_minor for day in days) * per / results)
+    return formulas.cost_per_result(
+        sum(day.spend_minor for day in days),
+        sum(day.results for day in days),
+        per=per,
+    )
 
 
 def _middle(values: Iterable[int | None]) -> int | None:

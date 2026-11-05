@@ -107,6 +107,11 @@ def completion_rate(p100: int, plays: int) -> Decimal | None:
     return exact_percent(part=p100, whole=plays)
 
 
+def arrival_rate(landing_page_views: int, link_clicks: int) -> Decimal | None:
+    """What share of the link clicks reached a page that finished loading."""
+    return exact_percent(part=landing_page_views, whole=link_clicks)
+
+
 def qualified_share(qualified: int, leads: int) -> Decimal | None:
     return exact_percent(part=qualified, whole=leads)
 
@@ -123,6 +128,7 @@ def roas(value_minor: int, spend_minor: int) -> Decimal | None:
 __all__ = [
     "PER_MILLE",
     "RESULT_OF",
+    "arrival_rate",
     "click_quality",
     "completion_rate",
     "cost_per_purchase",

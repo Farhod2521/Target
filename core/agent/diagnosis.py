@@ -38,7 +38,6 @@ from core.agent.benchmark import (
 )
 from core.agent.contracts import Policy
 from core.agent.facts import AccountFacts, AdSetFacts, troubled
-from core.agent.funnel import per_ten_thousand
 from core.agent.signals import (
     MIN_RATE_IMPRESSIONS,
     Signal,
@@ -46,6 +45,8 @@ from core.agent.signals import (
     signals,
 )
 from core.agent.usual import cost_trend
+from core.metrics import formulas
+from core.metrics.arithmetic import basis_points_or_none
 
 Cause = Literal[
     # The account owes the provider money: nothing of it is shown until
@@ -247,9 +248,11 @@ def _figures(*, item: AdSetFacts, bench: Benchmark) -> dict[str, Any]:
         "account_hook_bp": bench.hook_bp,
         "hold_bp": own.hold_bp,
         "account_hold_bp": bench.hold_bp,
-        "click_to_lead_bp": per_ten_thousand(part=leads, whole=own.link_clicks),
+        "click_to_lead_bp": basis_points_or_none(
+            formulas.form_conversion(leads, own.link_clicks)
+        ),
         "account_click_to_lead_bp": bench.click_to_lead_bp,
-        "cpl_minor": round(own.spend_minor / leads) if leads else None,
+        "cpl_minor": formulas.cpl(own.spend_minor, leads),
         "account_cpl_minor": bench.cpl_minor,
         "early_ctr_bp": item.early.link_ctr_bp,
         "late_ctr_bp": item.late.link_ctr_bp,
@@ -303,10 +306,10 @@ def _costly_slice(*, item: AdSetFacts, policy: Policy) -> dict[str, Any] | None:
             if spent <= 0 or cell.impressions < MIN_RATE_IMPRESSIONS:
                 continue
             share = round(cell.spend_minor * 100 / spent)
-            cpm = round(cell.spend_minor * 1_000 / cell.impressions)
+            cpm = formulas.cpm(cell.spend_minor, cell.impressions)
             if share < policy.dead_segment_share_pct:
                 continue
-            if cpm * 100 < base * COSTLY_SLICE_CPM_PCT:
+            if cpm is None or cpm * 100 < base * COSTLY_SLICE_CPM_PCT:
                 continue
             if best is None or cell.spend_minor > best["spend_minor"]:
                 best = {

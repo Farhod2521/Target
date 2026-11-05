@@ -13,6 +13,9 @@ and never the mean of daily rates.
 
 from dataclasses import dataclass
 
+from core.metrics import formulas
+from core.metrics.arithmetic import basis_points_or_none, exact_percent
+
 
 def per_ten_thousand(*, part: int, whole: int) -> int | None:
     """``part`` per ten thousand of ``whole``, or nothing to divide by.
@@ -21,9 +24,7 @@ def per_ten_thousand(*, part: int, whole: int) -> int | None:
     rates here live near one percent, and a whole percentage cannot tell a
     healthy step from one that lost half its people.
     """
-    if whole <= 0:
-        return None
-    return round(part * 10_000 / whole)
+    return basis_points_or_none(exact_percent(part=part, whole=whole))
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,14 +54,12 @@ class Funnel:
     @property
     def cpm_minor(self) -> int | None:
         """What a thousand impressions cost, or nothing when none were bought."""
-        if self.impressions <= 0:
-            return None
-        return round(self.spend_minor * 1_000 / self.impressions)
+        return formulas.cpm(self.spend_minor, self.impressions)
 
     @property
     def link_ctr_bp(self) -> int | None:
         """Link clicks per ten thousand impressions."""
-        return per_ten_thousand(part=self.link_clicks, whole=self.impressions)
+        return basis_points_or_none(formulas.ctr(self.link_clicks, self.impressions))
 
     @property
     def hook_bp(self) -> int | None:
@@ -72,7 +71,9 @@ class Funnel:
         """
         if self.video_plays <= 0:
             return None
-        return per_ten_thousand(part=self.video_views_3s, whole=self.impressions)
+        return basis_points_or_none(
+            formulas.hook_rate(self.video_views_3s, self.impressions)
+        )
 
     @property
     def hold_bp(self) -> int | None:
@@ -82,12 +83,16 @@ class Funnel:
         """
         if self.video_plays <= 0:
             return None
-        return per_ten_thousand(part=self.video_thruplays, whole=self.video_views_3s)
+        return basis_points_or_none(
+            formulas.hold_rate(self.video_thruplays, self.video_views_3s)
+        )
 
     @property
     def arrival_bp(self) -> int | None:
         """How many of every ten thousand link clicks reached a loaded page."""
-        return per_ten_thousand(part=self.landing_page_views, whole=self.link_clicks)
+        return basis_points_or_none(
+            formulas.arrival_rate(self.landing_page_views, self.link_clicks)
+        )
 
 
 @dataclass(frozen=True, slots=True)

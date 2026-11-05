@@ -86,6 +86,11 @@ def basis_points(value: Decimal | None) -> int:
     return whole_number(value * 100)
 
 
+def basis_points_or_none(value: Decimal | None) -> int | None:
+    """:func:`basis_points`, keeping "nothing to divide by" apart from nought."""
+    return None if value is None else basis_points(value)
+
+
 def percent(*, part: int, whole: int) -> Decimal | None:
     """``part`` as a percentage of ``whole``, to hundredths."""
     return hundredths(exact_percent(part=part, whole=whole))
@@ -117,6 +122,7 @@ __all__ = [
     "BASIS_POINTS",
     "HUNDREDTHS",
     "basis_points",
+    "basis_points_or_none",
     "change_pct",
     "cost_per",
     "exact_percent",

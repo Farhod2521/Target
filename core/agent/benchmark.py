@@ -20,10 +20,11 @@ from typing import Final
 from adskit import MinorUnits
 
 from core.agent.facts import AdSetFacts
-from core.agent.funnel import Funnel, per_ten_thousand
+from core.agent.funnel import Funnel
 from core.agent.sufficiency import enough_spent, enough_to_decide
 from core.agent.usual import PriceLevel, Usual, price_level
-from core.metrics import Outcome, Totals, cost_per, counted_leads
+from core.metrics import Outcome, Totals, counted_leads, formulas
+from core.metrics.arithmetic import basis_points_or_none
 
 # How many results one price is quoted over. A single showing costs a
 # fraction of the smallest unit of money and would round to nought, so a
@@ -140,21 +141,25 @@ class Benchmark:
         """The usual opening - the fortnight's, else the other videos'."""
         if self.usual_hook_bp is not None:
             return self.usual_hook_bp
-        return per_ten_thousand(part=self.video_views_3s, whole=self.video_impressions)
+        return basis_points_or_none(
+            formulas.hook_rate(self.video_views_3s, self.video_impressions)
+        )
 
     @property
     def hold_bp(self) -> int | None:
-        return per_ten_thousand(part=self.video_thruplays, whole=self.video_views_3s)
+        return basis_points_or_none(
+            formulas.hold_rate(self.video_thruplays, self.video_views_3s)
+        )
 
     @property
     def click_to_lead_bp(self) -> int | None:
-        return per_ten_thousand(part=self.leads, whole=self.funnel.link_clicks)
+        return basis_points_or_none(
+            formulas.form_conversion(self.leads, self.funnel.link_clicks)
+        )
 
     @property
     def cpl_minor(self) -> int | None:
-        if self.leads <= 0 or self.funnel.spend_minor <= 0:
-            return None
-        return round(self.funnel.spend_minor / self.leads)
+        return formulas.cpl(self.funnel.spend_minor, self.leads)
 
     @property
     def cost_minor(self) -> int | None:
@@ -182,7 +187,7 @@ def lead_count(item: AdSetFacts) -> int:
 
 def lead_cost(totals: Totals) -> MinorUnits | None:
     """What one lead cost over these totals, counted the way ``lead_count`` is."""
-    return cost_per(totals.spend_minor, totals.counted_leads)
+    return formulas.cpl(totals.spend_minor, totals.counted_leads)
 
 
 def benchmark(adsets: Iterable[AdSetFacts], *, family: str = "lead") -> Benchmark:
@@ -279,7 +284,7 @@ def peers_lead_cost(totals: Totals, item: AdSetFacts) -> MinorUnits | None:
         reported=max(totals.leads_reported - item.totals.leads_reported, 0),
         measured=spend > 0,
     )
-    return cost_per(MinorUnits(spend), leads)
+    return formulas.cpl(spend, leads)
 
 
 def results_are_poor(*, item: AdSetFacts, bench: Benchmark) -> bool:
