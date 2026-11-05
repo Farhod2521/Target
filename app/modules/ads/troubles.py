@@ -29,7 +29,16 @@ _KNOWN: Final[dict[str, Trouble]] = {
 
 
 def known(code: str) -> Trouble | None:
-    return _KNOWN.get(code.strip()) if code else None
+    """A sentence for one code, the same one the refusal dialog opens with."""
+    from app.modules.ads.selectors.delivery_issues import TROUBLES
+
+    if not code:
+        return None
+    code = code.strip()
+    written = TROUBLES.get(code)
+    if written is not None:
+        return Trouble(headline=written.title, detail=written.cause)
+    return _KNOWN.get(code)
 
 
 def first_known(codes: list[str] | tuple[str, ...]) -> Trouble | None:

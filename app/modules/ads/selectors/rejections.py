@@ -158,7 +158,8 @@ def rejection_of(ad: Any) -> dict[str, Any] | None:
         return None
     said = complaint_of(ad)
     post = (getattr(getattr(ad, "content", None), "kind", "") or "") in POST_KINDS
-    trouble = known_trouble(ad) or (None if said else SILENT)
+    silent = not said and ad.provider == "meta"
+    trouble = known_trouble(ad) or (SILENT if silent else None)
     if trouble is not None:
         steps = trouble.steps if trouble.fix != SWAP or not post else POST_STEPS
         return Refusal(

@@ -14,7 +14,7 @@ from adskit.errors import (
 from metaads.adapter import translate_error
 from metaads.errors import MetaAPIError, MetaAuthError
 
-from app.modules.ads.constants import Delivery
+from app.modules.ads.constants import META_SIDE_FAILURES, Delivery
 from app.modules.ads.contract.launch.failures import failure
 from app.modules.ads.selectors import rejections
 from app.modules.ads.selectors.rejections import (
@@ -25,7 +25,9 @@ from app.modules.ads.selectors.rejections import (
 )
 from app.modules.ads.services.creation import FAILURE_CODES
 from app.modules.ads.services.manage import provider_failure
+from app.modules.ads.troubles import first_known
 from app.modules.chat.services import refused as refused_module
+from core.chat.preparations import TROUBLE_WORDS
 
 
 def _ad(*, codes=(), feedback=None, summary="", kind="link"):  # type: ignore[no-untyped-def]
@@ -210,3 +212,23 @@ def test_a_missing_audience_is_not_called_an_advert(monkeypatch) -> None:  # typ
 
     assert "auditoriya" in found.cause
     assert "reklama topilmadi" not in found.cause.lower()
+
+
+def test_the_inbox_and_the_agent_read_the_same_sentence() -> None:
+    found = first_known(("2490471",))
+
+    assert found is not None
+    assert found.headline == "Reklama akkaunti yopilmoqda"
+    assert first_known(("2460004",)) is not None
+
+
+def test_a_silent_refusal_elsewhere_sends_nobody_to_ads_manager() -> None:
+    ad = _ad()
+    ad.provider = "google"
+
+    assert rejection_of(ad)["fix"] is None
+
+
+def test_a_role_refusal_says_fix_it_first_and_the_chat_knows_it() -> None:
+    assert "account_role" in META_SIDE_FAILURES
+    assert "account_role" in TROUBLE_WORDS

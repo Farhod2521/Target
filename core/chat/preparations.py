@@ -7,6 +7,7 @@ TROUBLE_WORDS: Final[dict[str, str]] = {
     "no_provider": "no ad account was chosen for this preparation",
     "permissions": "the Meta profile is missing a permission this needs",
     "page_role": "the owner is not an administrator of the Facebook page",
+    "account_role": "the owner has no advertiser role on the ad account",
     "page_terms": "the page has not accepted Meta's lead terms yet",
     "account_disabled": "Meta has disabled the ad account",
     "account_action": "the ad account needs something done in Ads Manager first",
