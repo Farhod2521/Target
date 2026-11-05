@@ -1,9 +1,10 @@
 """Why Meta refused a launch or a change: asked of Claude once, kept for everyone.
 
 No chat and no button. The first time a refusal with a code nobody has an
-answer for reaches a screen, the worker asks Claude once, for all three
-languages; the answer is kept under the refusal's key and every later owner
-who meets the same refusal reads it at once. The office edits it.
+answer for reaches a screen, the worker asks Claude once, in that owner's
+language; the answer is kept under the refusal's key and every later owner
+who reads that language has it at once. An owner in another language is one
+more question, in theirs. The office checks each answer and corrects it.
 
 A launch and a change to a running advert are kept apart (``meta:...`` and
 ``change:meta:...``): the same code means the same thing, but a launch is
@@ -13,7 +14,6 @@ retried from its page and a change from the campaigns screen.
 import json
 import logging
 import uuid
-from collections.abc import Mapping
 from dataclasses import asdict
 
 from llmkit import LLMError, render
@@ -34,10 +34,9 @@ from app.modules.chat.constants import (
     ACTION_REFUSAL_VERSION_PREFIX,
     CHANGE_REFUSAL_PROMPT_NAME,
     CHANGE_REFUSAL_VERSION_PREFIX,
-    REFUSAL_EVERY_LANGUAGE,
     REFUSAL_GAVE_UP,
     REFUSAL_GAVE_UP_SECONDS,
-    REFUSAL_LOCK,
+    REFUSAL_LANGUAGE_NAMES,
     REFUSAL_LOCK_SECONDS,
     REFUSAL_PROMPT_NAME,
 )
@@ -49,6 +48,7 @@ from app.modules.chat.selectors.refusal import (
     explained_key,
     ready_answer,
     refusal_facts,
+    refusal_lock,
     refused_launch_for,
 )
 from app.modules.chat.services.refusal import keep_answer
@@ -60,12 +60,10 @@ logger = logging.getLogger(__name__)
 ASK = "Explain this refusal and write the steps."
 
 
-class RefusalAnswers(BaseModel):
-    """One refusal explained in every language an owner reads."""
+class WrittenAnswer(BaseModel):
+    """One refusal explained in the language asked for."""
 
-    uz: str = Field(description="The whole answer in Uzbek, in Latin script.")
-    ru: str = Field(description="The whole answer in Russian.")
-    en: str = Field(description="The whole answer in English.")
+    answer: str = Field(description="The whole answer.")
 
 
 def explain_later(*, log: ActionLog, language: str) -> bool:
@@ -97,7 +95,7 @@ def explain_action_later(
 def _send(key: str, language: str, task: object, pk: str) -> bool:
     if not key:
         return False
-    if cache.add(REFUSAL_LOCK.format(key=key), 1, REFUSAL_LOCK_SECONDS):
+    if cache.add(refusal_lock(key=key, language=language), 1, REFUSAL_LOCK_SECONDS):
         task.delay(pk, answer_language(language))  # type: ignore[attr-defined]
     return True
 
@@ -196,26 +194,27 @@ def _answer(
     ready = ready_answer(db, key=key, language=language)
     if ready is not None:
         return ready.text
-    if already_asked(db, key=key):
-        _gave_up(key)
+    if already_asked(db, key=key, language=language):
+        _gave_up(key, language)
         return ""
     template, version = prompts().get(prompt_name)
     system = render(
-        template, {"language": REFUSAL_EVERY_LANGUAGE, "facts": facts.render()}
+        template,
+        {"language": REFUSAL_LANGUAGE_NAMES[language], "facts": facts.render()},
     )
     related_type, related_id = related
     try:
         with claude() as client:
             result = client.structured(
                 prompt=ASK,
-                schema=RefusalAnswers,
+                schema=WrittenAnswer,
                 system=system,
                 prompt_name=prompt_name,
                 prompt_version=version,
             )
     except LLMUnavailable:
         logger.warning("refusal not explained: no Claude in this process")
-        _gave_up(key)
+        _gave_up(key, language)
         return ""
     except LLMError as exc:
         logger.warning("refusal not explained: %s", exc)
@@ -231,10 +230,10 @@ def _answer(
             related_type=related_type,
             related_id=related_id,
         )
-        _gave_up(key)
+        _gave_up(key, language)
         return ""
-    texts = {name: text.strip() for name, text in result.value.model_dump().items()}
-    masked = _masked(texts, facts)
+    text = result.value.answer.strip()
+    masked = _masked(text, facts)
     record_llm_result(
         db,
         owner=owner,
@@ -244,39 +243,40 @@ def _answer(
         related_type=related_type,
         related_id=related_id,
     )
-    if not all(texts.values()):
-        _gave_up(key)
+    if not text:
+        _gave_up(key, language)
         return ""
     # An answer with this owner's figures in it cannot be shown to the next
     # one. It is kept for the office to correct, so Claude is not asked again.
-    held = bool(masked) or not all(shareable(text) for text in texts.values())
+    held = bool(masked) or not shareable(text)
     keep_answer(
         db,
         key=key,
-        texts=texts,
+        texts={language: text},
         facts=facts,
         version=f"{version_prefix}{version}",
         held=held,
     )
     if held:
-        _gave_up(key)
+        _gave_up(key, language)
         return ""
-    return texts[language]
+    return text
 
 
-def _masked(texts: Mapping[str, str], facts: ChangeFacts | RefusalFacts) -> int:
-    """How many figures in these answers Claude was not handed."""
-    masked = 0
-    for text in texts.values():
-        gate = FigureGate(allowed=facts.figures())
-        gate.feed(text)
-        gate.flush()
-        masked += gate.masked
-    return masked
+def _masked(text: str, facts: ChangeFacts | RefusalFacts) -> int:
+    """How many figures in this answer Claude was not handed."""
+    gate = FigureGate(allowed=facts.figures())
+    gate.feed(text)
+    gate.flush()
+    return gate.masked
 
 
-def _gave_up(key: str) -> None:
-    cache.set(REFUSAL_LOCK.format(key=key), REFUSAL_GAVE_UP, REFUSAL_GAVE_UP_SECONDS)
+def _gave_up(key: str, language: str) -> None:
+    cache.set(
+        refusal_lock(key=key, language=language),
+        REFUSAL_GAVE_UP,
+        REFUSAL_GAVE_UP_SECONDS,
+    )
 
 
 __all__ = [

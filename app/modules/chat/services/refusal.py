@@ -8,7 +8,7 @@ from functools import partial
 from typing import Any, Final
 
 from llmkit import LLMError, render
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.common.cache import cache
@@ -244,8 +244,9 @@ def keep_answer(
 ) -> None:
     """Fill these languages' columns on the refusal's one row.
 
-    Only empty columns: what is there may be the office's own words. ``held``
-    keeps the text for the office and away from every screen.
+    Only empty columns: what is there may be the office's own words. A text
+    Claude adds has not been read by anyone, so the row goes back to the office.
+    ``held`` keeps the row from every screen, and only the office lifts it.
     """
     row = db.scalar(select(RefusalAnswer).where(RefusalAnswer.key == key))
     if row is None:
@@ -275,12 +276,12 @@ def keep_answer(
         db.execute(
             update(RefusalAnswer)
             .where(RefusalAnswer.id == row.id, getattr(RefusalAnswer, field) == "")
-            .values(**{field: text})
+            .values(**{field: text}, edited_at=None)
         )
     db.execute(
         update(RefusalAnswer)
         .where(RefusalAnswer.id == row.id)
-        .values(hits=RefusalAnswer.hits + 1, held=held)
+        .values(hits=RefusalAnswer.hits + 1, held=or_(RefusalAnswer.held, held))
     )
 
 

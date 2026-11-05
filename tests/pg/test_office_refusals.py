@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.db import utcnow
 from app.modules.backoffice.constants import ActionKind, Role
 from app.modules.backoffice.models import StaffAction
 from app.modules.chat.models import RefusalAnswer
@@ -32,7 +33,7 @@ def test_the_list_shows_what_needs_a_person_first(
     client: TestClient, db: Session
 ) -> None:
     _user, headers = _staff(db, Role.SUPPORT, email="s@example.com")
-    _answer(db, key="meta:1/1", hits=1, answer_ru="ru", answer_en="en")
+    _answer(db, key="meta:1/1", hits=1, edited_at=utcnow())
     _answer(db, key="change:meta:2/2", hits=9, held=True)
     _answer(db, key="meta:3/3", hits=3)
     retired = RefusalAnswer(key="meta:4/4", answer_uz="eski", prompt_version="v1")
@@ -40,16 +41,15 @@ def test_the_list_shows_what_needs_a_person_first(
     db.commit()
 
     everything = client.get(URL, headers=headers).json()
-    held = client.get(URL, params={"tab": "held"}, headers=headers).json()
-    missing = client.get(URL, params={"tab": "untranslated"}, headers=headers).json()
+    waiting = client.get(URL, params={"tab": "review"}, headers=headers).json()
     old = client.get(URL, params={"tab": "retired"}, headers=headers).json()
     found = client.get(URL, params={"q": "3/3"}, headers=headers).json()
 
     assert everything["rows"][0]["key"] == "change:meta:2/2"
     assert everything["rows"][0]["operation"] == "change"
-    assert everything["held"] == 1 and everything["total"] == 4
-    assert [row["key"] for row in held["rows"]] == ["change:meta:2/2"]
-    assert {row["key"] for row in missing["rows"]} == {"change:meta:2/2", "meta:3/3"}
+    assert everything["to_review"] == 2 and everything["total"] == 4
+    assert {row["key"] for row in waiting["rows"]} == {"change:meta:2/2", "meta:3/3"}
+    assert {row["reviewed"] for row in waiting["rows"]} == {False}
     assert [row["key"] for row in old["rows"]] == ["meta:4/4"]
     assert old["rows"][0]["retired"] is True
     assert [row["key"] for row in found["rows"]] == ["meta:3/3"]

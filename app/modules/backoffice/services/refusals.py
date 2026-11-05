@@ -20,9 +20,10 @@ def edit_refusal_answer(
     answers: dict[str, str],
     now: datetime,
 ) -> RefusalAnswer:
-    """Save these languages, and show the answer: a person has now read it.
+    """Save these languages, and mark the answer checked: a person has read it.
 
-    A retired version is revived the same way. The office's version is never
+    Saved as it stands, that is the whole check, and a held answer starts to
+    show. A retired version is revived the same way. The office's version is never
     among the stale ones, so no later answer from Claude can replace it.
     """
     fields = REFUSAL_ANSWER_FIELDS.values()

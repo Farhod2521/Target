@@ -1,8 +1,8 @@
 """A refused launch or change is explained where it failed, with no chat.
 
 A refusal the screen has a sentence for keeps its sentence. One it has none
-for is sent to Claude once per Meta code, for all three languages; the answer
-is kept and every later owner with the same refusal reads it at once.
+for is sent to Claude once per Meta code and language; the answer is kept and
+every later owner who reads that language has it at once. The office checks it.
 """
 
 from contextlib import contextmanager
@@ -12,6 +12,7 @@ import pytest
 from adskit.errors import NotFound, ProviderError
 from fastapi.testclient import TestClient
 from llmkit import LLMResult
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -25,9 +26,15 @@ from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.services import manage
 from app.modules.audit.constants import ActionType
 from app.modules.audit.models import ActionLog
-from app.modules.chat.constants import REFUSAL_LOCK
+from app.modules.chat.constants import REFUSAL_ANSWER_FIELDS
 from app.modules.chat.models import RefusalAnswer
-from app.modules.chat.selectors.refusal import key_for, refusal_facts
+from app.modules.chat.selectors.refusal import (
+    key_for,
+    ready_answer,
+    refusal_facts,
+    refusal_lock,
+)
+from app.modules.chat.services import refusal as chat_refusal
 from app.modules.chat.services.explain import explain_change, explain_launch
 from app.modules.chat.services.refusal import keep_answer
 from tests.pg.test_ads_manage import _mirror
@@ -52,12 +59,14 @@ ANSWER = (
 class _Claude:
     asked = 0
     answer = ANSWER
+    system = ""
 
     def structured(self, *, schema: Any, **asked: Any) -> LLMResult[Any]:
         _Claude.asked += 1
+        _Claude.system = asked.get("system", "")
         text = _Claude.answer
         return LLMResult(
-            value=schema(uz=text, ru=f"ru {text}", en=f"en {text}"),
+            value=schema(answer=text),
             input_tokens=10,
             output_tokens=5,
             cost_micros=1,
@@ -77,7 +86,8 @@ def _claude(**_: Any):  # type: ignore[no-untyped-def]
 @pytest.fixture(autouse=True)
 def _unlocked() -> None:
     for key in (KEY, LAUNCH_KEY):
-        cache.delete(REFUSAL_LOCK.format(key=key))
+        for language in REFUSAL_ANSWER_FIELDS:
+            cache.delete(refusal_lock(key=key, language=language))
     _Claude.asked = 0
     _Claude.answer = ANSWER
 
@@ -137,15 +147,12 @@ def test_the_answer_is_written_once_and_kept_for_everyone(
     db.commit()
     again = explain_change(db, log_id=log_id, language="uz")
 
-    russian = explain_change(db, log_id=log_id, language="ru")
-
     assert first == again == ANSWER
-    assert russian == f"ru {ANSWER}"
     assert _Claude.asked == 1
     kept = db.scalar(select(RefusalAnswer).where(RefusalAnswer.key == KEY))
     assert kept is not None
     assert kept.answer_uz == ANSWER
-    assert kept.answer_en == f"en {ANSWER}"
+    assert kept.answer_ru == kept.answer_en == ""
     assert kept.prompt_version.startswith("change-")
     assert kept.provider_title == "Campaign Spending Limit Too Low"
 
@@ -323,7 +330,22 @@ def test_a_kept_answer_is_never_overwritten_and_each_refusal_is_counted(
     assert row.hits == 2
 
 
-def test_a_reader_of_another_language_is_not_a_question_to_claude(
+def test_claude_writes_only_the_language_asked_for(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _owner_row, launch = _refused_launch(db)
+    monkeypatch.setattr("app.modules.chat.services.explain.claude", _claude)
+
+    assert explain_launch(db, launch_id=str(launch.id), language="ru") == ANSWER
+    db.commit()
+
+    kept = db.scalar(select(RefusalAnswer).where(RefusalAnswer.key == LAUNCH_KEY))
+    assert kept is not None
+    assert (kept.answer_ru, kept.answer_uz, kept.answer_en) == (ANSWER, "", "")
+    assert "Russian" in _Claude.system and "Uzbek" not in _Claude.system
+
+
+def test_a_reader_of_another_language_is_one_question_in_theirs(
     db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _owner_row, launch = _refused_launch(db)
@@ -332,8 +354,119 @@ def test_a_reader_of_another_language_is_not_a_question_to_claude(
     )
     db.commit()
     monkeypatch.setattr("app.modules.chat.services.explain.claude", _claude)
+    assert ready_answer(db, key=LAUNCH_KEY, language="ru") is None
 
-    assert (
-        explain_launch(db, launch_id=str(launch.id), language="ru") == "Faqat o'zbekcha"
+    for _ in range(2):
+        assert explain_launch(db, launch_id=str(launch.id), language="ru") == ANSWER
+        db.commit()
+
+    assert _Claude.asked == 1
+    assert ready_answer(db, key=LAUNCH_KEY, language="uz").text == "Faqat o'zbekcha"
+
+
+def test_a_lock_on_one_language_does_not_stop_another(
+    db: Session, queued: list
+) -> None:
+    from app.modules.chat.services.explain import explain_launch_later
+
+    _owner_row, launch = _refused_launch(db)
+    cache.delete(refusal_lock(key=LAUNCH_KEY, language=launch.owner.language))
+    queued.clear()
+
+    for language in ("uz", "ru", "uz"):
+        explain_launch_later(launch=launch, language=language)
+
+    assert [args[1] for name, args in queued if "explain_launch" in name] == [
+        "uz",
+        "ru",
+    ]
+
+
+def test_a_new_language_sends_a_checked_answer_back_to_the_office(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _owner_row, launch = _refused_launch(db)
+    row = RefusalAnswer(
+        key=LAUNCH_KEY,
+        answer_uz="Ofis yozgan",
+        prompt_version="office",
+        edited_at=utcnow(),
     )
+    db.add(row)
+    db.commit()
+    monkeypatch.setattr("app.modules.chat.services.explain.claude", _claude)
+
+    explain_launch(db, launch_id=str(launch.id), language="ru")
+    db.commit()
+    db.refresh(row)
+
+    assert row.edited_at is None and row.answer_uz == "Ofis yozgan"
+    assert row.prompt_version == "office"
+
+
+def test_an_owner_of_another_language_does_not_open_a_held_answer(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _owner_row, launch = _refused_launch(db)
+    db.add(
+        RefusalAnswer(
+            key=LAUNCH_KEY, answer_uz="37 000 so'm", prompt_version="v2", held=True
+        )
+    )
+    db.commit()
+    monkeypatch.setattr("app.modules.chat.services.explain.claude", _claude)
+
+    assert explain_launch(db, launch_id=str(launch.id), language="ru") == ""
     assert _Claude.asked == 0
+
+
+def test_the_chat_does_not_open_a_held_answer(
+    db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, launch = _refused_launch(db)
+    db.add(
+        RefusalAnswer(
+            key=LAUNCH_KEY, answer_uz="37 000 so'm", prompt_version="v2", held=True
+        )
+    )
+    db.commit()
+
+    class _Stream:
+        result = _Claude().structured(schema=_Kept)
+
+    class _Chat:
+        def stream(self, **_: Any) -> _Stream:
+            return _Stream()
+
+    @contextmanager
+    def chat(**_: Any):  # type: ignore[no-untyped-def]
+        yield _Chat()
+
+    monkeypatch.setattr(chat_refusal, "claude", chat)
+    monkeypatch.setattr(
+        chat_refusal,
+        "drain",
+        lambda stream, *, safe, **_: safe.append("Toza javob."),
+    )
+    monkeypatch.setattr(chat_refusal, "publish", lambda *a, **k: None)
+
+    chat_refusal.answer_refusal(
+        db,
+        turn_id="t",
+        payload={
+            "owner_id": str(owner.id),
+            "launch_id": str(launch.id),
+            "language": "uz",
+        },
+        now=utcnow(),
+    )
+    db.commit()
+    db.expire_all()
+
+    kept = db.scalar(select(RefusalAnswer).where(RefusalAnswer.key == LAUNCH_KEY))
+    assert kept is not None and kept.held is True and kept.answer_uz == "37 000 so'm"
+    assert ready_answer(db, key=LAUNCH_KEY, language="uz") is None
+
+
+class _Kept(BaseModel):
+    answer: str
