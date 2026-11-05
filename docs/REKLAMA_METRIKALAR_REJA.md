@@ -48,7 +48,7 @@ Qiymat o'rniga `–` va uning sababi chiqadi:
 | # | Bosqich | Nima qilinadi |
 |---|---|---|
 | 1 ✅ | Formulalar katalogi | `core/metrics` ichida bitta katalog: umumiy, Meta, Google qismlari. Formulalar hujjatdagi misollar bilan test qilinadi |
-| 2 | Eski formulalarni ko'chirish | Hozirgi 15 ga yaqin joy katalogdan oladi: panel, dashboard, chat, bot, AI, backoffice. Natija o'zgarmasligi testlar bilan tekshiriladi |
+| 2 ✅ | Eski formulalarni ko'chirish | Hozirgi 15 ga yaqin joy katalogdan oladi: panel, dashboard, chat, bot, AI, backoffice. Natija o'zgarmasligi testlar bilan tekshiriladi |
 | 3 | Ma'lumotni to'ldirish (Meta) | Noyob kliklar davr bo'yicha o'qiladi; pixel `Purchase` soni va summasi olinadi. Migratsiya, 90 kunni qayta o'qish |
 | 4 | Ma'lumotni to'ldirish (CRM) | Sifatli lid va CRM sotuvlari guruh va reklama darajasida |
 | 5 | Reklama bo'limi API'si (Expert) | 3 daraja tayyor qiymatlar bilan; Jami qatori, ustunlar katalogi, ustun tanlovini saqlash, "–" sababi, yangilanish vaqti, attribution oynasi |
@@ -74,3 +74,6 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
 ## Bosqichlar holati
 
 - **1-bosqich (2026-11-05):** `core/metrics/catalogue/` (umumiy — `common.py`, Meta — `meta.py`, tuzilma — `spec.py`), bo'lish amallari `core/metrics/arithmetic.py`. Testlar: `tests/core/metrics/test_catalogue.py`. Eski hisoblar hali ko'chirilmagan (2-bosqich). "Natija" sotuv maqsadli (pixel `Purchase`) kampaniyalarda hozircha `uncounted` — 3-bosqichda pixel sotuvlari bilan to'ldiriladi.
+- **2-bosqich (2026-11-05):** har metrikaning formulasi `core/metrics/formulas.py` da, bo'lish va yaxlitlash `core/metrics/arithmetic.py` da. Ularga ulandi: `core/metrics` (Totals, PanelTotals, engagement, derive, segment_compare), kabinet selectorlari, chat hisobotlari, office, Google va ChatGPT qatorlari, AI agent. Natija maydoni va 1000 ga narx (`field`, `per`) `formulas.RESULT_OF` dan olinadi. `tests/core/metrics/test_one_place.py` boshqa joyda yozilgan formulani topsa yiqiladi (eski kodda 52 ta topgan). Qoida chegaralari (byudjet ulushi va h.k.), billing va sotuv menejerlari foizlari metrika emas, o'z joyida qoldi.
+  - Testlar: 4898 ta, bazali testlar bilan birga, hammasi o'tdi.
+  - Farqlar: foizlar endi yarimni yuqoriga yaxlitlaydi (2.5 → 3, avval 2). Sarf 0 bo'lgan qatorda CPM, CPC va natija narxi 0 emas, `–` chiqadi. Office va ChatGPT'dagi CPM va CPC endi pastga kesilmaydi, yaxlitlanadi.
