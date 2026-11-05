@@ -12,7 +12,6 @@ from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from adskit import MinorUnits
 from metaads.writing import is_dry_run_id
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -35,7 +34,7 @@ from app.modules.metrics.selectors.results import (
     screen_kind,
     words_for,
 )
-from core.metrics import cost_per
+from core.metrics import formulas
 
 PERIODS: tuple[tuple[str, str], ...] = (
     ("today", "Bugun"),
@@ -226,7 +225,7 @@ def _row(
         currency=launch.currency,
         results=count,
         result_word=str(text.one) if text.field else "",
-        result_cost_minor=cost_per(MinorUnits(spend * text.per), count),
+        result_cost_minor=formulas.cost_per_result(spend, count, per=text.per),
         result_cost_label=str(text.cost_label),
         note=note,
         campaign_name=str(meta.name) if meta is not None else launch.campaign_name,
@@ -287,7 +286,7 @@ def _one_currency(currency: str, rows: list[AdRow]) -> CurrencySummary:
         ctr_percent=figures.ctr_percent,
         cpm_minor=figures.cpm_minor,
         cpc_minor=figures.cpc_minor,
-        lead_cost_minor=cost_per(MinorUnits(figures.spend_minor), leads),
+        lead_cost_minor=formulas.cpl(figures.spend_minor, leads),
     )
 
 

@@ -19,6 +19,8 @@ from app.modules.chatgpt.constants import (
 )
 from app.modules.chatgpt.services import CampaignDetail, Created, Screen
 from app.modules.integrations.models import AdAccount
+from core.metrics import formulas
+from core.metrics.arithmetic import hundredths
 
 PROVIDER = "chatgpt"
 Pressable = Literal["campaign", "adset", "ad"]
@@ -249,12 +251,8 @@ def issues_of(codes: Any) -> list[Issue]:
 
 
 def figures_of(found: Totals, *, currency: str) -> Figures:
-    ctr = (
-        (Decimal(found.clicks) * 100 / found.impressions).quantize(Decimal("0.01"))
-        if found.impressions
-        else None
-    )
-    cpc = found.spend_minor // found.clicks if found.clicks else None
+    ctr = hundredths(formulas.ctr(found.clicks, found.impressions))
+    cpc = formulas.cpc(found.spend_minor, found.clicks)
     return Figures(
         spend=zero_or(found.spend_minor, currency, provider=PROVIDER),
         impressions=found.impressions,

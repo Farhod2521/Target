@@ -22,6 +22,7 @@ from app.modules.audit.constants import ActionStatus
 from app.modules.audit.models import ActionLog
 from app.modules.businesses.models import Business
 from app.modules.integrations.models import AdAccount
+from core.metrics import formulas
 
 PERIODS: Final[dict[str, int]] = {"today": 1, "7": 7, "30": 30}
 DEFAULT_PERIOD: Final = "7"
@@ -87,9 +88,7 @@ class Figures:
 
     @property
     def cost_per_result_minor(self) -> int | None:
-        if not self.results:
-            return None
-        return round(self.spend_minor / self.results)
+        return formulas.cost_per_result(self.spend_minor, self.results)
 
 
 @dataclass(frozen=True, slots=True)

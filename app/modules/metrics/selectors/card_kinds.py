@@ -1,10 +1,8 @@
 from typing import Any, Final
 
-from adskit import MinorUnits
-
 from app.modules.metrics.selectors.cards import TEXT, CardText, count_text, money_text
 from app.modules.metrics.selectors.results import ResultText, words_for
-from core.metrics import CardSpec, Outcome, cost_per
+from core.metrics import CardSpec, Outcome, formulas
 
 RESULT_KEYS: Final[frozenset[str]] = frozenset({"cpl", "leads"})
 
@@ -35,8 +33,8 @@ def _result_count(totals: Any, words: ResultText) -> int:
 
 
 def _result_cost(totals: Any, words: ResultText) -> int | None:
-    return cost_per(
-        MinorUnits(totals.spend_minor * words.per), _result_count(totals, words)
+    return formulas.cost_per_result(
+        totals.spend_minor, _result_count(totals, words), per=words.per
     )
 
 

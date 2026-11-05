@@ -1,13 +1,11 @@
 from dataclasses import dataclass, replace
 from typing import Any
 
-from adskit import MinorUnits
-
 from app.common.money import format_minor
 from app.modules.metrics.selectors.periods import CampaignMeta, money, screen_kind
 from app.modules.metrics.selectors.results import note_for, words_for
 from app.modules.metrics.selectors.shapes import OutcomeBlock
-from core.metrics import Movement, Outcome, Totals, cost_per, movement, share
+from core.metrics import Movement, Outcome, Totals, formulas, movement, share
 
 __all__ = ["outcomes"]
 SLICES: int = 5
@@ -169,7 +167,8 @@ def _block(
         cost=""
         if note
         else money(
-            cost_per(MinorUnits(tally.spend_minor * text.per), tally.count), currency
+            formulas.cost_per_result(tally.spend_minor, tally.count, per=text.per),
+            currency,
         ),
         spend=format_minor(amount_minor=tally.spend_minor, currency=currency),
         spend_minor=tally.spend_minor,

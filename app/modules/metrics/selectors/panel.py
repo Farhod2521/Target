@@ -22,7 +22,15 @@ from app.modules.metrics.selectors.cards import NO_ANSWER
 from app.modules.metrics.selectors.facts import cabinet_where, with_people_counts
 from app.modules.metrics.selectors.results import UNCOUNTED_LABEL, words_for
 from app.modules.metrics.selectors.shapes import AdChips, Chip, ChipRow
-from core.metrics import BY_KEY, ROW_KEYS, Outcome, PanelTotals, with_provider_leads
+from core.metrics import (
+    BY_KEY,
+    ROW_KEYS,
+    Outcome,
+    PanelTotals,
+    formulas,
+    with_provider_leads,
+)
+from core.metrics.arithmetic import hundredths
 
 M = MetricsDaily
 SUMS: Final[dict[str, Any]] = {
@@ -358,21 +366,16 @@ class FigureSums:
 
     @property
     def ctr_percent(self) -> str:
-        if not self.impressions:
-            return ""
-        return f"{self.clicks * 100 / self.impressions:.2f}"
+        found = hundredths(formulas.ctr(self.clicks, self.impressions))
+        return "" if found is None else str(found)
 
     @property
     def cpm_minor(self) -> int | None:
-        if not self.impressions:
-            return None
-        return self.spend_minor * 1000 // self.impressions
+        return formulas.cpm(self.spend_minor, self.impressions)
 
     @property
     def cpc_minor(self) -> int | None:
-        if not self.clicks:
-            return None
-        return self.spend_minor // self.clicks
+        return formulas.cpc(self.spend_minor, self.clicks)
 
     def plus(self, other: "FigureSums") -> "FigureSums":
         return FigureSums(

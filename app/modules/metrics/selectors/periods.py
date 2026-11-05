@@ -2,8 +2,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
-from adskit import MinorUnits
-
 from app.common.money import format_minor
 from app.modules.metrics.constants import TOP_CAMPAIGNS
 from app.modules.metrics.selectors import chart
@@ -22,8 +20,8 @@ from core.metrics import (
     DayFigures,
     Outcome,
     Totals,
-    cost_per,
     daily_rate,
+    formulas,
     funnel,
     movement,
     total,
@@ -228,12 +226,14 @@ def campaigns(
                 spend_minor=spend,
                 leads=count,
                 qualified=qualified,
-                cpl=money(cost_per(MinorUnits(spend), count), currency),
-                cpql=money(cost_per(MinorUnits(spend), qualified), currency),
+                cpl=money(formulas.cpl(spend, count), currency),
+                cpql=money(formulas.cpql(spend, qualified), currency),
                 note=meta.note or (OTHER_NOTE if uncounted else ""),
                 results=results,
                 result_label=result_label,
-                result_cost=money(cost_per(MinorUnits(spend * per), results), currency),
+                result_cost=money(
+                    formulas.cost_per_result(spend, results, per=per), currency
+                ),
                 result_cost_label=result_cost_label,
                 result_source=words_for(meta.kind).source_note if meta.result else "",
                 kind=kind,
@@ -317,7 +317,7 @@ def build(
         cpl=money(now.cpl_minor, currency),
         cpql=money(now.cpql_minor, currency),
         reported_leads=reported,
-        reported_cpl=money(cost_per(MinorUnits(reported_spend), reported), currency),
+        reported_cpl=money(formulas.cpl(reported_spend, reported), currency),
         quality_pct=now.quality_share,
         kpis=headline(now=now, before=total(before), currency=currency),
         outcomes=blocks,

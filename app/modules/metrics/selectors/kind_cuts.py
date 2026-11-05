@@ -1,8 +1,6 @@
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from adskit import MinorUnits
-
 from app.common.money import format_minor
 from app.modules.metrics.constants import BreakdownKind
 from app.modules.metrics.selectors.periods import CampaignMeta, screen_kind
@@ -14,7 +12,7 @@ from app.modules.metrics.selectors.shapes import (
     ShowingRow,
     SourceBar,
 )
-from core.metrics import cost_per, share
+from core.metrics import formulas, share
 
 CUT_TABS: dict[str, Any] = {
     BreakdownKind.AGE_GENDER: "Yosh",
@@ -121,5 +119,5 @@ def _showing(
 def _per_thousand(*, spend: int, shown: int, per: int, currency: str) -> str:
     if not per:
         return ""
-    cost = cost_per(MinorUnits(spend * per), shown)
+    cost = formulas.cost_per_result(spend, shown, per=per)
     return "" if cost is None else format_minor(amount_minor=cost, currency=currency)
