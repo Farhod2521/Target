@@ -55,6 +55,13 @@ def link_chat(
     db: Session, *, token: str, chat_id: str, username: str, now: datetime
 ) -> TelegramChat:
     owner = _spend(db, LINK_TOKEN_KEY, token, refused=LinkTokenInvalid)
+    return attach_chat(db, owner=owner, chat_id=chat_id, username=username, now=now)
+
+
+def attach_chat(
+    db: Session, *, owner: User, chat_id: str, username: str, now: datetime
+) -> TelegramChat:
+    """Tie ``chat_id`` to ``owner``'s cabinet, in place of any other chat of theirs."""
     existing = chat_by_id(db, chat_id=chat_id)
     if existing is not None and existing.is_active and existing.owner_id != owner.id:
         raise ChatTakenByAnother
@@ -241,6 +248,7 @@ def stop_staff_chat(db: Session, *, chat_id: str) -> StaffChat | None:
 
 
 __all__ = [
+    "attach_chat",
     "deactivate",
     "issue_link_token",
     "issue_staff_link_token",

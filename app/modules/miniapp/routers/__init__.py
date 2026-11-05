@@ -6,15 +6,15 @@ from typing import Any
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from app.api.deps import Db
+from app.api.deps import CurrentUser, Db
 from app.common import tokens
 from app.common.db import utcnow
 from app.common.routes import reverse
 from app.modules.accounts.services import note_sign_in
 from app.modules.miniapp.constants import BRIDGE_SCRIPT, NEXT_FIELD
 from app.modules.miniapp.exceptions import MiniAppRefused
-from app.modules.miniapp.schemas import AuthOut, EntryOut
-from app.modules.miniapp.services import authenticate
+from app.modules.miniapp.schemas import AuthOut, EntryOut, LinkOut
+from app.modules.miniapp.services import authenticate, link_launch
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/miniapp", tags=["miniapp"])
@@ -66,3 +66,12 @@ def auth(body: AuthIn, db: Db) -> dict[str, Any]:
         "token_type": "bearer",
         "in_telegram": True,
     }
+
+
+@router.post("/link", responses={200: {"model": LinkOut}})
+def link(body: AuthIn, db: Db, user: CurrentUser) -> dict[str, Any]:
+    """Tie the Telegram account this Mini App runs in to the signed-in cabinet:
+    after signing up or in inside Telegram, so «Kabinetga kirish» opens it."""
+    linked = link_launch(db, owner=user, init_data=body.init_data, now=utcnow())
+    db.commit()
+    return {"linked": linked}
