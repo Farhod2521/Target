@@ -13,6 +13,12 @@ SCHEDULE: Final = [
     Periodic(
         "Meta tokenlarini yangilash", f"{TASKS}.refresh_expiring_tokens", "17", "3"
     ),
+    # Off the half hours, where every account's sync is queued.
+    Periodic(
+        "Yaroqsiz Meta ulanishlarini qayta tekshirish",
+        f"{TASKS}.heal_connections_task",
+        "12",
+    ),
     Periodic("Auditoriyalarni sinxronlash", f"{TASKS}.sync_all_audiences", "44", "3"),
     Periodic(
         "Piksel hodisalarini sinxronlash", f"{TASKS}.sync_all_pixel_events", "8", "4"

@@ -201,7 +201,19 @@ def trouble_message(*, item: InboxItem, page: str = "") -> Message:
     return Message(text="\n".join(lines))
 
 
-def connection_message() -> Message:
+def connection_message(*, held: int = 0) -> Message:
+    waiting = (
+        [
+            escaped(
+                "Ulanish uzilganidan beri %(n)s ta yangi mijoz arizasi kutib "
+                "turibdi. Facebook'ni qayta ulasangiz, ular CRM va jadvalga "
+                "o'zi tushadi." % {"n": held}
+            ),
+            "",
+        ]
+        if held
+        else []
+    )
     return Message(
         text="\n".join(
             [
@@ -210,6 +222,27 @@ def connection_message() -> Message:
                 escaped(
                     "Yangi mijozlar ro'yxatga tushmayapti va sarf-xarajat raqamlari yangilanmayapti. Reklamangiz Facebook'da ishlashda davom etadi."
                 ),
+                "",
+                *waiting,
+                center_link(),
+            ]
+        )
+    )
+
+
+def reconnected_message(*, leads: int) -> Message:
+    caught_up = (
+        "Uzilish paytida kelgan %(n)s ta mijoz arizasi qayta o'qilmoqda - "
+        "bir necha daqiqada CRM va jadvalga tushadi." % {"n": leads}
+        if leads
+        else "Yangi mijozlar yana ro'yxatga tushadi."
+    )
+    return Message(
+        text="\n".join(
+            [
+                _bold("Facebook ulanishi qayta ishlayapti"),
+                "",
+                escaped(caught_up),
                 "",
                 center_link(),
             ]

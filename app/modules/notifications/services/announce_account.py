@@ -22,12 +22,14 @@ from app.modules.billing.models import Subscription
 from app.modules.businesses.selectors import business_timezone
 from app.modules.integrations.models import ProviderConnection
 from app.modules.integrations.selectors import ActionRequired
+from app.modules.leads.selectors import held_lead_count
 from app.modules.notifications.constants import MAX_TROUBLES_PER_SWEEP, NoticeKind
 from app.modules.notifications.keys import (
     action_required_subject,
     connection_subject,
     expiry_subject,
     lapse_subject,
+    reconnected_subject,
 )
 from app.modules.notifications.models import TelegramChat
 from app.modules.notifications.selectors import deadline_text
@@ -44,6 +46,7 @@ from app.modules.notifications.services.compose import (
     connection_message,
     expiry_message,
     miniapp_button,
+    reconnected_message,
     trouble_message,
 )
 from app.modules.notifications.services.compose_lapse import (
@@ -181,7 +184,33 @@ def announce_connection(
             subject=connection_subject(
                 connection_id=connection.id, status=connection.status, now=now
             ),
-            text=connection_message().text,
+            text=connection_message(
+                held=held_lead_count(db, owner_id=connection.owner_id, now=now)
+            ).text,
+            now=now,
+        )
+    return bool(told)
+
+
+def announce_reconnected(
+    db: Session,
+    *,
+    client: BotClient,
+    chat: TelegramChat,
+    connection: ProviderConnection,
+    leads: int,
+    now: datetime,
+) -> bool:
+    """The connection the owner was told is down works again, and the leads
+    it held are on their way."""
+    with override(chat.owner.language):
+        told = tell(
+            db,
+            client=client,
+            chat=chat,
+            kind=NoticeKind.CONNECTION,
+            subject=reconnected_subject(connection_id=connection.id, now=now),
+            text=reconnected_message(leads=leads).text,
             now=now,
         )
     return bool(told)
@@ -265,5 +294,6 @@ __all__ = [
     "announce_connection",
     "announce_expiry",
     "announce_lapse",
+    "announce_reconnected",
     "announce_troubles",
 ]

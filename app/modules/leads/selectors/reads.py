@@ -32,6 +32,7 @@ from app.modules.integrations.models import (
     ProviderConnection,
 )
 from app.modules.leads.constants import (
+    DISCONNECTED,
     EXPORT_ANSWER_COLUMNS,
     EXPORT_LIMIT,
     FAILED_RETRY_ATTEMPTS,
@@ -338,6 +339,46 @@ def retryable_deliveries(db: Session, *, now: datetime) -> list[RawLeadEvent]:
             .order_by(RawLeadEvent.created_at)
             .limit(FAILED_RETRY_BATCH)
         )
+    )
+
+
+def held_deliveries(
+    db: Session, *, owner_id: uuid.UUID, now: datetime
+) -> list[RawLeadEvent]:
+    """An owner's deliveries that failed past the retry sweep's window but
+    that Meta still keeps: what a connection back at work reads again. The
+    sweep reads the newer ones itself."""
+    return list(
+        db.scalars(
+            select(RawLeadEvent)
+            .where(
+                RawLeadEvent.owner_id == owner_id,
+                RawLeadEvent.status == RawEventStatus.FAILED,
+                RawLeadEvent.signature_valid.is_(True),
+                RawLeadEvent.leadgen_external_id != "",
+                RawLeadEvent.created_at >= now - timedelta(days=LEAD_RETENTION_DAYS),
+                RawLeadEvent.created_at
+                < now - timedelta(hours=FAILED_RETRY_WINDOW_HOURS),
+            )
+            .order_by(RawLeadEvent.created_at)
+        )
+    )
+
+
+def held_lead_count(db: Session, *, owner_id: uuid.UUID, now: datetime) -> int:
+    """New leads that arrived while the owner's connection was down and that
+    Meta still keeps: what reconnecting brings back."""
+    return int(
+        db.scalar(
+            select(func.count(RawLeadEvent.id)).where(
+                RawLeadEvent.owner_id == owner_id,
+                RawLeadEvent.status == RawEventStatus.FAILED,
+                RawLeadEvent.error_code == DISCONNECTED,
+                RawLeadEvent.signature_valid.is_(True),
+                RawLeadEvent.created_at >= now - timedelta(days=LEAD_RETENTION_DAYS),
+            )
+        )
+        or 0
     )
 
 

@@ -146,7 +146,7 @@ def deliver_support_reply_task(owner_id: str, subject: str) -> bool:
         return sent
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_notices_task() -> int:
     """Every quarter hour: what every linked phone is owed."""
     from app.modules.notifications.services.sweep import deliver_notices
@@ -157,7 +157,41 @@ def deliver_notices_task() -> int:
         return sent
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
+def deliver_reconnected_task(connection_id: str, leads: int) -> bool:
+    """Tell the linked phone a connection that was down works again."""
+    import uuid
+
+    from app.modules.integrations.models import ProviderConnection
+    from app.modules.notifications.bot import (
+        bot,
+        is_configured,
+        sends_mandatory_notices,
+    )
+    from app.modules.notifications.selectors import chat_for
+    from app.modules.notifications.services.announce_account import (
+        announce_reconnected,
+    )
+
+    if not is_configured() or not sends_mandatory_notices():
+        return False
+    with task_session() as db:
+        connection = db.get(ProviderConnection, uuid.UUID(connection_id))
+        chat = chat_for(db, owner=connection.owner) if connection else None
+        if connection is None or chat is None:
+            return False
+        with bot() as client:
+            return announce_reconnected(
+                db,
+                client=client,
+                chat=chat,
+                connection=connection,
+                leads=leads,
+                now=utcnow(),
+            )
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_trouble_notices_task() -> int:
     """Hourly: the cabinet's troubles, to the owners whose morning it is."""
     from app.modules.notifications.services.sweep import deliver_troubles
@@ -168,7 +202,7 @@ def deliver_trouble_notices_task() -> int:
         return sent
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_expiry_notices_task() -> int:
     """Once a day: warn the accounts whose subscriptions are running out."""
     from app.modules.notifications.services.sweep import deliver_expiry_notices
@@ -179,7 +213,7 @@ def deliver_expiry_notices_task() -> int:
         return sent
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_lapse_notices_task() -> int:
     """Every quarter hour: the adverts an ended subscription stopped, and the
     day before they are removed."""
@@ -191,7 +225,7 @@ def deliver_lapse_notices_task() -> int:
         return sent
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_daily_reports_task() -> str:
     """Every hour: hand the owners whose finished day is ready to their own
     task, so one account whose figures raise does not take the rest down."""
@@ -211,7 +245,7 @@ def deliver_daily_reports_task() -> str:
     return f"queued:{len(owners)}:finished:{len(unfinished)}"
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_daily_report_task(owner_id: str) -> str:
     """One account's finished day. The journal holds one list per day."""
     from app.modules.notifications.services.announce_reports import (
@@ -226,7 +260,7 @@ def deliver_daily_report_task(owner_id: str) -> str:
         return "sent" if sent else "quiet"
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
 def finish_daily_report_task(owner_id: str) -> str:
     """Put the finished figures into a message sent without them."""
     from app.modules.notifications.services.announce_reports import (
@@ -241,7 +275,7 @@ def finish_daily_report_task(owner_id: str) -> str:
         return "edited" if edited else "quiet"
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_weekly_reports_task() -> str:
     """Every hour: the owners whose Monday morning it is, a task each."""
     from app.modules.notifications.services.announce_reports import (
@@ -260,7 +294,7 @@ def deliver_weekly_reports_task() -> str:
     return f"queued:{len(owners)}:finished:{len(unfinished)}"
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_report_task(owner_id: str) -> str:
     """One account's completed week."""
     from app.modules.notifications.services.announce_reports import deliver_report_for
@@ -272,7 +306,7 @@ def deliver_report_task(owner_id: str) -> str:
         return "sent" if deliver_report_for(db, owner=owner, now=utcnow()) else "quiet"
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
 def finish_weekly_report_task(owner_id: str) -> str:
     """Put the finished figures into the week's message."""
     from app.modules.notifications.services.announce_reports import (
@@ -287,7 +321,7 @@ def finish_weekly_report_task(owner_id: str) -> str:
         return "edited" if edited else "quiet"
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_frequency_task(owner_id: str) -> str:
     """One owner's new frequency levels, once the agent has written them."""
     from app.modules.notifications.services.announce_frequency import (
@@ -315,7 +349,7 @@ def answer_for_telegram(turn_id: str, chat_id: str, reply_to: int) -> str:
         )
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_surveys_task() -> str:
     """Every hour: the linked owners inside the asking hours, a task each."""
     from app.modules.notifications.services.announce_survey import survey_audience

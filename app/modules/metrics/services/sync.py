@@ -30,10 +30,6 @@ from app.modules.ads.exceptions import (
     SyncFailed,
 )
 from app.modules.ads.services.access import token_for
-from app.modules.integrations.constants import (
-    USABLE_CONNECTION_STATUSES,
-    ConnectionStatus,
-)
 from app.modules.integrations.models import AdAccount
 from app.modules.metrics.constants import (
     BACKFILL_DAYS,
@@ -82,30 +78,17 @@ def refusal_is_the_accounts(
     db: Session, ad_account: AdAccount, *, exc: PermissionDenied
 ) -> bool:
     """A refusal with a token Meta still calls valid lost one account, not the login."""
-    from app.modules.integrations.services import mark_unusable, verify_connection
+    from app.modules.integrations.services import login_refused
 
-    connection = ad_account.connection
-    if verify_connection(db, connection=connection):
-        return True
-    db.refresh(connection, attribute_names=["status"])
-    if connection.status in USABLE_CONNECTION_STATUSES:
-        mark_unusable(
-            db, connection=connection, status=ConnectionStatus.INVALID, code=exc.code
-        )
-        db.commit()
-    return False
+    return not login_refused(db, connection=ad_account.connection, code=exc.code)
 
 
-def _mark_invalid(db: Session, ad_account: AdAccount, exc: AuthFailed) -> None:
-    from app.modules.integrations.services import mark_unusable
+def login_is_gone(db: Session, ad_account: AdAccount, exc: AuthFailed) -> bool:
+    """A token refusal takes the connection down only when Meta's own check
+    of the token agrees; else it is this one read's failure."""
+    from app.modules.integrations.services import login_refused
 
-    mark_unusable(
-        db,
-        connection=ad_account.connection,
-        status=ConnectionStatus.INVALID,
-        code=exc.code,
-    )
-    db.commit()
+    return login_refused(db, connection=ad_account.connection, code=exc.code)
 
 
 @contextmanager
@@ -115,8 +98,15 @@ def provider_failures(
     try:
         yield
     except AuthFailed as exc:
-        _mark_invalid(db, ad_account, exc)
-        raise ConnectionUnusable from exc
+        if login_is_gone(db, ad_account, exc):
+            raise ConnectionUnusable from exc
+        logger.warning(
+            "metrics for %s at %s: token refused, but Meta calls it valid: %s",
+            ad_account.external_id,
+            doing,
+            exc,
+        )
+        raise SyncFailed(cause=PROVIDER_ERROR) from exc
     except PermissionDenied as exc:
         if refusal_is_the_accounts(db, ad_account, exc=exc):
             logger.warning(
@@ -166,8 +156,14 @@ def watched_account_failures(
     try:
         yield
     except AuthFailed as exc:
-        _mark_invalid(db, ad_account, exc)
-        raise ConnectionUnusable from exc
+        if login_is_gone(db, ad_account, exc):
+            raise ConnectionUnusable from exc
+        logger.warning(
+            "the watched account %s: token refused, but Meta calls it valid: %s",
+            ad_account.external_id,
+            exc,
+        )
+        raise SyncFailed(cause=PROVIDER_ERROR) from exc
     except PermissionDenied as exc:
         logger.info(
             "no longer allowed to read the watched account %s: %s",

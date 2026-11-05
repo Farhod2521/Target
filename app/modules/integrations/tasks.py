@@ -18,6 +18,7 @@ from app.modules.integrations.selectors import accounts_holding_audiences
 from app.modules.integrations.services import (
     discover_all_lead_accounts,
     discover_lead_accounts,
+    heal_connections,
     learn_instagram_grant,
     refresh_connection,
     report_stale_mirror,
@@ -67,6 +68,28 @@ def refresh_expiring_tokens() -> int:
         )
     logger.info("token refresh: %s of %s connections renewed", refreshed, len(due))
     return refreshed
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def heal_connections_task() -> int:
+    """Hourly: connections Meta calls valid again back at work, the leads they
+    held read again, and the owner told."""
+    from app.modules.leads.selectors import held_lead_count
+    from app.modules.leads.services import reread_held_leads
+    from app.modules.notifications.tasks import deliver_reconnected_task
+
+    told: list[tuple[str, int]] = []
+    with task_session() as db:
+        healed = heal_connections(db)
+        for connection in healed:
+            now = utcnow()
+            held = held_lead_count(db, owner_id=connection.owner_id, now=now)
+            reread_held_leads(db, owner_id=connection.owner_id, now=now)
+            told.append((str(connection.id), held))
+        db.commit()
+    for connection_id, held in told:
+        deliver_reconnected_task.delay(connection_id, held)
+    return len(healed)
 
 
 @celery_app.task(queue="sync", ignore_result=True)

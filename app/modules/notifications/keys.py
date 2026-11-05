@@ -106,6 +106,10 @@ def connection_subject(*, connection_id: Any, status: str, now: datetime) -> str
     return f"{connection_id}:{status}:{now.strftime('%Y-%m-%d')}"
 
 
+def reconnected_subject(*, connection_id: Any, now: datetime) -> str:
+    return f"{connection_id}:works:{now.strftime('%Y-%m-%dT%H')}"
+
+
 def action_required_subject(*, connection_id: Any, since: datetime) -> str:
     return f"{connection_id}:hold:{since.isoformat()}"
 
@@ -284,6 +288,7 @@ __all__ = [
     "read_reply_press",
     "read_support_press",
     "read_survey_press",
+    "reconnected_subject",
     "rejection_subject",
     "reply_press_data",
     "suggestion_subject",

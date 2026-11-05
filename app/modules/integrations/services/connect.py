@@ -3,7 +3,7 @@
 import logging
 import secrets
 from datetime import timedelta
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from adskit import GrantDTO, ProviderError, registry
 from googleadskit import PROVIDER as GOOGLE
@@ -421,12 +421,58 @@ def refresh_connection(
 
 
 def verify_connection(db: Session, *, connection: ProviderConnection) -> bool:
+    return _judge(db, connection) == "alive"
+
+
+def login_refused(db: Session, *, connection: ProviderConnection, code: str) -> bool:
+    """A call was refused as if the login were gone. Meta's own check of the
+    token decides: one refused call - a page's token, one account, a moment's
+    checkpoint - never again takes the whole connection down while the token
+    still works. True when the connection is unusable now."""
+    verdict = _judge(db, connection)
+    if verdict == "unknown":
+        logger.warning(
+            "connection %s refused (%s), and Meta could not say why",
+            connection.id,
+            code,
+        )
+    return verdict == "dead"
+
+
+def heal_connections(db: Session) -> list[ProviderConnection]:
+    """Meta connections marked unusable whose token Meta calls valid again -
+    a checkpoint passed, a refusal that was never the login's - put back to
+    work. A token taken away on purpose is never asked about."""
+    healed = []
+    for connection in db.scalars(
+        select(ProviderConnection).where(
+            ProviderConnection.provider == PROVIDER,
+            ProviderConnection.status.not_in(USABLE_CONNECTION_STATUSES),
+            ProviderConnection.token_encrypted != NO_TOKEN,
+            ProviderConnection.last_error_code != "decrypt",
+        )
+    ).all():
+        if _judge(db, connection) != "alive":
+            continue
+        connection.status = ConnectionStatus.ACTIVE
+        connection.last_error_code = ""
+        db.commit()
+        logger.info("connection %s works again", connection.id)
+        healed.append(connection)
+    return healed
+
+
+def _judge(
+    db: Session, connection: ProviderConnection
+) -> Literal["alive", "dead", "unknown"]:
+    """Ask Meta about the stored token. Dead marks the connection with Meta's
+    own reason; unknown - Meta not reached - changes nothing."""
     try:
         token = decrypt(connection.token_encrypted)
     except DecryptionFailed:
         logger.exception("connection %s could not be decrypted", connection.id)
         _mark(db, connection, ConnectionStatus.INVALID, code="decrypt")
-        return False
+        return "dead"
     try:
         info = inspect_token(
             app_id=settings.meta_app_id,
@@ -435,7 +481,7 @@ def verify_connection(db: Session, *, connection: ProviderConnection) -> bool:
         )
     except MetaError as exc:
         logger.warning("connection %s could not be verified: %s", connection.id, exc)
-        return False
+        return "unknown"
     if not info.is_valid:
         status = (
             _status_from_codes(code=info.error_code, subcode=info.error_subcode)
@@ -443,7 +489,7 @@ def verify_connection(db: Session, *, connection: ProviderConnection) -> bool:
             else ConnectionStatus.REVOKED
         )
         _mark(db, connection, status, code=str(info.error_code or ""))
-        return False
+        return "dead"
     connection.scopes = list(info.scopes)
     connection.expires_at = info.expires_at
     connection.last_verified_at = utcnow()
@@ -453,7 +499,7 @@ def verify_connection(db: Session, *, connection: ProviderConnection) -> bool:
             connection.external_user_id = ""
     db.commit()
     _learn_name(db, connection, token=token)
-    return True
+    return "alive"
 
 
 def _learn_name(db: Session, connection: ProviderConnection, *, token: str) -> None:

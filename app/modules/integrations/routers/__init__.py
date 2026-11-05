@@ -330,6 +330,8 @@ def connections(
 
 @router.get("/cabinet", response_model=CabinetOut)
 def cabinet(db: Db, user: CurrentUser) -> CabinetOut:
+    from app.modules.leads.selectors import held_lead_count
+
     billing = _billing()
     shown = selectors.enabled_pages(db, owner=user)
     paired = selectors.page_pairs(db, owner=user, pages=shown) if shown else []
@@ -362,6 +364,9 @@ def cabinet(db: Db, user: CurrentUser) -> CabinetOut:
         google_ads_nav=selectors.google_ads_on(user=user),
         pair_prompt=_payer(prompt) if prompt else None,
         meta_connection_broken=ConnectionOut.model_validate(broken) if broken else None,
+        meta_held_leads=(
+            held_lead_count(db, owner_id=user.id, now=utcnow()) if broken else 0
+        ),
         meta_action_required=ActionRequiredOut(**asdict(action)) if action else None,
     )
 

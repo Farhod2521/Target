@@ -243,7 +243,7 @@ def mirror_age(db: Session, *, now: datetime) -> MirrorAge:
     )
     named = [(account.id, account.external_id) for account in stale[:STALE_SAMPLE]]
     said = last_sync_outcomes(
-        db, sweep=MIRROR_SWEEP, ad_account_ids=[str(pk) for pk, _ in named]
+        sweep=MIRROR_SWEEP, ad_account_ids=[str(pk) for pk, _ in named]
     )
     return MirrorAge(
         stale=len(stale),

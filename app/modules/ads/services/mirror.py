@@ -563,17 +563,16 @@ def read_everything(
             raise SyncFailed from exc
         raise ConnectionUnusable from exc
     except AuthFailed as exc:
-        from app.modules.integrations.constants import ConnectionStatus
-        from app.modules.integrations.services import mark_unusable
+        from app.modules.metrics.services import login_is_gone
 
-        mark_unusable(
-            db,
-            connection=ad_account.connection,
-            status=ConnectionStatus.INVALID,
-            code=exc.code,
+        if login_is_gone(db, ad_account, exc):
+            raise ConnectionUnusable from exc
+        logger.warning(
+            "sync of %s: token refused, but Meta calls it valid: %s",
+            ad_account.external_id,
+            exc,
         )
-        db.commit()
-        raise ConnectionUnusable from exc
+        raise SyncFailed from exc
     except ResultTruncated as exc:
         logger.error(
             "sync of %s truncated after %s pages (%s rows)",

@@ -193,6 +193,8 @@ class CabinetOut(BaseModel):
     google_ads_nav: bool
     pair_prompt: PagePayerOut | None
     meta_connection_broken: ConnectionOut | None
+    # New leads held while the connection is down, read again once it works.
+    meta_held_leads: int = 0
     meta_action_required: ActionRequiredOut | None
 
 

@@ -34,11 +34,11 @@ from app.modules.audit.services import emit
 from app.modules.integrations.constants import (
     NIGHT_LEADS_HOUR,
     USABLE_CONNECTION_STATUSES,
-    ConnectionStatus,
 )
 from app.modules.integrations.models import PageAccount, ProviderConnection
 from app.modules.leads.constants import (
     ANONYMIZE_LIMIT,
+    DISCONNECTED,
     FAILED_RETRY_ATTEMPTS,
     FINAL_SWEEP_KEY,
     FINAL_SWEEP_TTL_SECONDS,
@@ -72,6 +72,7 @@ from app.modules.leads.exceptions import (
 from app.modules.leads.models import Lead, LeadForm, LeadOutcome, RawLeadEvent
 from app.modules.leads.selectors import (
     delivery_trouble,
+    held_deliveries,
     held_leadgen_ids,
     holder_of_advert,
     leads_matching_email,
@@ -107,7 +108,6 @@ PAGE_LEVEL: Final = "page"
 DATASET_LEVEL: Final = "dataset"
 CREATED: Final = "created"
 DUPLICATE: Final = "duplicate"
-DISCONNECTED: Final = "disconnected"
 UNPLACED: Final = "unplaced"
 RETENTION_REASON: Final = "retention"
 REFRESH_BUCKET: Final = "leads:forms"
@@ -260,7 +260,7 @@ def lead_page(
 
 
 def _process(db: Session, *, event: RawLeadEvent, trace: LeadTrace) -> str:
-    from app.modules.integrations.services import mark_unusable
+    from app.modules.integrations.services import login_refused
 
     if not accepted(event):
         _fail(event, code="unsigned", message="signature did not verify")
@@ -310,16 +310,16 @@ def _process(db: Session, *, event: RawLeadEvent, trace: LeadTrace) -> str:
         )
     except (AuthFailed, PermissionDenied) as exc:
         logger.warning("page %s was refused a lead: %s", page.external_id, exc)
-        trace.note(
-            "Meta tokenni rad etdi - ulanish «yaroqsiz» deb belgilandi. "
-            "Mijoz Meta'ni qayta ulamaguncha bu sahifadan lid kelmaydi."
-        )
-        mark_unusable(
-            db,
-            connection=page.connection,
-            status=ConnectionStatus.INVALID,
-            code=exc.code or "",
-        )
+        if login_refused(db, connection=page.connection, code=exc.code or ""):
+            trace.note(
+                "Meta tokenni rad etdi va tekshiruvda ham tasdiqladi - ulanish "
+                "yaroqsiz. Mijoz Meta'ni qayta ulamaguncha bu sahifadan lid kelmaydi."
+            )
+        else:
+            trace.note(
+                "Meta shu lidni rad etdi, lekin ulanish tokeni ishlayapti - "
+                "ulanish o'chirilmadi, lid keyinroq qayta o'qiladi."
+            )
         _fail(event, code=exc.code or "auth", message=str(exc), owner_id=page.owner_id)
         return "failed"
     except ProviderError as exc:
@@ -940,6 +940,25 @@ def recover_leads(db: Session, *, user: User, now: datetime) -> int:
     return queued
 
 
+def reread_held_leads(db: Session, *, owner_id: uuid.UUID, now: datetime) -> int:
+    """A connection works again: the leads held while it was down, read again.
+    On ``sync``, among the other catching-up, so that a backlog of days never
+    stands in front of the bot. Committed by the caller."""
+    from app.modules.leads.tasks import import_lead_task
+
+    events = held_deliveries(db, owner_id=owner_id, now=now)
+    for event in events:
+        on_commit(
+            db,
+            lambda key=str(event.id): import_lead_task.apply_async(
+                args=[key], queue="sync"
+            ),
+        )
+    if events:
+        logger.info("%s held deliveries of %s read again", len(events), owner_id)
+    return len(events)
+
+
 def report_orphan_deliveries(db: Session, *, now: datetime) -> int:
     pages = orphan_pages(db, since=now - timedelta(hours=ORPHAN_REPORT_HOURS))
     if not pages:
@@ -1158,6 +1177,7 @@ __all__ = [
     "report_orphan_deliveries",
     "report_unimported_deliveries",
     "request_forms_refresh",
+    "reread_held_leads",
     "retry_deliveries",
     "retry_failed_deliveries",
     "store_lead",
