@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
+from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.exceptions import NothingToRevert
 from app.modules.ads.services.additions import plan_new_ad, plan_new_group
 from app.modules.ads.services.manage import (
@@ -34,6 +35,7 @@ from app.modules.ads.services.manage import (
     parse_datetime,
     plan_budget,
     plan_end_time,
+    plan_places,
     plan_spend_cap,
     plan_status,
     plan_targeting,
@@ -66,10 +68,11 @@ class Budget:
 
 @dataclass(frozen=True, slots=True)
 class EndTime:
-    """An ad group's last day."""
+    """An ad group's last day, or a Google campaign's."""
 
     external_id: str
     end_time: datetime
+    level: str = ManagedLevel.ADSET
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +90,14 @@ class Audience:
     external_id: str
     targeting: Mapping[str, Any] = field(default_factory=dict)
     step: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Places:
+    """Where a Google campaign shows, replaced whole."""
+
+    external_id: str
+    places: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +151,7 @@ Ask = (
     | EndTime
     | SpendCap
     | Audience
+    | Places
     | NewAdvert
     | NewGroup
     | NewAd
@@ -181,7 +193,11 @@ SPECS: dict[type, Spec] = {
     EndTime: Spec(
         "end_time",
         lambda db, user, ask, _origin: plan_end_time(
-            db, user=user, external_id=ask.external_id, end_time=ask.end_time
+            db,
+            user=user,
+            external_id=ask.external_id,
+            end_time=ask.end_time,
+            level=ask.level,
         ),
     ),
     SpendCap: Spec(
@@ -202,6 +218,12 @@ SPECS: dict[type, Spec] = {
             targeting=ask.targeting,
             step=ask.step,
             origin=origin,
+        ),
+    ),
+    Places: Spec(
+        "places",
+        lambda db, user, ask, _origin: plan_places(
+            db, user=user, external_id=ask.external_id, places=ask.places
         ),
     ),
     NewAdvert: Spec(
@@ -358,10 +380,16 @@ def undoing(original: ActionLog) -> Ask | None:
         spec = previous.get("targeting")
         if not isinstance(spec, dict) or not spec:
             return None
+        if level == ManagedLevel.CAMPAIGN:
+            return Places(
+                external_id=external_id, places=tuple(spec.get("places") or ())
+            )
         return Audience(external_id=external_id, targeting=spec)
     if original.action == ActionType.END_TIME_SET:
         stamp = parse_datetime(str(previous.get("end_time") or ""))
-        return EndTime(external_id=external_id, end_time=stamp) if stamp else None
+        if stamp is None:
+            return None
+        return EndTime(external_id=external_id, end_time=stamp, level=level)
     if original.action == ActionType.SPEND_CAP_SET:
         ceiling = previous.get("spend_cap_minor")
         if ceiling is None:

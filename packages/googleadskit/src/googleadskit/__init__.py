@@ -15,7 +15,7 @@ from typing import Final
 from adskit.refs import ProviderName
 
 from googleadskit.accounts import describe_customer, list_accounts, list_customer_ids
-from googleadskit.client import API_VERSION, AdsClient
+from googleadskit.client import API_VERSION, AdsClient, ManagerToken
 from googleadskit.dto import CustomerDTO
 from googleadskit.errors import (
     GoogleAdsAPIError,
@@ -51,6 +51,7 @@ __all__ = [
     "GoogleAdsUnreachable",
     "KeywordSpec",
     "KeywordVolumeDTO",
+    "ManagerToken",
     "SearchCampaignSpec",
     "country_target",
     "create_search_campaign",

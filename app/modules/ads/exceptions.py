@@ -785,6 +785,26 @@ class GoogleLaunchNotReady(DomainError):
         super().__init__("Reklama hali tayyor emas. Bir oz kuting.")
 
 
+class GoogleNoPaymentMethod(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Google Ads akkauntingizga to'lov usuli qo'shilmagan. Google Ads'ning "
+            "to'lov sahifasida karta qo'shing, so'ng qayta bosing."
+        )
+
+
+class GooglePlacesUnread(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Google'dan joylarni o'qib bo'lmadi. Birozdan keyin qayta urinib ko'ring."
+        )
+
+
+class GoogleEndDatePast(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Tugash sanasi bugundan oldin bo'lmasin.")
+
+
 class FormVariantNotReady(DomainError):
     def __init__(self) -> None:
         super().__init__(

@@ -24,6 +24,7 @@ class AdAccount(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True, default="")
     external_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True, default="")
+    login_customer_id: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
     connection_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("provider_connections.id", ondelete="RESTRICT"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     business_external_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")

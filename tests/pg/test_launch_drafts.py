@@ -386,6 +386,9 @@ def test_the_google_wizard_through_the_same_draft(
 ) -> None:
     auth, user = _ready(client, db)
     _account, launch = _google(db, monkeypatch, user)
+    monkeypatch.setattr(
+        "app.modules.ads.services.stops.read_account_state", lambda _account: None
+    )
     path = f"/api/v1/launch/drafts/{launch.id}"
     first = client.get(path, headers=auth)
     assert first.status_code == 200, first.text

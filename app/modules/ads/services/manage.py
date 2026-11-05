@@ -13,7 +13,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any, Final
 
-from adskit import ExternalRef
+from adskit import ExternalRef, ProviderName, registry
 from adskit.dto import ActionResult, StatusDTO
 from adskit.errors import PermissionDenied, ProviderError
 from sqlalchemy import func, select, update
@@ -651,13 +651,18 @@ def status_gate(
 
 
 def plan_end_time(
-    db: Session, *, user: User, external_id: str, end_time: datetime
+    db: Session,
+    *,
+    user: User,
+    external_id: str,
+    end_time: datetime,
+    level: str = ManagedLevel.ADSET,
 ) -> Planned:
     _live(db, user)
     target = target_for(
         db,
         user=user,
-        level=ManagedLevel.ADSET,
+        level=level,
         external_id=external_id,
         aspect=END_TIME,
     )
@@ -667,7 +672,7 @@ def plan_end_time(
     previous = getattr(target, "end_time", None)
     return Planned(
         target=target,
-        level=ManagedLevel.ADSET,
+        level=level,
         external_id=external_id,
         action=ActionType.END_TIME_SET,
         requested={"end_time": end_time.isoformat()},
@@ -746,6 +751,51 @@ def plan_targeting(
         action=ActionType.TARGETING_SWAP,
         requested={"targeting": dict(targeting), "step": step},
         previous=state_payload(target) | {"targeting": previous},
+    )
+
+
+def plan_places(
+    db: Session, *, user: User, external_id: str, places: Sequence[str]
+) -> Planned:
+    """Where a Google campaign shows: Google keeps it on the campaign, not a group."""
+    from app.modules.ads.services.access import target_account_and_token
+
+    _live(db, user)
+    if not places:
+        raise ChangeRefused
+    target = target_for(
+        db,
+        user=user,
+        level=ManagedLevel.CAMPAIGN,
+        external_id=external_id,
+        aspect=TARGETING,
+    )
+    verdict = check_limit_change(state=state_of(target))
+    if not verdict.allowed:
+        raise {REFUSED_FINISHED: CampaignFinished}.get(verdict.reason, ChangeRefused)()
+    _account, token = target_account_and_token(
+        target=target, level=ManagedLevel.CAMPAIGN
+    )
+    ref = ExternalRef(
+        provider=ProviderName(target.provider),
+        level=ManagedLevel.CAMPAIGN,
+        id=external_id,
+    )
+    try:
+        held = registry.get(target.provider).audiences.read_targeting(
+            ref=ref, token=token
+        )
+    except ProviderError as exc:
+        logger.info("could not read the places of %s: %s", external_id, exc)
+        raise ChangeRefused from exc
+    return Planned(
+        target=target,
+        level=ManagedLevel.CAMPAIGN,
+        external_id=external_id,
+        action=ActionType.TARGETING_SWAP,
+        requested={"targeting": {"places": list(places)}, "step": ""},
+        previous=state_payload(target)
+        | {"targeting": {"places": list(held.get("places") or [])}},
     )
 
 

@@ -30,6 +30,8 @@ class CustomerDTO(BaseModel):
     is_test: bool = False
     # ENABLED, CANCELED, SUSPENDED, CLOSED - Google's own word.
     status: str = ""
+    # The manager this account is reached through; empty when reached directly.
+    login_customer_id: str = ""
 
     @property
     def display_id(self) -> str:

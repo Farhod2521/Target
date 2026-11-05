@@ -33,7 +33,7 @@ def bundle(
         campaigns=GoogleCampaigns(rehearse_writes=rehearse_writes),
         metrics=GoogleMetrics(),
         leads=Unavailable(provider=_PROVIDER, port="leads"),
-        audiences=GoogleAudiences(),
+        audiences=GoogleAudiences(rehearse_writes=rehearse_writes),
         audience_sources=Unavailable(provider=_PROVIDER, port="audience sources"),
         conversions=Unavailable(provider=_PROVIDER, port="conversions"),
         connect=GoogleConnect(client_id=client_id, client_secret=client_secret),

@@ -42,6 +42,22 @@ _MESSAGE_MAX_CHARS: Final = 300
 _FAILURE_TYPE: Final = "GoogleAdsFailure"
 
 
+class ManagerToken(str):
+    """An access token for an account reached through a manager.
+
+    The ports carry a bare token, so the manager's id travels on it: whoever
+    was handed one need not know the account sits under a manager, and every
+    :class:`AdsClient` made with it sends ``login-customer-id``.
+    """
+
+    login_customer_id: str
+
+    def __new__(cls, token: str, *, login_customer_id: str) -> Self:
+        made = super().__new__(cls, token)
+        made.login_customer_id = login_customer_id
+        return made
+
+
 class AdsClient:
     """One person's access to Google Ads for the length of a ``with`` block.
 
@@ -58,7 +74,9 @@ class AdsClient:
         http: httpx.Client | None = None,
     ) -> None:
         self._token = token
-        self._login_customer_id = login_customer_id
+        self._login_customer_id = login_customer_id or getattr(
+            token, "login_customer_id", ""
+        )
         self._owned = http is None
         self._http = http or httpx.Client(
             timeout=httpx.Timeout(
@@ -87,6 +105,14 @@ class AdsClient:
     def __repr__(self) -> str:
         # The token stays out of every repr, as it stays out of every log.
         return f"AdsClient(login_customer_id={self._login_customer_id!r})"
+
+    def through(self, login_customer_id: str) -> "AdsClient":
+        """The same person and connection, reaching in through this manager."""
+        return AdsClient(
+            token=self._token,
+            login_customer_id=login_customer_id,
+            http=self._http,
+        )
 
     def get(self, path: str) -> dict[str, Any]:
         return self._call("GET", path)
@@ -198,4 +224,4 @@ def _retry_delay(entry: object) -> int:
         return 0
 
 
-__all__ = ["API_VERSION", "BASE_URL", "AdsClient"]
+__all__ = ["API_VERSION", "BASE_URL", "AdsClient", "ManagerToken"]

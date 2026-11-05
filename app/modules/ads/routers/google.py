@@ -2,8 +2,9 @@
 
 Everything here is not found for an owner Google Ads is not switched on
 for, except the screen, which answers ``null``. ``/screen`` lists one
-account's campaigns for a period in the cabinet's shape; a press
-(``/switch``, ``/budget``, ``/delete``, ``/refresh``, ``/account``) is queued
+account's campaigns for a period in the cabinet's shape; a press (``/switch``,
+``/budget``, ``/end-date``, ``/places``, ``/delete``, ``/refresh``, ``/account``)
+is queued
 and answers a sentence, and the screen read again shows where it got to.
 
 The wizard is three steps on one preparation: answers (goal, site, phone,
@@ -12,6 +13,7 @@ review with «Yaratish».
 """
 
 import uuid
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
@@ -28,11 +30,16 @@ from app.modules.ads import actions
 from app.modules.ads.constants import (
     GOOGLE_FAILURES,
     GOOGLE_GOAL_LABELS,
+    GOOGLE_PLACES_MAX,
     GoogleGoal,
     ManagedLevel,
 )
 from app.modules.ads.contract.google import GoogleScreenAnswer, screen_of
-from app.modules.ads.exceptions import GoogleBudgetRequired
+from app.modules.ads.exceptions import (
+    GoogleBudgetRequired,
+    GoogleEndDatePast,
+    GooglePlacesTooMany,
+)
 from app.modules.ads.models import GoogleLaunch
 from app.modules.ads.routers.launch_common import committed, encoded
 from app.modules.ads.selectors.audiences_chosen import area_options
@@ -69,6 +76,16 @@ class GoogleBudgetIn(Camel):
 
 class GoogleIdIn(Camel):
     id: str
+
+
+class GoogleEndDateIn(Camel):
+    id: str
+    end_date: date
+
+
+class GooglePlacesIn(Camel):
+    id: str
+    places: list[str] = Field(min_length=1)
 
 
 class Said(Camel):
@@ -159,6 +176,54 @@ def budget(body: GoogleBudgetIn, db: Db, user: CurrentUser) -> Said:
         ),
     )
     return Said(message="Google'ga yuborildi. Byudjet tez orada yangilanadi.")
+
+
+@router.post("/end-date", response_model=Said)
+def end_date(body: GoogleEndDateIn, db: Db, user: CurrentUser) -> Said:
+    """A campaign's last day, in the account's own time."""
+    switched_on(user)
+    account = current_google_account(db, owner=user)
+    if account is None:
+        raise NotFound("Google Ads akkaunti ulanmagan.")
+    zone = account.tzinfo()
+    if body.end_date < datetime.now(zone).date():
+        raise GoogleEndDatePast
+    ask = actions.EndTime(
+        external_id=body.id,
+        end_time=datetime.combine(body.end_date, time(23, 59, 59), tzinfo=zone),
+        level=ManagedLevel.CAMPAIGN,
+    )
+    committed(db, lambda: actions.request(db, user=user, ask=ask))
+    return Said(message="Google'ga yuborildi. Tugash sanasi tez orada yangilanadi.")
+
+
+@router.get("/places")
+def places(id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
+    """Where one campaign shows now."""
+    switched_on(user)
+    found = google_services.campaign_places(db, user=user, external_id=id)
+    return {"places": found}
+
+
+@router.get("/places/search")
+def search_places(
+    db: Db, user: CurrentUser, q: str = Query(min_length=2, max_length=80)
+) -> dict[str, Any]:
+    """Places a typed word may mean, to add to a campaign."""
+    switched_on(user)
+    return {"places": google_services.find_places(db, user=user, query=q)}
+
+
+@router.post("/places", response_model=Said)
+def change_places(body: GooglePlacesIn, db: Db, user: CurrentUser) -> Said:
+    """Where a campaign shows, replaced whole; ids from ``/places/search``."""
+    switched_on(user)
+    wanted = tuple(dict.fromkeys(body.places))
+    if len(wanted) > GOOGLE_PLACES_MAX:
+        raise GooglePlacesTooMany(limit=GOOGLE_PLACES_MAX)
+    ask = actions.Places(external_id=body.id, places=wanted)
+    committed(db, lambda: actions.request(db, user=user, ask=ask))
+    return Said(message="Google'ga yuborildi. Joylar tez orada yangilanadi.")
 
 
 @router.post("/delete", response_model=Said)

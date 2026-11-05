@@ -18,6 +18,7 @@ through ``CampaignDTO.shared_budget_id``.
 lets it run again.
 """
 
+from datetime import date
 from typing import Any, Final
 
 from adskit.errors import InvalidRequest
@@ -31,6 +32,7 @@ from googleadskit.resources import collection_of, customer_of, quoted
 SETTABLE: Final[dict[str, str]] = {"active": "ENABLED", "paused": "PAUSED"}
 
 _MICROS_PLACES: Final = 6
+_LAST_SECOND: Final = "23:59:59"
 
 
 def change_status(
@@ -90,6 +92,88 @@ def change_budget(
     return client.post(f"customers/{customer_of(ref.id)}/campaignBudgets:mutate", body)
 
 
+def change_end_date(
+    client: AdsClient, ref: ExternalRef, *, end_time: str, validate_only: bool
+) -> dict[str, Any]:
+    """The campaign's last day, to its final second in the account's own time.
+
+    Google takes a time of day only on some campaign types, and a Search
+    campaign is not one, so the day of ``end_time`` is what is kept.
+    """
+    if ref.level != "campaign":
+        raise InvalidRequest("google keeps an end date on the campaign only")
+    try:
+        day = date.fromisoformat(end_time[:10])
+    except ValueError as exc:
+        raise InvalidRequest(f"not a date: {end_time!r}") from exc
+    return _mutate(
+        client,
+        ref,
+        {
+            "update": {
+                "resourceName": ref.id,
+                "endDateTime": f"{day.isoformat()} {_LAST_SECOND}",
+            },
+            "updateMask": "endDateTime",
+        },
+        validate_only=validate_only,
+    )
+
+
+def campaign_places(client: AdsClient, ref: ExternalRef) -> dict[str, str]:
+    """The campaign's aimed-at places: geo target to its criterion's name."""
+    if ref.level != "campaign":
+        raise InvalidRequest("google keeps places on the campaign only")
+    query = (
+        "SELECT campaign_criterion.resource_name, "
+        "campaign_criterion.location.geo_target_constant FROM campaign_criterion "
+        f"WHERE campaign.resource_name = '{quoted(ref.id)}' "
+        "AND campaign_criterion.type = 'LOCATION' "
+        "AND campaign_criterion.negative = false"
+    )
+    found: dict[str, str] = {}
+    for row in client.search(customer_of(ref.id), query):
+        node = row.get("campaignCriterion", {})
+        place = str((node.get("location") or {}).get("geoTargetConstant") or "")
+        if place:
+            found[place] = str(node.get("resourceName") or "")
+    return found
+
+
+def change_places(
+    client: AdsClient,
+    ref: ExternalRef,
+    *,
+    places: tuple[str, ...],
+    validate_only: bool,
+) -> dict[str, Any]:
+    """Aim the campaign at exactly these places, in one atomic request.
+
+    Only the difference is sent: a place that stays keeps its criterion and
+    the figures under it. Nothing left would mean showing everywhere, so an
+    empty list is refused rather than sent.
+    """
+    if not places:
+        raise InvalidRequest("a google campaign must keep at least one place")
+    held = campaign_places(client, ref)
+    operations: list[dict[str, Any]] = [
+        {"remove": criterion}
+        for place, criterion in held.items()
+        if place not in places
+    ]
+    operations += [
+        {"create": {"campaign": ref.id, "location": {"geoTargetConstant": place}}}
+        for place in places
+        if place not in held
+    ]
+    if not operations:
+        return {}
+    return client.post(
+        f"customers/{customer_of(ref.id)}/campaignCriteria:mutate",
+        {"operations": operations, "validateOnly": validate_only},
+    )
+
+
 def remove(
     client: AdsClient, ref: ExternalRef, *, validate_only: bool
 ) -> dict[str, Any]:
@@ -108,4 +192,12 @@ def _mutate(
     return client.post(path, {"operations": [operation], "validateOnly": validate_only})
 
 
-__all__ = ["SETTABLE", "change_budget", "change_status", "remove"]
+__all__ = [
+    "SETTABLE",
+    "campaign_places",
+    "change_budget",
+    "change_end_date",
+    "change_places",
+    "change_status",
+    "remove",
+]

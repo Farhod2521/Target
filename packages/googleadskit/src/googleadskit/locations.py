@@ -8,10 +8,10 @@ token and nothing else.
 Names come back in English. The owner types "Toshkent", which Google
 matches against its Latin names; Uzbek is not one of Google's locales.
 
-Everything else on the audience port is Meta's shape (interests, traits,
-a reach estimate, a spec replaced whole) and refuses by name here: a Search
-campaign is aimed with keywords and places, and both are written when the
-campaign is created.
+A campaign's places can be read and replaced through the port's targeting
+calls, as ``{"places": [geo target, ...], "names": {geo target: name}}``.
+Everything else on the audience port is Meta's shape (interests, traits, a
+reach estimate) and refuses by name here.
 """
 
 from typing import Any, Final
@@ -23,6 +23,8 @@ from adskit.refs import ExternalRef, GeoKind, ProviderName, TraitKind
 
 from googleadskit.campaigns import google_calls
 from googleadskit.client import AdsClient
+from googleadskit.resources import customer_of, quoted
+from googleadskit.writes import campaign_places, change_places
 
 PROVIDER: Final = ProviderName("google")
 
@@ -48,8 +50,11 @@ _KINDS: Final[dict[str, GeoKind]] = {
 class GoogleAudiences:
     """Places are real; the rest of the port is Meta's and refuses."""
 
-    def __init__(self, *, http: httpx.Client | None = None) -> None:
+    def __init__(
+        self, *, http: httpx.Client | None = None, rehearse_writes: bool = False
+    ) -> None:
         self._http = http
+        self._rehearse = rehearse_writes
 
     def find_locations(
         self, *, query: str, country_code: str, token: str, language: str = ""
@@ -103,13 +108,43 @@ class GoogleAudiences:
         token: str,
         dry_run: bool = True,
     ) -> ActionResult:
-        raise PortNotAvailable(provider=PROVIDER, port="audiences.apply")
+        """Aim the campaign at ``targeting["places"]`` and nowhere else."""
+        dry_run = dry_run or self._rehearse
+        places = tuple(str(place) for place in targeting.get("places") or ())
+        with google_calls(), AdsClient(token=token, http=self._http) as client:
+            answer = change_places(client, ref, places=places, validate_only=dry_run)
+        return ActionResult(
+            ok=True,
+            ref=ref,
+            applied={"places": list(places)},
+            dry_run=dry_run,
+            raw_response=answer,
+        )
 
     def read_targeting(self, *, ref: ExternalRef, token: str) -> dict[str, Any]:
-        raise PortNotAvailable(provider=PROVIDER, port="audiences.read_targeting")
+        with google_calls(), AdsClient(token=token, http=self._http) as client:
+            places = sorted(campaign_places(client, ref))
+            names = _place_names(client, customer_of(ref.id), places)
+        return {"places": places, "names": names}
 
     def same_targeting(self, first: dict[str, Any], second: dict[str, Any]) -> bool:
-        raise PortNotAvailable(provider=PROVIDER, port="audiences.same_targeting")
+        return set(first.get("places") or ()) == set(second.get("places") or ())
+
+
+def _place_names(
+    client: AdsClient, customer_id: str, places: list[str]
+) -> dict[str, str]:
+    if not places:
+        return {}
+    wanted = ", ".join(f"'{quoted(place)}'" for place in places)
+    query = (
+        "SELECT geo_target_constant.resource_name, geo_target_constant.name "
+        "FROM geo_target_constant "
+        f"WHERE geo_target_constant.resource_name IN ({wanted})"
+    )
+    rows = client.search(customer_id, query)
+    named = (row.get("geoTargetConstant") or {} for row in rows)
+    return {str(row.get("resourceName")): str(row.get("name") or "") for row in named}
 
 
 def country_target(client: AdsClient, customer_id: str, country_code: str) -> str:

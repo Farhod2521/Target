@@ -22,6 +22,7 @@ from googleadskit import (
     GoogleAdsAPIError,
     GoogleAdsOutcomeUnknown,
     GoogleAdsUnreachable,
+    ManagerToken,
     describe_customer,
     list_accounts,
     list_customer_ids,
@@ -337,3 +338,76 @@ def test_a_refusal_about_the_grant_still_fails_the_list() -> None:
 
     with _client(handler) as client, pytest.raises(GoogleAdsAPIError):
         list_accounts(client)
+
+
+def _client_row(id: str, **extra: Any) -> dict[str, Any]:
+    node = {
+        "id": id,
+        "descriptiveName": f"Client {id}",
+        "currencyCode": "UZS",
+        "timeZone": "Asia/Tashkent",
+        "status": "ENABLED",
+    }
+    return {"results": [{"customerClient": node | extra}]}
+
+
+def test_accounts_under_a_manager_are_reached_through_it() -> None:
+    seen: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("listAccessibleCustomers"):
+            return httpx.Response(
+                200, json={"resourceNames": ["customers/900", "customers/222"]}
+            )
+        query = json.loads(request.content)["query"]
+        if "FROM customer_client" in query:
+            seen[path] = request.headers.get("login-customer-id")
+            both = _client_row("333")["results"] + _client_row("222")["results"]
+            return httpx.Response(200, json={"results": both})
+        if "/customers/900/" in path:
+            return httpx.Response(
+                200, json=_customer_row(id="900", status="ENABLED", manager=True)
+            )
+        return httpx.Response(200, json=_customer_row(id="222", status="ENABLED"))
+
+    with _client(handler) as client:
+        accounts = {account.id: account for account in list_accounts(client)}
+
+    assert set(accounts) == {"900", "222", "333"}
+    assert accounts["333"].login_customer_id == "900"
+    assert accounts["333"].can_advertise
+    # Open to the person directly, so it needs no manager.
+    assert accounts["222"].login_customer_id == ""
+    assert list(seen.values()) == ["900"]
+
+
+def test_a_dead_manager_does_not_fail_the_list() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("listAccessibleCustomers"):
+            return httpx.Response(200, json={"resourceNames": ["customers/900"]})
+        if "FROM customer_client" in json.loads(request.content)["query"]:
+            return _refusal(
+                403, "PERMISSION_DENIED", "authorizationError", "CUSTOMER_NOT_ENABLED"
+            )
+        return httpx.Response(
+            200, json=_customer_row(id="900", status="ENABLED", manager=True)
+        )
+
+    with _client(handler) as client:
+        accounts = list_accounts(client)
+
+    assert [account.id for account in accounts] == ["900"]
+
+
+def test_a_manager_token_sends_the_manager_on_every_call() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["login-customer-id"] == "900"
+        assert request.headers["authorization"] == "Bearer tok"
+        return httpx.Response(200, json={})
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    token = ManagerToken("tok", login_customer_id="900")
+
+    with AdsClient(token=token, http=http) as client:
+        client.get("customers:listAccessibleCustomers")

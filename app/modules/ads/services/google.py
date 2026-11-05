@@ -5,7 +5,7 @@ import logging
 from typing import Any, Final
 from uuid import UUID
 
-from adskit import registry
+from adskit import ExternalRef, registry
 from adskit.errors import (
     AuthFailed,
     PermissionDenied,
@@ -13,6 +13,7 @@ from adskit.errors import (
     RateLimited,
     TemporaryFailure,
 )
+from googleadskit import PROVIDER as GOOGLE
 from googleadskit import (
     AdsClient,
     GoogleAdsError,
@@ -60,6 +61,7 @@ from app.modules.ads.constants import (
     WRITING_TIMEOUT_SECONDS,
     GoogleGoal,
     LaunchStatus,
+    ManagedLevel,
 )
 from app.modules.ads.exceptions import (
     ConnectionUnusable,
@@ -67,15 +69,20 @@ from app.modules.ads.exceptions import (
     GoogleGoalUnknown,
     GoogleLaunchClosed,
     GoogleLaunchNotReady,
+    GoogleNoPaymentMethod,
     GooglePhoneRequired,
     GooglePlacesTooMany,
+    GooglePlacesUnread,
     GoogleWebsiteRequired,
     GoogleWordsInvalid,
+    NoAdAccount,
     ProfileIncomplete,
+    UnknownTarget,
 )
 from app.modules.ads.models import GoogleLaunch
+from app.modules.ads.selectors.actions import managed_target
 from app.modules.ads.selectors.audiences_chosen import picked_areas
-from app.modules.ads.services.access import token_for
+from app.modules.ads.services.access import target_account_and_token, token_for
 from app.modules.audit.constants import (
     ActionStatus,
     ActionType,
@@ -688,6 +695,7 @@ def request_google_creation(
 
     _require_google(db, user)
     require_live_subscription(db, owner=user)
+    _check_payment_method(db, launch=launch)
     launch = _locked(db, owner=user, launch_id=launch.id)
     if (
         launch.status not in (LaunchStatus.READY, LaunchStatus.FAILED)
@@ -702,6 +710,65 @@ def request_google_creation(
     on_commit(db, lambda: create_google_campaign_task.delay(launch_id, run))
     db.commit()
     return launch
+
+
+def _check_payment_method(db: Session, *, launch: GoogleLaunch) -> None:
+    """Google takes a campaign from an account it cannot charge and shows nothing,
+    so the owner hears it here. Not knowing lets the press through."""
+    from app.modules.ads.services.stops import read_account_state, store_account_state
+
+    state = read_account_state(launch.ad_account)
+    if state is None:
+        return
+    store_account_state(db, ad_account=launch.ad_account, state=state)
+    db.commit()
+    if state.has_payment_method is False:
+        raise GoogleNoPaymentMethod
+
+
+def campaign_places(
+    db: Session, *, user: User, external_id: str
+) -> list[dict[str, str]]:
+    """Where one campaign shows, read from Google, each place with its name."""
+    _require_google(db, user)
+    target = managed_target(
+        db, owner=user, level=ManagedLevel.CAMPAIGN, external_id=external_id
+    )
+    if target is None:
+        raise UnknownTarget
+    _account, token = target_account_and_token(
+        target=target, level=ManagedLevel.CAMPAIGN
+    )
+    ref = ExternalRef(
+        provider=GOOGLE, level=ManagedLevel.CAMPAIGN, id=target.external_id
+    )
+    try:
+        held = registry.get(GOOGLE).audiences.read_targeting(ref=ref, token=token)
+    except ProviderError as exc:
+        logger.info("places of %s not read: %s", external_id, exc)
+        raise GooglePlacesUnread from exc
+    names = held.get("names") or {}
+    return [{"id": row, "name": names.get(row, "")} for row in held.get("places") or []]
+
+
+def find_places(db: Session, *, user: User, query: str) -> list[dict[str, str]]:
+    """What a typed word may mean on Google's map, for adding it to a campaign."""
+    from app.modules.integrations.selectors.google import current_google_account
+
+    account = current_google_account(db, owner=user)
+    if account is None:
+        raise NoAdAccount
+    try:
+        found = registry.get(GOOGLE).audiences.find_locations(
+            query=query, country_code="", token=token_for(ad_account=account)
+        )
+    except ProviderError as exc:
+        logger.info("places for %r not found: %s", query, exc)
+        raise GooglePlacesUnread from exc
+    return [
+        {"id": row.ref.id, "name": row.name, "context": row.context, "kind": row.kind}
+        for row in found
+    ]
 
 
 def create_google_campaign(db: Session, *, launch_id: UUID | str, run: str) -> str:

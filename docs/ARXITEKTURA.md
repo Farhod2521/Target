@@ -88,7 +88,7 @@ Maydon bo'yicha rad etish — `422`, `{"detail", "code": "invalid_input",
 | `POST /launch/{id}/edit` | Taklifni tahrirlash (PATCH) — yuborilmagan bo'lim yoki maydon o'zgarmaydi, `null` tozalaydi; hamma bo'lim bir yo'la yoki hech biri |
 | `POST /launch/{id}/create`, `/start`, `/retry`, `/discard`, `/clean-up` | Yaratish (pul sarflaydi), yoqish, qayta urinish, bekor qilish, tozalash |
 | `GET/POST /launch/{id}/form`, `/form/auto`, `/form/new`, `/form/refresh`, `/form-depth/{depth}` | Lid forma tanlash va savollar chuqurligi |
-| `GET /google`, `POST /google/switch`, `/budget`, `/delete`, `/refresh` | Google Ads ekrani va bosishlar |
+| `GET /google/screen`, `POST /google/switch`, `/budget`, `/end-date`, `/delete`, `/refresh`, `GET/POST /google/places`, `GET /google/places/search` | Google Ads ekrani va bosishlar |
 | `POST /google/launch`, `GET/POST /google/launch/{id}/answers`, `/words`, `GET /review`, `POST /create` | Google Search ustasi |
 | `GET /agent` | Kutilayotgan takliflar, kuzatuv qatorlari, chastota, bugun pul kuydirayotgan guruhlar |
 | `POST /agent/{id}/approve`, `/reject`, `GET/POST /agent/{id}/new-ad` | Taklifga javob, rad etilgan reklamaning yangi matni |

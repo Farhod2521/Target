@@ -291,10 +291,27 @@ Xatolar (`422`, `problems`): qidiruv bermagan joy yoki joylar soni oshsa
 
 ### Google Ads — `/google`
 
-`GET /google`, `POST /google/switch`, `/google/budget`, `/google/delete`,
-`/google/refresh`. Search ustasi: `POST /google/launch`,
+`GET /google/screen`, `POST /google/switch`, `/google/budget`,
+`/google/delete`, `/google/refresh`. Search ustasi: `POST /google/launch`,
 `GET/POST /google/launch/{id}/answers`, `GET/POST .../words`,
 `GET .../review`, `POST .../create`.
+
+Kampaniya `id` si ekrandagi `id` (`customers/111/campaigns/5`).
+
+| So'rov | Tana yoki parametr | Javob |
+|---|---|---|
+| `POST /google/end-date` | `{"id": "...", "endDate": "2026-12-31"}` | `{"message": "..."}`, navbatga qo'yiladi |
+| `GET /google/places?id=...` | | `{"places": [{"id": "geoTargetConstants/1", "name": "Tashkent"}]}` |
+| `GET /google/places/search?q=Toshkent` | `q` kamida 2 belgi | `{"places": [{"id", "name", "context", "kind"}]}` |
+| `POST /google/places` | `{"id": "...", "places": ["geoTargetConstants/1"]}` | `{"message": "..."}`, joylar butunlay almashadi |
+
+- Tugash sanasi o'tgan kun bo'lsa `400`. Sana akkaunt vaqt zonasida, kun oxirigacha.
+- `places` kamida 1 ta, ko'pi bilan 10 ta. Bo'sh ro'yxat `422`.
+- `POST /google/launch/{id}/create` akkauntda tasdiqlangan to'lov usuli yo'q
+  bo'lsa `400` qaytaradi, `detail` tayyor o'zbekcha matn. Google to'lov
+  ma'lumotini o'qishga ruxsat bermasa, bu tekshiruv o'tkazib yuboriladi.
+- Manager (MCC) ostidagi akkauntlar ulanishlar ro'yxatida oddiy akkaunt kabi
+  chiqadi, frontend uchun alohida ish yo'q.
 
 ### ChatGPT Ads — `/chatgpt`
 

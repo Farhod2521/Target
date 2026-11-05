@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from adskit import registry
+from googleadskit import ManagerToken
 from sqlalchemy.orm import Session
 
 from app.common.crypto import decrypt
@@ -42,7 +43,10 @@ def token_for(*, ad_account: AdAccount) -> str:
     except DecryptionFailed as exc:
         logger.exception("connection %s could not be decrypted", connection.id)
         raise ConnectionUnusable from exc
-    return registry.get(ad_account.provider).connect.access_token(stored=stored)
+    token = registry.get(ad_account.provider).connect.access_token(stored=stored)
+    if ad_account.login_customer_id:
+        return ManagerToken(token, login_customer_id=ad_account.login_customer_id)
+    return token
 
 
 def account_and_token(db: Session, *, owner: User) -> tuple[AdAccount, str]:

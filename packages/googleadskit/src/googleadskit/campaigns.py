@@ -1,7 +1,7 @@
 """Google Ads campaigns, ad groups and ads as :class:`adskit.CampaignControlPort`.
 
-Three GAQL reads and three writes - the switch, the budget, the removal,
-built in :mod:`googleadskit.writes`. Google's hierarchy maps onto the
+Three GAQL reads and four writes - the switch, the budget, the end date, the
+removal, built in :mod:`googleadskit.writes`. Google's hierarchy maps onto the
 domain's one for one - campaign, ad group (our "adset"), ad - and the budget
 sits on the campaign, the only level Google keeps one.
 
@@ -37,10 +37,16 @@ from adskit.dto import (
     StatusDTO,
 )
 from adskit.errors import InvalidRequest
-from adskit.refs import ExternalRef, Level, MinorUnits, ProviderName
+from adskit.refs import (
+    AccountStanding,
+    ExternalRef,
+    Level,
+    MinorUnits,
+    ProviderName,
+)
 
 from googleadskit.client import AdsClient
-from googleadskit.errors import GoogleAdsError
+from googleadskit.errors import GoogleAdsAPIError, GoogleAdsError
 from googleadskit.resources import customer_of, quoted
 from googleadskit.rows import (
     BUDGET_CONSTRAINED,
@@ -52,7 +58,13 @@ from googleadskit.rows import (
     node_key,
 )
 from googleadskit.translate import translate_error
-from googleadskit.writes import SETTABLE, change_budget, change_status, remove
+from googleadskit.writes import (
+    SETTABLE,
+    change_budget,
+    change_end_date,
+    change_status,
+    remove,
+)
 
 PROVIDER: Final = ProviderName("google")
 
@@ -72,6 +84,15 @@ _AD_FIELDS: Final = (
     "ad_group_ad.status, ad_group_ad.primary_status, ad_group.resource_name"
 )
 
+# Google's account states in the domain's words.
+_STANDINGS: Final[dict[str, AccountStanding]] = {
+    "ENABLED": "active",
+    "SUSPENDED": "disabled",
+    "CANCELED": "closed",
+    "CLOSED": "closed",
+}
+_BILLING_APPROVED: Final = "APPROVED"
+
 _FROM: Final[dict[str, tuple[str, str]]] = {
     # level: (GAQL resource, fields)
     "campaign": ("campaign", _CAMPAIGN_FIELDS),
@@ -87,6 +108,18 @@ def google_calls() -> Iterator[None]:
         yield
     except GoogleAdsError as exc:
         raise translate_error(exc) from exc
+
+
+def _has_billing(client: AdsClient, customer_id: str) -> bool | None:
+    """Whether an approved billing setup exists; ``None`` when it cannot be read."""
+    query = "SELECT billing_setup.status FROM billing_setup"
+    try:
+        rows = list(client.search(customer_id, query))
+    except GoogleAdsAPIError:
+        return None
+    return any(
+        row.get("billingSetup", {}).get("status") == _BILLING_APPROVED for row in rows
+    )
 
 
 def _where_not_removed(resource: str) -> str:
@@ -239,24 +272,64 @@ class GoogleCampaigns:
             raw_response=answer,
         )
 
-    # --- Not built yet ---------------------------------------------------
-    # Each refuses by name, as ``Unavailable`` does for a whole port.
-
     def count_adsets(self, *, campaign: ExternalRef, token: str) -> int:
-        raise PortNotAvailable(provider=PROVIDER, port="campaigns.count_adsets")
+        query = (
+            "SELECT ad_group.id FROM ad_group "
+            f"WHERE campaign.resource_name = '{quoted(campaign.id)}' "
+            "AND ad_group.status != 'REMOVED'"
+        )
+        with google_calls(), AdsClient(token=token, http=self._http) as client:
+            return len(list(client.search(customer_of(campaign.id), query)))
 
     def read_account(self, *, account: ExternalRef, token: str) -> AccountStateDTO:
-        raise PortNotAvailable(provider=PROVIDER, port="campaigns.read_account")
+        """The account's state, and whether Google has a way to charge it.
+
+        A test account has no billing and needs none. Explorer access may not
+        read billing at all: that is not knowing, so it stays ``None``.
+        """
+        query = "SELECT customer.status, customer.test_account FROM customer LIMIT 1"
+        with google_calls(), AdsClient(token=token, http=self._http) as client:
+            rows = list(client.search(account.id, query))
+            customer = rows[0].get("customer", {}) if rows else {}
+            payable = (
+                None
+                if customer.get("testAccount")
+                else _has_billing(client, account.id)
+            )
+        status = str(customer.get("status") or "")
+        return AccountStateDTO(
+            ref=account,
+            standing=_STANDINGS.get(status, "unknown"),
+            raw_status=status,
+            has_payment_method=payable,
+        )
+
+    def set_end_time(
+        self, *, ref: ExternalRef, end_time: str, token: str, dry_run: bool = True
+    ) -> ActionResult:
+        """The campaign's last day. Sending it twice is harmless."""
+        dry_run = dry_run or self._rehearse
+        with google_calls(), AdsClient(token=token, http=self._http) as client:
+            answer = change_end_date(
+                client, ref, end_time=end_time, validate_only=dry_run
+            )
+        return ActionResult(
+            ok=True,
+            ref=ref,
+            applied={"end_time": end_time},
+            dry_run=dry_run,
+            raw_response=answer,
+        )
+
+    # --- Refused ---------------------------------------------------------
+    # Not built: a preview, and a ceiling on a campaign's whole spend beside
+    # its daily budget. Each refuses by name, as ``Unavailable`` does for a
+    # whole port.
 
     def get_preview(
         self, *, ref: ExternalRef, ad_format: str, token: str
     ) -> AdPreviewDTO:
         raise PortNotAvailable(provider=PROVIDER, port="campaigns.get_preview")
-
-    def set_end_time(
-        self, *, ref: ExternalRef, end_time: str, token: str, dry_run: bool = True
-    ) -> ActionResult:
-        raise PortNotAvailable(provider=PROVIDER, port="campaigns.set_end_time")
 
     def set_spend_cap(
         self,

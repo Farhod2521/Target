@@ -602,6 +602,7 @@ def store_google_accounts(
                 "timezone": account.time_zone,
                 "account_status": account.status,
                 "may_advertise": account.can_advertise,
+                "login_customer_id": account.login_customer_id,
             },
         )
     held = [
