@@ -1,9 +1,12 @@
 """Django-compatible pbkdf2_sha256 hashes: existing users keep their passwords."""
 
 import base64
+import gzip
 import hashlib
 import hmac
 import secrets
+from functools import cache
+from pathlib import Path
 
 ALGORITHM = "pbkdf2_sha256"
 ITERATIONS = 1_200_000
@@ -36,23 +39,15 @@ def _digest(password: str, salt: str, iterations: int) -> str:
 
 
 MIN_LENGTH = 8
-COMMON = frozenset(
-    {
-        "12345678",
-        "123456789",
-        "1234567890",
-        "password",
-        "password1",
-        "qwerty123",
-        "qwertyui",
-        "11111111",
-        "00000000",
-        "abcd1234",
-        "iloveyou",
-        "admin123",
-        "parol123",
-    }
-)
+# Django's own list (BSD), the 20 000 the old project refused; ours on top.
+COMMON_FILE = Path(__file__).with_name("common-passwords.txt.gz")
+OURS = frozenset({"parol123", "parol1234", "qwertyui"})
+
+
+@cache
+def common() -> frozenset[str]:
+    with gzip.open(COMMON_FILE, "rt", encoding="utf-8") as lines:
+        return frozenset(line.strip() for line in lines) | OURS
 
 
 class PasswordInvalid(ValueError):
@@ -66,7 +61,7 @@ def validate_password(password: str, *, email: str = "", full_name: str = "") ->
             "Parol juda qisqa. Kamida %(min_length)d ta belgi bo'lsin."
             % {"min_length": MIN_LENGTH}
         )
-    if password.lower() in COMMON:
+    if password.lower().strip() in common():
         raise PasswordInvalid("Bu parol juda ko'p ishlatiladi. Boshqasini tanlang.")
     if password.isdigit():
         raise PasswordInvalid("Parol faqat raqamlardan iborat bo'lmasin.")

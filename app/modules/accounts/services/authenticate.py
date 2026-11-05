@@ -1,4 +1,6 @@
+import secrets
 from datetime import timedelta
+from functools import cache
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,13 +18,19 @@ from app.modules.audit.services import emit
 SIGN_IN_QUIET = timedelta(minutes=30)
 
 
+@cache
+def _decoy() -> str:
+    """A hash of a password nobody knows, checked in place of a missing one."""
+    return make_password(secrets.token_urlsafe(16))
+
+
 def authenticate(db: Session, *, email: str, password: str, address: str = "") -> User:
     user = user_by_email(db, email=email)
-    if (
-        user is None
-        or not user.is_active
-        or not check_password(password, user.password)
-    ):
+    # The hash is paid for even with no account or no password to check, so
+    # the time taken does not tell which emails are signed up.
+    stored = user.password if user is not None and user.password else ""
+    matches = check_password(password, stored or _decoy())
+    if user is None or not stored or not user.is_active or not matches:
         raise BadCredentials
     if needs_rehash(user.password):
         user.password = make_password(password)

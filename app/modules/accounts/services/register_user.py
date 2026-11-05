@@ -1,9 +1,9 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
-from app.common.exceptions import DomainError
+from app.common.exceptions import InputRefused
 from app.common.hooks import fire
 from app.common.passwords import PasswordInvalid, make_password, validate_password
 from app.modules.accounts.constants import Language
@@ -28,12 +28,12 @@ def sign_up(
 ) -> User:
     """The signup form opens the account at once; the email is confirmed later."""
     email = normalize_email(email)
-    if db.scalar(select(User.id).where(User.email == email)) is not None:
+    if db.scalar(select(User.id).where(func.lower(User.email) == email)) is not None:
         raise EmailTaken
     try:
         validate_password(password, email=email, full_name=full_name)
     except PasswordInvalid as exc:
-        raise DomainError(str(exc)) from exc
+        raise InputRefused({"password": str(exc)}) from exc
     return register_user(
         db,
         email=email,

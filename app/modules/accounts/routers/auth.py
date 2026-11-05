@@ -13,6 +13,8 @@ from app.modules.accounts.constants import (
     LOGIN_FAILURES_PER_ADDRESS,
     LOGIN_FAILURES_PER_EMAIL,
     LOGIN_WINDOW_SECONDS,
+    SIGNUP_WINDOW_SECONDS,
+    SIGNUPS_PER_ADDRESS,
 )
 from app.modules.accounts.exceptions import (
     BadCredentials,
@@ -54,7 +56,6 @@ def token_pair(user: User) -> TokenPair:
 
 
 SIGNUP_BUCKET = "signup:address"
-SIGNUPS_PER_HOUR = 20
 
 
 class SignedUp(TokenPair):
@@ -67,8 +68,8 @@ def signup(body: SignupIn, request: Request, db: Db) -> SignedUp:
     if not throttle.hit(
         bucket=SIGNUP_BUCKET,
         key=client_address(request),
-        limit=SIGNUPS_PER_HOUR,
-        window_seconds=3600,
+        limit=SIGNUPS_PER_ADDRESS,
+        window_seconds=SIGNUP_WINDOW_SECONDS,
     ):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,

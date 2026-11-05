@@ -16,5 +16,5 @@ def clean_phone(raw: str) -> str:
 
 
 def normalize_email(email: str) -> str:
-    name, _, domain = email.strip().rpartition("@")
-    return f"{name}@{domain.lower()}" if name else email.strip()
+    """Whole address in small letters: Ali@ and ali@ are one person to us."""
+    return email.strip().lower()

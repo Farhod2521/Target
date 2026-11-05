@@ -47,7 +47,7 @@ def test_a_guest_writes_and_the_office_answers(
     assert started.status_code == 201, started.text
     token = started.json()["token"]
     chat = started.json()["chat"]
-    assert chat["phone"] == "+998901234567" and chat["email"] == "Ali@gmail.com"
+    assert chat["phone"] == "+998901234567" and chat["email"] == "ali@gmail.com"
     assert [m["body"] for m in chat["messages"]] == ["Parolni tiklash kerak."]
     assert chat["messages"][0]["own"] and chat["messages"][0]["who"] == "Siz"
     stored = db.scalar(select(SupportGuestChat))
@@ -184,7 +184,7 @@ def test_the_office_hears_of_a_guest_in_the_staff_bot(
     assert forward_guest_question(db, message_id=str(message.id)) == 1
     [(name, fields)] = fake.calls
     assert name == "send_message" and fields["chat_id"] == "501"
-    assert "Ali Valiyev · +998901234567 · Ali@gmail.com" in fields["text"]
+    assert "Ali Valiyev · +998901234567 · ali@gmail.com" in fields["text"]
     assert "Parolim esimda yo'q" in fields["text"]
     assert f"/ofis/chat/mehmon/{message.chat_id}/" in fields["text"]
     assert forward_guest_question(db, message_id="not-a-uuid") == 0

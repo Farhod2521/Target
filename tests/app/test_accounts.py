@@ -1,15 +1,19 @@
 import base64
 import hashlib
+import importlib
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
+from app.common.passwords import make_password
 from app.modules.accounts.models import User
 from app.modules.audit.models import Event
 from app.modules.referrals.models import ReferralBinding, ReferralCode
 from tests.conftest import SIGNUP, code_for, register, signed_in
+
+authenticate = importlib.import_module("app.modules.accounts.services.authenticate")
 
 
 def test_signup_normalises_and_records_an_event(
@@ -19,7 +23,7 @@ def test_signup_normalises_and_records_an_event(
 
     assert response.status_code == 201, response.text
     body = response.json()
-    assert body["user"]["email"] == "Ali@example.com"
+    assert body["user"]["email"] == "ali@example.com"
     assert body["user"]["phone"] == "+998901234567"
     assert body["access_token"] and body["refresh_token"]
     assert db.scalars(select(Event.name)).all() == ["user.registered"]
@@ -105,6 +109,63 @@ def test_a_password_saved_by_django_still_signs_in(
     db.expire_all()
     stored = db.scalar(select(User.password).where(User.email == "old@example.com"))
     assert stored.startswith("pbkdf2_sha256$1200000$")
+
+
+def test_a_weak_password_is_refused_under_its_field(client: TestClient) -> None:
+    common = register(client, password="Sunshine1")
+    like_email = register(client, password="ali-secret-9")  # the email is Ali@…
+    digits = register(client, password="90817263544")
+
+    assert common.status_code == 422
+    assert common.json()["problems"] == {
+        "password": "Bu parol juda ko'p ishlatiladi. Boshqasini tanlang."
+    }
+    assert "«email»" in like_email.json()["problems"]["password"]
+    assert digits.json()["problems"]["password"].startswith("Parol faqat raqamlar")
+
+
+def test_an_address_with_capitals_from_before_still_signs_in(
+    client: TestClient, db: Session
+) -> None:
+    db.add(
+        User(
+            email="Old.Friend@example.com",
+            full_name="Eski",
+            phone="",
+            password=make_password("old-pass-1"),
+            date_joined=utcnow(),
+        )
+    )
+    db.commit()
+
+    signed = client.post(
+        "/api/v1/auth/login",
+        json={"email": "old.friend@example.com", "password": "old-pass-1"},
+    )
+    twin = register(client, email="OLD.FRIEND@example.com")
+
+    assert signed.status_code == 200, signed.text
+    assert twin.status_code == 409
+
+
+def test_an_unknown_email_still_pays_for_a_hash(
+    client: TestClient, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    checked: list[str] = []
+    real = authenticate.check_password
+    monkeypatch.setattr(
+        authenticate,
+        "check_password",
+        lambda password, encoded: checked.append(encoded) or real(password, encoded),
+    )
+
+    refused = client.post(
+        "/api/v1/auth/login", json={"email": "nobody@example.com", "password": "x"}
+    )
+
+    assert refused.status_code == 401
+    assert refused.json()["detail"] == "Email yoki parol noto'g'ri."
+    assert len(checked) == 1 and checked[0].startswith("pbkdf2_sha256$1200000$")
 
 
 def test_profile_phone_password_and_language(client: TestClient) -> None:
@@ -193,7 +254,7 @@ def test_the_emailed_code_confirms_the_address(client: TestClient, db: Session) 
     assert sent.json()["expires_in"] == 180
     letter = mail.outbox[-1]
     code = code_for(SIGNUP["email"])
-    assert letter.to == "Ali@example.com"
+    assert letter.to == "ali@example.com"
     assert "TargetologAI" in letter.subject and code in letter.text
     assert all(f">{digit}</td>" in letter.html for digit in code)
     assert "3 daqiqa" in letter.text

@@ -63,7 +63,7 @@ def test_a_changed_password_signs_every_other_device_out(client: TestClient) -> 
 
     assert changed.status_code == 200, changed.text
     fresh = changed.json()
-    assert fresh["user"]["email"] == "Ali@example.com"
+    assert fresh["user"]["email"] == "ali@example.com"
     assert client.get("/api/v1/account", headers=_bearer(fresh)).status_code == 200
     assert client.get("/api/v1/account", headers=_bearer(other)).status_code == 401
     assert client.get("/api/v1/account", headers=_bearer(this)).status_code == 401
@@ -161,7 +161,7 @@ def test_the_handoff_signs_another_browser_in_once(client: TestClient) -> None:
     assert spent.status_code == 200
     assert spent.json()["next"] == "/app/start/"
     me = client.get("/api/v1/account", headers=_bearer(spent.json()))
-    assert me.json()["email"] == "Ali@example.com"
+    assert me.json()["email"] == "ali@example.com"
     assert again.status_code == 400
     assert again.json()["code"] == "expired"
 
