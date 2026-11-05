@@ -262,3 +262,26 @@ def test_a_bill_with_pages_is_not_refunded_by_hand(
     assert rahmat.cancelled == []
     db.expire_all()
     assert db.get(Invoice, bill.id).status == InvoiceStatus.PAID
+
+
+def test_the_card_tells_the_super_admin_which_bill_can_go_back(
+    client: TestClient, db: Session, rahmat: Rahmat
+) -> None:
+    bill, _ = _paid(db, number="TA-57", uuid="pay-57")
+    _, owner = _staff(db, Role.OWNER, email="owner@office.test")
+    _, root = _staff(db, email="root@office.test", superuser=True)
+    card = f"/api/v1/office/customers/{bill.owner_id}"
+
+    def bills(head: dict[str, str]) -> list[tuple[str, bool]]:
+        answer = client.get(card, headers=head)
+        assert answer.status_code == 200, answer.text
+        return [
+            (row["id"], row["refundable"]) for row in answer.json()["money"]["invoices"]
+        ]
+
+    assert bills(root) == [(str(bill.id), True)]
+    assert bills(owner) == [(str(bill.id), False)]
+
+    bill.seats = 1
+    db.commit()
+    assert bills(root) == [(str(bill.id), False)]

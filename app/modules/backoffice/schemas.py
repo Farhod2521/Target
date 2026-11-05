@@ -315,6 +315,12 @@ class AgentOut(BaseModel):
 
 
 class CardInvoiceOut(BaseModel):
+    id: str
+    refundable: bool = Field(
+        False,
+        description="A superuser may send its money back from here: a plan bill "
+        "paid through a provider that refunds (Rahmat). Always false for others.",
+    )
     number: str
     kind: str
     kind_label: str

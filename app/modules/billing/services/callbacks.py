@@ -1,7 +1,8 @@
 """What the payment providers ask us: check, hold, perform, cancel, report."""
 
 import logging
-from collections.abc import Callable, Mapping
+import uuid
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -36,6 +37,7 @@ from paykit import (
     Statement,
     registry,
 )
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -450,6 +452,25 @@ def can_refund(provider: str) -> bool:
         return isinstance(registry.get(ProviderName(provider)), RefundPort)
     except ProviderNotRegistered:
         return False
+
+
+def refundable_invoices(db: Session, *, invoices: Sequence[Invoice]) -> set[uuid.UUID]:
+    """The bills :func:`return_payment` would send back, read without asking
+    the provider: paid through one that refunds, and wholly taken back."""
+    paid = {
+        invoice.id: invoice
+        for invoice in invoices
+        if invoice.status == InvoiceStatus.PAID and wholly_revocable(invoice)
+    }
+    if not paid:
+        return set()
+    rows = db.execute(
+        select(PaymentTransaction.invoice_id, PaymentTransaction.provider).where(
+            PaymentTransaction.invoice_id.in_(list(paid)),
+            PaymentTransaction.state == TransactionState.PERFORMED,
+        )
+    )
+    return {invoice_id for invoice_id, provider in rows if can_refund(provider)}
 
 
 def return_payment(

@@ -46,6 +46,7 @@ from app.modules.billing.constants import (
 )
 from app.modules.billing.models import Invoice, Plan, Subscription
 from app.modules.billing.selectors import every_plan
+from app.modules.billing.services import refundable_invoices
 from app.modules.integrations.constants import CONNECTION_STATUS_LABELS
 from app.modules.integrations.models import AdAccount, ProviderConnection
 from app.modules.referrals.constants import PAYOUT_STATUS_LABELS, REFERRAL_MODE_LABELS
@@ -268,8 +269,10 @@ def _page_out(row: PageRow) -> dict[str, Any]:
     }
 
 
-def invoice_out(invoice: Invoice) -> dict[str, Any]:
+def invoice_out(invoice: Invoice, *, refundable: bool = False) -> dict[str, Any]:
     return {
+        "id": str(invoice.id),
+        "refundable": refundable,
         "number": invoice.number,
         "kind": invoice.kind,
         "kind_label": _label(INVOICE_KIND_LABELS, invoice.kind),
@@ -378,6 +381,10 @@ def customer(customer_id: uuid.UUID, db: Db, user: Admin) -> dict[str, Any]:
     db.commit()
     now = localtime()
     card = customer_card(db, owner=owner, now=now)
+    # Only a superuser may send money back, so only theirs are told which can go.
+    refundable = (
+        refundable_invoices(db, invoices=card.invoices) if user.is_superuser else set()
+    )
     access = card.referral_access
     return {
         "profile": {
@@ -437,7 +444,10 @@ def customer(customer_id: uuid.UUID, db: Db, user: Admin) -> dict[str, Any]:
         ),
         "money": {
             "paid": amounts(card.paid),
-            "invoices": [invoice_out(invoice) for invoice in card.invoices],
+            "invoices": [
+                invoice_out(invoice, refundable=invoice.id in refundable)
+                for invoice in card.invoices
+            ],
             "history": [_history_out(row) for row in card.history],
             "old_receipts": [invoice_out(invoice) for invoice in card.old_receipts],
         },
