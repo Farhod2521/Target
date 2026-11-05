@@ -32,6 +32,7 @@ from app.modules.ads.models import (
     CampaignLaunch,
     GoalCampaign,
     InterestTerm,
+    LapseHold,
     LaunchCreative,
     MediaAsset,
 )
@@ -266,6 +267,9 @@ def forget_meta(db: Session, *, owner: User, actor: User) -> Forgotten:
         gone(label, model, model.owner_id == mine, model.provider == PROVIDER)
     gone("creatives", AdCreative, AdCreative.ad_account_id.in_(_accounts(owner)))
     gone("pairs", PagePair, PagePair.owner_id == mine)
+    # A page let go at a renewal keeps a hold on its adverts; with the page gone
+    # there is nothing left to hold.
+    gone("lapse_holds", LapseHold, LapseHold.page_id.in_(_pages(owner)))
     gone("pixels", PixelAccount, PixelAccount.ad_account_id.in_(_accounts(owner)))
     gone("pages", PageAccount, PageAccount.id.in_(_pages(owner)))
     gone("ad_accounts", AdAccount, AdAccount.id.in_(_accounts(owner)))

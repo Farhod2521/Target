@@ -16,7 +16,7 @@ from app.common.config import settings
 from app.common.crypto import encrypt
 from app.common.db import utcnow
 from app.modules.accounts.models import User
-from app.modules.ads.models import Campaign, CampaignLaunch
+from app.modules.ads.models import Campaign, CampaignLaunch, LapseHold
 from app.modules.audit.models import ActionLog
 from app.modules.backoffice.constants import ActionKind, Role
 from app.modules.backoffice.models import StaffAction
@@ -98,6 +98,16 @@ def _furnished(client: TestClient, db: Session) -> User:
         )
     )
     db.add(BrandKit(owner_id=owner.id, page_id=page.id, brand_name="Gullar"))
+    now = utcnow()
+    db.add(
+        LapseHold(
+            owner_id=owner.id,
+            page_id=page.id,
+            started_at=now,
+            ended_at=now,
+            delete_after=now + timedelta(days=7),
+        )
+    )
     subscription = db.scalars(
         select(Subscription).where(Subscription.owner_id == owner.id)
     ).one()
@@ -173,6 +183,7 @@ def test_disconnecting_takes_everything_meta_brought(
         CrmSetup,
         CrmMember,
         BrandKit,
+        LapseHold,
     )
     for model in gone:
         assert _count(db, model, owner) == 0, model
