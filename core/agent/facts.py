@@ -22,7 +22,8 @@ from core.agent.ad_facts import AdFacts, LibraryImage
 from core.agent.contracts import Policy, ProviderAdvice
 from core.agent.funnel import Funnel, Landing
 from core.agent.usual import Usual
-from core.metrics import Outcome, SegmentComparison, SegmentFigures, Totals
+from core.metrics import Outcome, SegmentComparison, SegmentFigures, Totals, formulas
+from core.metrics.arithmetic import basis_points_or_none
 
 # The one delivery state a rule forms opinions about, spelled as the
 # domain spells it. Everything else in ``adskit.Delivery`` describes what
@@ -48,9 +49,7 @@ def ctr_bp(*, clicks: int, impressions: int) -> int | None:
     change - and a ratio computed twice is a ratio that disagrees with
     itself the first time one copy is adjusted.
     """
-    if impressions <= 0:
-        return None
-    return round(clicks * 10_000 / impressions)
+    return basis_points_or_none(formulas.ctr(clicks, impressions))
 
 
 @dataclass(frozen=True, slots=True)

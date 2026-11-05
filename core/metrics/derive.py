@@ -4,14 +4,9 @@ from collections.abc import Iterable, Sequence
 
 from adskit import MinorUnits
 
-from core.metrics.contracts import (
-    DayFigures,
-    Direction,
-    Movement,
-    Totals,
-    cost_per,
-    share,
-)
+from core.metrics import formulas
+from core.metrics.arithmetic import change_pct, share
+from core.metrics.contracts import DayFigures, Direction, Movement, Totals
 
 
 def total(days: Iterable[DayFigures]) -> Totals:
@@ -38,8 +33,8 @@ def movement(
     if now is None or before is None or not before:
         return Movement()
 
-    change = (now - before) / before * 100
-    percent = round(abs(change))
+    change = change_pct(now=now, before=before) or 0
+    percent = abs(change)
     if percent == 0:
         return Movement()
 
@@ -82,6 +77,6 @@ def daily_rate(
 ) -> list[int | None]:
     """One cost per day, for plotting. ``None`` where the day had none."""
     return [
-        cost_per(MinorUnits(row.spend_minor * per), int(getattr(row, field)))
+        formulas.cost_per_result(row.spend_minor, int(getattr(row, field)), per=per)
         for row in days
     ]

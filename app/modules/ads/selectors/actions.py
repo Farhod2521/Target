@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from functools import reduce
 from typing import Any
 
+from metaads import PROVIDER as META
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -304,6 +305,31 @@ def campaign_detail(
     if campaign is None or not campaign_on_page(db, owner=owner, campaign=campaign):
         return None
     return campaign
+
+
+def campaigns_detail(
+    db: Session, *, owner: User, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, Campaign]:
+    """:func:`campaign_detail`'s load for many campaigns in one read, by id.
+
+    The page is not checked again: the caller has them from the page's own
+    list. Only Meta's, as :func:`campaign_on_page` keeps.
+    """
+    if not campaign_ids:
+        return {}
+    found = db.scalars(
+        select(Campaign)
+        .options(
+            joinedload(Campaign.ad_account),
+            selectinload(Campaign.adsets).selectinload(AdSet.ads),
+        )
+        .where(
+            Campaign.owner_id == owner.id,
+            Campaign.id.in_(list(campaign_ids)),
+            Campaign.provider == META,
+        )
+    ).unique()
+    return {campaign.id: campaign for campaign in found}
 
 
 def launched_campaign(db: Session, *, owner: User, external_id: str) -> Campaign | None:

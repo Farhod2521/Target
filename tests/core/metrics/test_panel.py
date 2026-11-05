@@ -16,7 +16,7 @@ from datetime import date
 
 from adskit import MinorUnits
 
-from core.metrics import panel
+from core.metrics import arithmetic, panel
 
 
 def a_day(day: int, **figures: int) -> panel.PanelDay:
@@ -94,7 +94,7 @@ def test_the_link_rate_and_the_headline_rate_are_different_questions() -> None:
 
 
 def test_a_rate_over_nothing_is_nought_rather_than_a_crash() -> None:
-    assert panel.rate_bp(part=5, whole=0) == 0
+    assert arithmetic.rate_bp(part=5, whole=0) == 0
     assert panel.panel_total([]).ctr_bp == 0
 
 

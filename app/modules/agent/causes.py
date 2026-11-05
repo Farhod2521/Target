@@ -18,6 +18,8 @@ from app.modules.metrics.constants import Ranking
 from core.agent.diagnosis import CAUSE_OF
 from core.agent.signals import HOLD_FLOOR_BP, HOOK_FLOOR_BP, MIN_CLICKS
 from core.agent.sufficiency import MIN_IMPRESSIONS, MIN_LINK_CLICKS, SPEND_MULTIPLE
+from core.metrics import arithmetic, formulas
+from core.metrics.arithmetic import basis_points
 
 _BOTTOM: Final = ("below_average_10", "below_average_20", "below_average_35")
 _NAME_CHARS: Final = 40
@@ -260,7 +262,11 @@ def _junk_numbers(evidence: Mapping[str, Any], currency: str) -> str:
         return ""
     return (
         "%(total)s ta murojaatdan %(junk)s tasida raqam noto'g'ri, boshqa davlatniki yoki takror (%(share)s%%)."
-        % {"total": leads, "junk": junk, "share": round(junk * 100 / leads)}
+        % {
+            "total": leads,
+            "junk": junk,
+            "share": arithmetic.share(part=junk, whole=leads),
+        }
     )
 
 
@@ -321,7 +327,7 @@ def _low_arrival(evidence: Mapping[str, Any], currency: str) -> str:
     if clicks <= 0:
         return ""
     return "Bosganlarning faqat %(share)s saytga yetib keldi." % {
-        "share": bp_percent(round(arrived * 10000 / clicks))
+        "share": bp_percent(basis_points(formulas.arrival_rate(arrived, clicks)))
     }
 
 

@@ -11,3 +11,9 @@ def set_language(db: Session, *, user: User, language: str) -> User:
     user.language = language
     db.commit()
     return user
+
+
+def set_expert_mode(db: Session, *, user: User, on: bool) -> User:
+    user.expert_mode = on
+    db.commit()
+    return user

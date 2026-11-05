@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
-from adskit import MinorUnits
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session, aliased
 
@@ -29,7 +28,7 @@ from core.metrics import (
     Movement,
     Outcome,
     Totals,
-    cost_per,
+    formulas,
     movement,
     share,
 )
@@ -182,9 +181,11 @@ def _line(
     words = words_for(kind)
     count = count_for(kind=kind, sums=now, leads=leads[0])
     usual = count_for(kind=kind, sums=before, leads=leads[1])
-    cost = cost_per(MinorUnits(now.spend_minor * words.per), count)
+    cost = formulas.cost_per_result(now.spend_minor, count, per=words.per)
     usual_cost = (
-        cost_per(MinorUnits(before.spend_minor * words.per), usual) if before else None
+        formulas.cost_per_result(before.spend_minor, usual, per=words.per)
+        if before
+        else None
     )
     delivery, learning = state
     return DayCampaign(
@@ -283,7 +284,7 @@ def cost_moves(
 def _result_cost(tally: dict[Outcome, KindTally], kind: Outcome) -> int | None:
     words = words_for(kind)
     held = tally.get(kind, KindTally())
-    return cost_per(MinorUnits(held.spend_minor * words.per), held.results)
+    return formulas.cost_per_result(held.spend_minor, held.results, per=words.per)
 
 
 def figures(

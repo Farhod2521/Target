@@ -18,7 +18,8 @@ from typing import Literal
 
 from adskit import MinorUnits
 
-from core.metrics import lead_count
+from core.metrics import formulas, lead_count
+from core.metrics.arithmetic import share, whole_number
 
 # Which way a figure moved, and nothing about whether that is good news.
 # Falling costs and falling leads are both "down", and only the caller knows
@@ -102,7 +103,7 @@ class Totals:
         "free", and a range with spend and no leads is the opposite of
         free - it is the most expensive state a campaign can be in.
         """
-        return cost_per(self.spend_minor, self.leads)
+        return formulas.cpl(self.spend_minor, self.leads)
 
     @property
     def counted_leads(self) -> int:
@@ -125,7 +126,7 @@ class Totals:
         the advertiser has. The gap between it and :attr:`cpl_minor` is the
         product's entire claim.
         """
-        return cost_per(self.spend_minor, self.qualified)
+        return formulas.cpql(self.spend_minor, self.qualified)
 
     @property
     def reported_cpl_minor(self) -> MinorUnits | None:
@@ -145,7 +146,7 @@ class Totals:
         lost, a test submission, a lead either side of midnight. Whoever
         shows it has to say whose count it is.
         """
-        return cost_per(self.spend_minor, self.leads_reported)
+        return formulas.cpl(self.spend_minor, self.leads_reported)
 
     @property
     def quality_share(self) -> int:
@@ -156,7 +157,7 @@ class Totals:
         the owner marks a good one and stalls when they stop looking, which
         makes it a measure of their attention rather than of the campaign.
         """
-        return share(part=self.qualified, whole=self.leads)
+        return whole_number(formulas.qualified_share(self.qualified, self.leads))
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,41 +175,4 @@ class Movement:
     is_good: bool = False
 
 
-def cost_per(spend_minor: MinorUnits, count: int) -> MinorUnits | None:
-    """Cost per one of something, or nothing when the division says nothing.
-
-    **The only place this division is written.** Spread over several call
-    sites, some would carry both refusals below and some only one, and the
-    difference would not be visibly wrong: a screen that tests the result
-    for truth before printing it treats nought as false. A guard that holds
-    by luck downstream is a guard that stops holding the day somebody
-    prints the figure without the test.
-
-    Two refusals.
-
-    **No count**: dividing by nought has no answer, and a range with spend
-    and no leads is the most expensive state a campaign can be in rather
-    than a free one.
-
-    **No spend**: the arithmetic works and the answer is a lie. Leads
-    arrive continuously and figures are collected once a night, so an
-    account looked at before its first sync of the day has today's leads
-    against nothing spent - and it would be told each one cost nothing.
-    That is the same reading a cabinet gets when its leads come from
-    somewhere its spend does not, which is the failure this pair of guards
-    exists to make impossible to show.
-
-    Nought is never the honest answer here. Where it is arithmetically
-    true - leads that arrived with no advertising behind them - a *cost*
-    per lead is not the figure being asked for anyway.
-    """
-    if count <= 0 or spend_minor <= 0:
-        return None
-    return MinorUnits(round(spend_minor / count))
-
-
-def share(*, part: int, whole: int) -> int:
-    """``part`` as a whole percentage of ``whole``. Zero divides to zero."""
-    if whole <= 0:
-        return 0
-    return round(part / whole * 100)
+__all__ = ["DayFigures", "Direction", "Movement", "Totals", "share"]

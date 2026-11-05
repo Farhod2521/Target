@@ -597,6 +597,14 @@ class MetricsDTO(BaseModel):
     # window closing - and the difference is worth seeing rather than
     # hiding.
     cost_per_lead_minor: MinorUnits = MinorUnits(0)
+    # Purchases the advertiser's website reported through its pixel or its
+    # server events, and what they were worth. Nought wherever no site
+    # reports a sale, which is every form and chat campaign.
+    #
+    # Never added to the sales the advertiser marks won in this product: one
+    # buyer can be in both, and the screen shows the two side by side.
+    purchases_site: int = 0
+    purchase_value_site_minor: MinorUnits = MinorUnits(0)
     # What the provider says those leads were worth. Zero unless the
     # advertiser sends conversion values back, which most lead campaigns do
     # not - the revenue this product actually reasons about arrives from
@@ -1453,3 +1461,6 @@ class PeopleCountDTO(BaseModel):
     reach: int = 0
     # The provider's estimate of how many of them would remember it.
     recallers: int = 0
+    # People who clicked the advert's link at least once in the range -
+    # people, like ``reach``, so a range's count is asked of the provider.
+    unique_link_clicks: int = 0

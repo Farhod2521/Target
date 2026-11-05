@@ -32,6 +32,8 @@ from app.modules.metrics.constants import BreakdownKind
 from core.agent import Finding
 from core.agent.diagnosis import Diagnosis
 from core.agent.sufficiency import MIN_IMPRESSIONS, MIN_LINK_CLICKS, SPEND_MULTIPLE
+from core.metrics import formulas
+from core.metrics.arithmetic import basis_points
 
 Shown = Callable[[int], str]
 
@@ -260,7 +262,7 @@ def _arrival(evidence: Mapping[str, Any], words: StepWords) -> str:
     arrived = whole(evidence.get("landing_page_views")) or 0
     if clicks <= 0 or arrived <= 0:
         return ""
-    share = bp_percent(round(arrived * 10000 / clicks))
+    share = bp_percent(basis_points(formulas.arrival_rate(arrived, clicks)))
     return f"{words.arrival}: {share}"
 
 

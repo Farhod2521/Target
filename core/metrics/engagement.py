@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 from adskit import MinorUnits
 
-from core.metrics.contracts import share
+from core.metrics import formulas
+from core.metrics.arithmetic import basis_points, share, whole_number
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,37 +28,41 @@ class EngagementFigures:
 
 def link_ctr(figures: EngagementFigures) -> int:
     """Clicks that went where the money was sent, per hundred impressions."""
-    return share(part=figures.inline_link_clicks, whole=figures.impressions)
+    return whole_number(formulas.ctr(figures.inline_link_clicks, figures.impressions))
 
 
 def unique_ctr(figures: EngagementFigures) -> int:
     """What share of the people reached clicked at all."""
-    return share(part=figures.unique_clicks, whole=figures.reach)
+    return whole_number(formulas.unique_ctr(figures.unique_clicks, figures.reach))
 
 
 def frequency(figures: EngagementFigures) -> int:
     """How many times the average person reached was shown the ad."""
-    return share(part=figures.impressions, whole=figures.reach)
+    return basis_points(formulas.frequency(figures.impressions, figures.reach))
 
 
 def click_quality(figures: EngagementFigures) -> int:
     """What share of the clicks came from different people."""
-    return share(part=figures.unique_clicks, whole=figures.clicks)
+    return whole_number(formulas.click_quality(figures.unique_clicks, figures.clicks))
 
 
 def hook_rate(figures: EngagementFigures) -> int:
     """What share of the people shown the video watched three seconds of it."""
-    return share(part=figures.video_views_3s, whole=figures.impressions)
+    return whole_number(formulas.hook_rate(figures.video_views_3s, figures.impressions))
 
 
 def hold_rate(figures: EngagementFigures) -> int:
     """What share of the people past the first three seconds stayed to the end."""
-    return share(part=figures.video_thruplays, whole=figures.video_views_3s)
+    return whole_number(
+        formulas.hold_rate(figures.video_thruplays, figures.video_views_3s)
+    )
 
 
 def completion_rate(figures: EngagementFigures) -> int:
     """What share watched the whole thing, to the last frame."""
-    return share(part=figures.video_p100, whole=figures.video_plays)
+    return whole_number(
+        formulas.completion_rate(figures.video_p100, figures.video_plays)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,4 +89,4 @@ def value_per_spend(figures: EngagementFigures) -> int | None:
     """What the provider says the leads were worth, per hundred spent."""
     if figures.spend_minor <= 0:
         return None
-    return share(part=figures.lead_value_minor, whole=figures.spend_minor)
+    return basis_points(formulas.roas(figures.lead_value_minor, figures.spend_minor))

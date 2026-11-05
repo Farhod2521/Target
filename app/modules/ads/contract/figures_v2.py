@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Final
 
-from adskit import MinorUnits
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -34,7 +33,8 @@ from app.modules.metrics.selectors.facts import (
     people_counts,
 )
 from app.modules.metrics.selectors.results import RESULT_WORDS, screen_kind
-from core.metrics import cost_per
+from core.metrics import formulas
+from core.metrics.arithmetic import change_pct, exact_ratio
 from core.metrics.outcomes import SITE_GOAL, campaign_goal
 
 M = MetricsDaily
@@ -174,7 +174,7 @@ def shown_of(kind: str, adsets: Iterable[Any]) -> Shown:
 
 
 def _event_result(figures: Exact, spent: Money) -> tuple[int, Money | None]:
-    cost = cost_per(MinorUnits(spent.minor), figures.results)
+    cost = formulas.cost_per_result(spent.minor, figures.results)
     if cost is None:
         return figures.results, None
     return figures.results, spent.model_copy(update={"minor": int(cost)})
@@ -367,21 +367,22 @@ def _windows(
 
 
 def _unit_cost(figures: Exact) -> int | None:
-    return cost_per(MinorUnits(figures.spend_minor), figures.results)
+    return formulas.cost_per_result(figures.spend_minor, figures.results)
 
 
 def _exact_cost(figures: Exact) -> float | None:
     """Unrounded: whole minor units would bend the change of a cheap result."""
     if _unit_cost(figures) is None:
         return None
-    return figures.spend_minor / figures.results
+    exact = exact_ratio(part=figures.spend_minor, whole=figures.results)
+    return None if exact is None else float(exact)
 
 
 def _change(now: float | None, was: float | None) -> int | None:
     """Percent change, signed; ``None`` when there is nothing to compare with."""
-    if now is None or not was or now == was:
+    if now is None or was is None or now == was:
         return None
-    return round((now - was) * 100 / was)
+    return change_pct(now=now, before=was)
 
 
 def _card(
@@ -446,7 +447,7 @@ def _event_stats(
         "results": now.results,
         "results_delta_pct": _change(now.results, was.results),
         "impressions": now.impressions,
-        "ctr": now.link_clicks / now.impressions if now.impressions else 0,
+        "ctr": float(exact_ratio(part=now.link_clicks, whole=now.impressions) or 0),
     }
 
 

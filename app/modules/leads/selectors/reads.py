@@ -5,7 +5,7 @@ import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Final
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
@@ -24,6 +24,8 @@ from app.common.cache import cache
 from app.common.dates import localtime
 from app.common.xlsx import Cell, Column
 from app.modules.accounts.models import User
+from app.modules.crm.models import CrmCard
+from app.modules.crm.quality import judged_card, qualified_card, won_card
 from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
 from app.modules.integrations.models import (
     AdAccount,
@@ -961,11 +963,9 @@ def _counts_by(
         select(
             column,
             func.count(distinct(Lead.id)),
-            func.count(distinct(Lead.id)).filter(
-                LeadOutcome.status == OutcomeStatus.QUALIFIED
-            ),
+            func.count(distinct(Lead.id)).filter(qualified_card()),
         )
-        .outerjoin(LeadOutcome, _user_outcome())
+        .outerjoin(CrmCard, CrmCard.lead_id == Lead.id)
         .where(
             owned(owner),
             _REAL,
@@ -979,6 +979,43 @@ def _counts_by(
     if nonempty:
         query = query.where(column != "")
     return {key: (leads, qualified) for key, leads, qualified in db.execute(query)}
+
+
+SALE_LEVELS: Final[dict[str, Any]] = {
+    "campaign": Lead.campaign_external_id,
+    "adset": Lead.adset_external_id,
+    "ad": Lead.ad_external_id,
+}
+
+
+def sales_by(
+    db: Session,
+    *,
+    owner: User,
+    level: str,
+    since: datetime,
+    until: datetime,
+    scope: ColumnElement[bool] = EVERYTHING,
+) -> dict[str, int]:
+    """Leads the CRM marked won, by the object that brought them, counted
+    on the day each lead arrived - the same leads :func:`_counts_by` counts."""
+    column = SALE_LEVELS[level]
+    rows = db.execute(
+        select(column, func.count(distinct(Lead.id)))
+        .join(CrmCard, CrmCard.lead_id == Lead.id)
+        .where(
+            owned(owner),
+            _REAL,
+            priced(),
+            won_card(),
+            Lead.submitted_at >= since,
+            Lead.submitted_at <= until,
+            column != "",
+            scope,
+        )
+        .group_by(column)
+    )
+    return {key: count for key, count in rows}
 
 
 def daily_counts(
@@ -1200,13 +1237,11 @@ def tallies_by_ad(
         select(
             Lead.ad_external_id,
             func.count(distinct(Lead.id)),
-            func.count(distinct(Lead.id)).filter(
-                LeadOutcome.status == OutcomeStatus.QUALIFIED
-            ),
-            func.count(distinct(Lead.id)).filter(LeadOutcome.id.is_not(None)),
+            func.count(distinct(Lead.id)).filter(qualified_card()),
+            func.count(distinct(Lead.id)).filter(judged_card()),
             func.max(Lead.submitted_at),
         )
-        .outerjoin(LeadOutcome, _user_outcome())
+        .outerjoin(CrmCard, CrmCard.lead_id == Lead.id)
         .where(*conditions)
         .group_by(Lead.ad_external_id)
     )

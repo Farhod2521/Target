@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import Any, Final
 
-from adskit import MinorUnits
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -63,7 +62,7 @@ from app.modules.metrics.selectors.panel import (
     campaign_figures,
 )
 from app.modules.metrics.selectors.results import ResultText, words_for
-from core.metrics import cost_per
+from core.metrics import formulas
 
 UNITS: Final[tuple[tuple[str, str], ...]] = (
     (DAY, "Kun"),
@@ -303,7 +302,7 @@ def _count(sums: FigureSums, *, leads: int, kind: Any, text: ResultText) -> int:
 
 
 def _cost(sums: FigureSums, *, count: int, text: ResultText) -> int | None:
-    return cost_per(MinorUnits(sums.spend_minor * text.per), count)
+    return formulas.cost_per_result(sums.spend_minor, count, per=text.per)
 
 
 def _result(
@@ -379,7 +378,7 @@ def _campaign(db: Session, *, owner: User, external_id: str) -> Campaign | None:
 
 
 def _spent(sums: FigureSums, leads: int) -> int | None:
-    return cost_per(MinorUnits(sums.spend_minor), leads)
+    return formulas.cpl(sums.spend_minor, leads)
 
 
 def _ad_line(

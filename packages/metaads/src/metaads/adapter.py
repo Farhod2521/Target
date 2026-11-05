@@ -156,6 +156,7 @@ from metaads.errors import (
 from metaads.insights import (
     COMMENT_ACTIONS,
     LANDING_PAGE_ACTIONS,
+    PURCHASE_ACTIONS,
     REACTION_ACTIONS,
     RESULTS_FIELD,
     SAVE_ACTIONS,
@@ -1988,6 +1989,7 @@ class MetaMetrics:
                 ad_external_id=str(row.get("ad_id", "")),
                 reach=_as_int(row.get("reach")),
                 recallers=_as_int(row.get("estimated_ad_recallers")),
+                unique_link_clicks=_as_int(row.get("unique_inline_link_clicks")),
             )
             for row in rows
             # A row without both ends cannot say which range it answers.
@@ -2138,6 +2140,13 @@ class MetaMetrics:
             ),
             lead_value_minor=META_MONEY.to_minor(
                 amount=_as_decimal(action_value(row.get("action_values"), leads)),
+                currency=currency,
+            ),
+            purchases_site=action_count(row.get("actions"), PURCHASE_ACTIONS),
+            purchase_value_site_minor=META_MONEY.to_minor(
+                amount=_as_decimal(
+                    action_value(row.get("action_values"), PURCHASE_ACTIONS)
+                ),
                 currency=currency,
             ),
         )

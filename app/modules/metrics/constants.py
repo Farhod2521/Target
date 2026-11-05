@@ -102,6 +102,9 @@ PEOPLE_LEVELS: Final[tuple[MetricLevel, ...]] = (
     MetricLevel.ADSET,
     MetricLevel.AD,
 )
+# The whole account's people as well: the only count a total row of several
+# campaigns can show, as people do not add up across campaigns.
+ACCOUNT_PEOPLE: Final = "account"
 PEOPLE_ROLLING_DAYS: Final[tuple[int, ...]] = (14, 28)
 PEOPLE_REFRESH_SECONDS: Final = 25 * 60
 PEOPLE_ASKED_SECONDS: Final = 2 * 60
@@ -123,6 +126,11 @@ DEFAULT_SOURCE: Final = Source.HERE
 NUMBERS_FILTERS_SESSION_KEY: Final = "metrics:numbers_filters"
 RANGE_MAX_DAYS: Final = 90
 RESTATE_DAYS: Final = 14
+# The nightly check against Ads Manager: the closed days it reads again, and
+# the gap past which a day is ours wrong rather than Meta still settling it -
+# over this share of Meta's figure and over a unit of it.
+CHECK_DAYS: Final = 7
+CHECK_TOLERANCE_PCT: Final = 1
 OBSERVED_RESTATE_DAYS: Final = 30
 RECONCILE_PCT: Final = 10
 RECONCILE_FROM: Final = 5
@@ -133,6 +141,10 @@ FIGURES_REPORT_SAMPLE: Final = 10
 UNTRACKED_DAYS: Final = 7
 JUDGED_SHARE_FLOOR: Final = 50
 TOP_CAMPAIGNS: Final = 8
+# Below this share of quality leads Meta gets too few signals to learn from.
+LEAD_QUALITY_MIN_PCT: Final = 5
+# Below this share of leads with a CRM stage the CRM is not really being used.
+CRM_USE_MIN_PCT: Final = 30
 RECENT_LEADS: Final = 6
 RECENT_DECISIONS: Final = 6
 TOP_SOURCES: Final = 5

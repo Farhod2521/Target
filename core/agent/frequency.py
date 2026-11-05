@@ -20,6 +20,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Final, Literal
 
+from core.metrics import formulas
+from core.metrics.arithmetic import basis_points_or_none
+
 Level = Literal["advice", "warning", "required"]
 
 # The bars, in hundredths of a showing per person, lowest first.
@@ -47,9 +50,7 @@ class Reading:
     @property
     def frequency(self) -> int | None:
         """Showings per person, in hundredths, or nothing with nobody reached."""
-        if self.reach <= 0:
-            return None
-        return round(self.impressions * 100 / self.reach)
+        return basis_points_or_none(formulas.frequency(self.impressions, self.reach))
 
 
 def seen_too_often(frequency: int | None) -> bool:

@@ -1,3 +1,5 @@
+from typing import Any
+
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
@@ -10,7 +12,7 @@ from app.modules.ads.selectors.early_touch import early_hours_on, young_launches
 from app.modules.ads.selectors.failures import recent_delete_failure
 from app.modules.audit.constants import ActionType
 
-__all__ = ["with_controls", "with_switches"]
+__all__ = ["with_controls", "with_controls_many", "with_switches"]
 
 
 def with_switches(
@@ -54,19 +56,39 @@ def with_switches(
 
 
 def with_controls(db: Session, *, owner: User, campaign: Campaign) -> Campaign:
-    adsets = list(campaign.adsets)
-    ads = [ad for adset in adsets for ad in adset.ads]
+    with_controls_many(db, owner=owner, campaigns=[campaign])
+    return campaign
+
+
+def with_controls_many(
+    db: Session, *, owner: User, campaigns: list[Campaign]
+) -> list[Campaign]:
+    """:func:`with_controls` for every campaign, its groups and adverts, with
+    one read of the last actions and the young launches for all of them."""
+    everything = [
+        (campaign, [ad for adset in campaign.adsets for ad in adset.ads])
+        for campaign in campaigns
+    ]
     actions = latest_actions(
         db,
         owner=owner,
         external_ids=[
-            campaign.external_id,
-            *(a.external_id for a in adsets),
-            *(a.external_id for a in ads),
+            row.external_id
+            for campaign, ads in everything
+            for row in (campaign, *campaign.adsets, *ads)
         ],
     )
     now = utcnow()
     young = young_launches(db, owner=owner, now=now)
+    for campaign, ads in everything:
+        _dress(campaign, ads, actions=actions, young=young, now=now)
+    return campaigns
+
+
+def _dress(
+    campaign: Campaign, ads: list[Any], *, actions: Any, young: Any, now: Any
+) -> None:
+    adsets = list(campaign.adsets)
     for row, at in (
         (campaign, ManagedLevel.CAMPAIGN),
         *((adset, ManagedLevel.ADSET) for adset in adsets),
@@ -100,4 +122,3 @@ def with_controls(db: Session, *, owner: User, campaign: Campaign) -> Campaign:
             action=last, target=ad, level=ManagedLevel.AD, now=now
         )
         ad.is_last = len(ad.adset.ads) == 1
-    return campaign

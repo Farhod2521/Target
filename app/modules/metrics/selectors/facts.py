@@ -422,6 +422,7 @@ def end_of(day: date, tzinfo: Any) -> datetime:
 class People:
     reach: int = 0
     recallers: int = 0
+    unique_link_clicks: int = 0
 
 
 def people_counts(
@@ -437,7 +438,12 @@ def people_counts(
     if not wanted:
         return {}
     rows = db.execute(
-        select(PeopleCount.external_id, PeopleCount.reach, PeopleCount.recallers).where(
+        select(
+            PeopleCount.external_id,
+            PeopleCount.reach,
+            PeopleCount.recallers,
+            PeopleCount.unique_link_clicks,
+        ).where(
             PeopleCount.owner_id == owner.id,
             PeopleCount.level == str(level),
             PeopleCount.since == since,
@@ -446,8 +452,8 @@ def people_counts(
         )
     )
     return {
-        external_id: People(reach=reach, recallers=recallers)
-        for external_id, reach, recallers in rows
+        external_id: People(reach=reach, recallers=recallers, unique_link_clicks=clicks)
+        for external_id, reach, recallers, clicks in rows
     }
 
 

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.common.dates import localtime
 from app.common.db import utcnow
-from app.common.money import format_minor
+from app.common.money import format_minor, provider_money
 from app.common.phone import masked
 from app.modules.accounts.models import User
 from app.modules.integrations.models import AdAccount
@@ -186,26 +186,19 @@ def dashboard(
         scope=scope,
     )
     since = today - timedelta(days=BREAKDOWN_RETENTION_DAYS - 1)
-    spans = {
-        str(cut): _span(
-            db, owner=owner, kind=str(cut), today=today, since=since, account=rows_of
-        )
-        for cut in SEGMENT_TITLES
-    }
-    segments = _segments(
+    segments, spans = page_segments(
         db,
         owner=owner,
         today=today,
         currency=currency,
-        account=rows_of,
-        scope=both(scope, form_scope(db, owner=owner)),
-        has_forms=has_form_groups(
-            db, owner=owner, account=account, campaign_ids=campaign_ids
-        ),
-        spans=spans,
+        rows_of=rows_of,
+        scope=scope,
+        account=account,
+        campaign_ids=campaign_ids,
     )
     return Dashboard(
         currency=currency,
+        exponent=provider_money(provider="meta").decimal_places(currency),
         period=period,
         leads=_recent_leads(db, owner=owner, names=names, scope=scope),
         decisions=_recent_decisions(db, owner=owner, campaign_ids=campaign_ids),
@@ -606,6 +599,41 @@ def _recent_decisions(
     )
 
 
+def page_segments(
+    db: Session,
+    *,
+    owner: User,
+    today: date,
+    currency: str,
+    rows_of: Account,
+    scope: Scope,
+    account: AdAccount | None,
+    campaign_ids: Any,
+) -> tuple[tuple[SegmentBlock, ...], dict[str, int]]:
+    """The age, placement and region cuts of a page, and how many days each
+    cut holds - shared by the dashboard and the expert dashboard."""
+    since = today - timedelta(days=BREAKDOWN_RETENTION_DAYS - 1)
+    spans = {
+        str(cut): _span(
+            db, owner=owner, kind=str(cut), today=today, since=since, account=rows_of
+        )
+        for cut in SEGMENT_TITLES
+    }
+    segments = _segments(
+        db,
+        owner=owner,
+        today=today,
+        currency=currency,
+        account=rows_of,
+        scope=both(scope, form_scope(db, owner=owner)),
+        has_forms=has_form_groups(
+            db, owner=owner, account=account, campaign_ids=campaign_ids
+        ),
+        spans=spans,
+    )
+    return segments, spans
+
+
 def _segments(
     db: Session,
     *,
@@ -691,6 +719,8 @@ def _segment_block(
             leads=cost.leads_reported,
             spend=format_minor(amount_minor=cost.spend_minor, currency=currency),
             spend_share=cost.spend_share,
+            cpl_minor=cost.cpl_reported_minor,
+            spend_minor=cost.spend_minor,
         )
 
     everything = (

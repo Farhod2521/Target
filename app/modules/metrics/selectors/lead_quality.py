@@ -8,15 +8,22 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
-from app.modules.crm.constants import SetupState, StageKind
-from app.modules.crm.models import CrmCard, CrmSetup, CrmStage
+from app.modules.crm.constants import SetupState
+from app.modules.crm.models import CrmCard, CrmSetup
+from app.modules.crm.quality import judged_card, junk_card, qualified_card
 from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
 from app.modules.leads.constants import SignalStatus
 from app.modules.leads.models import Lead, LeadSignal
 from app.modules.leads.selectors.reads import pixel_state
+from app.modules.metrics.constants import CRM_USE_MIN_PCT, LEAD_QUALITY_MIN_PCT
 from app.modules.metrics.selectors.scope import PageCampaigns
+from core.metrics import formulas
+from core.metrics.arithmetic import tenths
 
 Problem = Literal["none", "no_pixel", "pixel_unselected", "connection"]
+# How much signal there is: none without the CRM or a pixel, too little when
+# the CRM is barely used or quality leads are rare.
+Level = Literal["off", "no_pixel", "unused", "low", "ok"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +39,30 @@ class LeadQuality:
     expired: int
     last_sent_at: datetime | None
     problem: Problem
+    marked_pct: float = 0.0
+    qualified_pct: float = 0.0
+    unqualified_pct: float = 0.0
+    level: Level = "off"
+    # The share ``low`` is under, for the sentence that says so.
+    quality_floor_pct: int = LEAD_QUALITY_MIN_PCT
+
+
+def _pct(part: int, leads: int) -> float:
+    return float(tenths(formulas.lead_share(part, leads)) or 0)
+
+
+def level_of(
+    *, crm: bool, problem: Problem, marked_pct: float, qualified_pct: float
+) -> Level:
+    if not crm:
+        return "off"
+    if problem != "none":
+        return "no_pixel"
+    if marked_pct < CRM_USE_MIN_PCT:
+        return "unused"
+    if qualified_pct < LEAD_QUALITY_MIN_PCT:
+        return "low"
+    return "ok"
 
 
 def lead_quality(
@@ -55,21 +86,15 @@ def lead_quality(
     leads = int(db.scalar(select(func.count(Lead.id)).where(*in_range)) or 0)
     if not leads:
         return None
-    kinds = db.execute(
-        select(CrmStage.kind, CrmCard.qualified_at.is_not(None), func.count(CrmCard.id))
-        .join(CrmCard, CrmCard.stage_id == CrmStage.id)
+    marked, qualified, unqualified = db.execute(
+        select(
+            func.count(CrmCard.id).filter(judged_card()),
+            func.count(CrmCard.id).filter(qualified_card()),
+            func.count(CrmCard.id).filter(junk_card()),
+        )
         .join(Lead, Lead.id == CrmCard.lead_id)
         .where(*in_range)
-        .group_by(CrmStage.kind, CrmCard.qualified_at.is_not(None))
-    ).all()
-    marked = qualified = unqualified = 0
-    for kind, was_qualified, count in kinds:
-        if kind != StageKind.NEW:
-            marked += count
-        if kind == StageKind.JUNK:
-            unqualified += count
-        elif kind == StageKind.WON or (kind == StageKind.OPEN and was_qualified):
-            qualified += count
+    ).one()
     told = dict(
         db.execute(
             select(LeadSignal.status, func.count(LeadSignal.id))
@@ -92,8 +117,12 @@ def lead_quality(
         )
         .limit(1)
     )
+    crm = running is not None
+    problem = _problem(db, owner=owner, page=page)
+    marked_pct = _pct(marked, leads)
+    qualified_pct = _pct(qualified, leads)
     return LeadQuality(
-        crm=running is not None,
+        crm=crm,
         leads=leads,
         marked=marked,
         qualified=qualified,
@@ -103,7 +132,16 @@ def lead_quality(
         failed=told.get(SignalStatus.FAILED, 0),
         expired=told.get(SignalStatus.EXPIRED, 0),
         last_sent_at=last_sent_at,
-        problem=_problem(db, owner=owner, page=page),
+        problem=problem,
+        marked_pct=marked_pct,
+        qualified_pct=qualified_pct,
+        unqualified_pct=_pct(unqualified, leads),
+        level=level_of(
+            crm=crm,
+            problem=problem,
+            marked_pct=marked_pct,
+            qualified_pct=qualified_pct,
+        ),
     )
 
 
@@ -119,4 +157,4 @@ def _problem(db: Session, *, owner: User, page: PageCampaigns) -> Problem:
     return "none"
 
 
-__all__ = ["LeadQuality", "lead_quality"]
+__all__ = ["LeadQuality", "lead_quality", "level_of"]

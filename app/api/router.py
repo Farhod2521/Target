@@ -11,6 +11,7 @@ from app.modules.ads.routers.launch import router as launch
 from app.modules.ads.routers.launch_forms import router as launch_forms
 from app.modules.ads.routers.launch_media import router as launch_media
 from app.modules.ads.routers.launch_review import router as launch_review
+from app.modules.ads.routers.v2 import expert_router as campaigns_expert
 from app.modules.ads.routers.v2 import router as campaigns_v2
 from app.modules.agent.routers import router as agent
 from app.modules.autopay.routers import router as autopay
@@ -44,6 +45,7 @@ from app.modules.surveys.routers import router as surveys
 from app.modules.tutorials.routers import router as tutorials
 
 api_v2_router = APIRouter(prefix="/api/v2")
+api_v2_router.include_router(campaigns_expert)
 api_v2_router.include_router(campaigns_v2)
 
 api_router = APIRouter(prefix="/api/v1")
@@ -64,6 +66,8 @@ api_router.include_router(notifications)
 api_router.include_router(actions)
 api_router.include_router(miniapp)
 api_router.include_router(metrics)
+# Before the campaigns' own routes: «expert» is not a campaign id.
+api_router.include_router(campaigns_expert)
 api_router.include_router(campaigns)
 # Before the launch's own routes: «drafts» is not a launch id.
 api_router.include_router(launch_drafts)

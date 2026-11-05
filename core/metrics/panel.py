@@ -3,15 +3,12 @@
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
-from typing import Final
 
 from adskit import MinorUnits
 
-from core.metrics.contracts import cost_per, share
-
-PER_MILLE: Final = 1000
-
-BASIS_POINTS: Final = 10_000
+from core.metrics import formulas
+from core.metrics.arithmetic import BASIS_POINTS, basis_points, whole_number
+from core.metrics.formulas import PER_MILLE
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,47 +60,49 @@ class PanelTotals:
     @property
     def cpl_minor(self) -> MinorUnits | None:
         """What one lead cost. ``None`` where the division says nothing."""
-        return cost_per(self.spend_minor, self.leads)
+        return formulas.cpl(self.spend_minor, self.leads)
 
     @property
     def cpql_minor(self) -> MinorUnits | None:
         """What one lead worth having cost. The figure the product is for."""
-        return cost_per(self.spend_minor, self.qualified)
+        return formulas.cpql(self.spend_minor, self.qualified)
 
     @property
     def cpm_minor(self) -> MinorUnits | None:
         """What a thousand showings cost."""
-        return cost_per(MinorUnits(self.spend_minor * PER_MILLE), self.impressions)
+        return formulas.cpm(self.spend_minor, self.impressions)
 
     @property
     def cpc_minor(self) -> MinorUnits | None:
         """What one click cost, counting every click on the unit."""
-        return cost_per(self.spend_minor, self.clicks)
+        return formulas.cpc(self.spend_minor, self.clicks)
 
     @property
     def ctr_bp(self) -> int:
         """Clicks per ten thousand impressions. See :data:`BASIS_POINTS`."""
-        return rate_bp(part=self.clicks, whole=self.impressions)
+        return basis_points(formulas.ctr(self.clicks, self.impressions))
 
     @property
     def link_ctr_bp(self) -> int:
         """The same, for the clicks that went where the money was sent."""
-        return rate_bp(part=self.link_clicks, whole=self.impressions)
+        return basis_points(formulas.ctr(self.link_clicks, self.impressions))
 
     @property
     def platform_cpl_minor(self) -> MinorUnits | None:
         """What the **provider** says one lead cost."""
-        return cost_per(self.spend_minor, self.leads_reported)
+        return formulas.cpl(self.spend_minor, self.leads_reported)
 
     @property
     def quality_share(self) -> int:
         """What percentage of the leads were worth having."""
-        return share(part=self.qualified, whole=self.leads)
+        return whole_number(formulas.qualified_share(self.qualified, self.leads))
 
     @property
     def hold_share(self) -> int:
         """What share of the people who started the video stayed to the end."""
-        return share(part=self.video_thruplays, whole=self.video_plays)
+        return whole_number(
+            formulas.thruplay_share(self.video_thruplays, self.video_plays)
+        )
 
 
 def with_provider_leads[T: (PanelDay, PanelTotals)](figures: T) -> T:
@@ -143,14 +142,7 @@ def newest_measured(days: Sequence[PanelDay]) -> PanelDay | None:
 
 def frequency_bp(day: PanelDay | PanelTotals) -> int:
     """How often the average person reached saw the ad, in hundredths."""
-    return share(part=day.impressions, whole=day.reach)
-
-
-def rate_bp(*, part: int, whole: int) -> int:
-    """``part`` per ten thousand of ``whole``, rounded. Nought over nought."""
-    if whole <= 0:
-        return 0
-    return round(part * BASIS_POINTS / whole)
+    return basis_points(formulas.frequency(day.impressions, day.reach))
 
 
 __all__ = [
@@ -161,6 +153,5 @@ __all__ = [
     "frequency_bp",
     "newest_measured",
     "panel_total",
-    "rate_bp",
     "with_provider_leads",
 ]

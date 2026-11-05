@@ -20,13 +20,12 @@ from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from typing import Final
 
-from adskit import MinorUnits
-
 from app.common.money import format_minor, number_format
 from app.modules.metrics.selectors.results import words_for
 from core.chat.daily import NO_FIGURE
 from core.chat.day_report import Figure, Result
-from core.metrics import cost_per, counted_leads, measured
+from core.metrics import counted_leads, formulas, measured
+from core.metrics.arithmetic import change_pct
 from core.metrics.outcomes import SITE_GOAL, site_event
 
 REGISTRATION: Final = "registration"
@@ -64,9 +63,9 @@ def report_money(amount_minor: int, currency: str) -> str:
 
 def change_text(now: int, before: int) -> str:
     """«+94%», or nothing with no earlier money to measure against."""
-    if before <= 0:
+    moved = change_pct(now=now, before=before) if before > 0 else None
+    if moved is None:
         return ""
-    moved = round((now - before) * 100 / before)
     return f"+{number_format(moved)}%" if moved > 0 else f"{number_format(moved)}%"
 
 
@@ -163,7 +162,7 @@ def result_count(*, kind: str, sums: Mapping[str, int], ours: int) -> int:
 
 def _result(*, kind: str, count: int, spend: int, currency: str) -> Result:
     words = words_for(kind)  # type: ignore[arg-type]
-    cost = cost_per(MinorUnits(spend * words.per), count)
+    cost = formulas.cost_per_result(spend, count, per=words.per)
     return Result(
         kind=kind,
         count=count,

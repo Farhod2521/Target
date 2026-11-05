@@ -20,6 +20,7 @@ from app.modules.metrics.services import (
     chase_missing_leads,
     purge_ad_metrics,
     purge_breakdowns,
+    refill_history,
     report_unfinished_figures,
     request_backfill,
     retention_floor,
@@ -121,6 +122,29 @@ def _read_today(db: object, ad_account_id: str, *, people_after_seconds: int) ->
     if summary.complete:
         return f"rows:{summary.rows}{tail}"
     return f"rows:{summary.rows} stopped:{summary.stopped_at} by:{summary.stopped_by}{tail}"
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def refill_history_task(ad_account_id: str) -> str:
+    """Every level's whole history read again, for a column added after it.
+
+    Queued by ``python -m app.modules.metrics.refill``. A busy account is
+    left for the next run rather than retried: the nightly read restates its
+    last fortnight anyway.
+    """
+    with task_session() as db:
+        account = _account(db, ad_account_id)
+        if account is None:
+            return "gone"
+        try:
+            written = refill_history(db, ad_account=account)
+        except SyncAlreadyRunning:
+            return "already_running"
+        except ConnectionUnusable:
+            return "connection_unusable"
+        except SyncFailed as exc:
+            return f"provider_failed:{exc.cause}" if exc.cause else "provider_failed"
+    return f"rows:{written}"
 
 
 @celery_app.task(queue="sync", ignore_result=True)

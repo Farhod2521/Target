@@ -1,13 +1,11 @@
 from dataclasses import dataclass, replace
 from typing import Any
 
-from adskit import MinorUnits
-
 from app.common.money import format_minor
 from app.modules.metrics.selectors.periods import CampaignMeta, money, screen_kind
 from app.modules.metrics.selectors.results import note_for, words_for
 from app.modules.metrics.selectors.shapes import OutcomeBlock
-from core.metrics import Movement, Outcome, Totals, cost_per, movement, share
+from core.metrics import Movement, Outcome, Totals, formulas, movement, share
 
 __all__ = ["outcomes"]
 SLICES: int = 5
@@ -154,6 +152,11 @@ def _block(
 ) -> OutcomeBlock:
     text = words_for(kind)
     note = note_for(kind, optimization_goals=goals)
+    cost = (
+        None
+        if note
+        else formulas.cost_per_result(tally.spend_minor, tally.count, per=text.per)
+    )
     moved = (
         movement(now=tally.count, before=was.count, lower_is_better=False)
         if was.count >= COMPARE_FLOOR
@@ -166,11 +169,9 @@ def _block(
         hint=text.hint,
         headline_note=text.headline_note,
         count="" if note else f"{tally.count:,}".replace(",", " "),
-        cost=""
-        if note
-        else money(
-            cost_per(MinorUnits(tally.spend_minor * text.per), tally.count), currency
-        ),
+        cost="" if note else money(cost, currency),
+        cost_minor=cost,
+        results=None if note else tally.count,
         spend=format_minor(amount_minor=tally.spend_minor, currency=currency),
         spend_minor=tally.spend_minor,
         shown=f"{tally.impressions:,}".replace(",", " "),

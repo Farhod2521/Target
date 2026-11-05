@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.metrics import Outcome
+from core.metrics.formulas import RESULT_OF, result_per
 from core.metrics.outcomes import SITE_GOAL, outcome_for
 
 UNCOUNTED_NOTES: dict[str, Any] = {
@@ -12,19 +13,30 @@ UNCOUNTED_NOTES: dict[str, Any] = {
 
 @dataclass(frozen=True, slots=True)
 class ResultText:
-    field: str
+    """The words for one goal's result. What it counts and per how many of
+    them its cost is quoted come from :data:`core.metrics.formulas.RESULT_OF`."""
+
+    outcome: Outcome
     one: Any
     label: Any
     cost_label: Any
     hint: Any
     headline_note: Any
     source_note: Any = ""
-    per: int = 1
+
+    @property
+    def field(self) -> str:
+        found = RESULT_OF.get(self.outcome)
+        return found[0] if found else ""
+
+    @property
+    def per(self) -> int:
+        return result_per(self.outcome)
 
 
 RESULT_WORDS: dict[Outcome, "ResultText"] = {
     "chat": ResultText(
-        field="results",
+        outcome="chat",
         one="suhbat",
         label="Suhbatlar",
         cost_label="Suhbat narxi",
@@ -32,7 +44,7 @@ RESULT_WORDS: dict[Outcome, "ResultText"] = {
         headline_note="Bitta suhbat sizga shuncha turdi - reklamaga sarflangan pul shu davrda boshlangan suhbatlarga bo'lingani.",
     ),
     "call": ResultText(
-        field="results",
+        outcome="call",
         one="qo'ng'iroq",
         label="Qo'ng'iroqlar",
         cost_label="Qo'ng'iroq narxi",
@@ -40,16 +52,15 @@ RESULT_WORDS: dict[Outcome, "ResultText"] = {
         headline_note="Bitta qo'ng'iroq sizga shuncha turdi - reklamaga sarflangan pul shu davrdagi qo'ng'iroqlarga bo'lingani.",
     ),
     "view": ResultText(
-        field="impressions",
+        outcome="view",
         one="ko'rish",
         label="Ko'rishlar",
         cost_label="Ming ko'rish narxi",
         hint="Reklamangiz necha marta ekranga chiqdi.",
         headline_note="Reklamangizni ming marta ko'rsatish shuncha turdi - sarflangan pul ko'rsatishlar soniga bo'lingani.",
-        per=1000,
     ),
     "click": ResultText(
-        field="results",
+        outcome="click",
         one="o'tish",
         label="Saytga o'tishlar",
         cost_label="Bitta o'tish narxi",
@@ -57,7 +68,7 @@ RESULT_WORDS: dict[Outcome, "ResultText"] = {
         headline_note="Saytingizga bitta o'tish shuncha turdi - reklamaga sarflangan pul o'tganlar soniga bo'lingani.",
     ),
     "site_lead": ResultText(
-        field="leads_reported",
+        outcome="site_lead",
         one="murojaat",
         label="Saytdagi murojaatlar",
         cost_label="Murojaat narxi",
@@ -66,7 +77,7 @@ RESULT_WORDS: dict[Outcome, "ResultText"] = {
         source_note="Meta hisobi bo'yicha",
     ),
     "recall": ResultText(
-        field="recallers",
+        outcome="recall",
         one="eslab qolgan",
         label="Eslab qolganlar",
         cost_label="Bitta eslab qolgan narxi",
@@ -74,7 +85,7 @@ RESULT_WORDS: dict[Outcome, "ResultText"] = {
         headline_note="Reklamangizni eslab qoladigan bitta odam shuncha turdi - sarflangan pul platformaning bahosiga bo'lingani.",
     ),
     "profile": ResultText(
-        field="profile_visits",
+        outcome="profile",
         one="profilga o'tish",
         label="Profilga o'tishlar",
         cost_label="Profilga o'tish narxi",
@@ -100,7 +111,7 @@ def uncounted_note(
 
 
 LEAD_TEXT: "ResultText" = ResultText(
-    field="leads",
+    outcome="lead",
     one="murojaat",
     label="Murojaatlar",
     cost_label="Murojaat narxi",
@@ -108,7 +119,7 @@ LEAD_TEXT: "ResultText" = ResultText(
     headline_note="Bitta murojaat sizga shuncha turdi - reklamaga sarflangan pul shu davrda kelgan murojaatlarga bo'lingani.",
 )
 OTHER_TEXT: "ResultText" = ResultText(
-    field="",
+    outcome="none",
     one="natija",
     label="Boshqa reklama",
     cost_label="",

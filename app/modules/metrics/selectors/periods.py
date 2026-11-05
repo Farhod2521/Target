@@ -1,14 +1,13 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
-
-from adskit import MinorUnits
+from typing import Any, cast
 
 from app.common.money import format_minor
 from app.modules.metrics.constants import TOP_CAMPAIGNS
 from app.modules.metrics.selectors import chart
 from app.modules.metrics.selectors.results import OTHER_NOTE, uncounted_label, words_for
 from app.modules.metrics.selectors.shapes import (
+    CampaignGroup,
     CampaignRow,
     FunnelStep,
     KindView,
@@ -22,12 +21,13 @@ from core.metrics import (
     DayFigures,
     Outcome,
     Totals,
-    cost_per,
     daily_rate,
+    formulas,
     funnel,
     movement,
     total,
 )
+from core.metrics.arithmetic import hundredths, tenths
 
 FUNNEL_TEXT: dict[str, tuple[Any, Any]] = {
     "shown": ("Ko'rsatildi", "Reklamangiz necha marta ekranga chiqdi."),
@@ -175,6 +175,7 @@ def steps(totals: Totals, *, kind: Outcome = "lead") -> tuple[FunnelStep, ...]:
                 value=grouped(value),
                 share_pct=pct,
                 note=FUNNEL_TEXT[name][1],
+                count=value,
             )
             for name, value, pct in funnel(totals, rungs=rungs)
         )
@@ -219,6 +220,10 @@ def campaigns(
         results, result_label, result_cost_label, per = _result_of(meta, sums)
         kind = screen_kind(names.get(key))
         uncounted = kind == "none"
+        # A lead campaign's result is the leads that reached us when Meta
+        # reports none, and its cost is of those, as its group's is.
+        shown = results or (count if kind == "lead" else 0)
+        cost = formulas.cost_per_result(spend, shown, per=per)
         rows.append(
             CampaignRow(
                 name=meta.name,
@@ -228,20 +233,114 @@ def campaigns(
                 spend_minor=spend,
                 leads=count,
                 qualified=qualified,
-                cpl=money(cost_per(MinorUnits(spend), count), currency),
-                cpql=money(cost_per(MinorUnits(spend), qualified), currency),
+                cpl=money(formulas.cpl(spend, count), currency),
+                cpql=money(formulas.cpql(spend, qualified), currency),
                 note=meta.note or (OTHER_NOTE if uncounted else ""),
                 results=results,
                 result_label=result_label,
-                result_cost=money(cost_per(MinorUnits(spend * per), results), currency),
+                result_cost=money(cost, currency),
                 result_cost_label=result_cost_label,
                 result_source=words_for(meta.kind).source_note if meta.result else "",
                 kind=kind,
                 uncounted_label=uncounted_label(meta.goal) if uncounted else "",
+                result_cost_minor=cost,
+                qualified_pct=_percent(formulas.lead_share(qualified, shown))
+                if kind == "lead"
+                else None,
             )
         )
     rows.sort(key=lambda row: (-row.qualified, -row.leads, -row.spend_minor, row.name))
     return tuple(rows)
+
+
+def _percent(value: Any) -> float | None:
+    """A share to one place, as the screen shows it; nothing stays nothing."""
+    found = tenths(value)
+    return None if found is None else float(found)
+
+
+def counted_results(row: CampaignRow) -> int:
+    """What a row's results count as: a lead campaign Meta reported none for
+    still has the leads that reached us."""
+    if row.kind == "none":
+        return 0
+    return row.results or (row.leads if row.kind == "lead" else 0)
+
+
+def groups(rows: Sequence[CampaignRow], *, currency: str) -> tuple[CampaignGroup, ...]:
+    """Every row of one kind summed, before the list is cut to its top."""
+    by_kind: dict[str, list[CampaignRow]] = {}
+    for row in rows:
+        by_kind.setdefault(row.kind, []).append(row)
+    out = []
+    for kind, members in by_kind.items():
+        spend = sum(row.spend_minor for row in members)
+        results = sum(counted_results(row) for row in members)
+        cost = (
+            formulas.cost_per_result(
+                spend, results, per=words_for(cast(Outcome, kind)).per
+            )
+            if kind != "none"
+            else None
+        )
+        out.append(
+            CampaignGroup(
+                kind=kind,
+                campaigns=len(members),
+                spend=format_minor(amount_minor=spend, currency=currency),
+                spend_minor=spend,
+                results=results,
+                cost=money(cost, currency),
+                cost_minor=cost,
+                counted=kind != "none",
+                qualified_pct=_percent(
+                    formulas.lead_share(
+                        sum(row.qualified for row in members),
+                        sum(counted_results(row) for row in members),
+                    )
+                )
+                if kind == "lead"
+                else None,
+            )
+        )
+    out.sort(key=lambda one: (-one.spend_minor, one.kind))
+    return tuple(out)
+
+
+def split(views: Sequence[KindView]) -> tuple[tuple[int, ...], tuple[KindView, ...]]:
+    """Each day's money across the kinds, and each kind's share of it."""
+    spent = [
+        [
+            int(point.value or 0)
+            for one in view.series
+            if one.key == "spend"
+            for point in one.points
+        ]
+        for view in views
+    ]
+    days = max((len(values) for values in spent), default=0)
+    totals = tuple(
+        sum(values[day] if day < len(values) else 0 for values in spent)
+        for day in range(days)
+    )
+    shared = tuple(
+        replace(
+            view,
+            spend_share=tuple(
+                _hundredths(formulas.spend_share(values[day], totals[day]))
+                if day < len(values)
+                else None
+                for day in range(days)
+            ),
+        )
+        for view, values in zip(views, spent, strict=True)
+    )
+    return totals, shared
+
+
+def _hundredths(value: Any) -> float | None:
+    found = hundredths(value)
+    return None if found is None else float(found)
 
 
 def _result_of(meta: CampaignMeta, sums: Any) -> tuple[int, Any, Any, int]:
@@ -292,6 +391,7 @@ def build(
         replace(one, campaigns=sum(1 for row in rows if row.kind == one.kind))
         for one in views
     )
+    day_spend, views = split(views)
     first = (
         views[0]
         if views
@@ -317,7 +417,8 @@ def build(
         cpl=money(now.cpl_minor, currency),
         cpql=money(now.cpql_minor, currency),
         reported_leads=reported,
-        reported_cpl=money(cost_per(MinorUnits(reported_spend), reported), currency),
+        reported_cpl=money(formulas.cpl(reported_spend, reported), currency),
+        reported_cpl_minor=formulas.cpl(reported_spend, reported),
         quality_pct=now.quality_share,
         kpis=headline(now=now, before=total(before), currency=currency),
         outcomes=blocks,
@@ -328,6 +429,8 @@ def build(
         unknown_after=unknown_after,
         campaigns=_top(rows),
         campaign_count=len(rows),
+        groups=groups(rows, currency=currency),
+        day_spend=day_spend,
     )
 
 

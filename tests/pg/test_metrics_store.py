@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from adskit.dto import MetricsDTO
+from adskit.dto import MetricsDTO, PeopleCountDTO
 from adskit.refs import ExternalRef, ProviderName
 from metaads import PROVIDER
 from sqlalchemy import func, select
@@ -12,7 +12,7 @@ from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.metrics import selectors, services
 from app.modules.metrics.constants import MetricLevel
-from app.modules.metrics.models import MetricsDaily
+from app.modules.metrics.models import MetricsDaily, PeopleCount
 from tests.pg.test_cabinet_flows import _cabinet
 
 
@@ -174,3 +174,45 @@ def test_numbers_dashboard_with_figures(client, db: Session) -> None:  # type: i
         ).status_code
         == 200
     )
+
+
+def test_website_purchases_and_unique_link_clicks_are_stored(db: Session) -> None:
+    owner = User(
+        email="p@example.com", full_name="P", password="!", date_joined=utcnow()
+    )
+    db.add(owner)
+    db.commit()
+    account, _page = _cabinet(db, owner)
+    today = utcnow().date()
+    row = _row(today, spend=500).model_copy(
+        update={"purchases_site": 3, "purchase_value_site_minor": 14_990}
+    )
+
+    services.store_metrics(
+        db, ad_account=account, rows=[row], now=utcnow(), level=MetricLevel.ADSET
+    )
+    services.replace_people(
+        db,
+        ad_account=account,
+        level=MetricLevel.ADSET,
+        rows=[
+            PeopleCountDTO(
+                ref=ExternalRef(
+                    provider=ProviderName(PROVIDER), level="adset", id="s_1"
+                ),
+                since=today,
+                until=today,
+                reach=900,
+                unique_link_clicks=41,
+            )
+        ],
+        now=utcnow(),
+    )
+
+    stored = db.scalars(select(MetricsDaily)).one()
+    assert (stored.purchases_site, stored.purchase_value_site_minor) == (3, 14_990)
+    assert db.scalars(select(PeopleCount)).one().unique_link_clicks == 41
+    people = selectors.people_counts(
+        db, owner=owner, level=MetricLevel.ADSET, since=today, until=today, ids=["s_1"]
+    )
+    assert people["s_1"].unique_link_clicks == 41

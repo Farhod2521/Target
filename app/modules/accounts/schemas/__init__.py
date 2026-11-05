@@ -1,6 +1,7 @@
 from app.modules.accounts.schemas.account import (
     AccountIn,
     EmailCodeIn,
+    ExpertModeIn,
     LanguageIn,
     PasswordIn,
     PhoneIn,
@@ -25,6 +26,7 @@ __all__ = [
     "AccountIn",
     "CodeSentOut",
     "EmailCodeIn",
+    "ExpertModeIn",
     "HandedOff",
     "HandoffIn",
     "HandoffOut",

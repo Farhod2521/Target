@@ -4,7 +4,7 @@ from typing import Any
 from app.common.dates import number_format
 from app.common.money import format_minor
 from app.modules.metrics.selectors.creative_leads import CreativeLeads
-from core.metrics import cost_per, rate_bp
+from core.metrics import formulas, rate_bp
 
 
 def rate(*, part: int, whole: int) -> str:
@@ -18,7 +18,7 @@ def cpql(*, spend_minor: int, own: CreativeLeads, currency: str) -> str:
     if not own.is_judged:
         return ""
     return format_minor(
-        amount_minor=cost_per(spend_minor, own.qualified), currency=currency
+        amount_minor=formulas.cpql(spend_minor, own.qualified), currency=currency
     )
 
 

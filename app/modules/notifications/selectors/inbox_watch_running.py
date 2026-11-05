@@ -2,14 +2,12 @@
 
 from collections.abc import Callable
 
-from adskit import MinorUnits
-
 from app.common.money import format_minor
 from app.modules.agent.selectors.watched import Watched
 from app.modules.metrics.selectors.results import words_for
 from core.agent.running_watch import RECENT_DAYS, Running, Tally
 from core.agent.usual import TREND_DAYS
-from core.metrics import cost_per
+from core.metrics import formulas
 
 
 def running_body(row: Watched, facts: Running) -> str:
@@ -118,7 +116,7 @@ def _compared(row: Watched, facts: Running) -> str:
 
 
 def _cost(tally: Tally) -> int:
-    return cost_per(MinorUnits(tally.spend_minor), tally.results) or 0
+    return formulas.cost_per_result(tally.spend_minor, tally.results) or 0
 
 
 def _money(row: Watched, amount_minor: int) -> str:

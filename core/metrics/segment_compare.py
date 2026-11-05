@@ -5,7 +5,8 @@ from typing import Final
 
 from adskit import MinorUnits
 
-from core.metrics.contracts import cost_per, share
+from core.metrics import formulas
+from core.metrics.arithmetic import share
 
 MIN_SEGMENT_LEADS: Final = 10
 
@@ -92,17 +93,18 @@ def compare_segments(
 
 def _average_cpl(rows: list[SegmentFigures], *, per: int = 1) -> MinorUnits | None:
     """The cut's own cost per lead, or nothing when it produced none."""
-    return cost_per(
-        MinorUnits(sum(row.spend_minor for row in rows) * per),
+    return formulas.cost_per_result(
+        sum(row.spend_minor for row in rows),
         sum(row.leads_reported for row in rows),
+        per=per,
     )
 
 
 def _earning_rate(rows: list[SegmentFigures]) -> MinorUnits | None:
     """What a lead costs in the slices that produced any."""
     earning = [row for row in rows if row.leads_reported > 0]
-    return cost_per(
-        MinorUnits(sum(row.spend_minor for row in earning)),
+    return formulas.cpl(
+        sum(row.spend_minor for row in earning),
         sum(row.leads_reported for row in earning),
     )
 
@@ -111,7 +113,7 @@ def _cost(
     row: SegmentFigures, *, average: MinorUnits | None, spent: int, per: int = 1
 ) -> SegmentCost:
     """One slice's own cost, and where it sits against the cut's average."""
-    cpl = cost_per(MinorUnits(row.spend_minor * per), row.leads_reported)
+    cpl = formulas.cost_per_result(row.spend_minor, row.leads_reported, per=per)
     return SegmentCost(
         segment=row.segment,
         spend_minor=row.spend_minor,

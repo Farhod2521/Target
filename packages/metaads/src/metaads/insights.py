@@ -201,6 +201,14 @@ AD_RANKING_FIELDS: Final = (
 # The level whose rows carry a ranking. Meta's word, not the domain's - the
 # adapter is what maps a domain level onto it.
 RANKED_LEVEL: Final = "ad"
+# The whole account's day, for checking our sums against: the totals and the
+# array the site purchases are read from. Nothing that names a campaign or an
+# ad set's goal, which the account level has none of.
+ACCOUNT_LEVEL: Final = "account"
+ACCOUNT_FIELDS: Final = (
+    "date_start,date_stop,account_id,account_name,account_currency,"
+    "spend,impressions,clicks,inline_link_clicks,actions,action_values"
+)
 
 # Meta pages insights, and a ninety-day range at ad set level on a busy
 # account is a lot of rows. Larger pages mean fewer round trips against a
@@ -372,6 +380,12 @@ SAVE_ACTIONS: Final[tuple[str, ...]] = ("onsite_conversion.post_save",)
 # a view is somebody who stayed for three seconds. Views over impressions
 # is how often the opening stops the scroll.
 LANDING_PAGE_ACTIONS: Final[tuple[str, ...]] = ("landing_page_view",)
+
+# A purchase on the advertiser's website, pixel and server events alike:
+# Ads Manager's "Website purchases". Not ``purchase`` or ``omni_purchase``,
+# which fold in app and offline sales a website never saw. Its value is read
+# under the same name out of ``action_values``, in whole currency.
+PURCHASE_ACTIONS: Final[tuple[str, ...]] = ("offsite_conversion.fb_pixel_purchase",)
 VIDEO_VIEW_ACTIONS: Final[tuple[str, ...]] = ("video_view",)
 
 
@@ -399,6 +413,15 @@ def fetch_insights(
     Meta's vocabulary into the domain.
     """
     with _session(client, token) as graph:
+        if level == ACCOUNT_LEVEL:
+            return _read_days(
+                graph,
+                account_id=account_id,
+                fields=fields_for(level),
+                level=level,
+                since=since,
+                until=until,
+            )
         try:
             return _read_days(
                 graph,
@@ -450,9 +473,10 @@ def _read_days(
 
 
 # What a range's people count needs: the object, the range it is about, and
-# the two figures that count people rather than events.
+# the figures that count people rather than events.
 PEOPLE_FIELDS: Final = (
-    "date_start,date_stop,campaign_id,adset_id,ad_id,reach,estimated_ad_recallers"
+    "date_start,date_stop,account_id,campaign_id,adset_id,ad_id,reach,"
+    "estimated_ad_recallers,unique_inline_link_clicks"
 )
 
 
@@ -537,10 +561,12 @@ def fields_for(level: str) -> str:
     The base list everywhere, plus the three ranking verdicts on ads. The
     split is not a preference: Meta refuses the ranking fields at any other
     level, and a request that asked for them everywhere would return an
-    error for two levels out of three.
+    error for two levels out of three. The account asks only for its totals.
     """
     if level == RANKED_LEVEL:
         return f"{INSIGHT_FIELDS},{AD_RANKING_FIELDS}"
+    if level == ACCOUNT_LEVEL:
+        return ACCOUNT_FIELDS
     return INSIGHT_FIELDS
 
 
