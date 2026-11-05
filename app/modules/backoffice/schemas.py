@@ -876,6 +876,46 @@ class DirectionsOut(BaseModel):
     presets: list[ChoiceOut] = Field(description="Every `preset_key` allowed.")
 
 
+class OfficePlanOut(BaseModel):
+    id: str
+    code: str = Field(
+        description="What the cabinet and the site know it by; never edited."
+    )
+    name: str
+    tagline: str
+    features: str = Field(description="One line each; `#` a heading, `*` a highlight.")
+    price: int = Field(description="Whole so'm.")
+    currency: str
+    period_days: int
+    max_adsets: int = Field(
+        description="Shown to the customer, not enforced; 0 is none."
+    )
+    daily_chat_requests: int = Field(description="0 is no limit.")
+    llm_cost_limit_minor: int = Field(
+        description="A month, in `llm_currency` cents; 0 is none."
+    )
+    included_pages: int
+    included_google_accounts: int
+    extra_page_price: int = Field(description="0 is not sold.")
+    crm_seat_price: int = Field(description="0 is not sold.")
+    is_one_time: bool
+    is_active: bool = Field(description="On sale; off, nobody buys or renews it.")
+    sort_order: int
+    is_trial: bool = Field(description="The trial runs on this plan's limits.")
+    live: int = Field(description="Trial and active subscriptions on it now.")
+    deletable: bool = Field(
+        description="Nothing points at it; else it is taken off sale."
+    )
+    created_at: datetime
+    updated_at: datetime
+
+
+class OfficePlansOut(BaseModel):
+    rows: list[OfficePlanOut]
+    llm_currency: str
+    can_edit: bool = Field(description="The superuser alone writes plans.")
+
+
 class PromoPlanOut(BaseModel):
     code: str
     name: str

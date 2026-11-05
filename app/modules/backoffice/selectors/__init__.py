@@ -87,6 +87,7 @@ class Shell:
             ("clients", self.can_give),
             ("payments", self.is_owner),
             ("promo", self.can_give),
+            ("plans", self.can_give),
             ("payouts", self.can_give and settings.withdrawals_open),
             ("reviews", self.can_give),
             ("surveys", self.can_give),
