@@ -166,6 +166,38 @@ class NoSlotsToTake(DomainError):
         )
 
 
+class NothingToRefund(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu hisob uchun qaytariladigan to'lov yo'q: u to'lanmagan, allaqachon"
+            " qaytarilgan yoki boshqa usulda to'langan - sahifani yangilang."
+        )
+
+
+class RefundNotWhole(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu hisobda qo'shimcha sahifa yoki CRM menejeri bor - ularni bu yerdan"
+            " qaytarib bo'lmaydi. Pulni Rahmat kabinetidan qaytaring va sahifa"
+            " yoki menejerni mijoz kartasida qo'lda olib tashlang."
+        )
+
+
+class RefundRefused(DomainError):
+    def __init__(self, *, details: str) -> None:
+        reason = f" Sabab: {details}" if details else ""
+        super().__init__("To'lov tizimi pulni qaytarmadi, hisob o'zgarmadi." + reason)
+
+
+class RefundUncertain(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "To'lov tizimi javob bermadi - pul qaytgan-qaytmagani noma'lum."
+            " Bir daqiqadan so'ng qayta bosing: qaytgan bo'lsa, ikkinchi marta"
+            " yechilmaydi."
+        )
+
+
 class NothingHeld(DomainError):
     def __init__(self) -> None:
         super().__init__(

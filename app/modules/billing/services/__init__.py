@@ -1,13 +1,16 @@
 from app.modules.billing.services.callbacks import (
     abandon_hold,
+    can_refund,
     handle_callback,
     hold_invoice,
     record_attempt,
     release_hold,
     release_stale_holds,
+    return_payment,
     revoke_payment,
     settle_invoice,
     void_transaction,
+    wholly_revocable,
 )
 from app.modules.billing.services.entitlement import default_plan, payer
 from app.modules.billing.services.grants import (
@@ -57,6 +60,7 @@ __all__ = [
     "approve_redemption",
     "attach_by_email",
     "attach_receipts",
+    "can_refund",
     "check_invoice",
     "checkout_for",
     "complete_setup",
@@ -86,6 +90,7 @@ __all__ = [
     "require_live_subscription",
     "require_preparation",
     "require_setup_completed",
+    "return_payment",
     "revoke_days",
     "revoke_pages",
     "revoke_payment",
@@ -93,4 +98,5 @@ __all__ = [
     "settle_invoice",
     "start_trial",
     "void_transaction",
+    "wholly_revocable",
 ]

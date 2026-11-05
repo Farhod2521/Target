@@ -240,6 +240,19 @@ def transaction_by_external(
     )
 
 
+def performed_attempt(db: Session, *, invoice: Invoice) -> PaymentTransaction | None:
+    """The provider payment that paid this bill, if one did."""
+    return db.scalar(
+        select(PaymentTransaction)
+        .where(
+            PaymentTransaction.invoice_id == invoice.id,
+            PaymentTransaction.state == TransactionState.PERFORMED,
+        )
+        .order_by(PaymentTransaction.performed_at.desc())
+        .limit(1)
+    )
+
+
 def transactions_in_window(
     db: Session, *, provider: str, start: datetime, end: datetime
 ) -> list[PaymentTransaction]:

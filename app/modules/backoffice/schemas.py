@@ -1633,6 +1633,11 @@ class PaymentInvoiceOut(CardInvoiceOut):
     transaction: PaymentTransactionOut | None = Field(
         description="The last attempt to pay; `null` for a bill written by hand."
     )
+    refundable: bool = Field(
+        description="Paid through a provider that can be asked from here to send"
+        " the money back (Rahmat), for a plan alone - pages and seats bought"
+        " with it would stay: `POST /invoices/{id}/refund` takes it."
+    )
 
 
 class PaymentInvoicesOut(BaseModel):

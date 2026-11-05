@@ -76,10 +76,39 @@ Multicard to'lovchini SITE_URL/app/billing/invoice/<number> ga qaytaradi
 - To'lov faqat **so'mda** (`UZS`).
 - Hisob 24 soat amal qiladi.
 - Bir to'lov ikki marta hisoblanmaydi (Multicard `uuid` bo'yicha).
-- Status webhook (Multicard kabinetida yoqilgan bo'lsa) qabul qilinadi,
-  lekin unga qarab hech narsa qilinmaydi — uning imzosi `status`ni qamrab
-  olmaydi. Hisobni faqat imzolangan to'lov callback'i yopadi.
+- Status webhook (Multicard kabinetida yoqilgan bo'lsa) qabul qilinadi.
+  Uning imzosi `status`ni qamrab olmaydi, shuning uchun hisobni faqat
+  imzolangan to'lov callback'i yopadi. Faqat `revert` (pul qaytarildi)ga
+  qarab ish qilinadi — pastga qarang.
 - Karta tokeni saqlanmaydi.
+
+### Pulni qaytarish
+
+Ikki yo'l bor, ikkalasi ham bir xil natija beradi: hisob «Qaytarilgan»
+(`refunded`), u bergan obuna kunlari olib qo'yiladi, `payment.refunded`
+hodisasi yoziladi.
+
+1. **Rahmat kabinetidan.** Multicard status webhook'ida `status: "revert"`
+   keladi. Backend unga ishonmaydi — `GET /payment/{uuid}` bilan Multicard'dan
+   so'raydi va u ham `revert` desagina hisobni qaytaradi. Buning uchun
+   kabinetda **status webhook yoqilgan** va manzili
+   `https://<domen>/webhooks/pay/multicard` bo'lishi kerak. Yoqilmagan bo'lsa,
+   kabinetdan qaytarilgan pul bizda ko'rinmaydi.
+2. **Ofisdan** (faqat superadmin): To'lovlar → Hisoblar → qatordagi karta
+   tugmasi → sabab. Backend avval Multicard'ga `DELETE /payment/{uuid}`
+   yuboradi; Multicard rad etsa, hech narsa o'zgarmaydi va sabab ko'rsatiladi.
+   Javob kelmasa — qayta bosish xavfsiz: avval holat o'qiladi, qaytgan
+   to'lov ikkinchi marta bekor qilinmaydi. Har bir qaytarish xodim jurnaliga
+   sababi bilan yoziladi.
+
+Cheklovlar:
+- Ofisdan faqat **sof tarif** hisobi qaytariladi. Qo'shimcha sahifa yoki CRM
+  menejeri bor hisobda ular mijozda qolib ketadi, shuning uchun bunday
+  hisobni Rahmat kabinetidan qaytarib, sahifa/menejerni qo'lda olib tashlash
+  kerak.
+- Referal mukofoti va sotuv komissiyasi qaytarishda o'zgarmaydi (Payme/Click
+  bekor qilishi bilan bir xil).
+- Faqat to'liq summa qaytariladi; qisman qaytarish (`/partial`) ulanmagan.
 
 ---
 

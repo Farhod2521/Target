@@ -45,9 +45,12 @@ from app.modules.backoffice.selectors.payments import (
 )
 from app.modules.billing.constants import (
     SUBSCRIPTION_STATUS_LABELS,
+    InvoiceStatus,
     SubscriptionStatus,
+    TransactionState,
 )
 from app.modules.billing.models import Invoice, PaymentTransaction, Subscription
+from app.modules.billing.services import can_refund, wholly_revocable
 
 router = APIRouter(prefix="/payments")
 Owner = Annotated[User, Depends(staff_required(Role.OWNER))]
@@ -141,6 +144,13 @@ def _invoice_row_out(row: InvoiceRow) -> dict[str, Any]:
             if attempt is not None
             else None
         ),
+        "refundable": (
+            attempt is not None
+            and attempt.state == TransactionState.PERFORMED
+            and invoice.status == InvoiceStatus.PAID
+            and wholly_revocable(invoice)
+            and can_refund(attempt.provider)
+        ),
     }
 
 
@@ -216,6 +226,25 @@ def archive_invoice(
     )
     db.commit()
     return {"message": "Hisob arxivga olindi."}
+
+
+@router.post("/invoices/{invoice_id}/refund", responses={200: {"model": MessageOut}})
+def refund_invoice(
+    invoice_id: uuid.UUID, body: ReasonIn, db: Db, actor: Owner
+) -> dict[str, Any]:
+    """Send a paid bill's money back to the card, and take back the days it
+    gave. Superuser only, and only for a provider that can be asked from here
+    (Rahmat); the provider says yes before anything here changes."""
+    if not actor.is_superuser:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    services.refund_invoice(
+        db, invoice=invoice, actor=actor, reason=body.reason, now=utcnow()
+    )
+    db.commit()
+    return {"message": "Pul kartaga qaytarildi."}
 
 
 @router.get("/subscriptions", responses={200: {"model": PaymentSubscriptionsOut}})

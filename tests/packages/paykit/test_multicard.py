@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -70,7 +71,9 @@ class FakeMulticard:
         return httpx.Response(404, json={"success": False})
 
 
-def _adapter(fake: FakeMulticard, **overrides: Any) -> MulticardAdapter:
+def _adapter(
+    fake: Callable[[httpx.Request], httpx.Response], **overrides: Any
+) -> MulticardAdapter:
     client = MulticardClient(
         base_url=BASE,
         application_id="app",
@@ -220,7 +223,7 @@ def test_the_payment_callback_signature() -> None:
     assert not adapter.authenticate(request=RawRequest(body=b"not json"))
 
 
-def test_the_status_webhook_is_checked_and_never_acted_on() -> None:
+def test_the_status_webhook_is_checked_and_only_a_revert_acted_on() -> None:
     adapter = _adapter(FakeMulticard())
     body = {
         "uuid": "f6339f31",
@@ -298,3 +301,90 @@ def test_render_lets_a_payment_through_or_returns_the_money() -> None:
     refused = adapter.render(request=request, outcome=Refused(reason="amount_mismatch"))
     assert refused.status_code == 200 and refused.body["success"] is False
     assert adapter.refuse_unauthenticated(request=_raw({})).status_code == 403
+
+
+class FakePayments:
+    """Multicard's ``/payment/{uuid}``: one payment, read and cancelled."""
+
+    def __init__(self, *, status: str = "success", cancel: int = 200) -> None:
+        self.status = status
+        self.cancel = cancel
+        self.asked: list[tuple[str, str]] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/auth":
+            return httpx.Response(
+                200, json={"token": "t", "expiry": "2099-01-01 00:00:00"}
+            )
+        self.asked.append((request.method, request.url.path))
+        if request.url.path != "/payment/f6339f31":
+            return httpx.Response(
+                404,
+                json={"success": False, "error": {"code": "ERROR_NOT_FOUND"}},
+            )
+        if request.method == "DELETE":
+            if self.cancel != 200:
+                return httpx.Response(
+                    self.cancel,
+                    json={
+                        "success": False,
+                        "error": {"code": "ERROR_NOT_FOUND", "details": "Topilmadi"},
+                    },
+                )
+            self.status = "revert"
+        return httpx.Response(
+            200,
+            json={"success": True, "data": {"uuid": "f6339f31", "status": self.status}},
+        )
+
+
+def _webhook(status: str) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "uuid": "f6339f31",
+        "invoice_id": NUMBER,
+        "amount": 4_900_000,
+        "status": status,
+    }
+    body["sign"] = hashlib.sha1(f"f6339f31{NUMBER}4900000{SECRET}".encode()).hexdigest()
+    return body
+
+
+def test_a_revert_webhook_is_a_cancel_and_still_answered_ok() -> None:
+    adapter = _adapter(FakeMulticard())
+    request = adapter.parse(request=_raw(_webhook("revert")))
+    assert request.command == "cancel" and request.external_id == "f6339f31"
+    answer = adapter.render(
+        request=request, outcome=Refused(reason="state_not_allowed")
+    )
+    assert answer.status_code == 200 and answer.body == {"success": True}
+
+
+def test_reverted_is_read_back_from_multicard() -> None:
+    fake = FakePayments(status="success")
+    adapter = _adapter(fake)
+    assert not adapter.reverted(external_id="f6339f31")
+    fake.status = "revert"
+    assert adapter.reverted(external_id="f6339f31")
+    assert not adapter.reverted(external_id="unknown")
+
+
+def test_refund_cancels_once_and_never_twice() -> None:
+    fake = FakePayments(status="success")
+    adapter = _adapter(fake)
+    adapter.refund(external_id="f6339f31")
+    assert fake.asked == [
+        ("GET", "/payment/f6339f31"),
+        ("DELETE", "/payment/f6339f31"),
+    ]
+    fake.asked.clear()
+    adapter.refund(external_id="f6339f31")
+    assert fake.asked == [("GET", "/payment/f6339f31")]
+
+
+def test_a_refused_refund_says_why() -> None:
+    from paykit import ProviderRefused
+
+    adapter = _adapter(FakePayments(cancel=400))
+    with pytest.raises(ProviderRefused) as caught:
+        adapter.refund(external_id="f6339f31")
+    assert caught.value.details == "Topilmadi"

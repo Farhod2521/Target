@@ -47,4 +47,21 @@ class PaymentPort(Protocol):
         ...
 
 
-__all__ = ["PaymentPort"]
+@runtime_checkable
+class RefundPort(Protocol):
+    """A provider that can be asked from here to return a payment.
+
+    Its word that a payment was returned comes in a request whose signature
+    may not cover that word, so it is believed only once read back.
+    """
+
+    def reverted(self, *, external_id: str) -> bool:
+        """Whether the provider holds this payment as returned to the card."""
+        ...
+
+    def refund(self, *, external_id: str) -> None:
+        """Return the whole payment to the card; nothing if it already was."""
+        ...
+
+
+__all__ = ["PaymentPort", "RefundPort"]

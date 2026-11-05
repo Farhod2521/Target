@@ -54,6 +54,7 @@ from app.modules.backoffice.services.promo import (
     refuse_promo,
     update_code,
 )
+from app.modules.backoffice.services.refunds import refund_invoice
 from app.modules.backoffice.services.roles import (
     add_member,
     remove_member,
@@ -96,6 +97,7 @@ __all__ = [
     "publish_piece",
     "record",
     "record_withdrawal",
+    "refund_invoice",
     "refuse_ask",
     "refuse_piece",
     "refuse_promo",

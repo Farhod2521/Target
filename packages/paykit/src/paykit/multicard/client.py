@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from paykit.errors import ProviderUnavailable
+from paykit.errors import OutcomeUnknown, ProviderRefused, ProviderUnavailable
 from paykit.multicard.codes import TOKEN_MARGIN_SECONDS, TOKEN_ZONE
 
 logger = logging.getLogger(__name__)
@@ -24,16 +24,11 @@ logger = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 15.0
 
 
-class MulticardRefused(ProviderUnavailable):
+class MulticardRefused(ProviderRefused):
     """Multicard answered and said no; ``code`` is its own word for why."""
 
-    def __init__(self, message: str, *, code: str = "", details: str = "") -> None:
-        super().__init__(message)
-        self.code = code
-        self.details = details
 
-
-class MulticardOutcomeUnknown(ProviderUnavailable):
+class MulticardOutcomeUnknown(OutcomeUnknown):
     """The request left and no answer came back: a debit may have happened."""
 
 
@@ -90,6 +85,10 @@ class MulticardClient:
     def payment(self, uuid: str) -> dict[str, Any]:
         """``GET /payment/{uuid}``: a payment as Multicard holds it."""
         return self._call("GET", f"/payment/{uuid}")
+
+    def cancel_payment(self, uuid: str) -> dict[str, Any]:
+        """``DELETE /payment/{uuid}``: the whole payment back to the card."""
+        return self._call("DELETE", f"/payment/{uuid}")
 
     def _call(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         for attempt in range(2):

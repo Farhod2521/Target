@@ -23,8 +23,14 @@ from paykit import (
     Command,
     MalformedCallback,
     Outcome,
+    OutcomeUnknown,
+    ProviderName,
+    ProviderNotRegistered,
+    ProviderRefused,
     ProviderResponse,
+    ProviderUnavailable,
     RawRequest,
+    RefundPort,
     Refused,
     Settled,
     Statement,
@@ -41,11 +47,18 @@ from app.modules.billing.constants import (
     NUMBER_ATTEMPTS,
     TRANSACTION_TTL_HOURS,
     HistoryKind,
+    InvoiceKind,
     InvoiceStatus,
     SubscriptionStatus,
     TransactionState,
 )
-from app.modules.billing.exceptions import NothingHeld
+from app.modules.billing.exceptions import (
+    NothingHeld,
+    NothingToRefund,
+    RefundNotWhole,
+    RefundRefused,
+    RefundUncertain,
+)
 from app.modules.billing.models import Invoice, PaymentTransaction, Subscription
 from app.modules.billing.selectors import (
     held_transactions,
@@ -254,9 +267,35 @@ def revoke_payment(db: Session, *, invoice: Invoice, now: datetime) -> None:
     )
 
 
+def _mark_refunded(
+    db: Session,
+    *,
+    attempt: PaymentTransaction,
+    reason: int | None,
+    now: datetime,
+    raw: Mapping[str, Any] | None = None,
+) -> None:
+    attempt.state = TransactionState.REFUNDED
+    attempt.canceled_at = now
+    attempt.cancel_reason = reason
+    if raw is not None:
+        attempt.raw = dict(raw)
+    db.flush()
+    revoke_payment(db, invoice=attempt.invoice, now=now)
+
+
 def void_transaction(
     db: Session, *, request: CallbackRequest, now: datetime
 ) -> Outcome:
+    adapter = registry.get(request.provider)
+    if (
+        isinstance(adapter, RefundPort)
+        and request.external_id
+        and not adapter.reverted(external_id=request.external_id)
+    ):
+        # A provider whose cancel is not signed as such: believed once it
+        # says the same when asked.
+        return Refused(reason=STATE_NOT_ALLOWED, detail="not returned at provider")
     attempt = (
         locked_attempt(db, provider=request.provider, external_id=request.external_id)
         if request.external_id
@@ -271,12 +310,9 @@ def void_transaction(
             db, attempt=attempt, reason=request.cancel_reason, now=now, raw=request.raw
         )
         return Settled(transaction=record_of(attempt))
-    attempt.state = TransactionState.REFUNDED
-    attempt.canceled_at = now
-    attempt.cancel_reason = request.cancel_reason
-    attempt.raw = dict(request.raw)
-    db.flush()
-    revoke_payment(db, invoice=attempt.invoice, now=now)
+    _mark_refunded(
+        db, attempt=attempt, reason=request.cancel_reason, now=now, raw=request.raw
+    )
     return Settled(transaction=record_of(attempt))
 
 
@@ -397,3 +433,63 @@ def abandon_hold(
         },
     )
     return attempt
+
+
+def wholly_revocable(invoice: Invoice) -> bool:
+    """Whether :func:`revoke_payment` takes back everything this bill gave.
+
+    It takes back a plan's days; pages and CRM seats bought with a bill stay
+    where they landed, so such a bill is not refunded by hand.
+    """
+    return invoice.kind == InvoiceKind.PLAN and not invoice.pages and not invoice.seats
+
+
+def can_refund(provider: str) -> bool:
+    """Whether a payment through this provider can be sent back from here."""
+    try:
+        return isinstance(registry.get(ProviderName(provider)), RefundPort)
+    except ProviderNotRegistered:
+        return False
+
+
+def return_payment(
+    db: Session, *, attempt: PaymentTransaction, actor: User, now: datetime
+) -> PaymentTransaction:
+    """Send a paid bill's money back to the card, then take back what it gave.
+
+    The provider is asked first and the books follow only once it said yes,
+    so a refusal leaves everything as it was. The row stays locked while the
+    provider is asked, so two clicks cannot return the money twice.
+    """
+    locked = locked_attempt(
+        db, provider=attempt.provider, external_id=attempt.external_id
+    )
+    if (
+        locked is None
+        or locked.state != TransactionState.PERFORMED
+        or not can_refund(locked.provider)
+    ):
+        raise NothingToRefund
+    if not wholly_revocable(locked.invoice):
+        raise RefundNotWhole
+    adapter = registry.get(ProviderName(locked.provider))
+    assert isinstance(adapter, RefundPort)
+    try:
+        adapter.refund(external_id=locked.external_id)
+    except OutcomeUnknown as exc:
+        raise RefundUncertain from exc
+    except ProviderRefused as exc:
+        raise RefundRefused(details=exc.details or exc.code) from exc
+    except ProviderUnavailable as exc:
+        raise RefundRefused(details="") from exc
+    _mark_refunded(db, attempt=locked, reason=None, now=now)
+    logger.info(
+        "payment returned by hand",
+        extra={
+            "provider": locked.provider,
+            "external_id": locked.external_id,
+            "invoice": locked.invoice.number,
+            "actor_id": str(actor.id),
+        },
+    )
+    return locked

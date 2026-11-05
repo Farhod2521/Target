@@ -81,6 +81,7 @@ class ActionKind(Choices):
     REFERRAL_CHANGED = "referral_changed"
     HOLD_RELEASED = "hold_released"
     INVOICE_ARCHIVED = "invoice_archived"
+    INVOICE_REFUNDED = "invoice_refunded"
     ROLES_CHANGED = "roles_changed"
     STAFF_ADDED = "staff_added"
     STAFF_REMOVED = "staff_removed"
@@ -140,6 +141,7 @@ ACTION_KIND_LABELS = {
     ActionKind.REFERRAL_CHANGED: "Referal o'zgardi",
     ActionKind.HOLD_RELEASED: "Hisob bo'shatildi",
     ActionKind.INVOICE_ARCHIVED: "Hisob arxivga olindi",
+    ActionKind.INVOICE_REFUNDED: "Pul qaytarildi",
     ActionKind.ROLES_CHANGED: "Rollar o'zgardi",
     ActionKind.STAFF_ADDED: "Xodim qo'shildi",
     ActionKind.STAFF_REMOVED: "Xodim jamoadan chiqarildi",

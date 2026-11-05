@@ -15,12 +15,14 @@ from paykit.dto import (
 )
 from paykit.errors import (
     MalformedCallback,
+    OutcomeUnknown,
     PaymentError,
     ProviderMisconfigured,
     ProviderNotRegistered,
+    ProviderRefused,
     ProviderUnavailable,
 )
-from paykit.ports import PaymentPort
+from paykit.ports import PaymentPort, RefundPort
 from paykit.refs import (
     AMOUNT_MISMATCH,
     CANCEL,
@@ -85,14 +87,17 @@ __all__ = [
     "MalformedCallback",
     "MinorUnits",
     "Outcome",
+    "OutcomeUnknown",
     "PaymentError",
     "PaymentPort",
     "ProviderMisconfigured",
     "ProviderName",
     "ProviderNotRegistered",
+    "ProviderRefused",
     "ProviderResponse",
     "ProviderUnavailable",
     "RawRequest",
+    "RefundPort",
     "Refusal",
     "Refused",
     "Settled",

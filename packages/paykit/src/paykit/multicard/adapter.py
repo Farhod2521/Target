@@ -14,7 +14,12 @@ Two requests may come back, and both are signed with the shop's secret:
 - the optional **status webhook**, sent on every status change if it is
   switched on in Multicard's cabinet. It carries ``status`` and is signed
   ``sha1(uuid + invoice_id + amount + secret)`` - a signature that leaves
-  ``status`` out, so it is acknowledged and never acted on.
+  ``status`` out. Only ``revert`` (the money returned, from Multicard's
+  cabinet or from here) is acted on, and only once ``GET /payment/{uuid}``
+  says the same; every other status is acknowledged and left.
+
+A paid payment is returned with ``DELETE /payment/{uuid}``, the ``uuid`` the
+payment callback carried.
 """
 
 import hashlib
@@ -48,6 +53,7 @@ from paykit.multicard.cards import (
     charge_of,
 )
 from paykit.multicard.cards import DRAFT as DRAFT_STATUS
+from paykit.multicard.cards import REVERT as REVERT_STATUS
 from paykit.multicard.client import (
     MulticardClient,
     MulticardOutcomeUnknown,
@@ -62,6 +68,7 @@ from paykit.multicard.codes import (
     TOKEN_ZONE,
 )
 from paykit.refs import (
+    CANCEL,
     INTERNAL,
     MALFORMED,
     PERFORM,
@@ -247,6 +254,26 @@ class MulticardAdapter:
         """A charge read again, for one that was left :data:`PENDING`."""
         return charge_of(self._client.payment(uuid))
 
+    # --- Returning a payment (paykit.ports.RefundPort) -----------------
+
+    def reverted(self, *, external_id: str) -> bool:
+        """Whether Multicard holds this payment as returned to the card."""
+        try:
+            data = self._client.payment(external_id)
+        except MulticardRefused:
+            return False
+        return str(data.get("status") or "") == REVERT_STATUS
+
+    def refund(self, *, external_id: str) -> None:
+        """The whole payment back to the card; nothing if it already went back.
+
+        Read first, so that asking again after an answer was lost does not
+        meet Multicard's refusal to cancel a payment twice.
+        """
+        if self.reverted(external_id=external_id):
+            return
+        self._client.cancel_payment(external_id)
+
     def _receipt_item(self, tiyin: int, description: str) -> dict[str, Any]:
         item: dict[str, Any] = {
             **self._ofd,
@@ -299,10 +326,16 @@ class MulticardAdapter:
         except (TypeError, ValueError) as exc:
             raise MalformedCallback("multicard amount was not a whole number") from exc
         # The status webhook's signature does not cover ``status``, so one
-        # captured webhook could be replayed as "success" or "revert". It is
-        # acknowledged and never acted on; the signed payment callback is the
-        # only thing that settles an invoice.
-        command = STATUS if "status" in body else PERFORM
+        # captured webhook could be replayed as "success" or "revert". The
+        # signed payment callback is the only thing that settles an invoice;
+        # a "revert" is a cancel the billing reads back through
+        # :meth:`reverted` before it believes it.
+        if "status" not in body:
+            command = PERFORM
+        elif str(body.get("status", "")) == REVERT_STATUS:
+            command = CANCEL
+        else:
+            command = STATUS
         return CallbackRequest(
             provider=PROVIDER,
             command=command,
