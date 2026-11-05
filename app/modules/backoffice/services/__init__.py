@@ -42,6 +42,11 @@ from app.modules.backoffice.services.payouts import (
     refuse_ask,
     void_withdrawal,
 )
+from app.modules.backoffice.services.plans import (
+    create_plan,
+    delete_plan,
+    update_plan,
+)
 from app.modules.backoffice.services.promo import (
     approve_promo,
     create_code,
@@ -74,9 +79,11 @@ __all__ = [
     "change_page_account",
     "create_code",
     "create_direction",
+    "create_plan",
     "delete_account",
     "delete_code",
     "delete_direction",
+    "delete_plan",
     "erase_customer_crm",
     "free_hold",
     "give_plan",
@@ -104,5 +111,6 @@ __all__ = [
     "unblock_customer",
     "update_code",
     "update_direction",
+    "update_plan",
     "void_withdrawal",
 ]

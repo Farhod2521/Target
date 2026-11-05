@@ -58,6 +58,13 @@ class DirectionInUse(DomainError):
         )
 
 
+class PlanInUse(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu tarifga obuna, hisob yoki promo kod bog'langan, uni o'chirib bo'lmaydi. O'chirish o'rniga uni sotuvdan oling."
+        )
+
+
 class EmailMismatch(DomainError):
     def __init__(self) -> None:
         super().__init__("Email mos kelmadi — akkaunt o'chirilmadi.")

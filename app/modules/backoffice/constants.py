@@ -113,6 +113,9 @@ class ActionKind(Choices):
     CRM_ERASED = "crm_erased"
     FACEBOOK_FORGOTTEN = "facebook_forgotten"
     SIGNALS_SENT = "signals_sent"
+    PLAN_CREATED = "plan_created"
+    PLAN_UPDATED = "plan_updated"
+    PLAN_DELETED = "plan_deleted"
 
 
 ACTION_KIND_LABELS = {
@@ -169,6 +172,9 @@ ACTION_KIND_LABELS = {
     ActionKind.CRM_ERASED: "CRM butunlay o'chirildi",
     ActionKind.FACEBOOK_FORGOTTEN: "Facebook to'liq uzildi",
     ActionKind.SIGNALS_SENT: "Lid signallari Metaga qo'lda yuborildi",
+    ActionKind.PLAN_CREATED: "Tarif yaratildi",
+    ActionKind.PLAN_UPDATED: "Tarif o'zgartirildi",
+    ActionKind.PLAN_DELETED: "Tarif o'chirildi",
 }
 READ_KINDS = (
     ActionKind.VIEW,
