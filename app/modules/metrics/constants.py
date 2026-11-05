@@ -141,6 +141,10 @@ FIGURES_REPORT_SAMPLE: Final = 10
 UNTRACKED_DAYS: Final = 7
 JUDGED_SHARE_FLOOR: Final = 50
 TOP_CAMPAIGNS: Final = 8
+# Below this share of quality leads Meta gets too few signals to learn from.
+LEAD_QUALITY_MIN_PCT: Final = 5
+# Below this share of leads with a CRM stage the CRM is not really being used.
+CRM_USE_MIN_PCT: Final = 30
 RECENT_LEADS: Final = 6
 RECENT_DECISIONS: Final = 6
 TOP_SOURCES: Final = 5

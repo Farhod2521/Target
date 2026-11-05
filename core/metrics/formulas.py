@@ -116,6 +116,16 @@ def qualified_share(qualified: int, leads: int) -> Decimal | None:
     return exact_percent(part=qualified, whole=leads)
 
 
+def lead_share(part: int, leads: int) -> Decimal | None:
+    """What share of the leads a CRM count is: the marked, the qualified, the junk."""
+    return exact_percent(part=part, whole=leads)
+
+
+def spend_share(part_minor: int, whole_minor: int) -> Decimal | None:
+    """What share of the money one part of it took."""
+    return exact_percent(part=part_minor, whole=whole_minor)
+
+
 def form_conversion(leads: int, step_before: int) -> Decimal | None:
     """Leads over the clicks of an instant form or the page views of a site."""
     return exact_percent(part=leads, whole=step_before)
@@ -153,9 +163,11 @@ __all__ = [
     "frequency",
     "hold_rate",
     "hook_rate",
+    "lead_share",
     "qualified_share",
     "result_per",
     "roas",
+    "spend_share",
     "step_rate",
     "thruplay_share",
     "unique_ctr",

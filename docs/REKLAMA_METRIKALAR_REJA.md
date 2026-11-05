@@ -58,7 +58,7 @@ Qiymat o'rniga `–` va uning sababi chiqadi:
 | 9 ✅ | Front: Expert mode tugmasi | Tepaga chiqadi. Namuna so'raladi |
 | 10 ✅ | Front: Reklama redesign (Expert) | Jadval katalogdan quriladi; ustun to'plamlari (Umumiy, Video, Lid sifati, Sotuv), izohlar va normalar, reyting ranglari, Jami qatori. Namuna so'raladi |
 | 11 ✅ | Front: Dashboard redesign (Expert) | Namuna so'raladi |
-| 12 | Oddiy mode'dan formulalarni olib tashlash | Ko'rinish o'zgarmaydi; `Manager.tsx`, `dashboard.ts` dagi hisoblar backendga o'tadi |
+| 12 ✅ | Oddiy mode'dan formulalarni olib tashlash | Ko'rinish o'zgarmaydi; `Manager.tsx`, `dashboard.ts` dagi hisoblar backendga o'tadi |
 | 13 ⏸ | Google | Keyinga qoldirildi (2026-11-05, foydalanuvchi qarori): hozir asosiy maqsad Meta va platforma |
 | 14 | Ishga tushirish | Deploy, production'da Ads Manager bilan solishtirish |
 
@@ -102,3 +102,12 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
 - **11-bosqich (2026-11-05):** front 1473aec. Tuzilishi foydalanuvchi aytgandek: tepada 10 ta asosiy ko'rsatkich kartada, har birida oldingi davrga nisbatan o'zgarish. Pastda grafiklar: kunlik grafik (metrikani tanlash mumkin), voronka, maqsadlar bo'yicha sarf, kesimlar. Oddiy Dashboard o'zgarmadi.
   - Backend: Expert Dashboard sahifaning hamma kampaniyasini oladi (Ads Manager'da yaratilganlarini ham), Reklama jadvali bilan bir xil (`page_campaigns(every=True)`). Oddiy Dashboard avvalgidek faqat platformada yaratilganlarini sanaydi. Lokal production nusxasida Sarflandi Reklama jadvalidagi Jami bilan mos keldi.
   - Ro'yxat ko'rinishidagi bloklar (eng yaxshi va eng yomon kampaniyalar, diqqat talab reklamalar) ekranga chiqarilmadi, chunki foydalanuvchi faqat kartalar va grafiklarni so'ragan. API'da ular bor.
+- **12-bosqich (2026-11-05):** oddiy Dashboard'da front endi hech narsa hisoblamaydi. Backend `GET /metrics/numbers` javobiga qo'shildi (eski maydonlar joyida qoldi):
+  - har pul summasi yonida butun son: `*_minor` va `dashboard.exponent` (kasr xonalari). Front endi "1 240,50 USD" kabi matnni songa aylantirmaydi va valyuta xonalarini taxmin qilmaydi. Ekranda server yozgan matn ko'rinadi, shuning uchun ko'rinish o'zgarmadi;
+  - `period.groups`: reklama turi bo'yicha jami (soni, sarf, natija, narx, sifatli lid %) hamma kampaniyadan. **Topilgan xato:** avval front jamini faqat ro'yxatda ko'rinadigan 8 ta kampaniyadan qo'shardi, kampaniya ko'p bo'lsa jami kam chiqardi;
+  - `period.day_spend` va har tur uchun `spend_share`: "Ulush" grafigi;
+  - `lead_quality`: `marked_pct`, `qualified_pct`, `unqualified_pct`, `level`, `quality_floor_pct`. 5% va 30% chegaralari endi faqat backendda (`metrics/constants.py`);
+  - kampaniya qatorida `result_cost_minor`, `qualified_pct`.
+  - Formulalar katalogga qo'shildi: `formulas.lead_share`, `formulas.spend_share`, yaxlitlash `arithmetic.tenths`.
+  - **Tuzatilgan eski xatolar:** sayt lidi kampaniyalari "Lid" deb ko'rsatilardi, endi "Sayt". Natijasini sanab bo'lmaydigan kampaniyalar Lid guruhiga qo'shilib, uning narxini oshirardi, endi ular alohida "Boshqa" guruhida. Meta lid sonini bermagan lid kampaniyasida natija bizdagi lidlar edi, narx esa "—" chiqardi, endi narx shu lidlarga hisoblanadi.
+  - Reklama bo'limining oddiy ro'yxatida front hisoblari yo'q edi (10-bosqichda olib tashlangan).

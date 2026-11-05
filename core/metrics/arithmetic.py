@@ -13,6 +13,7 @@ from typing import Final
 from adskit import MinorUnits
 
 HUNDREDTHS: Final = Decimal("0.01")
+TENTHS: Final = Decimal("0.1")
 WHOLE: Final = Decimal(1)
 BASIS_POINTS: Final = 10_000
 
@@ -71,6 +72,13 @@ def hundredths(value: Decimal | None) -> Decimal | None:
     return value.quantize(HUNDREDTHS, rounding=ROUND_HALF_UP)
 
 
+def tenths(value: Decimal | None) -> Decimal | None:
+    """An exact rate to one place, as the plain dashboard shows a share."""
+    if value is None:
+        return None
+    return value.quantize(TENTHS, rounding=ROUND_HALF_UP)
+
+
 def whole_number(value: Decimal | None) -> int:
     """An exact rate to a whole number. Nothing reads as nought, as before."""
     if value is None:
@@ -121,6 +129,7 @@ def change_pct(*, now: float, before: float) -> int | None:
 __all__ = [
     "BASIS_POINTS",
     "HUNDREDTHS",
+    "TENTHS",
     "basis_points",
     "basis_points_or_none",
     "change_pct",
@@ -132,5 +141,6 @@ __all__ = [
     "rate_bp",
     "ratio",
     "share",
+    "tenths",
     "whole_number",
 ]

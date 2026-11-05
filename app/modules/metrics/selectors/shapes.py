@@ -36,6 +36,9 @@ class OutcomeBlock:
     shown_before_pct: int = 0
     slice: int = 0
     spend_pct: int = 0
+    cost_minor: int | None = None
+    # What ``count`` says, as a number; nothing for a kind nothing here counts.
+    results: int | None = None
 
     @property
     def countable(self) -> bool:
@@ -68,6 +71,7 @@ class FunnelStep:
     value: str
     share_pct: int | None
     note: str
+    count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +93,25 @@ class CampaignRow:
     result_source: Any = ""
     kind: str = "lead"
     uncounted_label: Any = ""
+    result_cost_minor: int | None = None
+    # Lead campaigns: the CRM's quality leads as a share of the results.
+    qualified_pct: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignGroup:
+    """Every campaign of one kind together, the rows cut to the top or not."""
+
+    kind: str
+    campaigns: int
+    spend: str
+    spend_minor: int
+    results: int
+    cost: str
+    cost_minor: int | None
+    # A kind nothing here can count: no result and no cost to speak of.
+    counted: bool
+    qualified_pct: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +121,8 @@ class KindView:
     series: tuple[Series, ...]
     funnel: tuple[FunnelStep, ...]
     campaigns: int = 0
+    # Each day's share of that day's money across the kinds, in per cent.
+    spend_share: tuple[float | None, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +151,10 @@ class Period:
     scoped_to: Any = ""
     views: tuple[KindView, ...] = ()
     unknown_after: str = ""
+    reported_cpl_minor: int | None = None
+    groups: tuple[CampaignGroup, ...] = ()
+    # Each day's money across the kinds, in the order of the views' days.
+    day_spend: tuple[int, ...] = ()
 
     @property
     def view_kinds(self) -> tuple[str, ...]:
@@ -191,6 +220,8 @@ class SegmentRow:
     leads: int
     spend: str
     spend_share: int
+    cpl_minor: int | None = None
+    spend_minor: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +244,9 @@ class ShowingRow:
     spend: str
     share_pct: int
     cost: str = ""
+    shown_count: int = 0
+    spend_minor: int = 0
+    cost_minor: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,6 +279,8 @@ class Dashboard:
     elsewhere_spend: str = ""
     other_currency: tuple[str, ...] = ()
     cuts: tuple[KindCuts, ...] = ()
+    # Decimal places of ``currency``: every ``*_minor`` here is in them.
+    exponent: int = 2
 
     @property
     def segments_priced(self) -> bool:

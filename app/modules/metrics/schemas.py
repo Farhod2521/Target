@@ -55,6 +55,14 @@ class LeadQualityOut(BaseModel):
     problem: str = Field(
         description="`none`, `no_pixel`, `pixel_unselected` or `connection`."
     )
+    marked_pct: float = Field(description="Marked leads, per cent, one place.")
+    qualified_pct: float = Field(description="Quality leads, per cent, one place.")
+    unqualified_pct: float = Field(description="Junk leads, per cent, one place.")
+    level: str = Field(
+        description="`off` (no CRM), `no_pixel` (CAPI cannot reach Meta), "
+        "`unused` (under 30% marked), `low` (under 5% quality) or `ok`."
+    )
+    quality_floor_pct: int = Field(description="The share `low` is under.")
 
 
 class NumbersOut(BaseModel):

@@ -152,6 +152,11 @@ def _block(
 ) -> OutcomeBlock:
     text = words_for(kind)
     note = note_for(kind, optimization_goals=goals)
+    cost = (
+        None
+        if note
+        else formulas.cost_per_result(tally.spend_minor, tally.count, per=text.per)
+    )
     moved = (
         movement(now=tally.count, before=was.count, lower_is_better=False)
         if was.count >= COMPARE_FLOOR
@@ -164,12 +169,9 @@ def _block(
         hint=text.hint,
         headline_note=text.headline_note,
         count="" if note else f"{tally.count:,}".replace(",", " "),
-        cost=""
-        if note
-        else money(
-            formulas.cost_per_result(tally.spend_minor, tally.count, per=text.per),
-            currency,
-        ),
+        cost="" if note else money(cost, currency),
+        cost_minor=cost,
+        results=None if note else tally.count,
         spend=format_minor(amount_minor=tally.spend_minor, currency=currency),
         spend_minor=tally.spend_minor,
         shown=f"{tally.impressions:,}".replace(",", " "),

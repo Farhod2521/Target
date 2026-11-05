@@ -107,17 +107,22 @@ def _showing(
                 shown=f"{shown:,}".replace(",", " "),
                 spend=format_minor(amount_minor=spend, currency=currency),
                 share_pct=share(part=spend, whole=top),
-                cost=_per_thousand(
-                    spend=spend, shown=shown, per=per, currency=currency
-                ),
+                cost=""
+                if cost is None
+                else format_minor(amount_minor=cost, currency=currency),
+                shown_count=shown,
+                spend_minor=spend,
+                cost_minor=cost,
             )
-            for value, spend, shown in ranked
+            for value, spend, shown, cost in (
+                (value, spend, shown, _per_thousand(spend=spend, shown=shown, per=per))
+                for value, spend, shown in ranked
+            )
         )
     )
 
 
-def _per_thousand(*, spend: int, shown: int, per: int, currency: str) -> str:
+def _per_thousand(*, spend: int, shown: int, per: int) -> int | None:
     if not per:
-        return ""
-    cost = formulas.cost_per_result(spend, shown, per=per)
-    return "" if cost is None else format_minor(amount_minor=cost, currency=currency)
+        return None
+    return formulas.cost_per_result(spend, shown, per=per)

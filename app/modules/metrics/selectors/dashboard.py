@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.common.dates import localtime
 from app.common.db import utcnow
-from app.common.money import format_minor
+from app.common.money import format_minor, provider_money
 from app.common.phone import masked
 from app.modules.accounts.models import User
 from app.modules.integrations.models import AdAccount
@@ -198,6 +198,7 @@ def dashboard(
     )
     return Dashboard(
         currency=currency,
+        exponent=provider_money(provider="meta").decimal_places(currency),
         period=period,
         leads=_recent_leads(db, owner=owner, names=names, scope=scope),
         decisions=_recent_decisions(db, owner=owner, campaign_ids=campaign_ids),
@@ -718,6 +719,8 @@ def _segment_block(
             leads=cost.leads_reported,
             spend=format_minor(amount_minor=cost.spend_minor, currency=currency),
             spend_share=cost.spend_share,
+            cpl_minor=cost.cpl_reported_minor,
+            spend_minor=cost.spend_minor,
         )
 
     everything = (

@@ -15,9 +15,15 @@ from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
 from app.modules.leads.constants import SignalStatus
 from app.modules.leads.models import Lead, LeadSignal
 from app.modules.leads.selectors.reads import pixel_state
+from app.modules.metrics.constants import CRM_USE_MIN_PCT, LEAD_QUALITY_MIN_PCT
 from app.modules.metrics.selectors.scope import PageCampaigns
+from core.metrics import formulas
+from core.metrics.arithmetic import tenths
 
 Problem = Literal["none", "no_pixel", "pixel_unselected", "connection"]
+# How much signal there is: none without the CRM or a pixel, too little when
+# the CRM is barely used or quality leads are rare.
+Level = Literal["off", "no_pixel", "unused", "low", "ok"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +39,30 @@ class LeadQuality:
     expired: int
     last_sent_at: datetime | None
     problem: Problem
+    marked_pct: float = 0.0
+    qualified_pct: float = 0.0
+    unqualified_pct: float = 0.0
+    level: Level = "off"
+    # The share ``low`` is under, for the sentence that says so.
+    quality_floor_pct: int = LEAD_QUALITY_MIN_PCT
+
+
+def _pct(part: int, leads: int) -> float:
+    return float(tenths(formulas.lead_share(part, leads)) or 0)
+
+
+def level_of(
+    *, crm: bool, problem: Problem, marked_pct: float, qualified_pct: float
+) -> Level:
+    if not crm:
+        return "off"
+    if problem != "none":
+        return "no_pixel"
+    if marked_pct < CRM_USE_MIN_PCT:
+        return "unused"
+    if qualified_pct < LEAD_QUALITY_MIN_PCT:
+        return "low"
+    return "ok"
 
 
 def lead_quality(
@@ -87,8 +117,12 @@ def lead_quality(
         )
         .limit(1)
     )
+    crm = running is not None
+    problem = _problem(db, owner=owner, page=page)
+    marked_pct = _pct(marked, leads)
+    qualified_pct = _pct(qualified, leads)
     return LeadQuality(
-        crm=running is not None,
+        crm=crm,
         leads=leads,
         marked=marked,
         qualified=qualified,
@@ -98,7 +132,16 @@ def lead_quality(
         failed=told.get(SignalStatus.FAILED, 0),
         expired=told.get(SignalStatus.EXPIRED, 0),
         last_sent_at=last_sent_at,
-        problem=_problem(db, owner=owner, page=page),
+        problem=problem,
+        marked_pct=marked_pct,
+        qualified_pct=qualified_pct,
+        unqualified_pct=_pct(unqualified, leads),
+        level=level_of(
+            crm=crm,
+            problem=problem,
+            marked_pct=marked_pct,
+            qualified_pct=qualified_pct,
+        ),
     )
 
 
@@ -114,4 +157,4 @@ def _problem(db: Session, *, owner: User, page: PageCampaigns) -> Problem:
     return "none"
 
 
-__all__ = ["LeadQuality", "lead_quality"]
+__all__ = ["LeadQuality", "lead_quality", "level_of"]
