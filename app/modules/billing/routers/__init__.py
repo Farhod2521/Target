@@ -22,6 +22,7 @@ from app.modules.billing.constants import (
     EXPIRY_REMINDER_DAYS,
     MAX_PAGES_PER_PURCHASE,
     MAX_POLL_TRIES,
+    MAX_SEATS_PER_PURCHASE,
     POLL_SECONDS,
     SETTLED_INVOICE_STATUSES,
     TRIAL_MAX_CAMPAIGNS,
@@ -48,6 +49,7 @@ from app.modules.billing.schemas import (
     PaywallOut,
     PlansOut,
     PromoOut,
+    SeatsOfferOut,
     StatusOut,
 )
 
@@ -453,6 +455,12 @@ class PagesCheckoutIn(BaseModel):
     pay_from: str = Field(default="", max_length=128)
 
 
+class SeatsCheckoutIn(BaseModel):
+    count: int = Field(ge=1, le=MAX_SEATS_PER_PURCHASE)
+    provider: str = ""
+    wallet: WalletChoice = WalletChoice.KEEP
+
+
 class CheckoutOut(BaseModel):
     number: str
     kind: Literal["redirect", "wait", "covered"]
@@ -546,6 +554,48 @@ def buy_pages(body: PagesCheckoutIn, db: Db, user: CurrentUser) -> CheckoutOut:
         add_page=body.add_page,
         pay_from=body.pay_from if body.add_page else "",
     )
+
+
+@router.get("/seats", responses={200: {"model": SeatsOfferOut}})
+def seats_offer(db: Db, user: CurrentUser) -> dict[str, Any]:
+    """What a CRM manager seat costs now, and how the seats are used."""
+    from app.modules.crm.selectors import seating
+
+    now = utcnow()
+    offer = selectors.seat_offer(db, owner=user, now=now)
+    wallet = (
+        selectors.wallet_minor(db, owner=user, currency=offer.plan.currency)
+        if offer.plan
+        else 0
+    )
+    found = seating(db, owner=user, at=now)
+    return {
+        "offer": selectors.offer_as_dict(offer),
+        "quotes": [
+            selectors.quote_as_dict(q)
+            for q in selectors.page_quotes(
+                offer=offer, wallet_minor=wallet, most=MAX_SEATS_PER_PURCHASE
+            )
+        ],
+        "wallet_minor": wallet,
+        "max_seats_per_purchase": MAX_SEATS_PER_PURCHASE,
+        "free": found.free,
+        "free_used": found.free_used,
+        "paid": found.paid,
+        "paid_used": found.paid_used,
+        "waiting": len(found.waiting),
+        "providers": selectors.payment_providers(),
+        "payments_on": selectors.payments_configured(),
+    }
+
+
+@router.post("/seats", response_model=CheckoutOut)
+def buy_seats(body: SeatsCheckoutIn, db: Db, user: CurrentUser) -> CheckoutOut:
+    now = utcnow()
+    invoice = services.create_seat_invoice(
+        db, owner=user, count=body.count, wallet=body.wallet, now=now
+    )
+    return _start(db, user=user, invoice=invoice, provider=body.provider, now=now)
 
 
 @router.get("/history", responses={200: {"model": HistoryOut}})

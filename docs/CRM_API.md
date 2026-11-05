@@ -36,8 +36,23 @@ Menejer alohida login bilan kiradi (`POST /auth/login`), unga faqat `/crm`,
 
 - Pullik tarifda **har sahifaga 1 ta bepul o'rin**. Sinov (trial) davrida
   bepul o'rin yo'q.
-- Qo'shimcha o'rinlar sotib olinadi (⚠️ sotib olish endpointi FastAPI'da
-  hali yo'q).
+- Qo'shimcha o'rinlar sotib olinadi va **hamma juftliklar uchun umumiy**:
+  qaysi juftlikda ishlatilishini menejerni qo'shish yoki ko'chirish hal qiladi.
+  Bepul o'ringa sig'magan menejerlar sotib olingan o'rinlarga qo'shilgan
+  tartibida o'tiradi.
+- `GET /billing/seats` — narx va hisob: `offer` (bitta o'rin 30 kunga,
+  `price_minor`; sotib olingan o'rin tarif tugaguncha (`until`) ishlaydi, qolgan
+  kunlar ulushi olinadi), `quotes` (1..10 ta o'rin narxi, `due_minor` balansdan
+  keyin), `wallet_minor`, `free`/`free_used`, `paid`/`paid_used`, `waiting`,
+  `providers`, `payments_on`. Sinovda yoki tarif tugaganda
+  `offer.needs_plan: true`, `quotes: []`.
+- `POST /billing/seats` `{"count": 1..10, "provider": "click", "wallet": "use"|"keep"}`
+  → sahifa sotib olish bilan bir xil `CheckoutOut`. To'langach `GET
+  /billing/invoice/{number}` → `back_url: /app/crm/sozlamalar/#menejerlar`.
+  Xatolar: `seats_need_paid_plan`, `seats_not_sold`, `seat_count_out_of_range`.
+- `GET /crm/settings/seats` (faqat ega) — hamma juftliklardagi faol
+  menejerlar: `members[]` → `{member, pair, page, account, seat: "free"|"paid"|"none"}`,
+  hamda `free`, `free_used`, `paid`, `paid_used`, `paid_open`, `waiting`.
 - O'ringa sig'magan menejer `seated: false` — u kira olmaydi, unga lid
   berilmaydi va kartani ham berib bo'lmaydi (`member_not_seated`).
 - `GET /crm/settings` → `seat_open`: hozir qo'shiladigan menejer shu juftlikda
@@ -528,10 +543,16 @@ POST /crm/settings/members
 | `PUT /crm/settings/members/{id}` | `{"name", "takes_leads", "kpi_fix", "kpi_percent"}` | menejer |
 | `POST /crm/settings/members/{id}/password` | `{"password"}` | menejer |
 | `DELETE /crm/settings/members/{id}` | — | `{"cards_released": 7}` |
+| `POST /crm/settings/members/{id}/move` | `{"pair": "page_ext:act_ext"}` | menejer + `pair`, `cards_released` |
 
 - `takes_leads: false` — menejer ishlaydi, lekin unga avtomatik lid
   berilmaydi.
 - O'chirilganda uning ochiq kartalari bo'shatiladi (`assignee: null`).
+- **Ko'chirish**: `?pair=` — menejer hozir turgan juftlik, body'dagi `pair` —
+  boradigan juftlik (`pairs[].key`). Ochiq kartalari eski juftlikning birinchi
+  ustuniga egasiz qaytadi. Ko'chirish menejerni yoki boshqa birovni o'rinsiz
+  qoldirsa, rad etiladi (`no_seat_there`) — avval o'rin sotib olish kerak.
+  Juftliklar valyutasi boshqa bo'lsa, fiks KPI o'chiriladi.
 
 ### Menejer xatolari
 
@@ -545,6 +566,9 @@ POST /crm/settings/members
 | `too_many_members` | Jamoada ko'pi bilan 10 ta menejer bo'lishi mumkin. |
 | `bad_kpi` | Fix maosh va foizni raqam bilan yozing (foiz 0 dan 100 gacha). |
 | `unknown_member` | Menejer topilmadi. |
+| `unknown_pair` | Bunday sahifa va reklama akkaunti juftligi topilmadi. |
+| `same_pair` | Menejer allaqachon shu juftlikda. |
+| `no_seat_there` | U yerda bo'sh o'rin yo'q: menejer yoki boshqa birov o'rinsiz qoladi. Avval o'rin sotib oling. |
 
 ---
 

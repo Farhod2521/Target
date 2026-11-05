@@ -195,6 +195,27 @@ class PageCountOutOfRange(DomainError):
         )
 
 
+class SeatsNeedPaidPlan(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Menejer o'rni faqat pullik obunada sotiladi. Avval tarifni yoqing."
+        )
+
+
+class SeatsNotSold(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu tarifda menejer o'rni sotilmaydi. Savol bo'lsa, yordamga yozing."
+        )
+
+
+class SeatCountOutOfRange(DomainError):
+    def __init__(self, *, limit: int) -> None:
+        super().__init__(
+            "Bir marta 1 dan %(limit)s tagacha o'rin olish mumkin." % {"limit": limit}
+        )
+
+
 class ReceiptNotOrphaned(DomainError):
     def __init__(self) -> None:
         super().__init__(

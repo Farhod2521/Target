@@ -205,6 +205,23 @@ class DisplayOut(BaseModel):
     rate_date: str = Field(description="The bank's date for the rate, `dd.mm.yyyy`.")
 
 
+class SeatsOfferOut(BaseModel):
+    offer: PageOfferOut = Field(
+        description="One manager seat; `price_minor` is for 30 days, a purchase "
+        "runs to the plan's end (`until`) and costs its share of the days left."
+    )
+    quotes: list[PageQuoteOut] = Field(description="Empty while not sellable.")
+    wallet_minor: int
+    max_seats_per_purchase: int
+    free: int = Field(description="Free seats: one per page of a paid plan.")
+    free_used: int
+    paid: int = Field(description="Seats bought and running now.")
+    paid_used: int
+    waiting: int = Field(description="Managers without a seat.")
+    providers: list[Provider]
+    payments_on: bool
+
+
 class PlansOut(PricedChoice):
     subscription: SubscriptionOut | None
     term: TermOut | None
@@ -313,6 +330,7 @@ __all__ = [
     "PaywallOut",
     "PlansOut",
     "PromoOut",
+    "SeatsOfferOut",
     "ShownPrices",
     "StatusOut",
 ]

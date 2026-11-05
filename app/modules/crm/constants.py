@@ -25,6 +25,14 @@ SIGNAL_WORDS: Final = {
 }
 
 
+class SeatKind(Choices):
+    """What seat a manager sits in: a page's free one, a bought one, or none."""
+
+    FREE = "free"
+    PAID = "paid"
+    NONE = "none"
+
+
 class SetupState(Choices):
     DRAFT = "draft"
     ON = "on"

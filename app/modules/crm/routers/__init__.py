@@ -23,6 +23,7 @@ from app.modules.crm.constants import (
     PRESETS,
     SINCE_LABELS,
     Distribution,
+    SeatKind,
     SetupState,
     Since,
 )
@@ -36,12 +37,14 @@ from app.modules.crm.schemas import (
     CardViewOut,
     ColumnOut,
     DetailOut,
+    MemberMovedOut,
     MemberOut,
     NavOut,
     OkOut,
     PlacedOut,
     PulseOut,
     ReasonOut,
+    SeatsOut,
     SettingsOut,
     SetupStepOut,
     StageOut,
@@ -792,6 +795,59 @@ def member_remove(
     released = services.remove_member(db, viewer=viewer, member_id=str(pk))
     db.commit()
     return {"cards_released": released}
+
+
+class MemberMoveIn(WrittenIn):
+    pair: str = Field(
+        max_length=160, description="The pair to move to, as `key` from `pairs`."
+    )
+
+
+@router.post("/settings/members/{pk}/move", responses={200: {"model": MemberMovedOut}})
+def member_move(
+    pk: uuid.UUID,
+    body: MemberMoveIn,
+    db: Db,
+    viewer: Viewer = Depends(owner_viewer),
+) -> dict[str, Any]:
+    member, released = services.move_member(
+        db, viewer=viewer, member_id=str(pk), pair_key=body.pair
+    )
+    db.commit()
+    return one_member_out(db, viewer, member) | {
+        "pair": body.pair,
+        "cards_released": released,
+    }
+
+
+@router.get("/settings/seats", responses={200: {"model": SeatsOut}})
+def seats(db: Db, viewer: Viewer = Depends(owner_viewer)) -> dict[str, Any]:
+    """Every manager across the owner's pairs and the seat each sits in."""
+    found = selectors.seating(db, owner=viewer.owner, at=utcnow())
+    holders = []
+    for member in selectors.team_of(db, owner=viewer.owner):
+        pair = selectors.pair_of_row(viewer.pairs, member)
+        kind = found.kind_of(member.id)
+        holders.append(
+            {
+                "member": member_out(member, seated=kind != SeatKind.NONE),
+                "pair": pair.key if pair else None,
+                "page": (pair.page.name or pair.page.external_id) if pair else "",
+                "account": (pair.account.name or pair.account.external_id)
+                if pair
+                else "",
+                "seat": kind.value,
+            }
+        )
+    return {
+        "free": found.free,
+        "free_used": found.free_used,
+        "paid": found.paid,
+        "paid_used": found.paid_used,
+        "paid_open": found.paid - found.paid_used,
+        "waiting": len(found.waiting),
+        "members": holders,
+    }
 
 
 class DistributionIn(BaseModel):

@@ -91,6 +91,7 @@ from app.modules.billing.selectors.promo import (
     times_used_by,
     unseen_redemption,
 )
+from app.modules.billing.selectors.seats import paid_seats, seat_offer
 from app.modules.billing.selectors.subscription import (
     bound_account,
     bound_subscription,
@@ -197,6 +198,7 @@ __all__ = [
     "paid_count",
     "paid_invoice_count",
     "paid_pages",
+    "paid_seats",
     "payable_invoice",
     "payment_providers",
     "payments_configured",
@@ -216,6 +218,7 @@ __all__ = [
     "remainder",
     "running_page_bills",
     "running_subscription",
+    "seat_offer",
     "sellable_plan",
     "sellable_plans",
     "setup_locked",

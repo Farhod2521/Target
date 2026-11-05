@@ -13,13 +13,32 @@ from sqlalchemy.orm import Session
 
 from app.common.money import decimal_places, to_minor
 from app.modules.accounts.models import User
-from app.modules.billing.constants import InvoiceStatus
+from app.modules.billing.constants import InvoiceStatus, SubscriptionStatus
 from app.modules.billing.models import Invoice, Plan, Subscription
-from app.modules.billing.selectors.pages import prorate
+from app.modules.billing.selectors.pages import PageOffer, prorate
+from app.modules.billing.selectors.subscription import days_left, live_subscription
 
 
 def seat_price_minor(*, plan: Plan) -> int:
     return int(to_minor(amount=str(plan.crm_seat_price), currency=plan.currency))
+
+
+def seat_offer(db: Session, *, owner: User, now: datetime) -> PageOffer:
+    """Seats are sold like extra pages: on a paid plan, to its end."""
+    subscription = live_subscription(db, owner=owner)
+    if subscription is None or subscription.status == SubscriptionStatus.TRIAL:
+        return PageOffer(None, 0, 0, None, sellable=False, needs_plan=True)
+    plan = subscription.plan
+    days = days_left(subscription=subscription, now=now) or 0
+    price = seat_price_minor(plan=plan)
+    return PageOffer(
+        plan=plan,
+        price_minor=price,
+        days=days,
+        until=subscription.expires_at,
+        sellable=price > 0 and days > 0,
+        needs_plan=days <= 0,
+    )
 
 
 def plan_seats_minor(*, plan: Plan, count: int) -> int:

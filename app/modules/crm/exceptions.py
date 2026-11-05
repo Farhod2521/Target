@@ -154,3 +154,21 @@ class NotOnPair(DomainError):
         super().__init__(
             "Bu lid platformadan shu juftlikdan ishga tushirilgan reklamadan kelmagan."
         )
+
+
+class UnknownPair(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bunday sahifa va reklama akkaunti juftligi topilmadi.")
+
+
+class SamePair(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Menejer allaqachon shu juftlikda.")
+
+
+class NoSeatThere(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "U yerda bo'sh o'rin yo'q: menejer yoki boshqa birov o'rinsiz qoladi. "
+            "Avval o'rin sotib oling."
+        )

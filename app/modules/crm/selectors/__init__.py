@@ -16,6 +16,7 @@ from app.modules.crm.constants import (
     CLOSING_KINDS,
     LOST_REASONS_SHOWN,
     Flag,
+    SeatKind,
     SetupState,
     StageKind,
 )
@@ -204,15 +205,48 @@ def seated_ids(db: Session, *, owner: User, at: datetime) -> frozenset[uuid.UUID
     seat share the seats bought, in the order they were added; the rest
     wait, locked out and handed no leads.
     """
+    return frozenset(seating(db, owner=owner, at=at).held)
+
+
+@dataclass(frozen=True, slots=True)
+class Seating:
+    """Who sits where across the owner's pairs."""
+
+    free: int
+    paid: int
+    held: dict[uuid.UUID, SeatKind]
+    waiting: tuple[uuid.UUID, ...]
+
+    def kind_of(self, member_id: uuid.UUID) -> SeatKind:
+        return self.held.get(member_id, SeatKind.NONE)
+
+    @property
+    def free_used(self) -> int:
+        return sum(1 for kind in self.held.values() if kind == SeatKind.FREE)
+
+    @property
+    def paid_used(self) -> int:
+        return sum(1 for kind in self.held.values() if kind == SeatKind.PAID)
+
+
+def seating(db: Session, *, owner: User, at: datetime) -> Seating:
+    from app.modules.billing.constants import SubscriptionStatus
     from app.modules.billing.selectors import live_subscription
     from app.modules.billing.selectors.seats import paid_seats
+    from app.modules.integrations.selectors import enabled_pages
 
-    seated, waiting = _free_seating(
-        db, owner=owner, subscription=live_subscription(db, owner=owner)
+    subscription = live_subscription(db, owner=owner)
+    seated, waiting = _free_seating(db, owner=owner, subscription=subscription)
+    paid = paid_seats(db, owner=owner, at=at)
+    held = dict.fromkeys(seated, SeatKind.FREE) | dict.fromkeys(
+        waiting[:paid], SeatKind.PAID
     )
-    if not waiting:
-        return frozenset(seated)
-    return frozenset(seated | set(waiting[: paid_seats(db, owner=owner, at=at)]))
+    free = (
+        0
+        if subscription is None or subscription.status == SubscriptionStatus.TRIAL
+        else len(enabled_pages(db, owner=owner))
+    )
+    return Seating(free=free, paid=paid, held=held, waiting=tuple(waiting[paid:]))
 
 
 def seat_capacity(db: Session, *, owner: User, at: datetime) -> int:
@@ -230,6 +264,17 @@ def seat_capacity(db: Session, *, owner: User, at: datetime) -> int:
         else len(enabled_pages(db, owner=owner))
     )
     return free + paid_seats(db, owner=owner, at=at)
+
+
+def team_of(db: Session, *, owner: User) -> list[CrmMember]:
+    """Active managers across every pair of the owner's, oldest first."""
+    return list(
+        db.scalars(
+            select(CrmMember)
+            .where(CrmMember.owner_id == owner.id, CrmMember.is_active.is_(True))
+            .order_by(CrmMember.created_at, CrmMember.id)
+        )
+    )
 
 
 def team_size(db: Session, *, owner: User) -> int:
@@ -256,13 +301,7 @@ def _free_seating(
     from app.modules.billing.constants import SubscriptionStatus
     from app.modules.integrations.selectors import enabled_pages
 
-    members = list(
-        db.scalars(
-            select(CrmMember)
-            .where(CrmMember.owner_id == owner.id, CrmMember.is_active.is_(True))
-            .order_by(CrmMember.created_at, CrmMember.id)
-        )
-    )
+    members = team_of(db, owner=owner)
     if not members:
         return set(), []
     free_pages: set[uuid.UUID] = (

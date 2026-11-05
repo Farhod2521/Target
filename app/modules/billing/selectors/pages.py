@@ -209,12 +209,14 @@ def offer_ends_at(*, offer: Any, now: datetime) -> datetime:
     return start + timedelta(days=offer.plan.period_days)
 
 
-def page_quotes(*, offer: PageOffer, wallet_minor: int) -> tuple[PageQuote, ...]:
+def page_quotes(
+    *, offer: PageOffer, wallet_minor: int, most: int = MAX_PAGES_PER_PURCHASE
+) -> tuple[PageQuote, ...]:
     if not offer.sellable or offer.plan is None:
         return ()
     currency = offer.plan.currency
     quotes = []
-    for count in range(1, MAX_PAGES_PER_PURCHASE + 1):
+    for count in range(1, most + 1):
         total = prorate(
             price_minor=offer.price_minor,
             count=count,

@@ -46,12 +46,15 @@ def payable_invoice(
     )
 
 
-def open_page_bill(db: Session, *, owner: User, now: datetime) -> Invoice | None:
+def open_page_bill(
+    db: Session, *, owner: User, now: datetime, kind: str = InvoiceKind.PAGES
+) -> Invoice | None:
+    """The unpaid bill of extra pages, or of ``kind``, a new one reuses."""
     return db.scalar(
         select(Invoice)
         .where(
             Invoice.owner_id == owner.id,
-            Invoice.kind == InvoiceKind.PAGES,
+            Invoice.kind == kind,
             Invoice.status.in_(PAYABLE_INVOICE_STATUSES),
             Invoice.expires_at > now,
         )

@@ -23,6 +23,7 @@ from paykit.errors import PaymentError, ProviderNotRegistered
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.common.exceptions import DomainError
 from app.common.money import decimal_places, to_minor
 from app.modules.accounts.models import User
 from app.modules.audit.constants import EventName
@@ -30,6 +31,7 @@ from app.modules.audit.services import emit
 from app.modules.billing.constants import (
     INVOICE_TTL_HOURS,
     MAX_PAGES_PER_PURCHASE,
+    MAX_SEATS_PER_PURCHASE,
     PAYABLE_INVOICE_STATUSES,
     HistoryKind,
     InvoiceKind,
@@ -53,6 +55,9 @@ from app.modules.billing.exceptions import (
     PlanNotSellable,
     ReasonRequired,
     ReceiptNotOrphaned,
+    SeatCountOutOfRange,
+    SeatsNeedPaidPlan,
+    SeatsNotSold,
 )
 from app.modules.billing.models import (
     Invoice,
@@ -63,6 +68,7 @@ from app.modules.billing.models import (
     Subscription,
 )
 from app.modules.billing.selectors import (
+    PageOffer,
     PlanSwitch,
     carried_pages,
     discount_quote,
@@ -80,6 +86,7 @@ from app.modules.billing.selectors import (
     plan_switch,
     prorate,
     running_subscription,
+    seat_offer,
 )
 from app.modules.billing.selectors.seats import (
     carried_seats,
@@ -199,23 +206,73 @@ def create_invoice(db: Session, *, owner: User, plan: Plan, now: datetime) -> In
 def create_page_invoice(
     db: Session, *, owner: User, count: int, wallet: WalletChoice, now: datetime
 ) -> Invoice:
-    from app.modules.referrals.services import hold_wallet
-
     if not 1 <= count <= MAX_PAGES_PER_PURCHASE:
         raise PageCountOutOfRange(limit=MAX_PAGES_PER_PURCHASE)
     offer = page_offer(db, owner=owner, now=now)
     if offer.plan is None or offer.needs_plan:
         raise PagesNeedPaidPlan
+    return _addon_invoice(
+        db,
+        owner=owner,
+        offer=offer,
+        kind=InvoiceKind.PAGES,
+        count=count,
+        wallet=wallet,
+        not_sold=PagesNotSold,
+        now=now,
+    )
+
+
+def create_seat_invoice(
+    db: Session, *, owner: User, count: int, wallet: WalletChoice, now: datetime
+) -> Invoice:
+    """A bill for CRM manager seats, running to the end of the paid plan."""
+    if not 1 <= count <= MAX_SEATS_PER_PURCHASE:
+        raise SeatCountOutOfRange(limit=MAX_SEATS_PER_PURCHASE)
+    offer = seat_offer(db, owner=owner, now=now)
+    if offer.plan is None or offer.needs_plan:
+        raise SeatsNeedPaidPlan
+    return _addon_invoice(
+        db,
+        owner=owner,
+        offer=offer,
+        kind=InvoiceKind.SEATS,
+        count=count,
+        wallet=wallet,
+        not_sold=SeatsNotSold,
+        now=now,
+    )
+
+
+def _addon_invoice(
+    db: Session,
+    *,
+    owner: User,
+    offer: PageOffer,
+    kind: InvoiceKind,
+    count: int,
+    wallet: WalletChoice,
+    not_sold: type[DomainError],
+    now: datetime,
+) -> Invoice:
+    """Extra pages or seats to the plan's end, on the unpaid bill of the kind if any."""
+    from app.modules.referrals.services import hold_wallet
+
+    plan = offer.plan
+    if plan is None:
+        raise not_sold()
     amount = prorate(
         price_minor=offer.price_minor,
         count=count,
         days=offer.days,
-        currency=offer.plan.currency,
+        currency=plan.currency,
     )
     if not offer.sellable or amount <= 0:
-        raise PagesNotSold
+        raise not_sold()
+    # ``pages`` / ``pages_minor`` or ``seats`` / ``seats_minor``.
+    field = "pages" if kind == InvoiceKind.PAGES else "seats"
     lift_wallet(db, owner=owner, now=now)
-    existing = open_page_bill(db, owner=owner, now=now)
+    existing = open_page_bill(db, owner=owner, now=now, kind=kind)
     locked = (
         locked_invoice(db, number=existing.number) if existing is not None else None
     )
@@ -223,21 +280,20 @@ def create_page_invoice(
         invoice = insert_invoice(
             db,
             owner=owner,
-            plan=offer.plan,
+            plan=plan,
             amount_minor=amount,
             period_days=0,
             expires_at=now + timedelta(hours=INVOICE_TTL_HOURS),
             now=now,
-            kind=InvoiceKind.PAGES,
-            pages=count,
-            pages_minor=amount,
+            kind=kind,
+            **{field: count, f"{field}_minor": amount},
         )
     else:
         invoice = locked
-        invoice.plan_id = offer.plan.id
-        invoice.currency = offer.plan.currency
-        invoice.pages = count
-        invoice.pages_minor = amount
+        invoice.plan_id = plan.id
+        invoice.currency = plan.currency
+        setattr(invoice, field, count)
+        setattr(invoice, f"{field}_minor", amount)
         invoice.amount_minor = amount
         db.flush()
     spent = hold_wallet(
@@ -258,7 +314,7 @@ def create_page_invoice(
         payload={
             "number": invoice.number,
             "kind": invoice.kind,
-            "pages": invoice.pages,
+            field: count,
             "amount_minor": invoice.amount_minor,
             "wallet_minor": invoice.wallet_minor,
             "currency": invoice.currency,

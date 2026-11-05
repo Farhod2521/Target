@@ -62,6 +62,7 @@ from app.modules.crm.exceptions import (
     NameRequired,
     NoAdsChosen,
     NoPair,
+    NoSeatThere,
     NotConfigured,
     NotOnPair,
     NotRunning,
@@ -69,11 +70,13 @@ from app.modules.crm.exceptions import (
     PasswordsDiffer,
     PasswordTooWeak,
     ReasonRequired,
+    SamePair,
     StageLocked,
     TooManyMembers,
     TooManyStages,
     UnknownCard,
     UnknownMember,
+    UnknownPair,
     UseTheDialog,
 )
 from app.modules.crm.models import (
@@ -96,6 +99,7 @@ from app.modules.crm.selectors import (
     pair_of_lead,
     qualified_count,
     seated_ids,
+    seating,
 )
 from app.modules.leads.constants import SignalSource, SignalStatus
 from app.modules.leads.models import Lead, LeadSignal
@@ -713,6 +717,100 @@ def remove_member(db: Session, *, viewer: Viewer, member_id: str) -> int:
     member = _member(db, viewer=viewer, member_id=member_id, active=False)
     now = utcnow()
     holder = member.user
+    released = _release_cards(
+        db, viewer=viewer, setup=setup, member=member, scope=scope, now=now
+    )
+    email = holder.email
+    member_pk = member.id
+    member.is_active = False
+    db.flush()
+    remove_member_login(db, user=holder)
+    record_config(
+        db,
+        owner=owner,
+        actor=viewer.user,
+        level="member",
+        target_id=member_pk,
+        before={"email": email},
+        after={"removed": True, "cards_released": released},
+        event=EventName.CRM_MEMBER_REMOVED,
+        now=now,
+    )
+    return released
+
+
+def move_member(
+    db: Session, *, viewer: Viewer, member_id: str, pair_key: str
+) -> tuple[CrmMember, int]:
+    """Move a manager to another pair of the owner's, seat and all.
+
+    Their open cards go back to the first column of their pair, as when they
+    are removed. Refused when the move would leave them, or anybody else,
+    without the seat they sit in now.
+    """
+    scope = require_owner(viewer)
+    owner = viewer.owner
+    target = next((pair for pair in viewer.pairs if pair.key == pair_key), None)
+    if target is None:
+        raise UnknownPair
+    there = Scope.of(target)
+    if there == scope:
+        raise SamePair
+    # Both pairs locked, in one order, so two moves cannot deadlock.
+    first, second = sorted((scope, there), key=lambda each: str(each.fields()))
+    setups = {first: setup_for_update(db, scope=first)}
+    setups[second] = setup_for_update(db, scope=second)
+    member = _member(db, viewer=viewer, member_id=member_id)
+    crowd = db.scalar(
+        select(func.count(CrmMember.id)).where(
+            there.holds(CrmMember), CrmMember.is_active.is_(True)
+        )
+    )
+    if (crowd or 0) >= MAX_MEMBERS:
+        raise TooManyMembers
+    now = utcnow()
+    before = seating(db, owner=owner, at=now)
+    released = _release_cards(
+        db, viewer=viewer, setup=setups[scope], member=member, scope=scope, now=now
+    )
+    destination = setups[there]
+    member.page_id = there.page_id
+    member.ad_account_id = there.ad_account_id
+    # A fixed KPI is an amount in the pair's currency: it does not travel.
+    if member.kpi_currency and member.kpi_currency != destination.currency:
+        member.kpi_fix_minor = None
+        member.kpi_currency = ""
+    db.flush()
+    after = seating(db, owner=owner, at=now)
+    if any(kept not in after.held for kept in before.held):
+        raise NoSeatThere
+    record_config(
+        db,
+        owner=owner,
+        actor=viewer.user,
+        level="member",
+        target_id=member.id,
+        before={"pair": viewer.pair.key if viewer.pair else ""},
+        after={"pair": target.key, "cards_released": released},
+        event=EventName.CRM_MEMBER_SAVED,
+        now=now,
+    )
+    return member, released
+
+
+def _release_cards(
+    db: Session,
+    *,
+    viewer: Viewer,
+    setup: CrmSetup,
+    member: CrmMember,
+    scope: Scope,
+    now: datetime,
+) -> int:
+    """Put the manager's open cards back in their pair's first column, unassigned,
+    and pass the round-robin turn on if it was theirs."""
+    owner = viewer.owner
+    holder = member.user
     # Every pair's: cards copied from the one-CRM days may sit on another.
     cards = list(
         db.scalars(
@@ -761,22 +859,6 @@ def remove_member(db: Session, *, viewer: Viewer, member_id: str) -> int:
         before = [taker for taker in takers if order.index(taker.id) < place]
         chosen = before[-1] if before else (takers[-1] if takers else None)
         setup.last_assigned_id = chosen.id if chosen else None
-    email = holder.email
-    member_pk = member.id
-    member.is_active = False
-    db.flush()
-    remove_member_login(db, user=holder)
-    record_config(
-        db,
-        owner=owner,
-        actor=viewer.user,
-        level="member",
-        target_id=member_pk,
-        before={"email": email},
-        after={"removed": True, "cards_released": released},
-        event=EventName.CRM_MEMBER_REMOVED,
-        now=now,
-    )
     return released
 
 

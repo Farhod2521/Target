@@ -4,6 +4,7 @@ Attached with ``responses=``: the routes still return plain dicts.
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -259,6 +260,39 @@ class CardsReleasedOut(BaseModel):
     cards_released: int
 
 
+class MemberMovedOut(MemberOut):
+    pair: str = Field(description="The pair the manager works in now.")
+    cards_released: int = Field(
+        description="Their open cards put back, unassigned, in the old pair's first column."
+    )
+
+
+class SeatHolderOut(BaseModel):
+    member: MemberOut
+    pair: str | None = Field(
+        description="`page id:ad account id`; null off every pair."
+    )
+    page: str
+    account: str
+    seat: Literal["free", "paid", "none"] = Field(
+        description="Their page's free seat, a bought one, or none (locked out)."
+    )
+
+
+class SeatsOut(BaseModel):
+    free: int = Field(
+        description="Free seats: one per page of a paid plan, used on that page only."
+    )
+    free_used: int
+    paid: int = Field(description="Seats bought and running now, shared by every pair.")
+    paid_used: int
+    paid_open: int = Field(description="Bought seats nobody sits in.")
+    waiting: int = Field(description="Managers without a seat.")
+    members: list[SeatHolderOut] = Field(
+        description="Every active manager, oldest first."
+    )
+
+
 __all__ = [
     "BoardOut",
     "CardOut",
@@ -267,12 +301,15 @@ __all__ = [
     "CardsReleasedOut",
     "ColumnOut",
     "DetailOut",
+    "MemberMovedOut",
     "MemberOut",
     "NavOut",
     "OkOut",
     "PlacedOut",
     "PulseOut",
     "ReasonOut",
+    "SeatHolderOut",
+    "SeatsOut",
     "SettingsOut",
     "SetupStepOut",
     "StageOut",
