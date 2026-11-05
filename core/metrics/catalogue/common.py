@@ -158,6 +158,8 @@ def sales(figures: Figures, setting: Setting) -> int:
 
 
 def _cost_per_purchase(figures: Figures, setting: Setting) -> Answer:
+    if setting.outcome not in SITE_SALE_GOALS and not figures.crm:
+        return missing("no_crm")
     return cost(
         f.cost_per_purchase(figures.spend_minor, sales(figures, setting)),
         spend_minor=figures.spend_minor,
@@ -269,6 +271,7 @@ COMMON: Final[tuple[Metric, ...]] = (
         unit="count",
         formula=_qualified,
         from_network=False,
+        from_crm=True,
     ),
     Metric(
         key="qualified_share",
@@ -278,6 +281,7 @@ COMMON: Final[tuple[Metric, ...]] = (
         unit="percent",
         formula=_qualified_share,
         from_network=False,
+        from_crm=True,
     ),
     Metric(
         key="cpql",
@@ -287,6 +291,7 @@ COMMON: Final[tuple[Metric, ...]] = (
         unit="money",
         formula=_cpql,
         lower_is_better=True,
+        from_crm=True,
     ),
     Metric(
         key="purchases_site",
@@ -304,6 +309,7 @@ COMMON: Final[tuple[Metric, ...]] = (
         unit="count",
         formula=_purchases_crm,
         from_network=False,
+        from_crm=True,
     ),
     Metric(
         key="cost_per_purchase",

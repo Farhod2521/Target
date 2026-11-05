@@ -28,6 +28,7 @@ from app.modules.crm.models import (
     CrmSetup,
     CrmStage,
 )
+from app.modules.crm.quality import qualified_card
 from app.modules.integrations.models import PixelAccount
 from app.modules.integrations.selectors import Pair, current_pair, page_pairs
 from app.modules.leads.models import Lead, LeadForm
@@ -982,15 +983,18 @@ def qualified_count(
         )
     ):
         return None
-    query = select(CrmCard.id).where(
-        CrmCard.owner_id == owner.id,
-        CrmCard.qualified_at >= since,
-        CrmCard.qualified_at < until,
+    query = (
+        select(CrmCard.id)
+        .join(Lead, Lead.id == CrmCard.lead_id)
+        .where(
+            CrmCard.owner_id == owner.id,
+            qualified_card(),
+            Lead.submitted_at >= since,
+            Lead.submitted_at < until,
+        )
     )
     if campaign_ids is not None:
-        query = query.join(Lead, Lead.id == CrmCard.lead_id).where(
-            Lead.campaign_external_id.in_(list(campaign_ids))
-        )
+        query = query.where(Lead.campaign_external_id.in_(list(campaign_ids)))
     return _count(db, query)
 
 

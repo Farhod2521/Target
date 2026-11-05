@@ -52,6 +52,8 @@ Missing = Literal[
     "uncounted",
     # The metric does not exist at this level or on this network.
     "not_here",
+    # Qualified leads and sales are the CRM's word, and no CRM is on here.
+    "no_crm",
 ]
 
 type Value = MinorUnits | int | Decimal | str
@@ -92,6 +94,9 @@ class Figures:
     # Whether the network has been read for this range at all. ``False``
     # turns every network figure into ``not_read``; our own counts stay.
     read: bool = True
+    # Whether a CRM is on for the object's account. ``False`` turns every
+    # qualified and CRM-sold figure into ``no_crm`` rather than nought.
+    crm: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +156,8 @@ class Metric:
     norm: str = ""
     # Whether the figure comes from the network, so ``read=False`` hides it.
     from_network: bool = True
+    # Whether it needs the CRM's verdicts, so ``crm=False`` hides it.
+    from_crm: bool = False
 
     def exists(self, setting: Setting) -> bool:
         return setting.level in self.levels and setting.network in self.networks

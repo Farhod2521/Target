@@ -8,8 +8,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
-from app.modules.crm.constants import SetupState, StageKind
-from app.modules.crm.models import CrmCard, CrmSetup, CrmStage
+from app.modules.crm.constants import SetupState
+from app.modules.crm.models import CrmCard, CrmSetup
+from app.modules.crm.quality import judged_card, junk_card, qualified_card
 from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
 from app.modules.leads.constants import SignalStatus
 from app.modules.leads.models import Lead, LeadSignal
@@ -55,21 +56,15 @@ def lead_quality(
     leads = int(db.scalar(select(func.count(Lead.id)).where(*in_range)) or 0)
     if not leads:
         return None
-    kinds = db.execute(
-        select(CrmStage.kind, CrmCard.qualified_at.is_not(None), func.count(CrmCard.id))
-        .join(CrmCard, CrmCard.stage_id == CrmStage.id)
+    marked, qualified, unqualified = db.execute(
+        select(
+            func.count(CrmCard.id).filter(judged_card()),
+            func.count(CrmCard.id).filter(qualified_card()),
+            func.count(CrmCard.id).filter(junk_card()),
+        )
         .join(Lead, Lead.id == CrmCard.lead_id)
         .where(*in_range)
-        .group_by(CrmStage.kind, CrmCard.qualified_at.is_not(None))
-    ).all()
-    marked = qualified = unqualified = 0
-    for kind, was_qualified, count in kinds:
-        if kind != StageKind.NEW:
-            marked += count
-        if kind == StageKind.JUNK:
-            unqualified += count
-        elif kind == StageKind.WON or (kind == StageKind.OPEN and was_qualified):
-            qualified += count
+    ).one()
     told = dict(
         db.execute(
             select(LeadSignal.status, func.count(LeadSignal.id))

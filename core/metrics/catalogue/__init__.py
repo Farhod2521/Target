@@ -77,6 +77,8 @@ def compute(key: str, figures: Figures, setting: Setting) -> Answer:
     metric = BY_KEY[key]
     if not metric.exists(setting):
         return missing("not_here")
+    if metric.from_crm and not figures.crm:
+        return missing("no_crm")
     if metric.from_network and not figures.read:
         return missing("not_read")
     return metric.formula(figures, setting)

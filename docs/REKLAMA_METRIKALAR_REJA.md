@@ -83,3 +83,5 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
   - Qo'shimcha Meta so'rovi yo'q.
   - **Deploydan keyin:** migratsiya; keyin `python -m app.modules.metrics.refill` (hisobot) va `--apply` (har Meta hisobini 90 soniya oraliq bilan navbatga qo'yadi, 90 kunni qayta o'qiydi). Noyob kliklar keyingi sinxronlashda o'zi to'ladi.
   - Tekshirilmagan: haqiqiy Meta hisobida sotuv nomi (`fetch_action_totals` bilan tekshirish mumkin).
+- **4-bosqich (2026-11-05):** sifatli lid va CRM sotuvi faqat CRM bo'yicha, ta'rif bitta joyda: `app/modules/crm/quality.py` (CAPI bilan bir xil). Lid kelgan kun bo'yicha sanaladi. CRM yoqilmagan bo'lsa, `no_crm`. Qo'lda baho sanalmaydi.
+  - Keyinga qoldirildi: lidlar sahifasidagi qo'lda baho tugmalari va ularning CAPI signali.

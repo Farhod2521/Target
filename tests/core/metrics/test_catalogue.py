@@ -255,3 +255,23 @@ def test_a_metric_asked_at_a_level_it_does_not_exist_at() -> None:
     figures = Figures(impressions=10_000, video_views_3s=2_500, video_plays=1)
 
     assert why("hook_rate", figures, CAMPAIGN) == "not_here"
+
+
+def test_without_a_crm_the_crm_figures_say_so_rather_than_nought() -> None:
+    figures = Figures(
+        spend_minor=MinorUnits(6_000), leads_ours=40, leads_reported=40, crm=False
+    )
+
+    for key in ("qualified", "qualified_share", "cpql", "purchases_crm"):
+        assert why(key, figures) == "no_crm", key
+    assert why("cost_per_purchase", figures) == "no_crm"
+    site = Setting(level="ad", outcome="site_lead")
+    assert (
+        value(
+            "cost_per_purchase",
+            Figures(spend_minor=MinorUnits(6_000), purchases_site=6, crm=False),
+            site,
+        )
+        == 1_000
+    )
+    assert value("leads", figures) == 40
