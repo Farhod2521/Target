@@ -163,3 +163,20 @@ Ekrandagi sahifa (page) doirasida. Har bir raqam, Reklama jadvalidagi kabi,
 
 `headline` dagi Qamrov va Chastota bir nechta kampaniya bo'lsa `not_asked`
 qaytaradi. Ular 8-bosqichda hisob darajasida o'qiladigan bo'ladi.
+
+---
+
+# Expert mode tanlovi
+
+Foydalanuvchi akkauntida saqlanadi, shuning uchun sahifa yangilanganda va
+boshqa qurilmada ham saqlanib qoladi. Avval faqat manzildagi
+`?rejim=targetolog` da turardi.
+
+| So'rov | Nima |
+|---|---|
+| `GET /api/v1/account` | Javobda `expert_mode: true/false` |
+| `PUT /api/v1/account/expert-mode` | `{"on": true}` yoqadi, `{"on": false}` o'chiradi. Javobi yangilangan `UserOut` |
+
+Yangi foydalanuvchida `false`. Yoqilganda Reklama `/api/v2/campaigns/expert`
+dan, Dashboard `/api/v1/metrics/expert` dan oladi. O'chirilganda ikkalasi
+oldingi (Oddiy) endpoint'lardan oladi.

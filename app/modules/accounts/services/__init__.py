@@ -36,7 +36,7 @@ from app.modules.accounts.services.save_account import (
     save_account,
     save_phone,
 )
-from app.modules.accounts.services.set_language import set_language
+from app.modules.accounts.services.set_language import set_expert_mode, set_language
 
 __all__ = [
     "PHONE_SAVED",
@@ -66,6 +66,7 @@ __all__ = [
     "save_account",
     "save_phone",
     "send_email_code",
+    "set_expert_mode",
     "set_language",
     "set_member_password",
     "sign_up",

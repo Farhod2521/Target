@@ -11,6 +11,7 @@ from app.modules.accounts.schemas import (
     AccountIn,
     CodeSentOut,
     EmailCodeIn,
+    ExpertModeIn,
     LanguageIn,
     PasswordChanged,
     PasswordIn,
@@ -52,6 +53,12 @@ def update_password(body: PasswordIn, user: CurrentUser, db: Db) -> PasswordChan
         access_token=pair.access_token,
         refresh_token=pair.refresh_token,
     )
+
+
+@router.put("/expert-mode", response_model=UserOut)
+def update_expert_mode(body: ExpertModeIn, user: CurrentUser, db: Db) -> User:
+    """Open Reklama and the dashboard in Expert mode, or in the plain one."""
+    return services.set_expert_mode(db, user=user, on=body.on)
 
 
 @router.put("/language", response_model=UserOut)

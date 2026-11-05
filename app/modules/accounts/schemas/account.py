@@ -14,6 +14,10 @@ class UserOut(BaseModel):
     full_name: str
     phone: str
     language: str
+    expert_mode: bool = Field(
+        default=False,
+        description="Reklama and the dashboard open in Expert mode.",
+    )
     is_staff: bool
     date_joined: datetime
     email_verified_at: datetime | None
@@ -42,6 +46,10 @@ class PasswordIn(BaseModel):
 
 class EmailCodeIn(BaseModel):
     code: str = Field(min_length=5, max_length=5, pattern=r"^\d{5}$")
+
+
+class ExpertModeIn(BaseModel):
+    on: bool
 
 
 class LanguageIn(BaseModel):
