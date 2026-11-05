@@ -28,7 +28,7 @@ DELIVERY_LABELS: dict[str, Any] = {
     "active": "Ishlayapti",
     "paused": "To'xtatilgan",
     "pending": "Tekshiruvda",
-    "rejected": "Rad etilgan",
+    "rejected": "Muammo bor",
     "finished": "Tugagan",
     "unknown": "Noma'lum",
 }

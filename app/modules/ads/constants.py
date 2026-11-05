@@ -744,6 +744,7 @@ ACTIONS_PER_CAMPAIGN = 10
 META_SIDE_FAILURES: tuple[str, ...] = (
     "page_terms",
     "page_role",
+    "account_role",
     "account_action",
     "account_disabled",
     "payment_due",
