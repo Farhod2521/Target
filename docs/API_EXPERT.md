@@ -130,7 +130,7 @@ qiladi, jadval tepasida ogohlantirish chiqishi kerak.
 
 `GET /api/v1/metrics/expert?period=7|30|90|today` yoki `?start=&end=`
 (`/metrics/numbers` bilan bir xil parametrlar, tanlangan davr eslab qolinadi).
-Ekrandagi sahifa (page) doirasida. Har bir raqam, Reklama jadvalidagi kabi,
+Ekrandagi sahifa (page) doirasida, Reklama jadvali kabi sahifaning hamma kampaniyasi: platformada va Ads Manager'da yaratilganlari ham. Oddiy Dashboard esa faqat platformada yaratilganlarini sanaydi. Har bir raqam, Reklama jadvalidagi kabi,
 `{"value", "missing"}` katak.
 
 ```json

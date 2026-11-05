@@ -205,7 +205,8 @@ def expert_numbers(
     from app.modules.metrics.selectors.expert_board import expert_board
     from app.modules.metrics.selectors.scope import page_campaigns
 
-    page = page_campaigns(db, owner=user)
+    # Every campaign of the page, Ads Manager's too, as the expert table shows.
+    page = page_campaigns(db, owner=user, every=True)
     chosen = _filters(
         user,
         period=period,

@@ -57,9 +57,9 @@ Qiymat o'rniga `–` va uning sababi chiqadi:
 | 8 ✅ | Ads Manager bilan solishtirish | Kechki avtomatik tekshiruv: bizning yig'indi va Meta'ning davr bo'yicha jami raqami. Staging'da o'lchanadi |
 | 9 ✅ | Front: Expert mode tugmasi | Tepaga chiqadi. Namuna so'raladi |
 | 10 ✅ | Front: Reklama redesign (Expert) | Jadval katalogdan quriladi; ustun to'plamlari (Umumiy, Video, Lid sifati, Sotuv), izohlar va normalar, reyting ranglari, Jami qatori. Namuna so'raladi |
-| 11 | Front: Dashboard redesign (Expert) | Namuna so'raladi |
+| 11 ✅ | Front: Dashboard redesign (Expert) | Namuna so'raladi |
 | 12 | Oddiy mode'dan formulalarni olib tashlash | Ko'rinish o'zgarmaydi; `Manager.tsx`, `dashboard.ts` dagi hisoblar backendga o'tadi |
-| 13 | Google | Google metrikalari katalogning o'z qismiga |
+| 13 ⏸ | Google | Keyinga qoldirildi (2026-11-05, foydalanuvchi qarori): hozir asosiy maqsad Meta va platforma |
 | 14 | Ishga tushirish | Deploy, production'da Ads Manager bilan solishtirish |
 
 Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
@@ -99,3 +99,6 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
 - **10-bosqich (2026-11-05):** front 09f84bb. Expert mode'da Reklama jadvali faqat backend kataklaridan quriladi. Bor narsalar: ustun to'plamlari (Umumiy, Video, Lid sifati, Sotuv), ustunlarni tanlash va tartiblash (akkauntda saqlanadi), har ustunda izoh va norma, "–" va uning sababi, reytinglar rangda, har darajaning Jamisi backenddan. Eski jadvaldagi front hisoblari olib tashlandi.
   - Backend: Expert endpoint'lari `/api/v1` da ham ochildi. `campaigns` va `adsets` parametrlari pastki darajalarni toraytiradi, shunda Jami ko'rinib turgan qatorlarniki bo'ladi. Ustunlar hali tanlanmagan bo'lsa, "Umumiy" to'plami chiqadi.
   - Sekinlik tuzatildi (2026-11-05): 983 kampaniyali akkauntda Expert jadvali 37,9 → 2,9 soniya, `/manager` 37,6 → 5,9 soniya (lokal production nusxasi). Sabab: har kampaniya uchun alohida so'rovlar (16 mingta). Endi kampaniyalar, boshqaruv tugmalari va reklama matni bitta so'rovda o'qiladi, Expert esa ishlatmaydigan eski raqamlarni so'ramaydi. Uchta haqiqiy akkauntda eski va yangi javob bir xil chiqdi.
+- **11-bosqich (2026-11-05):** front 1473aec. Tuzilishi foydalanuvchi aytgandek: tepada 10 ta asosiy ko'rsatkich kartada, har birida oldingi davrga nisbatan o'zgarish. Pastda grafiklar: kunlik grafik (metrikani tanlash mumkin), voronka, maqsadlar bo'yicha sarf, kesimlar. Oddiy Dashboard o'zgarmadi.
+  - Backend: Expert Dashboard sahifaning hamma kampaniyasini oladi (Ads Manager'da yaratilganlarini ham), Reklama jadvali bilan bir xil (`page_campaigns(every=True)`). Oddiy Dashboard avvalgidek faqat platformada yaratilganlarini sanaydi. Lokal production nusxasida Sarflandi Reklama jadvalidagi Jami bilan mos keldi.
+  - Ro'yxat ko'rinishidagi bloklar (eng yaxshi va eng yomon kampaniyalar, diqqat talab reklamalar) ekranga chiqarilmadi, chunki foydalanuvchi faqat kartalar va grafiklarni so'ragan. API'da ular bor.

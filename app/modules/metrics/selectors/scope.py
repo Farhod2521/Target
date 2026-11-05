@@ -55,10 +55,14 @@ class PageCampaigns:
         return campaigns_scope(self.ids)
 
 
-def page_campaigns(db: Session, *, owner: User) -> PageCampaigns:
+def page_campaigns(db: Session, *, owner: User, every: bool = False) -> PageCampaigns:
+    """The page's campaigns built here; ``every`` adds the ones built in Ads
+    Manager, as the Reklama list and the expert screens show them."""
     from app.modules.ads.selectors import page_advertising
 
-    return _campaigns(db, owner=owner, found=page_advertising(db, owner=owner))
+    return _campaigns(
+        db, owner=owner, found=page_advertising(db, owner=owner), every=every
+    )
 
 
 def pages_campaigns(db: Session, *, owner: User) -> tuple[PageCampaigns, ...]:
@@ -70,8 +74,11 @@ def pages_campaigns(db: Session, *, owner: User) -> tuple[PageCampaigns, ...]:
     )
 
 
-def _campaigns(db: Session, *, owner: User, found: object) -> PageCampaigns:
-    here, foreign = _one_currency(db, owner=owner, found=found)
+def _campaigns(
+    db: Session, *, owner: User, found: object, every: bool = False
+) -> PageCampaigns:
+    ids = found.campaign_ids if every else found.here  # type: ignore[attr-defined]
+    here, foreign = _one_currency(db, owner=owner, found=found, ids=ids)
     return PageCampaigns(
         page=found.page,  # type: ignore[attr-defined]
         ids=here,
@@ -84,13 +91,13 @@ def _campaigns(db: Session, *, owner: User, found: object) -> PageCampaigns:
 
 
 def _one_currency(
-    db: Session, *, owner: User, found: object
+    db: Session, *, owner: User, found: object, ids: frozenset[str]
 ) -> tuple[frozenset[str], frozenset[str]]:
     """Figures in two currencies do not add up: keep the home account's."""
     from app.modules.ads.models import Campaign
 
     accounts = found.accounts  # type: ignore[attr-defined]
-    here = found.here  # type: ignore[attr-defined]
+    here = ids
     if len({account.currency for account in accounts}) < 2:
         return here, frozenset()
     home = accounts[0].currency

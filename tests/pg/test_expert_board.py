@@ -85,3 +85,27 @@ def test_each_goal_apart_and_the_troubled_adverts(
     assert troubled["id"] == "a_1"
     assert {one["key"] for one in troubled["problems"]} == {"hook_rate", "hold_rate"}
     assert "segments" in body and "lead_quality" in body
+
+
+def test_campaigns_built_in_ads_manager_are_counted_too(
+    client: TestClient, db: Session, monkeypatch: Any
+) -> None:
+    """The plain dashboard counts the campaigns built here; the expert one,
+    like the expert table, every campaign of the page."""
+    from app.modules.ads import selectors
+    from app.modules.ads.selectors.pages import PageAdvertising
+
+    headers, campaign, _ = _figures(client, db, goal="LINK_CLICKS")
+    real = selectors.page_advertising(db, owner=campaign.owner)
+    elsewhere = PageAdvertising(
+        page=real.page,
+        sole=real.sole,
+        elsewhere=frozenset({"c_1"}),
+        accounts=real.accounts,
+    )
+    monkeypatch.setattr(selectors, "page_advertising", lambda *_a, **_k: elsewhere)
+
+    body = _board(client, headers)
+
+    headline = {row["key"]: row for row in body["headline"]}
+    assert headline["spend"]["now"]["value"] == SPEND
