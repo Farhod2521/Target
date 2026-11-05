@@ -1,4 +1,4 @@
-from app.modules.accounts.services.authenticate import authenticate
+from app.modules.accounts.services.authenticate import authenticate, note_sign_in
 from app.modules.accounts.services.block_user import block_user, unblock_user
 from app.modules.accounts.services.change_password import change_password
 from app.modules.accounts.services.email_code import (
@@ -52,6 +52,7 @@ __all__ = [
     "email_in_use",
     "issue_handoff",
     "issue_password_reset",
+    "note_sign_in",
     "purge_owned_rows",
     "purge_preview",
     "purge_user",

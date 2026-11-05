@@ -111,6 +111,8 @@ class ActionKind(Choices):
     CRM_SETTINGS_CHANGED = "crm_settings_changed"
     CRM_MEMBERS_CHANGED = "crm_members_changed"
     CRM_ERASED = "crm_erased"
+    FACEBOOK_FORGOTTEN = "facebook_forgotten"
+    SIGNALS_SENT = "signals_sent"
 
 
 ACTION_KIND_LABELS = {
@@ -165,6 +167,8 @@ ACTION_KIND_LABELS = {
     ActionKind.CRM_SETTINGS_CHANGED: "CRM sozlamalari o'zgartirildi",
     ActionKind.CRM_MEMBERS_CHANGED: "CRM menejerlari o'zgartirildi",
     ActionKind.CRM_ERASED: "CRM butunlay o'chirildi",
+    ActionKind.FACEBOOK_FORGOTTEN: "Facebook to'liq uzildi",
+    ActionKind.SIGNALS_SENT: "Lid signallari Metaga qo'lda yuborildi",
 }
 READ_KINDS = (
     ActionKind.VIEW,

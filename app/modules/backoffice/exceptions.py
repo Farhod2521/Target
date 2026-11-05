@@ -68,6 +68,27 @@ class CrmEmailMismatch(DomainError):
         super().__init__("Email mos kelmadi — CRM o'chirilmadi.")
 
 
+class FacebookEmailMismatch(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Email mos kelmadi — Facebook uzilmadi.")
+
+
+class NothingToForget(DomainError):
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__("Bu mijozda Facebook'dan kelgan hech narsa yo'q.")
+
+
+class NothingToSend(DomainError):
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Yuborilmay qolgan signal yo'q: tugagan kunlar yuborilgan yoki muddati o'tgan."
+        )
+
+
 class AlreadyBlocked(DomainError):
     def __init__(self) -> None:
         super().__init__("Bu akkaunt allaqachon bloklangan.")

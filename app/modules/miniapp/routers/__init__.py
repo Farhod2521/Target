@@ -10,6 +10,7 @@ from app.api.deps import Db
 from app.common import tokens
 from app.common.db import utcnow
 from app.common.routes import reverse
+from app.modules.accounts.services import note_sign_in
 from app.modules.miniapp.constants import BRIDGE_SCRIPT, NEXT_FIELD
 from app.modules.miniapp.exceptions import MiniAppRefused
 from app.modules.miniapp.schemas import AuthOut, EntryOut
@@ -56,6 +57,8 @@ def auth(body: AuthIn, db: Db) -> dict[str, Any]:
     except MiniAppRefused as exc:
         return {"error": exc.code, "message": exc.message}
     logger.info("miniapp_opened", extra={"owner": str(user.id)})
+    note_sign_in(db, user=user, via="miniapp")
+    db.commit()
     return {
         "ok": True,
         "access_token": tokens.issue(subject=str(user.id), kind="access", now=now),

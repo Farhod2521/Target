@@ -128,7 +128,7 @@ def _send_account(
     if not dataset:
         db.commit()
         return "no_dataset"
-    token = _token(account)
+    token = account_token(account)
     if token is None:
         db.commit()
         return "connection_unusable"
@@ -230,7 +230,8 @@ def _sendable(lead: Lead) -> bool:
     )
 
 
-def _token(account: AdAccount) -> str | None:
+def account_token(account: AdAccount) -> str | None:
+    """The token a send would use; none when the connection cannot carry one."""
     connection = account.connection
     if connection.status not in USABLE_CONNECTION_STATUSES:
         return None
@@ -303,6 +304,7 @@ def withdraw_verdict(db: Session, *, lead: Lead) -> None:
 
 
 __all__ = [
+    "account_token",
     "note_verdict",
     "report_signals",
     "sweep_lead_signals",

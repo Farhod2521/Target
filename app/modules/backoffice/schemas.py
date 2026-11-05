@@ -1604,3 +1604,101 @@ class StaffBotOut(BaseModel):
 
 class StaffBotUrlOut(BaseModel):
     url: str
+
+
+class FacebookHoldingsOut(BaseModel):
+    """What disconnecting Facebook would take away; the subscription, its
+    extra pages and the bought seats are not on the list because they stay."""
+
+    connected: bool
+    pages: int
+    ad_accounts: int
+    pixels: int
+    launches: int
+    campaigns: int
+    leads: int
+    cards: int
+    managers: int = Field(description="CRM managers; their logins go too.")
+    audiences: int = Field(description="Ours only; Meta keeps them.")
+    brand_kits: int
+
+
+class FacebookForgottenOut(MessageOut):
+    rows: dict[str, int]
+    kept_business: bool = Field(
+        description="A business profile was kept pageless for the next page."
+    )
+
+
+class SignalCountsOut(BaseModel):
+    sent: int
+    pending: int
+    failed: int
+    expired: int
+
+
+class SignalDayOut(BaseModel):
+    day: date = Field(description="The owner's own day.")
+    state: Literal["unsent", "sent", "partly", "lost", "empty"] = Field(
+        description="`unsent`: rows the button would send; `partly`: some sent, "
+        "some refused or past the window; `lost`: none went and none can."
+    )
+    sendable: int
+    sent_at: datetime | None
+    datasets: list[str] = Field(description="Pixels the sent rows went into.")
+    errors: list[str] = Field(description="Meta's refusals, three at most.")
+    stages: dict[str, SignalCountsOut] = Field(
+        description="`received`, `qualified`, `unqualified`, `converted`."
+    )
+
+
+class SignalBlockerOut(BaseModel):
+    account: str
+    name: str
+    reason: Literal["connection", "no_pixel"]
+
+
+class SignalBookOut(BaseModel):
+    sendable: int = Field(description="Rows of finished days the button sends.")
+    last_sent_at: datetime | None
+    next_night: datetime
+    window_days: int
+    blockers: list[SignalBlockerOut] = Field(
+        description="Why a waiting account would fail again, read now."
+    )
+    days: list[SignalDayOut]
+
+
+class SignalsSentOut(MessageOut):
+    sent: int
+    waiting: int = Field(description="Still unsent afterwards.")
+
+
+class ActivityRowOut(BaseModel):
+    id: str = Field(description="`<source>:<uuid>`.")
+    source: Literal["action", "event", "office"]
+    at: datetime
+    group: str = Field(description="One of `groups`.")
+    title: str
+    text: str
+    who: str = Field(
+        description="`customer`, `manager`, `system`, `agent`, `staff`; "
+        "empty when the log does not say."
+    )
+    who_name: str
+    status: str = Field(description="`applied`, `failed`, `pending`, `reverted`.")
+    status_label: str
+    error: str
+    detail: dict[str, Any] = Field(
+        description="An action's `request`/`before`/`result`; an event's payload; "
+        "an office row's detail."
+    )
+
+
+class ActivityOut(BaseModel):
+    groups: list[ChoiceOut]
+    who: list[ChoiceOut]
+    rows: list[ActivityRowOut]
+    next_before: datetime | None = Field(
+        description="Send as `before` for the next page; empty at the end."
+    )

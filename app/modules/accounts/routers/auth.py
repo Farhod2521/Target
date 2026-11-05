@@ -109,7 +109,9 @@ def login(body: LoginIn, request: Request, db: Db) -> TokenPair:
     ):
         raise TooManyAttempts
     try:
-        user = services.authenticate(db, email=body.email, password=body.password)
+        user = services.authenticate(
+            db, email=body.email, password=body.password, address=address
+        )
     except BadCredentials:
         throttle.record(
             bucket=LOGIN_BY_EMAIL, key=email, window_seconds=LOGIN_WINDOW_SECONDS
