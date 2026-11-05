@@ -93,6 +93,7 @@ def test_a_new_refusal_answers_the_dialog_and_asks_claude_once(
 def test_the_written_answer_reaches_the_dialog_with_the_owners_links(
     client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _Claude.asked = 0
     owner, _account = _owner(db)
     _refusing(monkeypatch, _refusal())
     waiting = _press(client, owner).json()["refusal"]

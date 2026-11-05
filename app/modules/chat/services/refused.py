@@ -22,6 +22,7 @@ from app.modules.chat.selectors.refusal import (
     already_asked,
     answer_language,
     awaited,
+    being_written,
     ready_answer,
 )
 from app.modules.chat.services.explain import explain_action_later
@@ -129,7 +130,7 @@ def refusal_for(
         steps=list(UNNAMED_STEPS),
         provider_words=words,
         html=_html(ready.text, _links(account)) if ready is not None else None,
-        explaining=bool(key) and ready is None and awaited(key=key),
+        explaining=bool(key) and ready is None and awaited(key=key, language=language),
     )
 
 
@@ -170,14 +171,14 @@ def explain_rejections(db: Session, *, owner: User, ads: Sequence[Any]) -> None:
 
     The one question nobody pressed for: the sync sees a turned-down advert
     first, and the owner then opens a written answer. The price follows
-    Meta's policies, not the owners, because the answer is kept for everyone.
+    Meta's policies and the owners' languages, because each is kept for everyone.
     """
     from app.modules.ads.selectors.rejections import complaint_of, review_key
 
     language = answer_language(owner.language or get_language())
     for ad in ads:
         key = review_key(ad)
-        if not key or already_asked(db, key=key):
+        if not key or already_asked(db, key=key, language=language):
             continue
         said = complaint_of(ad)
         try:
@@ -195,9 +196,12 @@ def answer_for(
     db: Session, *, key: str, language: str, account: AdAccount | None
 ) -> RefusalAnswer:
     """The answer a dialog is waiting for, with this owner's own links."""
-    ready = ready_answer(db, key=key, language=answer_language(language))
+    language = answer_language(language)
+    ready = ready_answer(db, key=key, language=language)
     if ready is None:
-        return RefusalAnswer(key=key, explaining=awaited(key=key))
+        return RefusalAnswer(
+            key=key, explaining=being_written(key=key, language=language)
+        )
     return RefusalAnswer(key=key, html=_html(ready.text, _links(account)))
 
 

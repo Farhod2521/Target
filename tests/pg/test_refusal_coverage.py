@@ -16,8 +16,8 @@ from app.modules.ads.services import mirror
 from app.modules.audit.constants import ActionStatus, ActionType
 from app.modules.audit.models import ActionLog
 from app.modules.billing.services import start_trial
-from app.modules.chat.constants import REFUSAL_LOCK
 from app.modules.chat.models import RefusalAnswer
+from app.modules.chat.selectors.refusal import refusal_lock
 from app.modules.chat.services.refused import explain_rejections
 from tests.pg.conftest import sign_up
 from tests.pg.test_ads_editing import _running
@@ -198,14 +198,14 @@ def test_one_policy_is_one_question_however_many_adverts_break_it(
     db.commit()
     key = review_key(ad)
     assert key == review_key(second)
-    cache.delete(REFUSAL_LOCK.format(key=key))
+    cache.delete(refusal_lock(key=key, language=owner.language))
     queued.clear()
 
     explain_rejections(db, owner=owner, ads=[ad, second])
 
     asked = [name for name, _ in queued if name.endswith("explain_action_refusal")]
     assert len(asked) == 1
-    cache.delete(REFUSAL_LOCK.format(key=key))
+    cache.delete(refusal_lock(key=key, language=owner.language))
 
 
 def test_a_kept_answer_is_not_asked_again(client, db: Session, queued: list) -> None:  # type: ignore[no-untyped-def]
@@ -227,7 +227,7 @@ def test_a_lost_broker_does_not_fail_the_sync(
     owner, _, campaign = _ready(client, db)
     ad = _ad(db, campaign)
     _turned_down(db, ad, review_feedback={"overall": {"Lost": "Sabab."}})
-    cache.delete(REFUSAL_LOCK.format(key=review_key(ad)))
+    cache.delete(refusal_lock(key=review_key(ad), language=owner.language))
 
     def lost(**_: Any) -> None:
         raise ConnectionError("no broker")

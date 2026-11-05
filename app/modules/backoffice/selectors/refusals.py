@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Final
 
-from sqlalchemy import ColumnElement, Select, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.backoffice.constants import PAGE_SIZE
@@ -15,13 +15,11 @@ from app.modules.chat.constants import (
 )
 from app.modules.chat.models import RefusalAnswer
 
-HELD: Final = "held"
-UNTRANSLATED: Final = "untranslated"
+REVIEW: Final = "review"
 RETIRED: Final = "retired"
 TABS: Final[tuple[tuple[str, str], ...]] = (
     ("", "Hammasi"),
-    (HELD, "Tekshirish kerak"),
-    (UNTRANSLATED, "Tarjima yetishmaydi"),
+    (REVIEW, "Tekshirish kerak"),
     (RETIRED, "Eski javoblar"),
 )
 # The names an answer may write in double square brackets.
@@ -43,7 +41,7 @@ LINK_NAMES: Final[tuple[tuple[str, str], ...]] = (
 class RefusalPage:
     rows: list[RefusalAnswer]
     total: int
-    held: int
+    to_review: int
     offset: int
     next_offset: int
     has_more: bool
@@ -53,20 +51,14 @@ def _retired() -> ColumnElement[bool]:
     return RefusalAnswer.prompt_version.in_(list(REFUSAL_STALE_VERSIONS))
 
 
-def _untranslated() -> ColumnElement[bool]:
-    return or_(
-        *(
-            getattr(RefusalAnswer, field) == ""
-            for field in REFUSAL_ANSWER_FIELDS.values()
-        )
-    )
+def _to_review() -> ColumnElement[bool]:
+    """Claude's words no person has read: a text it adds clears ``edited_at``."""
+    return and_(RefusalAnswer.edited_at.is_(None), ~_retired())
 
 
 def _tab(query: Select[Any], tab: str) -> Select[Any]:
-    if tab == HELD:
-        return query.where(RefusalAnswer.held.is_(True))
-    if tab == UNTRANSLATED:
-        return query.where(_untranslated(), ~_retired())
+    if tab == REVIEW:
+        return query.where(_to_review())
     if tab == RETIRED:
         return query.where(_retired())
     return query
@@ -101,16 +93,14 @@ def refusal_answers(db: Session, *, tab: str, term: str, offset: int) -> Refusal
             .limit(PAGE_SIZE)
         )
     )
-    held = db.scalar(
-        select(func.count())
-        .select_from(RefusalAnswer)
-        .where(RefusalAnswer.held.is_(True))
+    to_review = db.scalar(
+        select(func.count()).select_from(RefusalAnswer).where(_to_review())
     )
     next_offset = offset + len(rows)
     return RefusalPage(
         rows=rows,
         total=total,
-        held=held or 0,
+        to_review=to_review or 0,
         offset=offset,
         next_offset=next_offset,
         has_more=next_offset < total,

@@ -26,7 +26,6 @@ from app.modules.backoffice.selectors.refusals import (
 )
 from app.modules.backoffice.services.refusals import edit_refusal_answer
 from app.modules.chat.constants import (
-    REFUSAL_OFFICE_VERSION,
     REFUSAL_OPERATION_LABELS,
     REFUSAL_STALE_VERSIONS,
 )
@@ -56,9 +55,8 @@ def _out(row: RefusalAnswer) -> dict[str, Any]:
         "answer_uz": row.answer_uz,
         "answer_ru": row.answer_ru,
         "answer_en": row.answer_en,
-        "written_by": "office"
-        if row.prompt_version == REFUSAL_OFFICE_VERSION
-        else "ai",
+        "written_by": "office" if row.edited_at is not None else "ai",
+        "reviewed": row.edited_at is not None,
         "held": row.held,
         "retired": row.prompt_version in REFUSAL_STALE_VERSIONS,
         "hits": row.hits,
@@ -78,9 +76,7 @@ def _found(db: Db, answer_id: uuid.UUID) -> RefusalAnswer:
 def refusals(
     db: Db,
     user: Staff,
-    tab: str = Query(
-        "", description="`held`, `untranslated`, `retired`; empty is all."
-    ),
+    tab: str = Query("", description="`review`, `retired`; empty is all."),
     q: str = Query("", description="Key, Meta's words, or the answer's own words."),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
@@ -91,7 +87,7 @@ def refusals(
         "tabs": choices(TABS),
         "links": choices(LINK_NAMES),
         "rows": [_out(row) for row in page.rows],
-        "held": page.held,
+        "to_review": page.to_review,
         "total": page.total,
         "offset": page.offset,
         "next_offset": page.next_offset,

@@ -92,10 +92,9 @@ def answer_language(language: str | None) -> str:
 
 
 def ready_answer(db: Session, *, key: str, language: str) -> ReadyAnswer | None:
-    """The answer already written for this refusal, in this language first.
+    """The answer already written for this refusal in this language.
 
-    A row with only another language's text answers in that one: asking Claude
-    again for a translation is the office's to do, not a reader's to trigger.
+    Another language's text is no answer: its reader is asked for in their own.
     """
     if not key:
         return None
@@ -108,24 +107,25 @@ def ready_answer(db: Session, *, key: str, language: str) -> ReadyAnswer | None:
     )
     if row is None:
         return None
-    wanted = REFUSAL_ANSWER_FIELDS[answer_language(language)]
-    for field in (wanted, *REFUSAL_ANSWER_FIELDS.values()):
-        text = getattr(row, field)
-        if text:
-            return ReadyAnswer(pk=row.id, text=text)
-    return None
+    text = getattr(row, REFUSAL_ANSWER_FIELDS[answer_language(language)])
+    return ReadyAnswer(pk=row.id, text=text) if text else None
 
 
-def already_asked(db: Session, *, key: str) -> bool:
-    """Whether Claude has answered this refusal: a kept row that is not retired."""
-    return (
-        db.scalar(
-            select(RefusalAnswer.id).where(
-                RefusalAnswer.key == key,
-                RefusalAnswer.prompt_version.not_in(list(REFUSAL_STALE_VERSIONS)),
-            )
+def already_asked(db: Session, *, key: str, language: str) -> bool:
+    """Whether Claude need not be asked: this language is written, or the row is held.
+
+    A held answer waits for the office whichever language comes next.
+    """
+    row = db.scalar(
+        select(RefusalAnswer).where(
+            RefusalAnswer.key == key,
+            RefusalAnswer.prompt_version.not_in(list(REFUSAL_STALE_VERSIONS)),
         )
-        is not None
+    )
+    if row is None:
+        return False
+    return row.held or bool(
+        getattr(row, REFUSAL_ANSWER_FIELDS[answer_language(language)])
     )
 
 
@@ -205,12 +205,30 @@ def refusal_links(launch: CampaignLaunch) -> dict[str, Link]:
     return links
 
 
-def awaited(*, key: str) -> bool:
-    """Whether an answer for this key may still come: none was given up on today."""
-    from app.common.cache import cache
-    from app.modules.chat.constants import REFUSAL_GAVE_UP, REFUSAL_LOCK
+def refusal_lock(*, key: str, language: str) -> str:
+    """Where the one question for this refusal and language is marked."""
+    from app.modules.chat.constants import REFUSAL_LOCK
 
-    return bool(cache.get(REFUSAL_LOCK.format(key=key)) != REFUSAL_GAVE_UP)
+    return REFUSAL_LOCK.format(key=key, language=answer_language(language))
+
+
+def awaited(*, key: str, language: str) -> bool:
+    """Whether an answer may still come: none was given up on today."""
+    from app.common.cache import cache
+    from app.modules.chat.constants import REFUSAL_GAVE_UP
+
+    return bool(cache.get(refusal_lock(key=key, language=language)) != REFUSAL_GAVE_UP)
+
+
+def being_written(*, key: str, language: str) -> bool:
+    """Whether Claude was asked for this language: a screen waits for nothing else."""
+    from app.common.cache import cache
+    from app.modules.chat.constants import REFUSAL_GAVE_UP
+
+    return cache.get(refusal_lock(key=key, language=language)) not in (
+        None,
+        REFUSAL_GAVE_UP,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,7 +252,7 @@ def launch_explanation(
         return Explanation()
     ready = ready_answer(db, key=key, language=language)
     if ready is None:
-        return Explanation(explaining=awaited(key=key), key=key)
+        return Explanation(explaining=awaited(key=key, language=language), key=key)
     return Explanation(
         html=link_html(render_markdown(ready.text), refusal_links(launch)), key=key
     )
@@ -267,12 +285,14 @@ __all__ = [
     "already_asked",
     "answer_language",
     "awaited",
+    "being_written",
     "explained_key",
     "key_for",
     "launch_explanation",
     "ready_answer",
     "refusal_facts",
     "refusal_links",
+    "refusal_lock",
     "refusal_quote",
     "refused_launch_for",
 ]

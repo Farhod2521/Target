@@ -895,6 +895,7 @@ class RefusalAnswerOut(BaseModel):
     answer_ru: str
     answer_en: str
     written_by: Literal["ai", "office"]
+    reviewed: bool = Field(description="A person has read every text on it.")
     held: bool = Field(description="Hidden from owners until the office saves it.")
     retired: bool = Field(description="An old version: hidden until saved.")
     hits: int = Field(description="How many owners met this refusal.")
@@ -907,7 +908,7 @@ class RefusalAnswersOut(BaseModel):
     tabs: list[ChoiceOut]
     links: list[ChoiceOut] = Field(description="Names an answer may write in `[[ ]]`.")
     rows: list[RefusalAnswerOut]
-    held: int = Field(description="Answers waiting for the office, for the badge.")
+    to_review: int = Field(description="Answers waiting for the office, for the badge.")
     total: int
     offset: int
     next_offset: int
