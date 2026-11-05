@@ -55,7 +55,7 @@ Qiymat o'rniga `–` va uning sababi chiqadi:
 | 6 ✅ | Dashboard API'si (Expert) | Katalogdan. Nima chiqishi avval kelishib olinadi |
 | 7 ✅ | Expert mode (backend) | Foydalanuvchi sozlamasida saqlash va API |
 | 8 ✅ | Ads Manager bilan solishtirish | Kechki avtomatik tekshiruv: bizning yig'indi va Meta'ning davr bo'yicha jami raqami. Staging'da o'lchanadi |
-| 9 | Front: Expert mode tugmasi | Tepaga chiqadi. Namuna so'raladi |
+| 9 ✅ | Front: Expert mode tugmasi | Tepaga chiqadi. Namuna so'raladi |
 | 10 | Front: Reklama redesign (Expert) | Jadval katalogdan quriladi; ustun to'plamlari (Umumiy, Video, Lid sifati, Sotuv), izohlar va normalar, reyting ranglari, Jami qatori. Namuna so'raladi |
 | 11 | Front: Dashboard redesign (Expert) | Namuna so'raladi |
 | 12 | Oddiy mode'dan formulalarni olib tashlash | Ko'rinish o'zgarmaydi; `Manager.tsx`, `dashboard.ts` dagi hisoblar backendga o'tadi |
@@ -95,3 +95,4 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
   - **Har kechki solishtirish:** kechki o'qishdan keyin Meta'ning butun hisob bo'yicha jamisi yopilgan oxirgi 7 kun uchun qayta o'qiladi va bizdagi guruh qatorlari yig'indisi bilan solishtiriladi (`app/modules/metrics/services/check.py`). Solishtiriladi: Sarf, Ko'rsatildi, Klik, Link klik, Sotuv (sayt). Lidlar solishtirilmaydi: hisob darajasida hamma turdagi lid sanaladi, guruhda faqat o'z maqsadi. Farq 1% dan va 1 birlikdan oshsa, kun "farq qiladi" deb belgilanadi va logga yoziladi. Natija `metrics_checks` jadvalida (migratsiya `0026`). Meta'ga kechasiga 1 ta qo'shimcha so'rov. Solishtirish ishlamasa ham kechki o'qish to'xtamaydi.
   - **Hisobot:** `python -m app.modules.metrics.check` (oxirgi 7 kun) yoki `--days 30`.
   - **Tekshirilmagan:** haqiqiy Meta hisobida. Staging'da o'lchash uchun deploy kerak (14-bosqich bilan yoki oldinroq staging'ga).
+- **9-bosqich (2026-11-05):** front, `feat/ads-metrics` branchi, commit d585a1f. Headerda biznes tanlagichning chap tomonida Expert tugmasi turadi: belgi, "Expert" yozuvi va tumbler, telefonda belgi va tumbler. Tanlov akkauntda saqlanadi (`PUT /account/expert-mode`). Reklama bo'limidagi "Oddiy / Targetolog" tanlovi va `?rejim=targetolog` olib tashlandi. Expert yoqilganda Reklama hozircha eski uch darajali jadvalni ko'rsatadi, yangisi 10-bosqichda. Dashboard 11-bosqichgacha o'zgarmaydi.
