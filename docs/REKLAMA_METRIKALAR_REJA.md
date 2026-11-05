@@ -88,5 +88,5 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
 - **5-bosqich (2026-11-05):** `GET /api/v2/campaigns/expert`, `GET/PUT /api/v2/campaigns/expert/columns`, hujjat `docs/API_EXPERT.md`. Migratsiya `0024` (`metric_preferences.expert_chosen`). Qatorlar `/manager` dan, eski raqamlarsiz; kataklar katalogdan; Jami katalogning `add_up` idan.
   - Hali yo'q: Jami qatorida qamrov, noyob kliklar va chastota (bir qatordan ortiq bo'lsa `not_asked`). Ular uchun hisob darajasida davr bo'yicha qamrovni o'qish kerak, 8-bosqich bilan birga qilinadi.
 - **6-bosqich (2026-11-05):** `GET /api/v1/metrics/expert`, hujjat `docs/API_EXPERT.md`. Tarkib siz bilan kelishilgan: asosiy ko'rsatkichlar, kunlik grafik, voronka, maqsad bo'yicha, eng yaxshi va eng yomon kampaniyalar, diqqat talab reklamalar, kesimlar, lid sifati. Mantiq `core/metrics/catalogue/board.py` da, normalar `catalogue/meta.py` da. Kesimlar hozirgi Dashboard bilan bitta funksiyadan (`page_segments`).
-  - Savol: AI agentda Hold ostonasi 15% (`core/agent/signals.py`), hujjatda 10%. Bittaga keltirish kerak.
+  - Hold ostonasi: 10% (foydalanuvchi qarori, 2026-11-05). AI agent ham katalogdagi `HOLD_WEAK_PCT`, `HOOK_WEAK_PCT` ni oladi, son bitta joyda.
 - **7-bosqich (2026-11-05):** `users.expert_mode` (migratsiya `0025`), `GET /api/v1/account` da `expert_mode`, `PUT /api/v1/account/expert-mode`.

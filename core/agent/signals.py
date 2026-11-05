@@ -33,6 +33,7 @@ from core.agent.rules.audience import MIN_HALF_DAYS, MIN_HALF_IMPRESSIONS
 from core.agent.sufficiency import enough_to_decide
 from core.metrics import formulas
 from core.metrics.arithmetic import basis_points_or_none
+from core.metrics.catalogue.meta import HOLD_WEAK_PCT, HOOK_WEAK_PCT
 
 # **Declared in the brief's order, and the order is the verdict.** The
 # first signal present decides the cause - see
@@ -92,13 +93,12 @@ MIN_RATE_IMPRESSIONS: Final = 1_000
 # A rate under this share of the usual one - the pair's fortnight, else
 # its other groups of the kind - is low. See ``Benchmark.link_ctr_bp``.
 LOW_RATE_SHARE_PCT: Final = 70
-# Where the pair has no other video to compare with, the starting values
-# the product's own brief gives: under a fifth of the people shown it
-# watching three seconds is a weak opening, under fifteen in a hundred of
-# those staying to the end a weak middle. To be tuned per trade once there
-# is data.
-HOOK_FLOOR_BP: Final = 2_000
-HOLD_FLOOR_BP: Final = 1_500
+# Where the pair has no other video to compare with, the catalogue's own
+# norms: under a fifth of the people shown it watching three seconds is a
+# weak opening, under ten in a hundred of those staying to the end a weak
+# middle. Kept in one place, :mod:`core.metrics.catalogue.meta`.
+HOOK_FLOOR_BP: Final = HOOK_WEAK_PCT * 100
+HOLD_FLOOR_BP: Final = HOLD_WEAK_PCT * 100
 # The provider's own figure: about fifty results a week end learning. A
 # group a week in with under this share of them will not get there by
 # waiting - the brief's starting value, like the floors above.
