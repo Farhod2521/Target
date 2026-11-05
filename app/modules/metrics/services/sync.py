@@ -4,7 +4,7 @@ people counts, and the accounts we only watch."""
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from logging import Logger
 
@@ -32,6 +32,7 @@ from app.modules.ads.exceptions import (
 from app.modules.ads.services.access import token_for
 from app.modules.integrations.models import AdAccount
 from app.modules.metrics.constants import (
+    ACCOUNT_PEOPLE,
     BACKFILL_DAYS,
     BREAKDOWN_BACKFILL_DAYS,
     BREAKDOWN_CHUNK_DAYS,
@@ -593,7 +594,8 @@ def sync_people(db: Session, *, ad_account: AdAccount, today: date) -> int:
     ranges = people_ranges(today)
     extra = extra_people_ranges(today)
     written = 0
-    for level in PEOPLE_LEVELS:
+    # The account last: what the levels read stays if it is refused.
+    for level in (*PEOPLE_LEVELS, ACCOUNT_PEOPLE):
         rows = _read_people(db, ad_account, ranges=ranges, level=str(level))
         # A request of its own: the periods above must survive a refusal of these.
         try:
@@ -605,6 +607,14 @@ def sync_people(db: Session, *, ad_account: AdAccount, today: date) -> int:
                 level,
                 exc.cause,
             )
+        if level == ACCOUNT_PEOPLE:
+            # Meta names the account without its ``act_``; ours keeps it.
+            rows = [
+                row.model_copy(
+                    update={"ref": replace(row.ref, id=ad_account.external_id)}
+                )
+                for row in rows
+            ]
         written += replace_people(
             db, ad_account=ad_account, level=str(level), rows=rows, now=utcnow()
         )

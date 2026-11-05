@@ -25,6 +25,7 @@ from app.modules.metrics.selectors.expert import (
     figures_by_day,
     last_read_on,
     outcome_of_adsets,
+    whole_account_people,
 )
 from app.modules.metrics.selectors.lead_quality import lead_quality
 from app.modules.metrics.selectors.scope import PageCampaigns
@@ -125,6 +126,8 @@ def expert_board(
     earlier: list[Figures] = []
     ads: list[tuple[Any, Any, Figures, Setting]] = []
     currencies: set[str] = set()
+    whole: list[Any] = []
+    whole_before: list[Any] = []
     by_account: dict[Any, list[Any]] = defaultdict(list)
     for campaign in campaigns:
         by_account[campaign.ad_account].append(campaign)
@@ -151,6 +154,27 @@ def expert_board(
             if before is not None
             else {}
         )
+        whole.append(
+            whole_account_people(
+                db,
+                owner=owner,
+                account=account,
+                level=MetricLevel.CAMPAIGN,
+                ids=ids,
+                date_range=chosen,
+            )
+        )
+        if before is not None:
+            whole_before.append(
+                whole_account_people(
+                    db,
+                    owner=owner,
+                    account=account,
+                    level=MetricLevel.CAMPAIGN,
+                    ids=ids,
+                    date_range=before,
+                )
+            )
         ad_rows = {
             ad.external_id: (campaign, ad, group)
             for campaign in members
@@ -188,9 +212,24 @@ def expert_board(
             )
     outcomes = {setting.outcome for _, _, setting in rows}
     setting = _setting(outcomes)
-    total = add_up([figures for _, figures, _ in rows], currencies=len(currencies))
+    # One account's alone: two accounts may reach the same person.
+    people = whole[0] if len(whole) == 1 else None
+    total = add_up(
+        [figures for _, figures, _ in rows],
+        currencies=len(currencies),
+        reach=people.reach if people else None,
+        unique_link_clicks=people.unique_link_clicks if people else None,
+    )
+    was_people = whole_before[0] if len(whole_before) == 1 else None
     previous = (
-        add_up(earlier, currencies=len(currencies)) if before is not None else None
+        add_up(
+            earlier,
+            currencies=len(currencies),
+            reach=was_people.reach if was_people else None,
+            unique_link_clicks=was_people.unique_link_clicks if was_people else None,
+        )
+        if before is not None
+        else None
     )
     names = {campaign.external_id: campaign.name for campaign in campaigns}
     goals = _goals(rows, currencies=len(currencies))

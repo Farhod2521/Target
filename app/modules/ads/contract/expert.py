@@ -25,7 +25,9 @@ from app.modules.metrics.selectors.expert import (
     figures_by,
     last_read_on,
     outcome_of_adsets,
+    whole_account_people,
 )
+from app.modules.metrics.selectors.facts import People
 from core.metrics.catalogue import (
     BY_KEY,
     MISSING_WORDS,
@@ -93,6 +95,8 @@ def expert_table(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
         external_id: outcome_of_adsets([group]) for external_id, group in groups.items()
     }
     totals: dict[str, list[tuple[Figures, Outcome, str, Any]]] = defaultdict(list)
+    # Each level's people counted by the network, account by account.
+    people: dict[str, list[People | None]] = defaultdict(list)
     ranges = []
     for account, members in _by_account(campaigns.values()).items():
         chosen, _ = figures_range(db, owner=owner, account=account, ask=ask)
@@ -101,13 +105,24 @@ def expert_table(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
         network = _network(account.provider)
         for level, name in LEVELS:
             rows = [row for row in out[name] if row["campaign_external_id"] in here]
+            ids = [row["id"] for row in rows]
             figures = figures_by(
                 db,
                 owner=owner,
                 account=account,
                 level=level,
-                ids=[row["id"] for row in rows],
+                ids=ids,
                 date_range=chosen,
+            )
+            people[name].append(
+                whole_account_people(
+                    db,
+                    owner=owner,
+                    account=account,
+                    level=level,
+                    ids=ids,
+                    date_range=chosen,
+                )
             )
             for row in rows:
                 outcome: Outcome = (
@@ -132,7 +147,8 @@ def expert_table(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
     return {
         **out,
         "totals": {
-            name: _total(totals[name], level=str(level)) for level, name in LEVELS
+            name: _total(totals[name], level=str(level), people=people[name])
+            for level, name in LEVELS
         },
         "range": {"since": since, "until": until},
         "synced_at": last_read_on(db, accounts=accounts),
@@ -146,7 +162,10 @@ def expert_table(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
 
 
 def _total(
-    rows: list[tuple[Figures, Outcome, str, Any]], *, level: str
+    rows: list[tuple[Figures, Outcome, str, Any]],
+    *,
+    level: str,
+    people: list[People | None],
 ) -> dict[str, Any]:
     outcomes = {outcome for _, outcome, _, _ in rows}
     currencies = {currency for _, _, currency, _ in rows}
@@ -157,7 +176,14 @@ def _total(
         outcome=next(iter(outcomes)) if len(outcomes) == 1 else "lead",
         mixed=len(outcomes) > 1,
     )
-    total = add_up([figures for figures, _, _, _ in rows], currencies=len(currencies))
+    # One account's alone: two accounts may reach the same person.
+    whole = people[0] if len(people) == 1 else None
+    total = add_up(
+        [figures for figures, _, _, _ in rows],
+        currencies=len(currencies),
+        reach=whole.reach if whole else None,
+        unique_link_clicks=whole.unique_link_clicks if whole else None,
+    )
     return {
         "count": len(rows),
         "currency": next(iter(currencies)) if len(currencies) == 1 else None,

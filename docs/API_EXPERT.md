@@ -65,8 +65,11 @@ Avtorizatsiya: `Authorization: Bearer <access_token>`.
 uchun keladi.
 
 **Jami:** yig'indilardan qayta hisoblanadi. Qamrov, noyob kliklar va
-chastota bitta qatordan ortiq bo'lsa `not_asked` qaytadi, chunki odamlar
-sonini qo'shib bo'lmaydi. Maqsadlar har xil bo'lsa, natijaga bog'liq ustunlar
+chastotani qo'shib bo'lmaydi, chunki bitta odam bir nechta kampaniyada
+ko'rgan bo'lishi mumkin. Shuning uchun ular Meta'ning butun hisob bo'yicha
+sanagan sonidan olinadi. Bu faqat jadvalda bitta hisob bo'lsa va shu davrda
+ko'rsatilgan hamma ob'ekt (kampaniya, guruh yoki reklama) jadvalda bo'lsa
+ishlaydi. Aks holda `not_asked` qaytadi. Maqsadlar har xil bo'lsa, natijaga bog'liq ustunlar
 `mixed_goals`. Valyutalar har xil bo'lsa, pul ustunlari `mixed_currency`.
 
 **`attribution.differs: true`:** hisoblardan biri Ads Manager'da boshqa
@@ -161,8 +164,9 @@ Ekrandagi sahifa (page) doirasida. Har bir raqam, Reklama jadvalidagi kabi,
 | `segments` | Yosh/jins, platforma, hudud. Hozirgi Dashboard bilan bir xil |
 | `lead_quality` | CRM'dan Meta'ga yuborilganlar. Hozirgi blok |
 
-`headline` dagi Qamrov va Chastota bir nechta kampaniya bo'lsa `not_asked`
-qaytaradi. Ular 8-bosqichda hisob darajasida o'qiladigan bo'ladi.
+`headline` dagi Qamrov va Chastota Reklama jadvalining Jami qatori kabi
+hisob bo'yicha sondan olinadi. Sahifada boshqa sahifa kampaniyalari ham
+ishlagan bo'lsa yoki bir nechta hisob bo'lsa, `not_asked` qaytadi.
 
 ---
 

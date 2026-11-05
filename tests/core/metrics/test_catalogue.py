@@ -298,6 +298,21 @@ def test_a_total_does_not_add_people_up() -> None:
     assert value("reach", add_up(rows[:1]), CAMPAIGN) == 8
 
 
+def test_a_total_takes_the_people_the_network_counted_together() -> None:
+    rows = [
+        Figures(impressions=10, reach=8, link_clicks=4),
+        Figures(impressions=10, reach=7, link_clicks=4),
+    ]
+
+    total = add_up(rows, reach=12, unique_link_clicks=6)
+
+    assert value("reach", total, CAMPAIGN) == 12
+    assert value("unique_link_clicks", total, CAMPAIGN) == 6
+    assert value("frequency", total, CAMPAIGN) == Decimal("1.67")
+    # More people than showings is a count of some other rows.
+    assert why("reach", add_up(rows, reach=21), CAMPAIGN) == "not_asked"
+
+
 def test_a_total_over_goals_or_currencies_that_do_not_add_up() -> None:
     rows = [Figures(spend_minor=MinorUnits(100), results=3)] * 2
     mixed = Setting(level="campaign", mixed=True)

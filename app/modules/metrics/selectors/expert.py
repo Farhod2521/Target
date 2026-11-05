@@ -16,10 +16,11 @@ from sqlalchemy.orm import Session
 from app.modules.accounts.models import User
 from app.modules.crm.quality import crm_account_ids
 from app.modules.integrations.models import AdAccount
-from app.modules.metrics.constants import MetricLevel
+from app.modules.metrics.constants import ACCOUNT_PEOPLE, MetricLevel
 from app.modules.metrics.models import MetricsDaily
 from app.modules.metrics.ranges import Range
 from app.modules.metrics.selectors.facts import (
+    People,
     newest_metrics_date,
     people_counts,
 )
@@ -270,6 +271,48 @@ def outcome_of_adsets(adsets: Iterable[Any]) -> Outcome:
     return screen_kind(goal, promoted)
 
 
+def whole_account_people(
+    db: Session,
+    *,
+    owner: User,
+    account: AdAccount,
+    level: str,
+    ids: Collection[str],
+    date_range: Range,
+) -> People | None:
+    """The account's own people over the range, where these rows are all of
+    it: every object at this level that was shown anything is among them.
+
+    ``None`` where one that was shown is left out - the account's count then
+    holds people these rows never reached - or where Meta was not asked.
+    """
+    rows_of, key = READS[level]
+    left_out = db.scalar(
+        select(key)
+        .where(
+            M.owner_id == account.owner_id,
+            M.ad_account_id == account.id,
+            M.level == str(rows_of),
+            M.date >= date_range.since,
+            M.date <= date_range.until,
+            M.impressions > 0,
+            key.not_in(list(ids)),
+        )
+        .limit(1)
+    )
+    if left_out is not None:
+        return None
+    counted = people_counts(
+        db,
+        owner=owner,
+        level=ACCOUNT_PEOPLE,
+        since=date_range.since,
+        until=date_range.until,
+        ids=[account.external_id],
+    )
+    return counted.get(account.external_id)
+
+
 def _people(count: int | None, *, shown: int) -> int | None:
     """Nought where nothing was shown; ``None`` where Meta was not asked, or
     answered more people than showings, which is a range it did not count."""
@@ -317,4 +360,5 @@ __all__ = [
     "figures_by_day",
     "last_read_on",
     "outcome_of_adsets",
+    "whole_account_people",
 ]

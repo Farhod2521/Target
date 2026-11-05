@@ -237,8 +237,11 @@ def test_a_refused_extra_range_keeps_the_periods(
 
     written = sync.sync_people(db, ad_account=account, today=today)
 
-    assert written == 3
+    assert written == 4
     assert db.scalar(select(PeopleCount).where(PeopleCount.since == today))
+    whole = db.scalar(select(PeopleCount).where(PeopleCount.level == "account"))
+    assert whole is not None
+    assert whole.external_id == account.external_id
 
 
 def _detail(

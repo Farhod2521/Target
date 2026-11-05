@@ -102,6 +102,9 @@ PEOPLE_LEVELS: Final[tuple[MetricLevel, ...]] = (
     MetricLevel.ADSET,
     MetricLevel.AD,
 )
+# The whole account's people as well: the only count a total row of several
+# campaigns can show, as people do not add up across campaigns.
+ACCOUNT_PEOPLE: Final = "account"
 PEOPLE_ROLLING_DAYS: Final[tuple[int, ...]] = (14, 28)
 PEOPLE_REFRESH_SECONDS: Final = 25 * 60
 PEOPLE_ASKED_SECONDS: Final = 2 * 60

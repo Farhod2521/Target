@@ -10,7 +10,7 @@ its module and exist only on it.
 
 from collections.abc import Iterable, Sequence
 from dataclasses import fields, replace
-from typing import Final
+from typing import Any, Final
 
 from adskit import MinorUnits
 
@@ -90,25 +90,45 @@ ADDED: Final[tuple[str, ...]] = tuple(
 )
 
 
-def add_up(rows: Sequence[Figures], *, currencies: int = 1) -> Figures:
-    """The total row: counts summed, people only where one row stands alone.
+def add_up(
+    rows: Sequence[Figures],
+    *,
+    currencies: int = 1,
+    reach: int | None = None,
+    unique_link_clicks: int | None = None,
+) -> Figures:
+    """The total row: counts summed, people only where one row stands alone
+    or the network counted the rows' people together - ``reach`` and
+    ``unique_link_clicks``, which never come from adding the rows' own.
 
     Its rates are then computed from these sums like any row's, never as the
     mean of the rows' rates.
     """
     if len(rows) == 1:
         return replace(rows[0], mixed_currency=currencies > 1)
-    summed = {name: sum(int(getattr(row, name)) for row in rows) for name in ADDED}
+    summed: dict[str, Any] = {
+        name: sum(int(getattr(row, name)) for row in rows) for name in ADDED
+    }
     summed["spend_minor"] = MinorUnits(summed["spend_minor"])
     summed["purchase_value_site_minor"] = MinorUnits(
         summed["purchase_value_site_minor"]
     )
+    shown = int(summed["impressions"])
     return Figures(
         **summed,
+        reach=_counted(reach, shown=shown),
+        unique_link_clicks=_counted(unique_link_clicks, shown=shown),
         read=bool(rows) and all(row.read for row in rows),
         crm=any(row.crm for row in rows),
         mixed_currency=currencies > 1,
     )
+
+
+def _counted(people: int | None, *, shown: int) -> int | None:
+    """More people than showings is a count of some other rows."""
+    if people is None or people > shown:
+        return None
+    return people
 
 
 def metrics_for(*, level: Level, network: Network) -> tuple[Metric, ...]:

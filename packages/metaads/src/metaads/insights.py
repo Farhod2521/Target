@@ -458,8 +458,8 @@ def _read_days(
 # What a range's people count needs: the object, the range it is about, and
 # the figures that count people rather than events.
 PEOPLE_FIELDS: Final = (
-    "date_start,date_stop,campaign_id,adset_id,ad_id,reach,estimated_ad_recallers,"
-    "unique_inline_link_clicks"
+    "date_start,date_stop,account_id,campaign_id,adset_id,ad_id,reach,"
+    "estimated_ad_recallers,unique_inline_link_clicks"
 )
 
 
