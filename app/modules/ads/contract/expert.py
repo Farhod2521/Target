@@ -8,7 +8,7 @@ never divides.
 """
 
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from decimal import Decimal
 from typing import Any, Final, cast
 
@@ -24,8 +24,8 @@ from app.modules.metrics.selectors.expert import (
     differing_attribution,
     figures_by,
     last_read_on,
+    outcome_of_adsets,
 )
-from app.modules.metrics.selectors.results import screen_kind
 from core.metrics.catalogue import (
     BY_KEY,
     MISSING_WORDS,
@@ -38,7 +38,7 @@ from core.metrics.catalogue import (
     compute,
     metrics_for,
 )
-from core.metrics.outcomes import Outcome, campaign_goal
+from core.metrics.outcomes import Outcome
 
 # What the manager computed for itself and the expert table does not show.
 DROPPED: Final = (
@@ -55,20 +55,6 @@ LEVELS: Final = (
     (MetricLevel.ADSET, "adsets"),
     (MetricLevel.AD, "ads"),
 )
-
-
-def _outcome(adsets: Iterable[Any]) -> Outcome:
-    goal, promoted = campaign_goal(
-        (
-            row.external_id,
-            row.optimization_goal_raw or "",
-            row.promoted_object_raw
-            if isinstance(row.promoted_object_raw, Mapping)
-            else None,
-        )
-        for row in adsets
-    )
-    return screen_kind(goal, promoted)
 
 
 def cell(answer: Answer) -> dict[str, Any]:
@@ -100,11 +86,11 @@ def expert_table(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
         for group in campaign.adsets
     }
     outcome_of: dict[str, Outcome] = {
-        external_id: _outcome(campaign.adsets)
+        external_id: outcome_of_adsets(campaign.adsets)
         for external_id, campaign in campaigns.items()
     }
     group_outcome: dict[str, Outcome] = {
-        external_id: _outcome([group]) for external_id, group in groups.items()
+        external_id: outcome_of_adsets([group]) for external_id, group in groups.items()
     }
     totals: dict[str, list[tuple[Figures, Outcome, str, Any]]] = defaultdict(list)
     ranges = []

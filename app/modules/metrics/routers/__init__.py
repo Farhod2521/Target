@@ -191,6 +191,31 @@ def numbers(
     return context
 
 
+@router.get("/expert")
+def expert_numbers(
+    db: Db,
+    user: CurrentUser,
+    period: str | None = PERIOD_Q,
+    start: date | None = START_Q,
+    end: date | None = END_Q,
+) -> dict[str, Any]:
+    """The expert dashboard of the page on screen. Every number is a cell
+    from the metric catalogue: a value, or the reason there is none."""
+    from app.modules.metrics.selectors.dashboard import cabinet_today
+    from app.modules.metrics.selectors.expert_board import expert_board
+    from app.modules.metrics.selectors.scope import page_campaigns
+
+    page = page_campaigns(db, owner=user)
+    chosen = _filters(
+        user,
+        period=period,
+        start=start,
+        end=end,
+        today=cabinet_today(db, owner=user, account=page.home),
+    )
+    return jsonable_encoder(expert_board(db, owner=user, page=page, chosen=chosen))
+
+
 @router.get("/numbers/poll", responses={200: {"model": NumbersOut}})
 def numbers_poll(
     db: Db,

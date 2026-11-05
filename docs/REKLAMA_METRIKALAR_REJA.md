@@ -52,7 +52,7 @@ Qiymat o'rniga `–` va uning sababi chiqadi:
 | 3 ✅ | Ma'lumotni to'ldirish (Meta) | Noyob kliklar davr bo'yicha o'qiladi; pixel `Purchase` soni va summasi olinadi. Migratsiya, 90 kunni qayta o'qish |
 | 4 ✅ | Ma'lumotni to'ldirish (CRM) | Sifatli lid va CRM sotuvlari guruh va reklama darajasida |
 | 5 ✅ | Reklama bo'limi API'si (Expert) | 3 daraja tayyor qiymatlar bilan; Jami qatori, ustunlar katalogi, ustun tanlovini saqlash, "–" sababi, yangilanish vaqti, attribution oynasi |
-| 6 | Dashboard API'si (Expert) | Katalogdan. Nima chiqishi avval kelishib olinadi |
+| 6 ✅ | Dashboard API'si (Expert) | Katalogdan. Nima chiqishi avval kelishib olinadi |
 | 7 | Expert mode (backend) | Foydalanuvchi sozlamasida saqlash va API |
 | 8 | Ads Manager bilan solishtirish | Kechki avtomatik tekshiruv: bizning yig'indi va Meta'ning davr bo'yicha jami raqami. Staging'da o'lchanadi |
 | 9 | Front: Expert mode tugmasi | Tepaga chiqadi. Namuna so'raladi |
@@ -87,3 +87,5 @@ Keyingi alohida reja: Oddiy mode'ni to'liq redesign qilish.
   - Keyinga qoldirildi: lidlar sahifasidagi qo'lda baho tugmalari va ularning CAPI signali.
 - **5-bosqich (2026-11-05):** `GET /api/v2/campaigns/expert`, `GET/PUT /api/v2/campaigns/expert/columns`, hujjat `docs/API_EXPERT.md`. Migratsiya `0024` (`metric_preferences.expert_chosen`). Qatorlar `/manager` dan, eski raqamlarsiz; kataklar katalogdan; Jami katalogning `add_up` idan.
   - Hali yo'q: Jami qatorida qamrov, noyob kliklar va chastota (bir qatordan ortiq bo'lsa `not_asked`). Ular uchun hisob darajasida davr bo'yicha qamrovni o'qish kerak, 8-bosqich bilan birga qilinadi.
+- **6-bosqich (2026-11-05):** `GET /api/v1/metrics/expert`, hujjat `docs/API_EXPERT.md`. Tarkib siz bilan kelishilgan: asosiy ko'rsatkichlar, kunlik grafik, voronka, maqsad bo'yicha, eng yaxshi va eng yomon kampaniyalar, diqqat talab reklamalar, kesimlar, lid sifati. Mantiq `core/metrics/catalogue/board.py` da, normalar `catalogue/meta.py` da. Kesimlar hozirgi Dashboard bilan bitta funksiyadan (`page_segments`).
+  - Savol: AI agentda Hold ostonasi 15% (`core/agent/signals.py`), hujjatda 10%. Bittaga keltirish kerak.

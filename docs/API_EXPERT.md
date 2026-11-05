@@ -116,3 +116,50 @@ qiladi, jadval tepasida ogohlantirish chiqishi kerak.
 - `lowerIsBetter`: o'zgarish rangini tanlash uchun.
 
 `Holati` ustuni katalogda yo'q: u qatorning `status` maydoni.
+
+---
+
+# Expert mode: Dashboard API
+
+`GET /api/v1/metrics/expert?period=7|30|90|today` yoki `?start=&end=`
+(`/metrics/numbers` bilan bir xil parametrlar, tanlangan davr eslab qolinadi).
+Ekrandagi sahifa (page) doirasida. Har bir raqam, Reklama jadvalidagi kabi,
+`{"value", "missing"}` katak.
+
+```json
+{
+  "range": {"since": "2026-10-30", "until": "2026-11-05", "days": 7},
+  "before": {"since": "2026-10-23", "until": "2026-10-29"},
+  "currency": "USD",
+  "synced_at": "...",
+  "attribution": {"asked": "7d_click_1d_view", "differs": false},
+  "headline": [{"key": "spend", "now": Cell, "before": Cell,
+                "change": {"percent": 12, "direction": "up", "is_good": false}}],
+  "series": {"keys": ["spend", "results", "..."],
+             "days": [{"day": "2026-10-30", "cells": {"spend": Cell, "...": Cell}}]},
+  "funnel": [{"key": "link_clicks", "label": "Link klik", "count": Cell, "rate": Cell}],
+  "goals": [{"outcome": "lead", "campaigns": 3, "cells": {"spend": Cell, "results": Cell,
+             "cost_per_result": Cell, "roas": Cell}}],
+  "best": [{"id": "...", "name": "...", "outcome": "lead", "cost": Cell, "index": 64}],
+  "worst": [{"id": "...", "name": "...", "outcome": "lead", "cost": Cell, "index": null}],
+  "troubled": [{"id": "...", "name": "...", "campaign": "...", "spend": Cell,
+                "problems": [{"key": "hook_rate", "label": "Hook rate", "value": 14.2,
+                              "norm": "20% dan past"}]}],
+  "segments": [...],
+  "lead_quality": {...}
+}
+```
+
+| Blok | Nima |
+|---|---|
+| `headline` | 10 ta ko'rsatkich: hozir, oldingi davr, o'zgarish. `is_good` metrikaga qarab hisoblangan, front rangni shundan oladi |
+| `series` | Kunlik grafik. `keys` dagi istalgan 2 metrikani tanlash mumkin. Qamrov va chastota yo'q, kunlarni qo'shib bo'lmaydi |
+| `funnel` | Ko'rsatildi → Link klik → Lid → Sifatli lid → Sotuv. `rate` oldingi bosqichdan foiz |
+| `goals` | Har maqsad alohida, chunki natijalarni qo'shib bo'lmaydi |
+| `best` / `worst` | Kampaniyalar o'z maqsadining o'rtachasiga nisbatan (`index`: 100 o'rtacha, kami arzonroq). Kamida 5 natija bo'lishi kerak. `index: null` o'rtacha narxdan ko'p sarflab, natija bermagan |
+| `troubled` | Normadan chiqqan reklamalar, sarf bo'yicha eng ko'p 10 ta. Normalar: Hook < 20%, Hold < 10%, Chastota > 3, reyting pastki 20% yoki 10% |
+| `segments` | Yosh/jins, platforma, hudud. Hozirgi Dashboard bilan bir xil |
+| `lead_quality` | CRM'dan Meta'ga yuborilganlar. Hozirgi blok |
+
+`headline` dagi Qamrov va Chastota bir nechta kampaniya bo'lsa `not_asked`
+qaytaradi. Ular 8-bosqichda hisob darajasida o'qiladigan bo'ladi.

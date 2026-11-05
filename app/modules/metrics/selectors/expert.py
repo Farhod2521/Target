@@ -5,8 +5,8 @@ the network's daily sums, people over the whole range, the last day's
 rankings, and our own leads, qualified leads and sales from the CRM.
 """
 
-from collections.abc import Collection
-from datetime import date
+from collections.abc import Collection, Iterable, Mapping
+from datetime import date, timedelta
 from typing import Any, Final
 
 from adskit import MinorUnits
@@ -24,7 +24,9 @@ from app.modules.metrics.selectors.facts import (
     people_counts,
 )
 from app.modules.metrics.selectors.panel import end_of, start_of
+from app.modules.metrics.selectors.results import screen_kind
 from core.metrics.catalogue import Figures
+from core.metrics.outcomes import Outcome, campaign_goal
 
 M = MetricsDaily
 
@@ -188,6 +190,86 @@ def figures_by(
     return found
 
 
+def figures_by_day(
+    db: Session,
+    *,
+    owner: User,
+    accounts: Collection[AdAccount],
+    campaign_ids: Collection[str],
+    date_range: Range,
+) -> dict[date, Figures]:
+    """The campaigns' days, summed: every count a day can add up. People are
+    not among them, as a day's reach does not add to the next one's."""
+    from app.modules.leads.models import Lead
+    from app.modules.leads.selectors import daily_counts
+
+    ids = [one for one in campaign_ids if one]
+    found = {day: Figures() for day in _walk(date_range)}
+    if not ids or not accounts:
+        return found
+    rows = db.execute(
+        select(
+            M.date,
+            *[
+                func.coalesce(func.sum(col), 0).label(name)
+                for name, col in SUMMED.items()
+            ],
+        )
+        .where(
+            M.owner_id == owner.id,
+            M.ad_account_id.in_([account.id for account in accounts]),
+            M.level == str(MetricLevel.ADSET),
+            M.date >= date_range.since,
+            M.date <= date_range.until,
+            M.campaign_external_id.in_(ids),
+        )
+        .group_by(M.date)
+    )
+    sums = {row[0]: {name: int(row._mapping[name]) for name in SUMMED} for row in rows}
+    zone = next(iter(accounts)).tzinfo()
+    leads = daily_counts(
+        db,
+        owner=owner,
+        since=start_of(date_range.since, zone),
+        until=end_of(date_range.until, zone),
+        tzinfo=zone,
+        scope=Lead.campaign_external_id.in_(ids),
+    )
+    read = any(newest_metrics_date(db, ad_account=one) is not None for one in accounts)
+    on = crm_account_ids(db, owner_id=owner.id)
+    crm = any(one.id in on for one in accounts)
+    for day in found:
+        given: dict[str, Any] = dict(sums.get(day, {}))
+        given["spend_minor"] = MinorUnits(given.get("spend_minor", 0))
+        given["purchase_value_site_minor"] = MinorUnits(
+            given.get("purchase_value_site_minor", 0)
+        )
+        count, qualified = leads.get(day, (0, 0))
+        found[day] = Figures(
+            **given, leads_ours=count, qualified=qualified, read=read, crm=crm
+        )
+    return found
+
+
+def _walk(date_range: Range) -> list[date]:
+    return [date_range.since + timedelta(days=step) for step in range(date_range.days)]
+
+
+def outcome_of_adsets(adsets: Iterable[Any]) -> Outcome:
+    """What one result is for these ad sets: the one that speaks for them."""
+    goal, promoted = campaign_goal(
+        (
+            row.external_id,
+            row.optimization_goal_raw or "",
+            row.promoted_object_raw
+            if isinstance(row.promoted_object_raw, Mapping)
+            else None,
+        )
+        for row in adsets
+    )
+    return screen_kind(goal, promoted)
+
+
 def _people(count: int | None, *, shown: int) -> int | None:
     """Nought where nothing was shown; ``None`` where Meta was not asked, or
     answered more people than showings, which is a range it did not count."""
@@ -228,4 +310,11 @@ def differing_attribution(
     )
 
 
-__all__ = ["READS", "differing_attribution", "figures_by", "last_read_on"]
+__all__ = [
+    "READS",
+    "differing_attribution",
+    "figures_by",
+    "figures_by_day",
+    "last_read_on",
+    "outcome_of_adsets",
+]

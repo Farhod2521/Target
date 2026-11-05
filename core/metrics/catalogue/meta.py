@@ -26,6 +26,12 @@ from core.metrics.catalogue.spec import (
 RANKED_FROM: Final = 500
 UNRANKED: Final = "unknown"
 
+# Where a figure stops being healthy, as the norms on the columns say.
+HOOK_WEAK_PCT: Final = 20
+HOLD_WEAK_PCT: Final = 10
+FREQUENCY_HIGH: Final = 3
+LOW_RANKINGS: Final = frozenset({"below_average_20", "below_average_10"})
+
 
 def _reach(figures: Figures, setting: Setting) -> Answer:
     if figures.reach is None:
@@ -160,4 +166,11 @@ META: Final[tuple[Metric, ...]] = (
     ),
 )
 
-__all__ = ["META", "RANKED_FROM"]
+__all__ = [
+    "FREQUENCY_HIGH",
+    "HOLD_WEAK_PCT",
+    "HOOK_WEAK_PCT",
+    "LOW_RANKINGS",
+    "META",
+    "RANKED_FROM",
+]

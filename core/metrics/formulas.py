@@ -121,6 +121,16 @@ def form_conversion(leads: int, step_before: int) -> Decimal | None:
     return exact_percent(part=leads, whole=step_before)
 
 
+def step_rate(passed: int, entered: int) -> Decimal | None:
+    """What share of the people at one step of the funnel reached the next."""
+    return exact_percent(part=passed, whole=entered)
+
+
+def cost_index(cost_minor: int, average_minor: int) -> Decimal | None:
+    """A cost against the average of its kind, the average being a hundred."""
+    return exact_percent(part=cost_minor, whole=average_minor)
+
+
 def roas(value_minor: int, spend_minor: int) -> Decimal | None:
     return exact_ratio(part=value_minor, whole=spend_minor)
 
@@ -131,6 +141,7 @@ __all__ = [
     "arrival_rate",
     "click_quality",
     "completion_rate",
+    "cost_index",
     "cost_per_purchase",
     "cost_per_result",
     "cpc",
@@ -145,6 +156,7 @@ __all__ = [
     "qualified_share",
     "result_per",
     "roas",
+    "step_rate",
     "thruplay_share",
     "unique_ctr",
 ]

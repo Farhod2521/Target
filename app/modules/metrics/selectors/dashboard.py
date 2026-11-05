@@ -186,23 +186,15 @@ def dashboard(
         scope=scope,
     )
     since = today - timedelta(days=BREAKDOWN_RETENTION_DAYS - 1)
-    spans = {
-        str(cut): _span(
-            db, owner=owner, kind=str(cut), today=today, since=since, account=rows_of
-        )
-        for cut in SEGMENT_TITLES
-    }
-    segments = _segments(
+    segments, spans = page_segments(
         db,
         owner=owner,
         today=today,
         currency=currency,
-        account=rows_of,
-        scope=both(scope, form_scope(db, owner=owner)),
-        has_forms=has_form_groups(
-            db, owner=owner, account=account, campaign_ids=campaign_ids
-        ),
-        spans=spans,
+        rows_of=rows_of,
+        scope=scope,
+        account=account,
+        campaign_ids=campaign_ids,
     )
     return Dashboard(
         currency=currency,
@@ -604,6 +596,41 @@ def _recent_decisions(
         )
         for row in rows
     )
+
+
+def page_segments(
+    db: Session,
+    *,
+    owner: User,
+    today: date,
+    currency: str,
+    rows_of: Account,
+    scope: Scope,
+    account: AdAccount | None,
+    campaign_ids: Any,
+) -> tuple[tuple[SegmentBlock, ...], dict[str, int]]:
+    """The age, placement and region cuts of a page, and how many days each
+    cut holds - shared by the dashboard and the expert dashboard."""
+    since = today - timedelta(days=BREAKDOWN_RETENTION_DAYS - 1)
+    spans = {
+        str(cut): _span(
+            db, owner=owner, kind=str(cut), today=today, since=since, account=rows_of
+        )
+        for cut in SEGMENT_TITLES
+    }
+    segments = _segments(
+        db,
+        owner=owner,
+        today=today,
+        currency=currency,
+        account=rows_of,
+        scope=both(scope, form_scope(db, owner=owner)),
+        has_forms=has_form_groups(
+            db, owner=owner, account=account, campaign_ids=campaign_ids
+        ),
+        spans=spans,
+    )
+    return segments, spans
 
 
 def _segments(
