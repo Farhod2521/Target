@@ -2,9 +2,11 @@
 
 from datetime import timedelta
 
+from metaads import PROVIDER
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.crypto import fingerprint
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.billing.constants import (
@@ -18,6 +20,7 @@ from app.modules.billing.selectors.seats import paid_seats, seat_remainder
 from app.modules.billing.services.entitlement import insert_invoice, run_plan_seats
 from app.modules.billing.services.invoices import apply_payment, price_invoice
 from app.modules.crm.models import CrmMember
+from app.modules.integrations.models import PageAccount, ProviderConnection
 from app.modules.sales.models import SaleSource
 
 
@@ -46,6 +49,44 @@ def _paid_plan(db: Session) -> tuple[User, Plan, Subscription]:
     db.add(subscription)
     db.commit()
     return owner, plan, subscription
+
+
+def _page(db: Session, owner: User) -> PageAccount:
+    """A page in the cabinet, and its manager already in its free seat."""
+    connection = ProviderConnection(
+        owner_id=owner.id,
+        provider=PROVIDER,
+        external_user_id="fb-seat",
+        token_encrypted=b"x",
+        token_fingerprint=fingerprint("x"),
+    )
+    db.add(connection)
+    db.flush()
+    page = PageAccount(
+        owner_id=owner.id,
+        provider=PROVIDER,
+        external_id="page_seat",
+        connection_id=connection.id,
+        name="Sahifa",
+        token_encrypted=b"x",
+        token_fingerprint="p-seat",
+        is_active=True,
+        is_current=True,
+    )
+    db.add(page)
+    holder = User(email="free@shop.test", password="!", date_joined=utcnow())
+    db.add(holder)
+    db.flush()
+    db.add(
+        CrmMember(
+            owner_id=owner.id,
+            user_id=holder.id,
+            page_id=page.id,
+            created_at=utcnow() - timedelta(days=1),
+        )
+    )
+    db.flush()
+    return page
 
 
 def test_a_paid_seat_bill_runs_seats_and_moves_no_date(db: Session) -> None:
@@ -162,7 +203,10 @@ def test_a_renewal_carries_only_the_seats_somebody_sits_in(db: Session) -> None:
     manager = User(email="manager@shop.test", password="!", date_joined=now)
     db.add(manager)
     db.flush()
-    db.add(CrmMember(owner_id=owner.id, user_id=manager.id))
+    # A manager on a page of the cabinet: one with no page cannot work, so
+    # needs no seat.
+    page = _page(db, owner)
+    db.add(CrmMember(owner_id=owner.id, user_id=manager.id, page_id=page.id))
     db.commit()
 
     renewal = insert_invoice(

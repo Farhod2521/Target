@@ -1,5 +1,5 @@
 import logging
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from urllib.parse import urlencode
@@ -73,6 +73,23 @@ Shown = Annotated[selectors.Display, Depends(shown_prices)]
 
 PLAN_Q = Query("", description="A plan `code`: price it in `chosen`.")
 PROMO_Q = Query("", description="A typed promo code to price `plan` with.")
+DROP_PAGES_Q = Query(
+    [], description="Pages (`renewal.pages.lines[].id`) the renewal lets go."
+)
+DROP_MEMBERS_Q = Query(
+    [],
+    description="Managers (`renewal.seats.lines[].member_id`) whose seat it lets go.",
+)
+DROP_EMPTY_Q = Query(0, ge=0, le=100, description="Empty bought page slots it drops.")
+
+
+@dataclass(frozen=True, slots=True)
+class Drops:
+    """What the owner unticked on a renewal."""
+
+    pages: tuple[str, ...] = ()
+    members: tuple[str, ...] = ()
+    empty_pages: int = 0
 
 
 def plan_out(
@@ -158,6 +175,9 @@ def offer_out(offer: selectors.Offer) -> dict[str, Any]:
         "pages": offer.pages,
         "pages_minor": offer.pages_minor,
         "page_credit_minor": offer.page_credit_minor,
+        "seats": offer.seats,
+        "seats_minor": offer.seats_minor,
+        "seat_credit_minor": offer.seat_credit_minor,
         "due_minor": offer.due_minor,
         "due_without_wallet_minor": offer.due_without_wallet_minor,
     }
@@ -186,6 +206,7 @@ def priced_choice(
     asked: str,
     promo: str,
     pages: PagesChoice,
+    drops: Drops = Drops(),
 ) -> dict[str, Any]:
     promo = promo.strip()[:PROMO_MAX_CHARS]
     wallets = {
@@ -245,6 +266,15 @@ def priced_choice(
         except DomainError as exc:
             discount["promo_error"] = exc.message
     quote_minor = discount.get("promo_quote", {}).get("discount_minor")
+    carried = selectors.renewal(
+        db,
+        owner=user,
+        subscription=selectors.running_subscription(db, owner=user, now=now)
+        or selectors.latest_subscription(db, owner=user),
+        drop_pages=drops.pages if pages == PagesChoice.KEEP else (),
+        drop_members=drops.members,
+        drop_empty=drops.empty_pages if pages == PagesChoice.KEEP else 0,
+    )
     chosen = selectors.checkout_offers(
         db,
         owner=user,
@@ -253,6 +283,7 @@ def priced_choice(
         wallets=wallets,
         now=now,
         pages=pages,
+        carried=carried,
     )[asked]
     return (
         page
@@ -263,8 +294,56 @@ def priced_choice(
             "pages_dropped": pages == PagesChoice.DROP,
             "carried_pages": offer.pages,
             "wallet_balance_minor": wallets.get(chosen.plan.currency, 0),
+            "renewal": renewal_out(db, user=user, carried=carried, plan=chosen.plan),
         }
     )
+
+
+def renewal_out(
+    db: Session, *, user: User, carried: selectors.Renewal, plan: Plan
+) -> dict[str, Any]:
+    """The extra pages and seats the chosen bill renews, each one untickable."""
+    from app.modules.integrations.selectors import enabled_pages
+
+    names = {
+        page.id: page.name or page.external_id for page in enabled_pages(db, owner=user)
+    }
+    return {
+        "pages": {
+            "free": carried.pages_free,
+            "used": carried.pages_used,
+            "bought": carried.pages_bought,
+            "paid_used": carried.pages_paid_used,
+            "empty": carried.empty_pages,
+            "drop_empty": carried.drop_empty,
+            "carried": carried.pages_carried,
+            "price_minor": selectors.plan_pages_minor(plan=plan, count=1),
+            "lines": [
+                {
+                    "id": str(line.id),
+                    "external_id": line.external_id,
+                    "name": line.name,
+                    "dropped": line.dropped,
+                }
+                for line in carried.page_lines
+            ],
+        },
+        "seats": {
+            "bought": carried.seats_bought,
+            "carried": carried.seats_carried,
+            "price_minor": selectors.plan_seats_minor(plan=plan, count=1),
+            "lines": [
+                {
+                    "member_id": str(line.member_id),
+                    "name": line.name,
+                    "email": line.email,
+                    "page": names.get(line.page_id, "") if line.page_id else "",
+                    "dropped": line.dropped,
+                }
+                for line in carried.seat_lines
+            ],
+        },
+    }
 
 
 @router.get("/display", responses={200: {"model": DisplayOut}})
@@ -318,6 +397,9 @@ def plans(
         PagesChoice.KEEP,
         description="`keep` extra pages on a plan switch, or `drop` them.",
     ),
+    drop_pages: list[str] = DROP_PAGES_Q,
+    drop_members: list[str] = DROP_MEMBERS_Q,
+    drop_empty_pages: int = DROP_EMPTY_Q,
 ) -> dict[str, Any]:
     from app.modules.ads.selectors import adsets_here, trial_campaigns_left
     from app.modules.integrations.selectors import page_slots
@@ -345,7 +427,14 @@ def plans(
     announcement = selectors.promo_announcement(db, owner=user, now=now)
     featured = selectors.featured_plan(offered)
     return priced_choice(
-        db, user=user, plans=offered, now=now, asked=plan, promo=promo, pages=pages
+        db,
+        user=user,
+        plans=offered,
+        now=now,
+        asked=plan,
+        promo=promo,
+        pages=pages,
+        drops=Drops(tuple(drop_pages), tuple(drop_members), drop_empty_pages),
     ) | {
         "subscription": subscription_out(subscription),
         "term": asdict(term) | {"percent_left": term.percent_left} if term else None,
@@ -445,6 +534,9 @@ class CheckoutIn(BaseModel):
     promo: str = Field(default="", max_length=32)
     wallet: WalletChoice = WalletChoice.KEEP
     pages: PagesChoice = PagesChoice.KEEP
+    drop_pages: list[str] = Field(default_factory=list, max_length=100)
+    drop_members: list[str] = Field(default_factory=list, max_length=100)
+    drop_empty_pages: int = Field(default=0, ge=0, le=100)
 
 
 class PagesCheckoutIn(BaseModel):
@@ -532,6 +624,9 @@ def checkout(body: CheckoutIn, db: Db, user: CurrentUser) -> CheckoutOut:
             wallet=body.wallet,
             now=now,
             pages=body.pages,
+            drop_pages=body.drop_pages,
+            drop_members=body.drop_members,
+            drop_empty_pages=body.drop_empty_pages,
         )
     except PROMO_REFUSALS as exc:
         db.rollback()

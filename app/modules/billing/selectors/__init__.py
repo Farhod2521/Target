@@ -91,7 +91,8 @@ from app.modules.billing.selectors.promo import (
     times_used_by,
     unseen_redemption,
 )
-from app.modules.billing.selectors.seats import paid_seats, seat_offer
+from app.modules.billing.selectors.renewal import Renewal, renewal
+from app.modules.billing.selectors.seats import paid_seats, plan_seats_minor, seat_offer
 from app.modules.billing.selectors.subscription import (
     bound_account,
     bound_subscription,
@@ -142,6 +143,7 @@ __all__ = [
     "PageQuote",
     "PaymentChoice",
     "PlanSwitch",
+    "Renewal",
     "Term",
     "TierLine",
     "TierSheet",
@@ -206,6 +208,7 @@ __all__ = [
     "plan_in_display",
     "plan_move",
     "plan_pages_minor",
+    "plan_seats_minor",
     "plan_switch",
     "prepared_account",
     "promo_announcement",
@@ -216,6 +219,7 @@ __all__ = [
     "recently_entitled_owner_ids",
     "record_of",
     "remainder",
+    "renewal",
     "running_page_bills",
     "running_subscription",
     "seat_offer",

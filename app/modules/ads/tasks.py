@@ -37,6 +37,7 @@ from app.modules.ads.services import (
     open_lapse_hold,
     resume_after_lapse,
     settle_lapse,
+    stop_page_hold,
     sync_ad_account,
     sync_media,
     sync_owner_media,
@@ -233,6 +234,17 @@ def settle_lapse_hold_task(hold_id: str) -> str:
 
 
 @celery_app.task(queue="agent", ignore_result=True)
+def stop_page_hold_task(hold_id: str) -> int:
+    """Stop the adverts of a page a paid renewal let go."""
+    with task_session() as db:
+        pk = _uuid(hold_id)
+        hold = db.get(LapseHold, pk) if pk else None
+        if hold is None:
+            return 0
+        return stop_page_hold(db, hold=hold)
+
+
+@celery_app.task(queue="agent", ignore_result=True)
 def resume_after_payment_task(owner_id: str) -> str:
     from sqlalchemy import select
 
@@ -243,6 +255,7 @@ def resume_after_payment_task(owner_id: str) -> str:
         hold = db.scalars(
             select(LapseHold).where(
                 LapseHold.owner_id == pk,
+                LapseHold.page_id.is_(None),
                 LapseHold.resumed_at.is_(None),
                 LapseHold.deleted_at.is_(None),
             )

@@ -194,7 +194,7 @@ def require_open(viewer: Viewer) -> None:
         raise CrmClosed
 
 
-def scope_of(row: CrmSetup | CrmCard) -> Scope:
+def scope_of(row: CrmSetup | CrmCard | CrmMember) -> Scope:
     assert row.page_id is not None and row.ad_account_id is not None
     return Scope(
         owner_id=row.owner_id, page_id=row.page_id, ad_account_id=row.ad_account_id
@@ -709,13 +709,48 @@ def update_member(
 
 
 def remove_member(db: Session, *, viewer: Viewer, member_id: str) -> int:
-    from app.modules.accounts.services import remove_member_login
-
     scope = require_owner(viewer)
-    owner = viewer.owner
     setup = setup_for_update(db, scope=scope)
     member = _member(db, viewer=viewer, member_id=member_id, active=False)
-    now = utcnow()
+    return _remove(db, viewer=viewer, setup=setup, member=member, scope=scope)
+
+
+def remove_unpaid_members(
+    db: Session, *, owner: User, member_ids: Sequence[str], now: datetime
+) -> int:
+    """Take off the team the managers whose seat a paid renewal let go."""
+    viewer = Viewer(owner=owner, user=owner, member=None)
+    removed = 0
+    for raw in member_ids:
+        member = db.scalar(
+            select(CrmMember).where(
+                CrmMember.owner_id == owner.id,
+                CrmMember.id == _uuid(str(raw)),
+                CrmMember.is_active.is_(True),
+            )
+        )
+        if member is None or member.page_id is None:
+            continue
+        scope = scope_of(member)
+        setup = setup_for_update(db, scope=scope)
+        _remove(db, viewer=viewer, setup=setup, member=member, scope=scope, now=now)
+        removed += 1
+    return removed
+
+
+def _remove(
+    db: Session,
+    *,
+    viewer: Viewer,
+    setup: CrmSetup,
+    member: CrmMember,
+    scope: Scope,
+    now: datetime | None = None,
+) -> int:
+    from app.modules.accounts.services import remove_member_login
+
+    owner = viewer.owner
+    now = now or utcnow()
     holder = member.user
     released = _release_cards(
         db, viewer=viewer, setup=setup, member=member, scope=scope, now=now

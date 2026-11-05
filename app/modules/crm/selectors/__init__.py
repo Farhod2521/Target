@@ -297,17 +297,22 @@ def unseated_count(db: Session, *, owner: User, subscription: Any) -> int:
 def _free_seating(
     db: Session, *, owner: User, subscription: Any
 ) -> tuple[set[uuid.UUID], list[uuid.UUID]]:
-    """Who a free page seat holds, and who waits beyond them, oldest first."""
+    """Who a free page seat holds, and who waits beyond them, oldest first.
+
+    A manager on a page no longer in the cabinet has no pair to work in, so
+    holds no seat and waits for none.
+    """
     from app.modules.billing.constants import SubscriptionStatus
     from app.modules.integrations.selectors import enabled_pages
 
-    members = team_of(db, owner=owner)
+    pages = {page.id for page in enabled_pages(db, owner=owner)}
+    members = [m for m in team_of(db, owner=owner) if m.page_id in pages]
     if not members:
         return set(), []
     free_pages: set[uuid.UUID] = (
         set()
         if subscription is None or subscription.status == SubscriptionStatus.TRIAL
-        else {page.id for page in enabled_pages(db, owner=owner)}
+        else pages
     )
     seated: set[uuid.UUID] = set()
     used: set[uuid.UUID] = set()
@@ -319,6 +324,18 @@ def _free_seating(
         else:
             waiting.append(member.id)
     return seated, waiting
+
+
+def paid_seat_takers(db: Session, *, owner: User, subscription: Any) -> list[CrmMember]:
+    """The managers the free page seats leave to the bought ones, oldest first."""
+    _, waiting = _free_seating(db, owner=owner, subscription=subscription)
+    if not waiting:
+        return []
+    found = {
+        member.id: member
+        for member in db.scalars(select(CrmMember).where(CrmMember.id.in_(waiting)))
+    }
+    return [found[pk] for pk in waiting if pk in found]
 
 
 def seat_open(db: Session, *, owner: User, page_id: uuid.UUID, at: datetime) -> bool:

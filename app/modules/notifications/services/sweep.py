@@ -152,7 +152,7 @@ def deliver_lapse_notices(db: Session, *, now: datetime) -> int:
 
     sent = 0
     with bot() as client:
-        for hold in open_holds(db):
+        for hold in open_holds(db, pages=False):
             chat = chat_for(db, owner=hold.owner)
             if chat is None:
                 continue

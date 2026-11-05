@@ -216,6 +216,35 @@ class SeatCountOutOfRange(DomainError):
         )
 
 
+class UnknownDropPage(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Uziladigan sahifa kabinetda topilmadi.")
+
+
+class TooManyDropPages(DomainError):
+    def __init__(self, *, limit: int) -> None:
+        super().__init__(
+            "Faqat pullik sahifalarni uzish mumkin: ko'pi bilan %(limit)s ta."
+            % {"limit": limit}
+        )
+
+
+class UnknownDropMember(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu menejer pullik o'rinda emas. Bepul o'rindagi menejerni CRM "
+            "sozlamalarida o'chiring."
+        )
+
+
+class TooManyDropEmpty(DomainError):
+    def __init__(self, *, limit: int) -> None:
+        super().__init__(
+            "Bo'sh sahifa o'rni %(limit)s ta, undan ko'p olib tashlab bo'lmaydi."
+            % {"limit": limit}
+        )
+
+
 class ReceiptNotOrphaned(DomainError):
     def __init__(self) -> None:
         super().__init__(

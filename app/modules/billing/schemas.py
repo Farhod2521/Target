@@ -91,6 +91,9 @@ class OfferOut(BaseModel):
     pages: int
     pages_minor: int
     page_credit_minor: int
+    seats: int = Field(description="CRM manager seats the bill renews.")
+    seats_minor: int
+    seat_credit_minor: int = Field(description="Unused days of the seats, credited.")
     due_minor: int
     due_without_wallet_minor: int
 
@@ -111,6 +114,51 @@ class PromoQuote(BaseModel):
     currency: str
 
 
+class RenewalPageLine(BaseModel):
+    id: str
+    external_id: str
+    name: str
+    dropped: bool = Field(description="Unticked: released once the bill is paid.")
+
+
+class RenewalPagesOut(BaseModel):
+    free: int = Field(description="Pages the plan and gifts give.")
+    used: int = Field(description="Pages (and extra Instagram accounts) connected.")
+    bought: int = Field(description="Page slots bought on the period that ends.")
+    paid_used: int = Field(
+        description="Connected pages in bought slots: how many may be unticked."
+    )
+    empty: int = Field(description="Bought slots no page uses.")
+    drop_empty: int
+    carried: int = Field(description="Slots the bill renews.")
+    price_minor: int = Field(description="One slot for the plan's period.")
+    lines: list[RenewalPageLine] = Field(
+        description="Every connected page; empty when none sits in a bought slot."
+    )
+
+
+class RenewalSeatLine(BaseModel):
+    member_id: str
+    name: str
+    email: str
+    page: str
+    dropped: bool = Field(description="Unticked: off the team once the bill is paid.")
+
+
+class RenewalSeatsOut(BaseModel):
+    bought: int = Field(description="Seats bought on the period that ends.")
+    carried: int = Field(description="Seats the bill renews.")
+    price_minor: int = Field(description="One seat for the plan's period.")
+    lines: list[RenewalSeatLine] = Field(
+        description="Managers in bought seats; the free page seats are not billed."
+    )
+
+
+class RenewalOut(BaseModel):
+    pages: RenewalPagesOut
+    seats: RenewalSeatsOut
+
+
 class PricedChoice(BaseModel):
     cards: list[PlanCard]
     promo_typed: str
@@ -121,6 +169,9 @@ class PricedChoice(BaseModel):
     pages_dropped: bool | None = None
     carried_pages: int | None = None
     wallet_balance_minor: int | None = None
+    renewal: RenewalOut | None = Field(
+        None, description="With `plan`: the extra pages and seats `chosen` renews."
+    )
 
 
 class StatusOut(BaseModel):

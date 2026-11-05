@@ -1,7 +1,8 @@
 """Bills: opening, pricing, discounting, settling, paying and giving back."""
 
 import logging
-from collections.abc import Iterable
+import uuid
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 
 from paykit import (
@@ -23,6 +24,7 @@ from paykit.errors import PaymentError, ProviderNotRegistered
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.common.db import on_commit
 from app.common.exceptions import DomainError
 from app.common.money import decimal_places, to_minor
 from app.modules.accounts.models import User
@@ -70,7 +72,6 @@ from app.modules.billing.models import (
 from app.modules.billing.selectors import (
     PageOffer,
     PlanSwitch,
-    carried_pages,
     discount_quote,
     has_bought_plan,
     invoice_by_number,
@@ -88,8 +89,8 @@ from app.modules.billing.selectors import (
     running_subscription,
     seat_offer,
 )
+from app.modules.billing.selectors.renewal import renewal
 from app.modules.billing.selectors.seats import (
-    carried_seats,
     plan_seats_minor,
     seat_remainder,
 )
@@ -420,7 +421,11 @@ def price_invoice(
     wallet: WalletChoice,
     now: datetime,
     pages: PagesChoice = PagesChoice.KEEP,
+    drop_pages: Sequence[str] = (),
+    drop_members: Sequence[str] = (),
+    drop_empty_pages: int = 0,
 ) -> Invoice:
+    """``drop_*``: what the owner unticked; not renewed, and let go once paid."""
     from app.modules.referrals.services import hold_wallet
 
     locked = _payable_locked(db, invoice=invoice, now=now)
@@ -439,19 +444,24 @@ def price_invoice(
     switch = plan_switch(db, owner=owner, plan=locked.plan, now=now)
     if switch.until is not None:
         raise CheaperPlanWaits(until=switch.until)
+    current = running_subscription(db, owner=owner, now=now)
+    carried = renewal(
+        db,
+        owner=owner,
+        subscription=current or latest_subscription(db, owner=owner),
+        drop_pages=drop_pages if pages == PagesChoice.KEEP else (),
+        drop_members=drop_members,
+        drop_empty=drop_empty_pages if pages == PagesChoice.KEEP else 0,
+    )
+    locked.drop_page_ids = [str(pk) for pk in carried.drop_pages]
+    locked.drop_member_ids = [str(pk) for pk in carried.drop_members]
     if pages == PagesChoice.KEEP:
-        current = running_subscription(db, owner=owner, now=now)
-        count = carried_pages(
-            db,
-            owner=owner,
-            subscription=current or latest_subscription(db, owner=owner),
-        )
-        minor = plan_pages_minor(plan=locked.plan, count=count)
+        minor = plan_pages_minor(plan=locked.plan, count=carried.pages_carried)
         if minor > 0:
-            locked.pages = count
+            locked.pages = carried.pages_carried
             locked.pages_minor = minor
             locked.amount_minor += minor
-    _add_seats(db, invoice=locked, owner=owner, now=now)
+    _add_seats(invoice=locked, count=carried.seats_carried)
     credit = _credit(db, invoice=locked, switch=switch, now=now)
     wanted = locked.amount_minor - credit if wallet == WalletChoice.USE else 0
     spent = hold_wallet(db, invoice=locked, amount_minor=wanted, now=now)
@@ -481,19 +491,36 @@ def price_invoice(
     return locked
 
 
-def _add_seats(db: Session, *, invoice: Invoice, owner: User, now: datetime) -> None:
-    """Renew the seats somebody sits in on this bill. Always, unlike the pages:
-    taking a manager off the team is how one stops paying for a seat."""
-    current = running_subscription(db, owner=owner, now=now)
-    count = carried_seats(
-        db, owner=owner, subscription=current or latest_subscription(db, owner=owner)
-    )
+def _add_seats(*, invoice: Invoice, count: int) -> None:
+    """Renew the seats somebody sits in on this bill, but the unticked ones."""
     minor = plan_seats_minor(plan=invoice.plan, count=count)
     if minor <= 0:
         return
     invoice.seats = count
     invoice.seats_minor = minor
     invoice.amount_minor += minor
+
+
+def _let_go(db: Session, *, invoice: Invoice, owner: User, now: datetime) -> None:
+    """Release what the owner unticked on a paid renewal: the managers leave
+    the team, the pages leave the cabinet and their adverts are stopped, to
+    be deleted after the grace days."""
+    from app.modules.ads.services import hold_released_page
+    from app.modules.ads.tasks import stop_page_hold_task
+    from app.modules.crm.services import remove_unpaid_members
+    from app.modules.integrations.models import PageAccount
+    from app.modules.integrations.services.cabinet import release_page
+
+    remove_unpaid_members(
+        db, owner=owner, member_ids=invoice.drop_member_ids or [], now=now
+    )
+    for raw in invoice.drop_page_ids or []:
+        page = db.get(PageAccount, uuid.UUID(str(raw)))
+        if page is None or page.owner_id != owner.id or not page.is_active:
+            continue
+        release_page(db, page=page, actor=owner, now=now)
+        hold = str(hold_released_page(db, owner=owner, page_id=page.id, now=now).id)
+        on_commit(db, lambda hold=hold: stop_page_hold_task.delay(hold))  # type: ignore[misc]
 
 
 def _credit(db: Session, *, invoice: Invoice, switch: PlanSwitch, now: datetime) -> int:
@@ -552,6 +579,7 @@ def apply_payment(
     invoice.subscription_id = subscription.id
     invoice.applied_days = days
     db.flush()
+    _let_go(db, invoice=invoice, owner=owner, now=now)
     record_change(
         db,
         subscription=subscription,

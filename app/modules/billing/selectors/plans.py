@@ -18,10 +18,11 @@ from app.modules.billing.constants import (
 )
 from app.modules.billing.models import Invoice, Plan, Subscription
 from app.modules.billing.selectors.pages import (
-    carried_pages,
     page_remainder,
     plan_pages_minor,
 )
+from app.modules.billing.selectors.renewal import Renewal, renewal
+from app.modules.billing.selectors.seats import plan_seats_minor, seat_remainder
 from app.modules.billing.selectors.subscription import (
     days_left,
     latest_subscription,
@@ -177,6 +178,9 @@ class Offer:
     pages: int = 0
     pages_minor: int = 0
     page_credit_minor: int = 0
+    seats: int = 0
+    seats_minor: int = 0
+    seat_credit_minor: int = 0
 
     @property
     def due_minor(self) -> int:
@@ -188,8 +192,10 @@ class Offer:
             self.price_minor
             - self.discount_minor
             + self.pages_minor
+            + self.seats_minor
             - self.credit_minor
             - self.page_credit_minor
+            - self.seat_credit_minor
         )
 
 
@@ -239,8 +245,13 @@ def remainder(
         if not left:
             break
         taken = min(left, bill.applied_days)
+        # The plan's own days: its pages and seats are credited on their own.
         worth = (
-            bill.amount_minor + bill.wallet_minor + bill.credit_minor - bill.pages_minor
+            bill.amount_minor
+            + bill.wallet_minor
+            + bill.credit_minor
+            - bill.pages_minor
+            - bill.seats_minor
         )
         minor += worth * taken // bill.applied_days
         left -= taken
@@ -277,24 +288,26 @@ def checkout_offers(
     wallets: dict[str, int],
     now: datetime,
     pages: PagesChoice = PagesChoice.KEEP,
+    carried: Renewal | None = None,
 ) -> dict[str, Offer]:
+    """``carried``: the pages and seats the bill renews; by default all of them."""
     current = running_subscription(db, owner=owner, now=now)
     credit: tuple[int, int] | None = None
-    page_credit = 0
+    page_credit = seat_credit = 0
     if current is not None and current.status != SubscriptionStatus.TRIAL:
         credit = remainder(db, owner=owner, subscription=current, now=now)
         page_credit = page_remainder(
             db, owner=owner, currency=current.plan.currency, now=now
         )
-    carried = (
-        carried_pages(
+        seat_credit = seat_remainder(
+            db, owner=owner, currency=current.plan.currency, now=now
+        )
+    if carried is None:
+        carried = renewal(
             db,
             owner=owner,
             subscription=current or latest_subscription(db, owner=owner),
         )
-        if pages == PagesChoice.KEEP
-        else 0
-    )
     offers: dict[str, Offer] = {}
     for plan in plans:
         switch = _switch(
@@ -305,8 +318,10 @@ def checkout_offers(
             switch=switch,
             discount_minor=discounts.get(plan.code, 0),
             wallet_minor=wallets.get(plan.currency, 0),
-            pages=carried,
+            pages=carried.pages_carried if pages == PagesChoice.KEEP else 0,
+            seats=carried.seats_carried,
             page_credit_minor=page_credit,
+            seat_credit_minor=seat_credit,
         )
     return offers
 
@@ -319,25 +334,34 @@ def _offer(
     wallet_minor: int,
     pages: int,
     page_credit_minor: int,
+    seats: int = 0,
+    seat_credit_minor: int = 0,
 ) -> Offer:
+    """Priced the way ``services.invoices.price_invoice`` bills it."""
     price = int(to_minor(amount=str(plan.price), currency=plan.currency))
     if switch.move == PlanMove.WAIT:
-        wallet_minor = pages = 0
+        wallet_minor = pages = seats = 0
     after_code = max(0, price - discount_minor)
     pages_minor = plan_pages_minor(plan=plan, count=pages)
-    gross = after_code + pages_minor
+    seats_minor = plan_seats_minor(plan=plan, count=seats)
+    gross = after_code + pages_minor + seats_minor
     credit = min(switch.credit_minor, gross)
-    page_credit = (
-        min(page_credit_minor, gross - credit) if switch.move == PlanMove.RESTART else 0
-    )
+    restart = switch.move == PlanMove.RESTART
+    page_credit = min(page_credit_minor, gross - credit) if restart else 0
+    seat_credit = min(seat_credit_minor, gross - credit - page_credit) if restart else 0
     return Offer(
         plan=plan,
         switch=switch,
         price_minor=price,
         discount_minor=price - after_code,
         credit_minor=credit,
-        wallet_minor=min(max(0, wallet_minor), gross - credit - page_credit),
+        wallet_minor=min(
+            max(0, wallet_minor), gross - credit - page_credit - seat_credit
+        ),
         pages=pages if pages_minor else 0,
         pages_minor=pages_minor,
         page_credit_minor=page_credit,
+        seats=seats if seats_minor else 0,
+        seats_minor=seats_minor,
+        seat_credit_minor=seat_credit,
     )

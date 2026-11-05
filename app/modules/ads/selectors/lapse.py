@@ -39,8 +39,11 @@ class LapseTarget:
     running: bool
 
 
-def lapse_targets(db: Session, *, owner: User) -> list[LapseTarget]:
-    campaigns, adsets = _made_ids(db, owner=owner)
+def lapse_targets(
+    db: Session, *, owner: User, page_id: uuid.UUID | None = None
+) -> list[LapseTarget]:
+    """What we built for ``owner``; with ``page_id``, only that page's Meta adverts."""
+    campaigns, adsets = _made_ids(db, owner=owner, page_id=page_id)
     found = [
         LapseTarget(ManagedLevel.CAMPAIGN, external_id, account, _spends(delivery))
         for external_id, account, delivery in db.execute(
@@ -60,30 +63,33 @@ def lapse_targets(db: Session, *, owner: User) -> list[LapseTarget]:
     return found
 
 
-def _made_ids(db: Session, *, owner: User) -> tuple[set[str], set[str]]:
+def _made_ids(
+    db: Session, *, owner: User, page_id: uuid.UUID | None = None
+) -> tuple[set[str], set[str]]:
     shared = shared_campaign_ids(db, owner=owner)
     campaigns: set[str] = set()
     adsets: set[str] = set()
-    for refs in _created(db, CampaignLaunch, owner=owner):
+    for refs in _created(db, CampaignLaunch, owner=owner, page_id=page_id):
         campaign = ref_field.first_id(refs, LaunchStep.CAMPAIGN)
         if campaign in shared:
             adsets.update(ref_field.ref_ids(refs, LaunchStep.ADSET))
         elif campaign:
             campaigns.add(campaign)
-    for refs in _created(db, GoogleLaunch, owner=owner):
-        campaigns.add(str(refs.get("campaign") or ""))
+    if page_id is None:
+        for refs in _created(db, GoogleLaunch, owner=owner):
+            campaigns.add(str(refs.get("campaign") or ""))
     return _real(campaigns), _real(adsets)
 
 
-def _created(db: Session, model: Any, *, owner: User) -> Iterable[dict[str, Any]]:
-    return [
-        refs or {}
-        for refs in db.scalars(
-            select(model.created_refs).where(
-                model.owner_id == owner.id, model.status == str(LaunchStatus.CREATED)
-            )
-        )
-    ]
+def _created(
+    db: Session, model: Any, *, owner: User, page_id: uuid.UUID | None = None
+) -> Iterable[dict[str, Any]]:
+    query = select(model.created_refs).where(
+        model.owner_id == owner.id, model.status == str(LaunchStatus.CREATED)
+    )
+    if page_id is not None:
+        query = query.where(model.page_id == page_id)
+    return [refs or {} for refs in db.scalars(query)]
 
 
 def _real(ids: set[str]) -> set[str]:
@@ -107,7 +113,7 @@ def lapse_candidates(db: Session, *, now: datetime) -> dict[uuid.UUID, datetime]
     if ended:
         for owner_id, ended_at in db.execute(
             select(LapseHold.owner_id, LapseHold.ended_at)
-            .where(LapseHold.owner_id.in_(list(ended)))
+            .where(LapseHold.owner_id.in_(list(ended)), LapseHold.page_id.is_(None))
             .order_by(LapseHold.owner_id, LapseHold.ended_at.desc())
         ):
             held.setdefault(owner_id, ended_at)
@@ -126,21 +132,23 @@ def _makers(db: Session, model: Any) -> Iterable[uuid.UUID]:
     )
 
 
-def open_holds(db: Session) -> list[LapseHold]:
-    return list(
-        db.scalars(
-            select(LapseHold)
-            .where(LapseHold.resumed_at.is_(None), LapseHold.deleted_at.is_(None))
-            .order_by(LapseHold.started_at)
-        )
+def open_holds(db: Session, *, pages: bool = True) -> list[LapseHold]:
+    """Every open hold; without ``pages``, only lapsed subscriptions' ones."""
+    query = select(LapseHold).where(
+        LapseHold.resumed_at.is_(None), LapseHold.deleted_at.is_(None)
     )
+    if not pages:
+        query = query.where(LapseHold.page_id.is_(None))
+    return list(db.scalars(query.order_by(LapseHold.started_at)))
 
 
 def open_hold(db: Session, *, owner: User) -> LapseHold | None:
+    """The open hold of the owner's lapsed subscription, not of a page let go."""
     return db.scalars(
         select(LapseHold)
         .where(
             LapseHold.owner_id == owner.id,
+            LapseHold.page_id.is_(None),
             LapseHold.resumed_at.is_(None),
             LapseHold.deleted_at.is_(None),
         )

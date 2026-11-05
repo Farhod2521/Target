@@ -2,6 +2,7 @@
 and delete it when nobody paid within the grace days."""
 
 import logging
+import uuid
 from datetime import datetime
 
 from sqlalchemy import select
@@ -36,6 +37,8 @@ STOP_REASON = (
 )
 RESUME_REASON = "To'lov qilingani uchun qayta yoqildi."
 REMOVE_REASON = "Obuna 3 kun ichida yangilanmagani uchun o'chirildi."
+PAGE_STOP_REASON = "Sahifa obunadan uzilgani uchun to'xtatildi."
+PAGE_REMOVE_REASON = "Sahifa uzilganiga 3 kun bo'lgani uchun o'chirildi."
 
 
 def _has_live(db: Session, owner: User) -> bool:
@@ -46,12 +49,13 @@ def _has_live(db: Session, owner: User) -> bool:
 
 def _mark(db: Session, *, log: ActionLog, hold: LapseHold) -> None:
     log.request_payload = {**log.request_payload, LAPSE_MARK: str(hold.id)}
+    page = hold.page_id is not None
     if log.action == ActionType.PAUSE:
-        log.reason = STOP_REASON
+        log.reason = PAGE_STOP_REASON if page else STOP_REASON
     elif log.action == ActionType.RESUME:
         log.reason = RESUME_REASON
     else:
-        log.reason = REMOVE_REASON
+        log.reason = PAGE_REMOVE_REASON if page else REMOVE_REASON
     db.flush()
 
 
@@ -63,7 +67,9 @@ def open_lapse_hold(db: Session, *, owner: User, now: datetime) -> LapseHold | N
         return None
     known = db.scalar(
         select(LapseHold.id).where(
-            LapseHold.owner_id == owner.id, LapseHold.ended_at == ended
+            LapseHold.owner_id == owner.id,
+            LapseHold.ended_at == ended,
+            LapseHold.page_id.is_(None),
         )
     )
     if known is not None:
@@ -103,6 +109,55 @@ def open_lapse_hold(db: Session, *, owner: User, now: datetime) -> LapseHold | N
     return hold
 
 
+def hold_released_page(
+    db: Session, *, owner: User, page_id: uuid.UUID, now: datetime
+) -> LapseHold:
+    """Hold the adverts of a page a paid renewal let go: stopped by
+    ``stop_page_hold_task`` once this commits, deleted after the grace days
+    unless the page comes back first."""
+    hold = LapseHold(
+        owner_id=owner.id,
+        page_id=page_id,
+        ended_at=now,
+        started_at=now,
+        delete_after=now + LAPSE_DELETE_AFTER,
+    )
+    db.add(hold)
+    db.flush()
+    emit(
+        db,
+        owner_id=owner.id,
+        name=EventName.ADS_LAPSE_HELD,
+        aggregate_type="lapse_hold",
+        aggregate_id=hold.id,
+        payload={
+            "page_id": str(page_id),
+            "delete_after": hold.delete_after.isoformat(),
+        },
+        occurred_at=now,
+    )
+    return hold
+
+
+def stop_page_hold(db: Session, *, hold: LapseHold) -> int:
+    """Stop what runs on a let-go page, after reading its accounts afresh."""
+    if not hold.is_open or hold.page_id is None:
+        return 0
+    _sync(db, targets=_targets(db, hold=hold))
+    return stop_running(db, hold=hold)
+
+
+def _targets(db: Session, *, hold: LapseHold) -> list[LapseTarget]:
+    return lapse_targets(db, owner=hold.owner, page_id=hold.page_id)
+
+
+def _page_back(db: Session, *, hold: LapseHold) -> bool:
+    from app.modules.integrations.models import PageAccount
+
+    page = db.get(PageAccount, hold.page_id) if hold.page_id else None
+    return page is not None and page.is_active
+
+
 def stop_running(
     db: Session, *, hold: LapseHold, targets: list[LapseTarget] | None = None
 ) -> int:
@@ -112,7 +167,7 @@ def stop_running(
     owner = hold.owner
     stopped = 0
     unwritable = unwritable_account_ids(db, owner=owner)
-    for target in targets if targets is not None else lapse_targets(db, owner=owner):
+    for target in targets if targets is not None else _targets(db, hold=hold):
         if not target.running or target.ad_account_id in unwritable:
             continue
         try:
@@ -153,10 +208,26 @@ def _sync(db: Session, *, targets: list[LapseTarget]) -> None:
 def settle_lapse(db: Session, *, hold: LapseHold, now: datetime) -> str:
     if not hold.is_open:
         return "done"
+    if hold.page_id is not None:
+        return _settle_page(db, hold=hold, now=now)
     if _has_live(db, hold.owner):
         return (
             "later" if resume_after_lapse(db, hold=hold, now=now) is None else "resumed"
         )
+    if remove_after_lapse(db, hold=hold, now=now) is not None:
+        return "removed"
+    stop_running(db, hold=hold)
+    return "held"
+
+
+def _settle_page(db: Session, *, hold: LapseHold, now: datetime) -> str:
+    """A let-go page connected again keeps its adverts, stopped: the owner
+    starts them. Otherwise they stay stopped until the grace days end."""
+    if _page_back(db, hold=hold):
+        _close(
+            db, hold=hold, field="resumed_at", name=EventName.ADS_LAPSE_RESUMED, now=now
+        )
+        return "kept"
     if remove_after_lapse(db, hold=hold, now=now) is not None:
         return "removed"
     stop_running(db, hold=hold)
@@ -205,10 +276,12 @@ def remove_after_lapse(db: Session, *, hold: LapseHold, now: datetime) -> int | 
     owner = hold.owner
     if not hold.is_open or now < hold.delete_after:
         return None
-    if _has_live(db, owner):
+    if hold.page_id is None and _has_live(db, owner):
+        return None
+    if hold.page_id is not None and _page_back(db, hold=hold):
         return None
     removed = 0
-    for target in lapse_targets(db, owner=owner):
+    for target in _targets(db, hold=hold):
         try:
             log = actions.request(
                 db,
@@ -249,7 +322,8 @@ def _close(
         name=name,
         aggregate_type="lapse_hold",
         aggregate_id=hold.id,
-        payload={"ended_at": hold.ended_at.isoformat()},
+        payload={"ended_at": hold.ended_at.isoformat()}
+        | ({"page_id": str(hold.page_id)} if hold.page_id else {}),
         occurred_at=now,
     )
     db.commit()

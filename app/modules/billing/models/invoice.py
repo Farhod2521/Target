@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, SmallInteger, String, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.common.db import Base, utcnow
+from app.common.db import Base, Json, utcnow
 
 
 class Invoice(Base):
@@ -46,6 +47,9 @@ class Invoice(Base):
     seats_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     seats_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     seats_days: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    # A renewal's unticked pages and CRM managers, let go once it is paid.
+    drop_page_ids: Mapped[list[Any]] = mapped_column(Json, nullable=False, default=list)
+    drop_member_ids: Mapped[list[Any]] = mapped_column(Json, nullable=False, default=list)
     manual_method: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     pay_reference: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     recorded_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)

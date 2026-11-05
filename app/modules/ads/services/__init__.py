@@ -16,10 +16,12 @@ from app.modules.ads.services.lapse import (
     REMOVE_REASON,
     RESUME_REASON,
     STOP_REASON,
+    hold_released_page,
     open_lapse_hold,
     remove_after_lapse,
     resume_after_lapse,
     settle_lapse,
+    stop_page_hold,
     stop_running,
 )
 from app.modules.ads.services.manage import (
@@ -172,6 +174,7 @@ __all__ = [
     "follow_captions",
     "forms_still_known",
     "goal_lock",
+    "hold_released_page",
     "launch_account_and_token",
     "launch_page",
     "launch_page_and_token",
@@ -203,6 +206,7 @@ __all__ = [
     "start_delivery",
     "state_of",
     "state_payload",
+    "stop_page_hold",
     "stop_running",
     "store_everything",
     "sync_ad_account",
