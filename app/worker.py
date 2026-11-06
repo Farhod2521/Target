@@ -1,6 +1,6 @@
 """The Celery app: same queues and limits as the Django project.
 
-uv run celery -A app.worker worker -Q sync,webhooks,chat,agent,upload,refresh
+uv run celery -A app.worker worker -Q sync,webhooks,chat,agent,upload,refresh,broadcast
 uv run celery -A app.worker beat
 
 Beat is RedBeat: the schedule is each module's ``schedule.SCHEDULE``, kept in
@@ -40,6 +40,7 @@ celery_app.conf.update(
         Queue("upload", routing_key="upload"),
         Queue("refresh", routing_key="refresh"),
         Queue("sync", routing_key="sync"),
+        Queue("broadcast", routing_key="broadcast"),
     ),
     task_acks_late=True,
     task_reject_on_worker_lost=True,

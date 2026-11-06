@@ -71,6 +71,12 @@ services:
     <<: *app
     command: celery -A app.worker worker -Q agent --concurrency 3 --hostname agent@%h --loglevel INFO
 
+  # Office broadcasts to the bot's chats: one slot, so one broadcast at a
+  # time at Telegram's pace, and never in the way of a press or a sync.
+  worker-broadcast:
+    <<: *app
+    command: celery -A app.worker worker -Q broadcast --concurrency 1 --hostname broadcast@%h --loglevel INFO
+
   # The clock: syncs, sweeps, lapsed subscriptions. Off until asked for,
   # because while the old Django project still runs its own beat, two clocks
   # would sync, pause and resume the same ad accounts twice. Once Django is

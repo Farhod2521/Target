@@ -34,6 +34,7 @@ class TelegramChat(Base):
     notify_rejections: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     notify_spend_guard: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     notify_daily_report: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notify_news: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_error: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

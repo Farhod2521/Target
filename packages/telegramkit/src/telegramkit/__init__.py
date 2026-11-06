@@ -2,6 +2,7 @@
 
 from telegramkit.client import (
     API_BASE_URL,
+    CAPTION_MAX_CHARS,
     DOCUMENT_MAX_BYTES,
     MESSAGE_MAX_CHARS,
     PHOTO_MAX_BYTES,
@@ -41,6 +42,7 @@ from telegramkit.webapp import (
 __all__ = [
     "API_BASE_URL",
     "CALLBACK_DATA_MAX_BYTES",
+    "CAPTION_MAX_CHARS",
     "DEFAULT_MAX_AGE_SECONDS",
     "DOCUMENT_MAX_BYTES",
     "MESSAGE_MAX_CHARS",

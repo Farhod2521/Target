@@ -199,6 +199,7 @@ class Env(BaseSettings):
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_webhook_secret: str = Field(default="", alias="TELEGRAM_WEBHOOK_SECRET")
     telegram_bot_username: str = Field(default="", alias="TELEGRAM_BOT_USERNAME")
+    telegram_channel_id: str = Field(default="", alias="TELEGRAM_CHANNEL_ID")
     telegram_mandatory_notices: bool = Field(
         default=True, alias="TELEGRAM_MANDATORY_NOTICES"
     )

@@ -20,6 +20,7 @@ class ChatOut(BaseModel):
     notify_daily_report: bool
     notify_report: bool
     notify_rejections: bool
+    notify_news: bool
 
 
 class SettingsOut(BaseModel):

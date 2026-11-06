@@ -4,6 +4,17 @@ Semantik versiyalash. Telegram Bot API'ning versiyasi yo'q — u
 o'zgarganda eski metodlar ishlashda davom etadi, shuning uchun
 `client.py` da qadab qo'yiladigan versiya konstantasi ham yo'q.
 
+## 0.11.0 — 2026-11-06
+
+### Qo'shildi
+- `send_photo(caption=..., buttons=...)` — rasm ostidagi HTML matn
+  (`CAPTION_MAX_CHARS`, 1024 gacha kesiladi) va tugmalar. Berilmasa
+  so'rov o'zgarmaydi.
+- `SentMessage.photo_id` — yuborilgan rasmning eng katta o'lchamdagi
+  `file_id` si.
+- `send_photo_id()` — o'sha rasmni qayta yuklamasdan, `photo_id` bilan
+  yuboradi. Rassilka bitta rasmni bir marta yuklaydi.
+
 ## 0.10.0 — 2026-11-03
 
 ### Qo'shildi

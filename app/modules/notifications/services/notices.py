@@ -44,6 +44,7 @@ EDITABLE: frozenset[str] = frozenset(
         "notify_rejections",
         "notify_spend_guard",
         "notify_daily_report",
+        "notify_news",
     }
 )
 

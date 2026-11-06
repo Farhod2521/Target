@@ -6,6 +6,7 @@ from app.modules.agent import models as agent  # noqa: F401
 from app.modules.audit import models as audit  # noqa: F401
 from app.modules.backoffice import models as backoffice  # noqa: F401
 from app.modules.billing import models as billing  # noqa: F401
+from app.modules.broadcasts import models as broadcasts  # noqa: F401
 from app.modules.businesses import models as businesses  # noqa: F401
 from app.modules.chat import models as chat  # noqa: F401
 from app.modules.content_studio import models as content_studio  # noqa: F401

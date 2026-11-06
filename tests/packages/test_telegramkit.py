@@ -126,6 +126,54 @@ def test_a_picture_goes_up_as_a_multipart_photo_quoting_its_message() -> None:
     assert b'"message_id": 42' in body
 
 
+def test_a_picture_carries_its_caption_and_answers_with_its_id() -> None:
+    seen: list[httpx.Request] = []
+    answer = {
+        "ok": True,
+        "result": {
+            "message_id": 8,
+            "photo": [{"file_id": "small"}, {"file_id": "large"}],
+        },
+    }
+    with client_answering(answer, seen=seen) as bot:
+        sent = bot.send_photo(
+            chat_id="7",
+            filename="a.png",
+            content=b"png",
+            caption="<b>Sarlavha</b>\n\n" + "x" * 2000,
+            buttons=(Button(text="Ochish", url="https://t.me/x"),),
+        )
+
+    assert sent.photo_id == "large"
+    body = seen[0].read().decode()
+    assert 'name="parse_mode"\r\n\r\nHTML' in body
+    caption = body.split('name="caption"\r\n\r\n', 1)[1].split("\r\n--", 1)[0]
+    assert len(caption) == 1024 and caption.endswith("x…")
+    assert '"inline_keyboard"' in body
+
+
+def test_a_known_picture_goes_again_by_its_id_without_an_upload() -> None:
+    seen: list[httpx.Request] = []
+    with client_answering({"ok": True, "result": {"message_id": 9}}, seen=seen) as bot:
+        bot.send_photo_id(
+            chat_id="7",
+            photo_id="large",
+            caption="salom",
+            buttons=(Button(text="Ochish", url="https://t.me/x"),),
+        )
+
+    assert seen[0].url.path.endswith("/sendPhoto")
+    assert json.loads(seen[0].read()) == {
+        "chat_id": "7",
+        "photo": "large",
+        "caption": "salom",
+        "parse_mode": "HTML",
+        "reply_markup": {
+            "inline_keyboard": [[{"text": "Ochish", "url": "https://t.me/x"}]]
+        },
+    }
+
+
 def test_any_other_file_goes_up_as_a_document() -> None:
     seen: list[httpx.Request] = []
     with client_answering({"ok": True, "result": {"message_id": 5}}, seen=seen) as bot:

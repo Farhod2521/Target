@@ -21,6 +21,7 @@ CONNECT_TIMEOUT_SECONDS: Final = 5.0
 READ_TIMEOUT_SECONDS: Final = 10.0
 
 MESSAGE_MAX_CHARS: Final = 4_096
+CAPTION_MAX_CHARS: Final = 1_024
 
 ROW_MAX_BUTTONS: Final = 8
 ELLIPSIS: Final = "…"
@@ -107,10 +108,20 @@ class BotClient:
         )
 
     def send_photo(
-        self, *, chat_id: str, filename: str, content: bytes, reply_to: int = 0
+        self,
+        *,
+        chat_id: str,
+        filename: str,
+        content: bytes,
+        reply_to: int = 0,
+        caption: str = "",
+        buttons: tuple[Button, ...] = (),
     ) -> SentMessage:
         """Post a picture, drawn in the chat rather than offered as a file.
-        Telegram recompresses it; :meth:`send_document` keeps the bytes."""
+        Telegram recompresses it; :meth:`send_document` keeps the bytes.
+
+        ``caption`` is HTML, cut to ``CAPTION_MAX_CHARS``. The answer's
+        ``photo_id`` posts the same picture again without the upload."""
         return self._upload(
             "sendPhoto",
             field="photo",
@@ -118,7 +129,24 @@ class BotClient:
             filename=filename,
             content=content,
             reply_to=reply_to,
+            extra=_photo_fields(caption=caption, buttons=buttons),
         )
+
+    def send_photo_id(
+        self,
+        *,
+        chat_id: str,
+        photo_id: str,
+        caption: str = "",
+        buttons: tuple[Button, ...] = (),
+    ) -> SentMessage:
+        """Post a picture Telegram already has, by the ``photo_id`` an
+        earlier :meth:`send_photo` answered with."""
+        payload: dict[str, Any] = {"chat_id": chat_id, "photo": photo_id}
+        payload.update(_photo_fields(caption=caption, buttons=buttons))
+        if "reply_markup" in payload:
+            payload["reply_markup"] = json.loads(payload["reply_markup"])
+        return _sent(self._call("sendPhoto", payload), chat_id=chat_id)
 
     def send_document(
         self, *, chat_id: str, filename: str, content: bytes, reply_to: int = 0
@@ -222,10 +250,11 @@ class BotClient:
         filename: str,
         content: bytes,
         reply_to: int,
+        extra: dict[str, str] | None = None,
     ) -> SentMessage:
         """One multipart POST. Form fields are strings, so the reply's
         parameters travel as JSON text."""
-        data: dict[str, str] = {"chat_id": chat_id}
+        data: dict[str, str] = {"chat_id": chat_id, **(extra or {})}
         if reply_to:
             data["reply_parameters"] = json.dumps(
                 {"message_id": reply_to, "allow_sending_without_reply": True}
@@ -236,10 +265,7 @@ class BotClient:
             files={field: (filename, content)},
             timeout=UPLOAD_TIMEOUT_SECONDS,
         )
-        return SentMessage(
-            message_id=int(answer.get("message_id") or 0),
-            chat_id=str((answer.get("chat") or {}).get("id") or chat_id),
-        )
+        return _sent(answer, chat_id=chat_id)
 
     def _call(self, method: str, payload: dict[str, Any]) -> dict[str, Any]:
         """One JSON POST."""
@@ -302,16 +328,37 @@ def _keyboard(buttons: tuple[Button, ...]) -> dict[str, Any]:
     return {"inline_keyboard": rows}
 
 
-def _fits(text: str) -> str:
+def _sent(answer: dict[str, Any], *, chat_id: str) -> SentMessage:
+    photos = answer.get("photo")
+    largest = photos[-1] if isinstance(photos, list) and photos else {}
+    return SentMessage(
+        message_id=int(answer.get("message_id") or 0),
+        chat_id=str((answer.get("chat") or {}).get("id") or chat_id),
+        photo_id=str(largest.get("file_id") or "") if isinstance(largest, dict) else "",
+    )
+
+
+def _photo_fields(*, caption: str, buttons: tuple[Button, ...]) -> dict[str, str]:
+    """A picture's caption and keyboard as form fields; nothing when neither."""
+    fields: dict[str, str] = {}
+    if caption:
+        fields["caption"] = _fits(caption, limit=CAPTION_MAX_CHARS)
+        fields["parse_mode"] = "HTML"
+    if buttons:
+        fields["reply_markup"] = json.dumps(_keyboard(buttons))
+    return fields
+
+
+def _fits(text: str, *, limit: int = MESSAGE_MAX_CHARS) -> str:
     """The text, cut to something Telegram accepts as HTML."""
-    if _units(text) <= MESSAGE_MAX_CHARS:
+    if _units(text) <= limit:
         return text
-    return _cut(text)
+    return _cut(text, limit=limit)
 
 
-def _cut(text: str) -> str:
+def _cut(text: str, *, limit: int = MESSAGE_MAX_CHARS) -> str:
     """The longest prefix that is still valid HTML, plus what closes it."""
-    limit = MESSAGE_MAX_CHARS - _units(ELLIPSIS)
+    limit -= _units(ELLIPSIS)
     stack: list[str] = []
     kept, kept_closers = 0, ""
     index = 0
@@ -375,6 +422,7 @@ def _prefix(text: str, units: int) -> str:
 
 __all__ = [
     "API_BASE_URL",
+    "CAPTION_MAX_CHARS",
     "MESSAGE_MAX_CHARS",
     "BotClient",
     "BotIdentity",

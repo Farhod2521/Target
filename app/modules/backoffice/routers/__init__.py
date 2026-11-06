@@ -22,6 +22,7 @@ from app.modules.backoffice.routers.blocks import reasons_router as block_reason
 from app.modules.backoffice.routers.blocks import (
     suggestions_router as block_suggestions,
 )
+from app.modules.backoffice.routers.broadcasts import router as broadcasts
 from app.modules.backoffice.routers.crm import router as crm
 from app.modules.backoffice.routers.customers import router as customers
 from app.modules.backoffice.routers.dashboard import router as dashboard
@@ -69,6 +70,7 @@ router.include_router(customer_surveys)
 router.include_router(team)
 router.include_router(telegram)
 router.include_router(tutorials)
+router.include_router(broadcasts)
 
 
 @router.get("/me", responses={200: {"model": MeOut}})

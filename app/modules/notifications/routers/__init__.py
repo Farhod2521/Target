@@ -24,6 +24,7 @@ PREFERENCE_LABELS = {
     "notify_daily_report": "Har kuni - kechagi kun xulosasi va AI bahosi",
     "notify_report": "Har dushanba - o'tgan hafta xulosasi",
     "notify_rejections": "Reklama rad etilganda yoki Meta profil tasdig'ini so'raganda",
+    "notify_news": "Yangiliklar va e'lonlar",
 }
 
 
@@ -72,10 +73,15 @@ class PreferencesIn(BaseModel):
     notify_daily_report: bool = False
     notify_report: bool = False
     notify_rejections: bool = False
+    # Left out keeps it as it is: a screen built before the switch existed
+    # does not turn the news off by saving the others.
+    notify_news: bool | None = None
 
 
 @router.post("/preferences", responses={200: {"model": PreferencesOut}})
 def preferences(body: PreferencesIn, db: Db, user: CurrentUser) -> dict[str, Any]:
-    chat = services.save_preferences(db, user=user, **body.model_dump())
+    chat = services.save_preferences(
+        db, user=user, **body.model_dump(exclude_none=True)
+    )
     db.commit()
     return {"message": "Saqlandi.", "chat": chat_out(chat)}

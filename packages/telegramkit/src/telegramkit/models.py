@@ -69,6 +69,8 @@ class SentMessage(BaseModel):
 
     message_id: int = 0
     chat_id: str = ""
+    # A picture's largest size, to post it again without the upload.
+    photo_id: str = ""
 
 
 class BotIdentity(BaseModel):

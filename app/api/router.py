@@ -19,6 +19,7 @@ from app.modules.autopay.routers import webhooks as autopay_webhooks
 from app.modules.backoffice.routers import router as office
 from app.modules.billing.routers import router as billing
 from app.modules.billing.routers import webhooks as billing_webhooks
+from app.modules.broadcasts.routers import router as news
 from app.modules.businesses.routers import router as businesses
 from app.modules.chat.routers import refusals
 from app.modules.chat.routers import router as chat
@@ -85,6 +86,7 @@ api_router.include_router(agent)
 api_router.include_router(onboarding)
 api_router.include_router(surveys)
 api_router.include_router(tutorials)
+api_router.include_router(news)
 api_router.include_router(support_guest)
 api_router.include_router(support)
 
