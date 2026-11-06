@@ -55,6 +55,7 @@ PURGE_ORDER: tuple[str, ...] = (
     "surveys.SurveyResponse",
     "broadcasts.BroadcastDelivery",
     "broadcasts.BroadcastSeen",
+    "broadcasts.BroadcastTarget",
     "notifications.InboxSeen",
     "notifications.TelegramNotice",
     "notifications.TelegramChat",

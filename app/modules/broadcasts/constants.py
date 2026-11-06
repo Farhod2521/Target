@@ -16,6 +16,17 @@ BROADCAST_STATUS_LABELS = {
 }
 
 
+class Audience(Choices):
+    ALL = "all"
+    SELECTED = "selected"
+
+
+AUDIENCE_LABELS = {
+    Audience.ALL: "Hammaga",
+    Audience.SELECTED: "Tanlanganlarga",
+}
+
+
 class DeliveryStatus(Choices):
     PENDING = "pending"
     # Taken by a worker and not yet answered. One left here after a crash is
@@ -37,6 +48,7 @@ DELIVERY_STATUS_LABELS = {
 TITLE_MAX = 120
 BODY_MAX = 3800
 PAGE_SIZE = 50
+MAX_TARGETS = 1000
 
 IMAGE_TYPES = ("jpg", "jpeg", "png", "webp")
 MAX_IMAGE_MB = 5

@@ -379,3 +379,69 @@ def test_saving_the_other_switches_keeps_the_news_switch(
     )
     db.refresh(chat)
     assert chat.notify_news is False
+
+
+def test_a_broadcast_to_the_chosen_reaches_only_them_on_the_bot_and_the_site(
+    client: TestClient,
+    db: Session,
+    telegram: Telegram,
+) -> None:
+    _, boss = _staff(db, email="root@office.test", superuser=True)
+    chosen, chosen_headers = _customer(client, db, "a@example.com")
+    unlinked, unlinked_headers = _customer(client, db, "u@example.com")
+    other, other_headers = _customer(client, db, "o@example.com")
+    _chat(db, chosen, "10")
+    _chat(db, other, "20")
+
+    with_channel = client.post(
+        OFFICE,
+        headers=boss,
+        data=_form(audience="selected", to_channel="true", user_ids=str(chosen.id)),
+    )
+    assert with_channel.status_code == 422
+    assert "to_channel" in with_channel.json()["problems"]
+    nobody = client.post(OFFICE, headers=boss, data=_form(audience="selected"))
+    assert "user_ids" in nobody.json()["problems"]
+    unknown = client.post(
+        OFFICE,
+        headers=boss,
+        data=_form(
+            audience="selected", user_ids="00000000-0000-0000-0000-000000000000"
+        ),
+    )
+    assert "user_ids" in unknown.json()["problems"]
+
+    created = client.post(
+        OFFICE,
+        headers=boss,
+        data=_form(audience="selected", to_site="true")
+        | {"user_ids": f"{chosen.id},{unlinked.id}"},
+    )
+    assert created.status_code == 200, created.text
+    broadcast_id = created.json()["id"]
+    shown = client.get(f"{OFFICE}/{broadcast_id}", headers=boss).json()
+    assert shown["audience"] == "selected"
+    assert {(u["email"], u["bot_linked"]) for u in shown["users"]} == {
+        ("a@example.com", True),
+        ("u@example.com", False),
+    }
+    assert client.get(f"{OFFICE}/{broadcast_id}/recipients", headers=boss).json() == {
+        "bot": 1
+    }
+
+    sent = client.post(f"{OFFICE}/{broadcast_id}/send", headers=boss).json()
+    assert sent["bot_chats"] == 1
+    _run_all(db, broadcast_id)
+    assert [m for m, _ in telegram.to("10")] == ["sendMessage"]
+    assert telegram.to("20") == []
+
+    for headers, sees in (
+        (chosen_headers, 1),
+        (unlinked_headers, 1),
+        (other_headers, 0),
+    ):
+        news = client.get(NEWS, headers=headers).json()
+        assert len(news["rows"]) == sees and news["unread"] == sees
+    assert (
+        client.get(f"{NEWS}/{broadcast_id}", headers=other_headers).status_code == 404
+    )

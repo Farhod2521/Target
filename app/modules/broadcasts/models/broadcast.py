@@ -36,6 +36,8 @@ class Broadcast(Base):
     to_bot: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     to_channel: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     to_site: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # "selected": only the accounts in broadcast_targets, on the bot and the site.
+    audience: Mapped[str] = mapped_column(String(16), nullable=False, default="all", server_default="all")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -44,6 +46,19 @@ class Broadcast(Base):
     channel_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     channel_error: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class BroadcastTarget(Base):
+    """One account a "selected" broadcast is for."""
+
+    __tablename__ = "broadcast_targets"
+    __table_args__ = (UniqueConstraint("broadcast_id", "owner_id", name="uniq_broadcast_target"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    broadcast_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("broadcasts.id", ondelete="CASCADE"), nullable=False)
+    owner_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
 
 class BroadcastDelivery(Base):

@@ -2,12 +2,14 @@
 
 A broadcast is a multipart form: ``title``, ``body``, the three networks
 ``to_bot``, ``to_channel``, ``to_site``, and ``image`` when the picture
-changes (``remove_image`` drops it). It is saved as a draft and edited
-only as one. ``POST /{id}/test`` sends the bot's message to the sender's
+changes (``remove_image`` drops it), and ``audience``: ``all``, or
+``selected`` with ``user_ids`` (repeated, or comma-separated) - then the
+bot and the site reach only them, and the channel cannot be ticked. It is
+saved as a draft and edited only as one. ``POST /{id}/test`` sends the bot's message to the sender's
 own linked chat; ``POST /{id}/send`` sends it to every ticked network,
 and ``POST /{id}/stop`` ends a bot send still going. ``networks`` says
 which of the three this server can reach; ``GET /recipients`` how many
-bot chats a send would go to now.
+bot chats a send would go to now, ``GET /{id}/recipients`` for this one.
 """
 
 import uuid
@@ -20,11 +22,14 @@ from app.common import storage
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.backoffice.permissions import superuser_required
+from app.modules.backoffice.routers._out import person_out
 from app.modules.backoffice.schemas import CreatedOut, MessageOut
 from app.modules.broadcasts import media, services
 from app.modules.broadcasts.constants import (
+    AUDIENCE_LABELS,
     BROADCAST_STATUS_LABELS,
     DELIVERY_STATUS_LABELS,
+    Audience,
     BroadcastStatus,
 )
 from app.modules.broadcasts.exceptions import BroadcastNotFound
@@ -34,14 +39,36 @@ from app.modules.broadcasts.selectors import (
     delivery_counts,
     office_page,
     recipients,
+    target_users,
 )
 
 router = APIRouter(prefix="/broadcasts")
 Superuser = Annotated[User, Depends(superuser_required)]
 
 
-def _out(row: Broadcast, *, counts: dict[str, int]) -> dict[str, Any]:
+def _ids(values: list[str]) -> list[str]:
+    return [part for value in values for part in value.split(",") if part.strip()]
+
+
+def _out(
+    row: Broadcast,
+    *,
+    counts: dict[str, int],
+    users: list[User] | None = None,
+    linked: set[uuid.UUID] | None = None,
+) -> dict[str, Any]:
     status = BroadcastStatus(row.status)
+    audience = Audience(row.audience)
+    chosen = (
+        {
+            "users": [
+                {**(person_out(user) or {}), "bot_linked": user.id in (linked or set())}
+                for user in users
+            ]
+        }
+        if users is not None
+        else {}
+    )
     return {
         "id": str(row.id),
         "title": row.title,
@@ -50,6 +77,9 @@ def _out(row: Broadcast, *, counts: dict[str, int]) -> dict[str, Any]:
         "to_bot": row.to_bot,
         "to_channel": row.to_channel,
         "to_site": row.to_site,
+        "audience": row.audience,
+        "audience_label": AUDIENCE_LABELS[audience],
+        **chosen,
         "status": row.status,
         "status_label": BROADCAST_STATUS_LABELS[status],
         "bot": {
@@ -70,7 +100,15 @@ def _out(row: Broadcast, *, counts: dict[str, int]) -> dict[str, Any]:
 
 
 def _one(db: Db, row: Broadcast) -> dict[str, Any]:
-    return _out(row, counts=delivery_counts(db, [row.id])[row.id])
+    """With the chosen, each saying whether the bot can reach them now."""
+    users = target_users(db, row.id)
+    linked = {owner_id for owner_id, _ in recipients(db, row)} if users else set()
+    return _out(
+        row,
+        counts=delivery_counts(db, [row.id])[row.id],
+        users=users,
+        linked=linked,
+    )
 
 
 def _row(db: Db, broadcast_id: uuid.UUID) -> Broadcast:
@@ -109,6 +147,10 @@ def broadcasts(
         "next_offset": page.next_offset,
         "has_more": page.has_more,
         "networks": services.networks(),
+        "audiences": [
+            {"value": str(key), "label": label}
+            for key, label in AUDIENCE_LABELS.items()
+        ],
         "statuses": [
             {"value": str(key), "label": label}
             for key, label in BROADCAST_STATUS_LABELS.items()
@@ -120,6 +162,14 @@ def broadcasts(
 def recipient_count(db: Db, user: Superuser) -> dict[str, int]:
     """How many bot chats a send would go to now, for the confirmation."""
     return {"bot": len(recipients(db))}
+
+
+@router.get("/{broadcast_id}/recipients")
+def broadcast_recipients(
+    broadcast_id: uuid.UUID, db: Db, user: Superuser
+) -> dict[str, int]:
+    """How many bot chats this one would go to now: its audience's."""
+    return {"bot": len(recipients(db, _row(db, broadcast_id)))}
 
 
 @router.get("/{broadcast_id}")
@@ -136,6 +186,8 @@ def create_broadcast(
     to_bot: Annotated[bool, Form()] = False,
     to_channel: Annotated[bool, Form()] = False,
     to_site: Annotated[bool, Form()] = False,
+    audience: Annotated[str, Form()] = "all",
+    user_ids: Annotated[list[str] | None, Form()] = None,
     image: Annotated[UploadFile | None, File()] = None,
 ) -> dict[str, Any]:
     saved = services.save_broadcast(
@@ -147,6 +199,8 @@ def create_broadcast(
             to_channel=to_channel,
             to_site=to_site,
             image=image,
+            audience=audience,
+            user_ids=_ids(user_ids or []),
         ),
         row=None,
         actor=actor,
@@ -165,6 +219,8 @@ def update_broadcast(
     to_bot: Annotated[bool, Form()] = False,
     to_channel: Annotated[bool, Form()] = False,
     to_site: Annotated[bool, Form()] = False,
+    audience: Annotated[str, Form()] = "all",
+    user_ids: Annotated[list[str] | None, Form()] = None,
     image: Annotated[UploadFile | None, File()] = None,
     remove_image: Annotated[bool, Form()] = False,
 ) -> dict[str, Any]:
@@ -179,6 +235,8 @@ def update_broadcast(
             to_site=to_site,
             image=image,
             remove_image=remove_image,
+            audience=audience,
+            user_ids=_ids(user_ids or []),
         ),
         row=_row(db, broadcast_id),
         actor=actor,

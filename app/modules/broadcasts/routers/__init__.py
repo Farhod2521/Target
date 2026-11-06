@@ -40,7 +40,7 @@ def news_out(row: Broadcast, *, since: datetime, now: datetime) -> dict[str, Any
 
 @router.get("")
 def news(db: Db, user: CurrentUser, offset: int = Query(0, ge=0)) -> dict[str, Any]:
-    page = site_page(db, offset=offset)
+    page = site_page(db, user=user, offset=offset)
     since, now = seen_at(db, user=user), utcnow()
     return {
         "rows": [news_out(row, since=since, now=now) for row in page.rows],
@@ -77,7 +77,7 @@ def mark_seen(db: Db, user: CurrentUser) -> dict[str, int]:
 
 @router.get("/{broadcast_id}")
 def one(broadcast_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
-    row = site_broadcast(db, broadcast_id)
+    row = site_broadcast(db, broadcast_id, user=user)
     if row is None:
         raise BroadcastNotFound
     return news_out(row, since=seen_at(db, user=user), now=utcnow())

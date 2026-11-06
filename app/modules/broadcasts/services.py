@@ -6,11 +6,12 @@ from that moment. A stop is final: the chats still pending stay unsent.
 """
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
 
-from sqlalchemy import insert
+from sqlalchemy import delete, insert
 from sqlalchemy.orm import Session
 from telegramkit import TelegramError, message_units
 
@@ -26,14 +27,20 @@ from app.modules.broadcasts.constants import (
     IMAGE_DIR,
     IMAGE_TYPES,
     MAX_IMAGE_MB,
+    MAX_TARGETS,
     TITLE_MAX,
+    Audience,
     BroadcastStatus,
     DeliveryStatus,
 )
 from app.modules.broadcasts.delivery import message_text, post
 from app.modules.broadcasts.exceptions import BroadcastLocked
-from app.modules.broadcasts.models import Broadcast, BroadcastDelivery
-from app.modules.broadcasts.selectors import recipients
+from app.modules.broadcasts.models import (
+    Broadcast,
+    BroadcastDelivery,
+    BroadcastTarget,
+)
+from app.modules.broadcasts.selectors import known_users, recipients
 from app.modules.notifications import bot as telegram
 from app.modules.notifications.selectors import chat_for
 
@@ -67,6 +74,8 @@ class BroadcastIn:
     to_site: bool
     image: Any = None
     remove_image: bool = False
+    audience: str = Audience.ALL
+    user_ids: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -109,7 +118,34 @@ def _problems(body: BroadcastIn) -> dict[str, str]:
         problems["body"] = "Matn Telegram xabariga sig'maydi. Qisqartiring."
     if body.image is not None and (problem := _image_problem(body.image)):
         problems["image"] = problem
+    if body.audience not in Audience.values:
+        problems["audience"] = "Kimga yuborilishini tanlang."
+    elif body.audience == Audience.SELECTED and body.to_channel:
+        problems["to_channel"] = (
+            "Kanal hammaga ochiq: tanlanganlarga yuborishda kanalni belgilamang."
+        )
     return problems
+
+
+def _chosen(db: Session, body: BroadcastIn) -> tuple[list[User], str]:
+    """The accounts a "selected" broadcast is for, or why they are refused."""
+    if body.audience != Audience.SELECTED:
+        return [], ""
+    ids: list[uuid.UUID] = []
+    for value in body.user_ids:
+        try:
+            ids.append(uuid.UUID(str(value).strip()))
+        except ValueError:
+            return [], "Foydalanuvchi noto'g'ri tanlangan."
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        return [], "Kamida bitta foydalanuvchini tanlang."
+    if len(ids) > MAX_TARGETS:
+        return [], f"Bir rassilkada {MAX_TARGETS} tadan ko'p foydalanuvchi bo'lmasin."
+    users = known_users(db, ids)
+    if len(users) != len(ids):
+        return [], "Tanlanganlardan ba'zilari topilmadi."
+    return users, ""
 
 
 def save_broadcast(
@@ -120,6 +156,9 @@ def save_broadcast(
     if row is not None and row.status != BroadcastStatus.DRAFT:
         raise BroadcastLocked
     problems = _problems(body)
+    users, refused = _chosen(db, body)
+    if refused:
+        problems.setdefault("user_ids", refused)
     if problems:
         raise InputRefused(problems)
     if row is None:
@@ -131,6 +170,7 @@ def save_broadcast(
     row.to_bot = body.to_bot
     row.to_channel = body.to_channel
     row.to_site = body.to_site
+    row.audience = body.audience
     if body.image is not None or body.remove_image:
         saved.stale.append(row.image)
         row.image = ""
@@ -143,9 +183,30 @@ def save_broadcast(
         )
         saved.fresh.append(row.image)
     db.flush()
+    _set_targets(db, row=row, users=users)
     saved.stale = [name for name in saved.stale if name]
     logger.info("broadcast %s saved by %s", row.id, actor.id)
     return saved
+
+
+def _set_targets(db: Session, *, row: Broadcast, users: list[User]) -> None:
+    """The chosen, exactly these; none for a broadcast to everyone."""
+    db.execute(delete(BroadcastTarget).where(BroadcastTarget.broadcast_id == row.id))
+    if users:
+        now = utcnow()
+        db.execute(
+            insert(BroadcastTarget),
+            [
+                {
+                    "broadcast_id": row.id,
+                    "owner_id": user.id,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                for user in users
+            ],
+        )
+    db.flush()
 
 
 def delete_broadcast(db: Session, *, row: Broadcast) -> list[str]:
@@ -185,6 +246,8 @@ def _start_problems(row: Broadcast) -> dict[str, str]:
         problems["to_bot"] = "Bot sozlanmagan."
     if row.to_channel and not channel_ready():
         problems["to_channel"] = "Kanal sozlanmagan: TELEGRAM_CHANNEL_ID bo'sh."
+    if row.audience == Audience.SELECTED and row.to_channel:
+        problems["to_channel"] = "Tanlanganlarga yuborishda kanal bo'lmaydi."
     if row.image and not storage.media_path(row.image).is_file():
         problems["image"] = "Rasm topilmadi. Qaytadan yuklang."
     return problems
@@ -198,7 +261,7 @@ def start(db: Session, *, row: Broadcast) -> int:
     if problems:
         raise InputRefused(problems)
     now = utcnow()
-    chats = recipients(db) if row.to_bot else []
+    chats = recipients(db, row) if row.to_bot else []
     if chats:
         db.execute(
             insert(BroadcastDelivery),
