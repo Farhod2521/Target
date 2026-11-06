@@ -24,8 +24,18 @@ class Base(DeclarativeBase):
     pass
 
 
+# JIT off: the planner's cost for the office's wide per-account reads (the
+# sales pool) crosses jit_above_cost, and compiling them took ~9s of a 250ms
+# query on every request. No screen here reads enough rows to win it back.
 engine = create_engine(
-    settings.sqlalchemy_url, pool_pre_ping=True, pool_size=settings.db_pool_max_size
+    settings.sqlalchemy_url,
+    pool_pre_ping=True,
+    pool_size=settings.db_pool_max_size,
+    connect_args=(
+        {"options": "-c jit=off"}
+        if settings.sqlalchemy_url.startswith("postgresql")
+        else {}
+    ),
 )
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
 

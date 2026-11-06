@@ -5,7 +5,7 @@ from typing import Any
 
 from paykit import ExternalId, InvoiceNumber, MinorUnits, TransactionRecord
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.modules.accounts.models import User
 from app.modules.billing.constants import (
@@ -274,6 +274,7 @@ def held_transactions(db: Session, *, cutoff: datetime) -> list[PaymentTransacti
     return list(
         db.scalars(
             select(PaymentTransaction)
+            .options(joinedload(PaymentTransaction.owner))
             .where(
                 PaymentTransaction.state == TransactionState.CREATED,
                 PaymentTransaction.created_at <= cutoff,

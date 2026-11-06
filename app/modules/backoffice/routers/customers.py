@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import Db
 from app.common.timezone import localtime
-from app.modules.accounts.models import User
+from app.modules.accounts.models import AccountBlock, User
 from app.modules.backoffice.constants import ADMIN_ROLES
 from app.modules.backoffice.permissions import staff_required
 from app.modules.backoffice.routers._out import amounts, choices, person_out, trace_out
@@ -34,6 +34,7 @@ from app.modules.backoffice.selectors.customers import (
     CustomerRow,
     Narrowing,
     customer_page,
+    open_blocks,
 )
 from app.modules.backoffice.selectors.problems import Problem, problems_of
 from app.modules.backoffice.services import seen
@@ -65,6 +66,18 @@ TERM_LABELS = {
     "lapsed": "Obunasi tugagan",
     "never": "Obuna olmagan",
 }
+
+
+def block_out(block: AccountBlock | None) -> dict[str, Any] | None:
+    if block is None:
+        return None
+    return {
+        "reason": {"value": str(block.reason_id), "label": block.reason.name},
+        "shown_to_user": block.shown_to_user,
+        "note": block.note,
+        "blocked_by": person_out(block.blocked_by),
+        "blocked_at": block.blocked_at,
+    }
 
 
 def trouble_out(problem: Problem | None) -> dict[str, Any] | None:
@@ -102,6 +115,8 @@ def row_out(row: CustomerRow) -> dict[str, Any]:
     return {
         "customer": {**(person_out(user) or {}), "phone": user.phone},
         "is_blocked": not user.is_active,
+        "is_staff": user.is_staff,
+        "block": block_out(row.block),
         "joined_at": user.date_joined,
         "last_login_at": user.last_login,
         "business": (
@@ -392,6 +407,8 @@ def customer(customer_id: uuid.UUID, db: Db, user: Admin) -> dict[str, Any]:
             "phone": owner.phone,
             "language": owner.language,
             "is_blocked": not owner.is_active,
+            "is_staff": owner.is_staff,
+            "block": block_out(open_blocks(db, [owner.id]).get(owner.id)),
             "joined_at": owner.date_joined,
             "last_login_at": owner.last_login,
             "prepared_at": owner.prepared_at,

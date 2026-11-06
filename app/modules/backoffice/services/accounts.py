@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.common import tokens
 from app.common.passwords import PasswordInvalid, make_password, validate_password
-from app.modules.accounts.models import User
+from app.modules.accounts.models import BlockReason, User
 from app.modules.accounts.services import (
     PurgeReport,
     block_user,
@@ -19,6 +19,7 @@ from app.modules.audit.services import emit
 from app.modules.backoffice.constants import ActionKind
 from app.modules.backoffice.exceptions import (
     AlreadyBlocked,
+    BlockReasonArchived,
     EmailMismatch,
     NotBlocked,
     PasswordRefused,
@@ -92,33 +93,52 @@ def set_customer_password(
 
 
 def block_customer(
-    db: Session, *, customer: User, actor: User, reason: str, now: datetime
+    db: Session,
+    *,
+    customer: User,
+    actor: User,
+    reason: BlockReason,
+    shown_to_user: bool,
+    note: str,
+    now: datetime,
 ) -> User:
     """Shut the account and sign the customer out on every device. Nothing in
-    it is touched: their ads keep running at Meta."""
-    if not reason.strip():
-        raise ReasonRequired
+    it is touched: their ads keep running at Meta. The reason is told to the
+    customer at sign-in only when ``shown_to_user``; the note never is."""
+    if reason.is_archived:
+        raise BlockReasonArchived
     if not customer.is_active:
         raise AlreadyBlocked
-    block_user(db, user=customer, reason=reason, details={"actor_id": str(actor.id)})
+    block_user(
+        db,
+        user=customer,
+        reason=reason,
+        shown_to_user=shown_to_user,
+        note=note,
+        actor=actor,
+        now=now,
+    )
     record(
         db,
         customer=customer,
         actor=actor,
         kind=ActionKind.ACCOUNT_BLOCKED,
-        reason=reason,
+        reason=f"{reason.name}: {note.strip()}" if note.strip() else reason.name,
+        detail={"reason_id": str(reason.id), "shown_to_user": shown_to_user},
     )
     tokens.revoke_all(subject=str(customer.id), now=now)
     return customer
 
 
-def unblock_customer(db: Session, *, customer: User, actor: User, reason: str) -> User:
+def unblock_customer(
+    db: Session, *, customer: User, actor: User, reason: str, now: datetime
+) -> User:
     """Open the account again; the customer signs in anew."""
     if not reason.strip():
         raise ReasonRequired
     if customer.is_active:
         raise NotBlocked
-    unblock_user(db, user=customer, reason=reason, details={"actor_id": str(actor.id)})
+    unblock_user(db, user=customer, note=reason, actor=actor, now=now)
     record(
         db,
         customer=customer,

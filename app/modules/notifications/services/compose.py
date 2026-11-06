@@ -451,6 +451,20 @@ def ask_button(*, suggestion_id: str = "", item_key: str = "") -> tuple[Button, 
     return miniapp_button(route="chat:chat", label="Bu haqda so'rash", query=query)
 
 
+def block_suggestion_message(
+    *, client: str, reason: str, held_by: str, office_path: str
+) -> Message:
+    lines = [_bold("Bloklash tavsiyasi"), escaped(client), "", escaped(reason)]
+    if held_by:
+        lines.append(escaped("Avval ulangan kabinet: %(who)s" % {"who": held_by}))
+    lines += [
+        "",
+        _italic("Tizim rad etdi, lekin bloklamadi: qarorni Support qiladi."),
+        _link(path=office_path, label="Ofisda ochish"),
+    ]
+    return Message(text="\n".join(lines))
+
+
 def escaped(value: str) -> str:
     return escape(value, quote=False)
 

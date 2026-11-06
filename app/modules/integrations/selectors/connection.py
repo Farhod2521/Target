@@ -3,7 +3,7 @@ import uuid
 from metaads import PROVIDER
 from metaads.oauth import INSTAGRAM_SCOPE, holds, missing
 from sqlalchemy import Select, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.modules.accounts.models import User
 from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
@@ -56,6 +56,7 @@ def broken_meta_connections(db: Session) -> list[ProviderConnection]:
     return list(
         db.scalars(
             select(ProviderConnection)
+            .options(joinedload(ProviderConnection.owner))
             .where(
                 ProviderConnection.provider == PROVIDER,
                 ProviderConnection.status.not_in(USABLE_CONNECTION_STATUSES),

@@ -18,6 +18,10 @@ from app.modules.backoffice.routers._out import choices, person_out, trace_out
 from app.modules.backoffice.routers.actions import router as actions
 from app.modules.backoffice.routers.activity import router as activity
 from app.modules.backoffice.routers.advertising import router as advertising
+from app.modules.backoffice.routers.blocks import reasons_router as block_reasons
+from app.modules.backoffice.routers.blocks import (
+    suggestions_router as block_suggestions,
+)
 from app.modules.backoffice.routers.crm import router as crm
 from app.modules.backoffice.routers.customers import router as customers
 from app.modules.backoffice.routers.dashboard import router as dashboard
@@ -44,6 +48,8 @@ Owner = Annotated[User, Depends(staff_required(Role.OWNER))]
 router.include_router(customers)
 router.include_router(advertising)
 router.include_router(actions)
+router.include_router(block_reasons)
+router.include_router(block_suggestions)
 router.include_router(crm)
 router.include_router(facebook)
 router.include_router(activity)

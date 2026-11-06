@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from metaads import PROVIDER
 from sqlalchemy import Select, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.common.db import utcnow
 from app.modules.accounts.models import User
@@ -202,6 +202,7 @@ def expiring_subscriptions(
     return list(
         db.scalars(
             select(Subscription)
+            .options(joinedload(Subscription.owner))
             .where(
                 Subscription.status.in_(LIVE_SUBSCRIPTION_STATUSES),
                 Subscription.expires_at >= start,

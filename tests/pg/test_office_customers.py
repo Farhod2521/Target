@@ -282,7 +282,10 @@ def test_the_card_says_everything_and_no_secret(
     manager_login = db.scalar(select(User).where(User.email == "manager@shop.test"))
     assert manager_login is not None
     assert client.get(f"{URL}/{manager_login.id}", headers=headers).status_code == 404
-    assert client.get(f"{URL}/{support.id}", headers=headers).status_code == 404
+    colleague = client.get(f"{URL}/{support.id}", headers=headers)
+    assert colleague.status_code == 200, colleague.text
+    assert colleague.json()["profile"]["is_staff"] is True
+    assert body["profile"]["is_staff"] is False
 
 
 def test_the_ads_tab_reads_only_what_this_product_launched(
@@ -316,3 +319,109 @@ def test_the_ads_tab_reads_only_what_this_product_launched(
         ]
         == "month"
     )
+
+
+def test_the_blocked_chip_finds_only_blocked_accounts(
+    client: TestClient, db: Session
+) -> None:
+    people = _world(db)
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+    base = f"{URL}/{people['trial'].id}"
+
+    def found(query: str) -> dict:  # type: ignore[type-arg]
+        answer = client.get(f"{URL}?{query}", headers=support)
+        assert answer.status_code == 200, answer.text
+        return answer.json()
+
+    chips = {choice["value"]: choice["label"] for choice in found("")["states"]}
+    assert chips["blocked"] == "Bloklangan"
+    assert found("state=blocked")["total"] == 0
+
+    blocked = client.post(f"{base}/block", headers=support, json={"reason": "Spam"})
+    assert blocked.status_code == 200, blocked.text
+    body = found("state=blocked")
+    assert _emails(body) == ["trial@shop.test"] and body["total"] == 1
+    assert body["rows"][0]["is_blocked"] is True
+    assert "trial@shop.test" in _emails(found("state=trial"))
+    assert "trial@shop.test" in _emails(found(""))
+
+    freed = client.post(f"{base}/unblock", headers=support, json={"reason": "Ok"})
+    assert freed.status_code == 200, freed.text
+    assert found("state=blocked")["total"] == 0
+
+
+def test_the_trouble_feed_is_read_once_a_minute_and_reads_the_same(
+    client: TestClient, db: Session
+) -> None:
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    from app.modules.backoffice.selectors.problems import every_problem, problems
+
+    people = _world(db)
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+    for n, email in enumerate(("a", "b", "c")):
+        owner = _customer(db, f"{email}@broken.test")
+        db.add(
+            ProviderConnection(
+                owner_id=owner.id,
+                provider="meta",
+                token_encrypted=b"x",
+                token_fingerprint=f"f{n}",
+                status="invalid",
+            )
+        )
+    db.commit()
+    now = utcnow()
+    fresh = problems(db, now=now, limit=None)
+    assert {p.kind for p in fresh} >= {"connection", "expiring"}
+
+    seen: list[str] = []
+
+    def _record(*args: object) -> None:
+        seen.append(" ".join(str(args[2]).split()))
+
+    event.listen(Engine, "before_cursor_execute", _record)
+    try:
+        first = client.get(f"{URL}?state=trouble", headers=support).json()
+        read_first = list(seen)
+        seen.clear()
+        again = client.get(f"{URL}?state=trouble", headers=support).json()
+    finally:
+        event.remove(Engine, "before_cursor_execute", _record)
+
+    one_by_one = [
+        sql
+        for sql in read_first
+        if sql.startswith("SELECT users.") and "WHERE users.id = " in sql
+    ]
+    assert len(one_by_one) <= 2, one_by_one
+    assert len(seen) < len(read_first)
+    assert _emails(first) == _emails(again)
+    assert {"a@broken.test", "b@broken.test", "c@broken.test"} <= set(_emails(again))
+    assert every_problem(db, now=now) == fresh
+    assert people["trial"].id in {p.owner_id for p in every_problem(db, now=now)}
+
+
+def test_the_staff_chip_lists_colleagues_and_only_it_does(
+    client: TestClient, db: Session
+) -> None:
+    _world(db)
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+
+    def found(query: str) -> dict:  # type: ignore[type-arg]
+        answer = client.get(f"{URL}?{query}", headers=support)
+        assert answer.status_code == 200, answer.text
+        return answer.json()
+
+    everyone = found("")
+    assert "support@office.test" not in _emails(everyone)
+    assert {row["is_staff"] for row in everyone["rows"]} == {False}
+    assert ("staff", "Xodimlar") in {
+        (choice["value"], choice["label"]) for choice in everyone["states"]
+    }
+    colleagues = found("state=staff")
+    assert _emails(colleagues) == ["support@office.test"]
+    assert colleagues["rows"][0]["is_staff"] is True
+    assert _emails(found("state=staff&q=support@")) == ["support@office.test"]
+    assert found("state=staff&q=active@")["total"] == 0

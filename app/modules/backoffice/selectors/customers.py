@@ -17,7 +17,7 @@ from metaads.writing import is_dry_run_id
 from sqlalchemy import ColumnElement, Select, false, func, or_, select, true
 from sqlalchemy.orm import Session, joinedload
 
-from app.modules.accounts.models import User
+from app.modules.accounts.models import AccountBlock, User
 from app.modules.ads import refs as ref_field
 from app.modules.ads.constants import NOT_RUNNING, LaunchStep
 from app.modules.ads.models import Campaign, CampaignLaunch
@@ -32,6 +32,7 @@ from app.modules.billing.constants import (
 from app.modules.billing.models import Invoice, Plan, Subscription
 from app.modules.billing.selectors import entitled_owner_ids
 from app.modules.businesses.models import Business
+from app.modules.chat.services.quota import PUBLIC_CHAT_EMAIL
 from app.modules.integrations.models import AdAccount, PageAccount, PageInstagram
 from app.modules.leads.models import Lead
 from app.modules.metrics.constants import MetricLevel
@@ -46,6 +47,8 @@ STATES = (
     ("expiring", "Tugayapti"),
     ("lapsed", "Obunasi tugagan"),
     ("never", "Obuna olmagan"),
+    ("blocked", "Bloklangan"),
+    ("staff", "Xodimlar"),
 )
 SORTS = (
     ("", "Holatga qarab"),
@@ -97,6 +100,7 @@ class CustomerRow:
     paid_total: Money
     paid_before: bool
     manager: User | None
+    block: AccountBlock | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +194,8 @@ def _by_state(
         )
     if state == "never":
         return User.id.not_in(select(Subscription.owner_id))
+    if state == "blocked":
+        return User.is_active.is_(False)
     return true()
 
 
@@ -288,10 +294,12 @@ def narrowed_accounts(
     as_of: datetime,
     troubled: set[uuid.UUID],
 ) -> Select[Any]:
-    """Customers only: staff and the CRM managers' own logins are not on it."""
+    """Customers only, unless the staff chip asks for colleagues' own accounts;
+    the CRM managers' logins and the visitors' chat account are never on it."""
     query = select(User).where(
-        User.is_staff.is_(False),
+        User.is_staff.is_(narrowing.state == "staff"),
         User.crm_owner_id.is_(None),
+        User.email != PUBLIC_CHAT_EMAIL,
         User.date_joined <= as_of,
         _by_term(db, narrowing.term),
         _by_state(narrowing.state, now=now, troubled=troubled),
@@ -528,6 +536,20 @@ def _managers(db: Session, ids: list[uuid.UUID]) -> dict[uuid.UUID, User]:
     return found
 
 
+def open_blocks(db: Session, ids: list[uuid.UUID]) -> dict[uuid.UUID, AccountBlock]:
+    """Each blocked account's open block, with its reason and who did it."""
+    return {
+        row.owner_id: row
+        for row in db.scalars(
+            select(AccountBlock)
+            .options(
+                joinedload(AccountBlock.reason), joinedload(AccountBlock.blocked_by)
+            )
+            .where(AccountBlock.owner_id.in_(ids), AccountBlock.lifted_at.is_(None))
+        )
+    }
+
+
 def customer_page(
     db: Session,
     *,
@@ -561,6 +583,7 @@ def customer_page(
     paid = _paid_totals(db, ids)
     returning = _paid_before(db, [person.email for person in people])
     managers = _managers(db, ids)
+    blocks = open_blocks(db, [person.id for person in people if not person.is_active])
     quiet = _Activity()
 
     rows = []
@@ -588,6 +611,7 @@ def customer_page(
                 paid_total=paid.get(person.id, ()),
                 paid_before=person.email.lower() in returning,
                 manager=managers.get(person.id),
+                block=blocks.get(person.id),
             )
         )
     return CustomerPage(

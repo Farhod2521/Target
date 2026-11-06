@@ -8,12 +8,10 @@ from zoneinfo import ZoneInfo
 
 from metaads import PROVIDER as META
 from metaads.accounts import manager_url
-from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy import ColumnElement, and_, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
-from app.modules.audit.constants import EventName
-from app.modules.audit.models import Event
 from app.modules.integrations.constants import (
     MIRROR_NIGHTLY_STALE_MINUTES,
     MIRROR_STALE_MINUTES,
@@ -74,26 +72,6 @@ def _uuid(value: object) -> object:
         return uuid.UUID(str(value))
     except ValueError:
         return value
-
-
-def identity_refusals(db: Session, *, owner: User) -> int:
-    acted_at = db.scalar(
-        select(Event.occurred_at)
-        .where(Event.owner_id == owner.id, Event.name == EventName.USER_BLOCKED)
-        .order_by(Event.occurred_at.desc())
-        .limit(1)
-    )
-    query = (
-        select(func.count())
-        .select_from(Event)
-        .where(
-            Event.owner_id == owner.id,
-            Event.name == EventName.CONNECTION_REFUSED_DUPLICATE,
-        )
-    )
-    if acted_at is not None:
-        query = query.where(Event.occurred_at > acted_at)
-    return int(db.scalar(query) or 0)
 
 
 @dataclass(frozen=True, slots=True)

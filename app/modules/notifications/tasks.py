@@ -2,6 +2,7 @@ from typing import Any
 
 from app.common.db import utcnow
 from app.modules.notifications.services import (
+    announce_block_suggestion,
     announce_feedback,
     announce_password_changed,
     announce_referral,
@@ -120,6 +121,12 @@ def deliver_support_question_task(message_id: str) -> int:
         copies = forward_support_question(db, message_id=message_id, now=utcnow())
         db.commit()
         return copies
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def deliver_block_suggestion_task(suggestion_id: str) -> int:
+    with task_session() as db:
+        return announce_block_suggestion(db, suggestion_id=suggestion_id)
 
 
 @celery_app.task(queue="webhooks", ignore_result=True)

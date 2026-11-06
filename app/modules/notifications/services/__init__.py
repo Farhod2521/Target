@@ -2,6 +2,10 @@ from app.modules.notifications.services.announce_support import (
     announce_support_reply,
     queue_support_reply,
 )
+from app.modules.notifications.services.block_desk import (
+    announce_block_suggestion,
+    queue_block_suggestion,
+)
 from app.modules.notifications.services.dev_alerts import (
     queue_launch_failure,
     report_launch_failure,
@@ -55,6 +59,7 @@ from app.modules.notifications.services.support_desk import (
 
 __all__ = [
     "EDITABLE",
+    "announce_block_suggestion",
     "announce_feedback",
     "announce_password_changed",
     "announce_referral",
@@ -77,6 +82,7 @@ __all__ = [
     "link_chat",
     "link_staff_chat",
     "mark_seen",
+    "queue_block_suggestion",
     "queue_feedback_notice",
     "queue_guest_question",
     "queue_launch_failure",

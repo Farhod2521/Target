@@ -12,6 +12,7 @@ from telegramkit import (
 from app.modules.accounts.models import User
 from app.modules.miniapp.constants import INIT_DATA_MAX_AGE_SECONDS
 from app.modules.miniapp.exceptions import (
+    AccountShut,
     ChatNotLinked,
     MiniAppUnavailable,
     NotInsideTelegram,
@@ -44,6 +45,10 @@ def authenticate(db: Session, *, init_data: str, now: datetime) -> User:
     logger.info(
         "miniapp_proof_accepted", extra={"signed_keys": ",".join(verified.signed_keys)}
     )
+    if not chat.owner.is_active:
+        from app.modules.accounts.services import blocked_message
+
+        raise AccountShut(blocked_message(db, user=chat.owner))
     return chat.owner
 
 

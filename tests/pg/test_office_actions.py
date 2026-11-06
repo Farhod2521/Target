@@ -664,3 +664,70 @@ def test_blocking_signs_the_customer_out_until_unblocked(
             .order_by(Event.occurred_at)
         )
     ) == [EventName.USER_BLOCKED, EventName.USER_UNBLOCKED]
+
+
+def test_a_colleagues_account_is_run_here_but_its_door_and_money_are_not(
+    client: TestClient, db: Session
+) -> None:
+    _shop(db, subscribed=False)
+    tester, _ = _staff(db, Role.SALES, email="tester@office.test")
+    _, root = _staff(db, Role.OWNER, email="root@office.test", superuser=True)
+    base = f"{URL}/{tester.id}"
+    paid = {"paid": True, "amount": "100", "method": "cash"}
+
+    card = client.get(base, headers=root)
+    assert card.status_code == 200, card.text
+    assert card.json()["profile"]["is_staff"] is True
+    given = client.post(
+        f"{base}/plan", headers=root, json={"plan": "pro", "reason": "Sinov"}
+    )
+    assert given.status_code == 200, given.text
+    more = client.post(
+        f"{base}/days", headers=root, json={"days": 3, "reason": "Sinov"}
+    )
+    assert more.status_code == 200, more.text
+
+    refused = {
+        "plan": client.post(
+            f"{base}/plan", headers=root, json={"plan": "pro", "reason": "x", **paid}
+        ),
+        "days": client.post(
+            f"{base}/days", headers=root, json={"days": 1, "reason": "x", **paid}
+        ),
+        "slots": client.post(
+            f"{base}/slots", headers=root, json={"pages": 1, "reason": "x", **paid}
+        ),
+        "payment": client.post(
+            f"{base}/payment",
+            headers=root,
+            json={"amount": "100", "method": "cash", "reason": "x"},
+        ),
+        "payout": client.post(
+            f"{base}/payout",
+            headers=root,
+            json={"amount": "1", "currency": "UZS", "method": "cash", "reason": "x"},
+        ),
+        "password": client.post(
+            f"{base}/password",
+            headers=root,
+            json={
+                "new_password1": "Xx12345678!",
+                "new_password2": "Xx12345678!",
+                "reason": "x",
+            },
+        ),
+        "block": client.post(f"{base}/block", headers=root, json={"reason": "x"}),
+        "unblock": client.post(f"{base}/unblock", headers=root, json={"reason": "x"}),
+        "delete": client.post(
+            f"{base}/delete", headers=root, json={"email": "tester@office.test"}
+        ),
+    }
+    assert {name: r.status_code for name, r in refused.items()} == dict.fromkeys(
+        refused, 403
+    ), {name: r.text for name, r in refused.items()}
+    assert {r.json()["code"] for r in refused.values()} == {"staff_account"}
+
+    db.expire_all()
+    still = db.get(User, tester.id)
+    assert still is not None and still.is_active and still.is_staff
+    assert db.scalar(select(Invoice).where(Invoice.owner_id == tester.id)) is None

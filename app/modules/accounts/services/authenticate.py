@@ -7,9 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
 from app.common.passwords import check_password, make_password, needs_rehash
-from app.modules.accounts.exceptions import BadCredentials
+from app.modules.accounts.exceptions import AccountBlocked, BadCredentials
 from app.modules.accounts.models import User
 from app.modules.accounts.selectors import user_by_email
+from app.modules.accounts.services.block_user import (
+    blocked_message,
+    owner_blocked_message,
+)
 from app.modules.audit.constants import EventName
 from app.modules.audit.models import Event
 from app.modules.audit.services import emit
@@ -30,13 +34,23 @@ def authenticate(db: Session, *, email: str, password: str, address: str = "") -
     # the time taken does not tell which emails are signed up.
     stored = user.password if user is not None and user.password else ""
     matches = check_password(password, stored or _decoy())
-    if user is None or not stored or not user.is_active or not matches:
+    if user is None or not stored or not matches:
         raise BadCredentials
+    _refuse_blocked(db, user=user)
     if needs_rehash(user.password):
         user.password = make_password(password)
     note_sign_in(db, user=user, via="password", address=address)
     db.commit()
     return user
+
+
+def _refuse_blocked(db: Session, *, user: User) -> None:
+    if not user.is_active:
+        raise AccountBlocked(blocked_message(db, user=user))
+    if user.crm_owner_id is not None:
+        owner = db.get(User, user.crm_owner_id)
+        if owner is None or not owner.is_active:
+            raise AccountBlocked(owner_blocked_message(user=user))
 
 
 def note_sign_in(db: Session, *, user: User, via: str, address: str = "") -> None:

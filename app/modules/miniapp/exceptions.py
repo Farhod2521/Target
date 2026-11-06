@@ -50,3 +50,9 @@ __all__ = [
     "ProofExpired",
     "ProofRefused",
 ]
+
+
+class AccountShut(MiniAppRefused):
+    """The cabinet is blocked: the words are the block's own."""
+
+    code = "blocked"

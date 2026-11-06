@@ -4,13 +4,16 @@ Urgent is money or a lead being lost right now that will not stop by itself;
 everything else waits. The cause belongs to the engineer's console.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.common.cache import cache
 from app.modules.accounts.models import User
 from app.modules.ads.constants import LaunchStatus
 from app.modules.ads.models import CampaignLaunch
@@ -25,7 +28,10 @@ from app.modules.leads.constants import SWEEP_STUCK_DAYS
 from app.modules.leads.selectors import orphan_pages, stuck_sweep_owners
 from app.modules.metrics.selectors import GAP_DAYS, lead_gaps_everywhere
 
+logger = logging.getLogger(__name__)
 ORPHAN_WINDOW_DAYS = 30
+EVERY_PROBLEM_KEY = "office:problems:v1"
+EVERY_PROBLEM_SECONDS = 60
 FEED_ROWS = 20
 SHORT_LABELS = {
     "connection": "Facebook uzilgan",
@@ -284,15 +290,63 @@ def problems(
     return sorted(found, key=lambda p: (order.get(p.severity, 9), p.since or now))
 
 
+def _stored(problem: Problem) -> dict[str, Any]:
+    return {
+        "kind": problem.kind,
+        "severity": str(problem.severity),
+        "owner_id": str(problem.owner_id) if problem.owner_id else None,
+        "who": problem.who,
+        "what": problem.what,
+        "since": problem.since.isoformat() if problem.since else None,
+        "action": problem.action,
+    }
+
+
+def _restored(row: dict[str, Any]) -> Problem:
+    return Problem(
+        kind=row["kind"],
+        severity=row["severity"],
+        owner_id=UUID(row["owner_id"]) if row["owner_id"] else None,
+        who=row["who"],
+        what=row["what"],
+        since=datetime.fromisoformat(row["since"]) if row["since"] else None,
+        action=row["action"],
+    )
+
+
+def every_problem(db: Session, *, now: datetime) -> list[Problem]:
+    """The whole feed, uncapped, kept for a minute.
+
+    Every customer list page and every card asks for it, and reading it costs
+    every check in the office; a minute late is nothing to anybody reading it.
+    """
+    try:
+        kept = cache.get(EVERY_PROBLEM_KEY)
+    except Exception:
+        kept = None
+    if kept is not None:
+        return [_restored(row) for row in kept]
+    found = problems(db, now=now, limit=None)
+    try:
+        cache.set(
+            EVERY_PROBLEM_KEY,
+            [_stored(problem) for problem in found],
+            timeout=EVERY_PROBLEM_SECONDS,
+        )
+    except Exception:
+        logger.warning("office problems could not be cached")
+    return found
+
+
 def problems_of(db: Session, *, owner_id: UUID, now: datetime) -> list[Problem]:
     """Everything wrong with one account, worst first - for its card."""
-    return [p for p in problems(db, now=now, limit=None) if p.owner_id == owner_id]
+    return [p for p in every_problem(db, now=now) if p.owner_id == owner_id]
 
 
 def worst_by_owner(db: Session, *, now: datetime) -> dict[UUID, Problem]:
     """Each troubled account's worst problem - the one its list row names."""
     worst: dict[UUID, Problem] = {}
-    for problem in problems(db, now=now, limit=None):
+    for problem in every_problem(db, now=now):
         if problem.owner_id is not None:
             worst.setdefault(problem.owner_id, problem)
     return worst

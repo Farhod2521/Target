@@ -63,6 +63,8 @@ PURGE_ORDER: tuple[str, ...] = (
     "sales.SalesCommission",
     "sales.SalesMonth",
     "sales.SalesClaim",
+    "accounts.BlockSuggestion",
+    "accounts.AccountBlock",
     "backoffice.StaffAction",
     "audit.ActionLog",
     "audit.Event",
@@ -119,3 +121,38 @@ RESET_TTL_SECONDS: Final = 15 * 60
 RESET_TOKEN_BYTES: Final = 32
 RESET_TOKEN_KEY: Final = "accounts:reset:{token}"
 REGISTERED_PIXEL_KEY: Final = "accounts:registered_pixel"
+
+
+class BlockCode(Choices):
+    """Block reasons the code itself names; the rest are the super admin's."""
+
+    META_IDENTITY_REUSED = "meta_identity_reused"
+    GOOGLE_IDENTITY_REUSED = "google_identity_reused"
+    OTHER = "other"
+
+
+class SuggestionOutcome(Choices):
+    BLOCKED = "blocked"
+    DISMISSED = "dismissed"
+
+
+# Said at sign-in when the block is not shown, or its reason has no words in
+# the reader's language.
+BLOCKED_MESSAGE: Final = {
+    "uz": "Akkauntingiz bloklangan. Batafsil bilish uchun qo'llab-quvvatlash "
+    "xizmatiga murojaat qiling.",
+    "ru": "Ваш аккаунт заблокирован. Чтобы узнать подробности, обратитесь в "
+    "службу поддержки.",
+    "en": "Your account is blocked. Please contact Support to learn more.",
+}
+BLOCKED_REASON_HEAD: Final = {
+    "uz": "Akkauntingiz bloklangan. Sabab:",
+    "ru": "Ваш аккаунт заблокирован. Причина:",
+    "en": "Your account is blocked. Reason:",
+}
+OWNER_BLOCKED_MESSAGE: Final = {
+    "uz": "Kabinet egasining akkaunti bloklangan, shuning uchun CRM'ga kirib "
+    "bo'lmaydi.",
+    "ru": "Аккаунт владельца кабинета заблокирован, поэтому вход в CRM невозможен.",
+    "en": "The cabinet owner's account is blocked, so the CRM cannot be opened.",
+}

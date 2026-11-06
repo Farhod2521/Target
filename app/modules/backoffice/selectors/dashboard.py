@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.common.config import settings
 from app.common.dates import localtime, office_zone
-from app.modules.accounts.models import User
+from app.modules.accounts.models import BlockSuggestion, User
 from app.modules.ads import refs as ref_field
 from app.modules.ads.constants import NOT_RUNNING, LaunchStatus, LaunchStep
 from app.modules.ads.models import Campaign, CampaignLaunch
@@ -660,6 +660,7 @@ class Waiting:
     feedback: int
     arizas: int
     holds: int
+    block_suggestions: int = 0
 
 
 def waiting(db: Session, *, now: datetime) -> Waiting:
@@ -685,6 +686,14 @@ def waiting(db: Session, *, now: datetime) -> Waiting:
         arizas=waiting_ariza_count(db, now=now),
         holds=len(
             held_transactions(db, cutoff=now - timedelta(hours=STUCK_HOLD_HOURS))
+        ),
+        block_suggestions=int(
+            db.scalar(
+                select(func.count(BlockSuggestion.id)).where(
+                    BlockSuggestion.resolved_at.is_(None)
+                )
+            )
+            or 0
         ),
     )
 

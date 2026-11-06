@@ -42,6 +42,7 @@ from app.modules.billing.selectors import (
 )
 from app.modules.businesses.models import Business
 from app.modules.businesses.selectors import businesses_for
+from app.modules.chat.services.quota import PUBLIC_CHAT_EMAIL
 from app.modules.crm.selectors import seat_capacity, team_size
 from app.modules.integrations.models import (
     AdAccount,
@@ -82,13 +83,14 @@ RECENT_PAYOUTS = 6
 
 
 def person(db: Session, *, customer_id: uuid.UUID) -> User | None:
-    """The account behind an id, if it is a customer's: never staff, never a
-    CRM manager's own login."""
+    """The account behind an id, if it is a customer's or a colleague's own
+    (staff test the product on theirs); never a CRM manager's own login,
+    nor the account the site's visitors chat under."""
     return db.scalar(
         select(User).where(
             User.id == customer_id,
-            User.is_staff.is_(False),
             User.crm_owner_id.is_(None),
+            User.email != PUBLIC_CHAT_EMAIL,
         )
     )
 

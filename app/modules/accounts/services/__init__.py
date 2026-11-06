@@ -1,5 +1,15 @@
 from app.modules.accounts.services.authenticate import authenticate, note_sign_in
-from app.modules.accounts.services.block_user import block_user, unblock_user
+from app.modules.accounts.services.block_user import (
+    BLOCK_SUGGESTED,
+    block_user,
+    blocked_message,
+    dismiss_suggestion,
+    known_reason,
+    open_block,
+    owner_blocked_message,
+    suggest_block,
+    unblock_user,
+)
 from app.modules.accounts.services.change_password import change_password
 from app.modules.accounts.services.email_code import (
     CodeSent,
@@ -39,6 +49,7 @@ from app.modules.accounts.services.save_account import (
 from app.modules.accounts.services.set_language import set_expert_mode, set_language
 
 __all__ = [
+    "BLOCK_SUGGESTED",
     "PHONE_SAVED",
     "USER_REGISTERED",
     "CodeSent",
@@ -46,13 +57,18 @@ __all__ = [
     "PurgeReport",
     "authenticate",
     "block_user",
+    "blocked_message",
     "change_password",
     "confirm_email",
     "create_member_login",
+    "dismiss_suggestion",
     "email_in_use",
     "issue_handoff",
     "issue_password_reset",
+    "known_reason",
     "note_sign_in",
+    "open_block",
+    "owner_blocked_message",
     "purge_owned_rows",
     "purge_preview",
     "purge_user",
@@ -70,5 +86,6 @@ __all__ = [
     "set_language",
     "set_member_password",
     "sign_up",
+    "suggest_block",
     "unblock_user",
 ]

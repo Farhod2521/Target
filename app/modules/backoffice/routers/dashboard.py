@@ -171,6 +171,7 @@ def dashboard(
             "feedback": queues.feedback,
             "arizas": queues.arizas,
             "holds": queues.holds,
+            "block_suggestions": queues.block_suggestions,
         },
         "problems": {
             "total": len(found),

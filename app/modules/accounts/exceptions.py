@@ -107,6 +107,14 @@ class HandoffExpired(DomainError):
         )
 
 
+class AccountBlocked(DomainError):
+    """Said only after the password matched: the words are the block's own
+    (``blocked_message``), so a stranger typing an address learns nothing."""
+
+    status_code = 403
+    code = "account_blocked"
+
+
 class HandoffBlocked(DomainError):
     status_code = 403
     code = "blocked"

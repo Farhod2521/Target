@@ -16,7 +16,9 @@ from sqlalchemy import select
 from app.api.deps import Db
 from app.common.db import utcnow
 from app.common.exceptions import InputRefused
-from app.modules.accounts.models import User
+from app.modules.accounts.constants import BlockCode
+from app.modules.accounts.models import BlockReason, User
+from app.modules.accounts.services import known_reason
 from app.modules.backoffice import services
 from app.modules.backoffice.constants import (
     ADMIN_ROLES,
@@ -24,6 +26,7 @@ from app.modules.backoffice.constants import (
     MONEY_ROLES,
     Role,
 )
+from app.modules.backoffice.exceptions import StaffAccountGuarded
 from app.modules.backoffice.permissions import staff_required
 from app.modules.backoffice.schemas import DeletedOut, MessageOut
 from app.modules.backoffice.selectors.card import person
@@ -114,6 +117,32 @@ class RemovePairIn(ReasonIn):
     account: str = Field(min_length=1, max_length=64)
 
 
+class BlockIn(BaseModel):
+    """A reason from `/office/block-reasons`, and whether the customer reads it.
+
+    The older body, a bare `reason`, still blocks: under «Boshqa», hidden,
+    with those words as the note.
+    """
+
+    reason_id: uuid.UUID | None = Field(None, description="From the reasons list.")
+    shown_to_user: bool = Field(
+        False, description="Tell the customer the reason when they sign in."
+    )
+    note: str = Field("", max_length=500, description="For the office only.")
+    reason: str = Field("", max_length=500, description="Older clients: the note.")
+
+
+def _block_reason(db: Db, body: BlockIn) -> BlockReason:
+    if body.reason_id is not None:
+        found = db.get(BlockReason, body.reason_id)
+        if found is None:
+            raise InputRefused({"reason_id": "Bunday sabab yo'q."})
+        return found
+    if not body.reason.strip():
+        raise InputRefused({"reason_id": "Sababni tanlang."})
+    return known_reason(db, code=BlockCode.OTHER)
+
+
 class PasswordIn(ReasonIn):
     new_password1: str = Field(min_length=1, max_length=128)
     new_password2: str = Field(min_length=1, max_length=128)
@@ -130,10 +159,14 @@ class PayoutIn(ReasonIn):
     pay_reference: str = Field("", max_length=128)
 
 
-def _customer(db: Db, customer_id: uuid.UUID) -> User:
+def _customer(db: Db, customer_id: uuid.UUID, *, staff_too: bool = True) -> User:
+    """``staff_too=False`` for what touches a login or money: a colleague's
+    account is tested here, but its door and its takings belong to Jamoa."""
     customer = person(db, customer_id=customer_id)
     if customer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
+    if customer.is_staff and not staff_too:
+        raise StaffAccountGuarded
     return customer
 
 
@@ -154,7 +187,7 @@ def give_plan(
     customer_id: uuid.UUID, body: PlanIn, db: Db, actor: Admin
 ) -> dict[str, Any]:
     """Put the account on a plan, with the plan's whole period."""
-    customer = _customer(db, customer_id)
+    customer = _customer(db, customer_id, staff_too=not body.paid)
     plan = db.scalar(select(Plan).where(Plan.code == body.plan))
     if plan is None:
         raise InputRefused({"plan": "Tarifni tanlang."})
@@ -178,7 +211,7 @@ def give_days(
 
     Added, a lapsed one is reopened on its last plan.
     """
-    customer = _customer(db, customer_id)
+    customer = _customer(db, customer_id, staff_too=not body.paid)
     if body.take:
         if body.paid:
             raise InputRefused({"paid": "Ayirilgan kun uchun to'lov yozilmaydi."})
@@ -209,7 +242,7 @@ def change_slots(
     customer_id: uuid.UUID, body: SlotsIn, db: Db, actor: Admin
 ) -> dict[str, Any]:
     """Give room for more pages, or take room back (`take`)."""
-    customer = _customer(db, customer_id)
+    customer = _customer(db, customer_id, staff_too=not body.paid)
     if body.take:
         if body.paid:
             raise InputRefused({"paid": "Olingan o'rin uchun to'lov yozilmaydi."})
@@ -239,7 +272,7 @@ def record_payment(
     customer_id: uuid.UUID, body: PaymentIn, db: Db, actor: Admin
 ) -> dict[str, Any]:
     """Write down money for access the account already has."""
-    customer = _customer(db, customer_id)
+    customer = _customer(db, customer_id, staff_too=False)
     services.take_payment(
         db,
         customer=customer,
@@ -287,7 +320,7 @@ def record_payout(
     customer_id: uuid.UUID, body: PayoutIn, db: Db, actor: Money
 ) -> dict[str, Any]:
     """Record that this Hamyon paid out, after the money already moved."""
-    customer = _customer(db, customer_id)
+    customer = _customer(db, customer_id, staff_too=False)
     currency = body.currency.upper()
     if currency not in services.payout_currencies(db, customer=customer):
         raise InputRefused({"currency": "Bu valyutada Hamyon yo'q."})
@@ -310,7 +343,7 @@ def add_page(
     customer_id: uuid.UUID, page_id: uuid.UUID, body: PaidIn, db: Db, actor: Owner
 ) -> dict[str, Any]:
     """One more slot past the plan, and this page switched on in it. Owner only."""
-    customer = _customer(db, customer_id)
+    customer = _customer(db, customer_id, staff_too=not body.paid)
     page = _page(db, customer=customer, page_id=page_id)
     services.add_page(
         db,
@@ -396,7 +429,7 @@ def set_password(
     """Set the customer's password and sign them out everywhere. Superuser only."""
     if not actor.is_superuser:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
-    customer = _customer(db, customer_id)
+    customer = _customer(db, customer_id, staff_too=False)
     if body.new_password1 != body.new_password2:
         raise InputRefused({"new_password2": "Parollar bir xil emas."})
     services.set_customer_password(
@@ -412,12 +445,19 @@ def set_password(
 
 @router.post("/block", responses={200: {"model": MessageOut}})
 def block_customer(
-    customer_id: uuid.UUID, body: ReasonIn, db: Db, actor: Blocker
+    customer_id: uuid.UUID, body: BlockIn, db: Db, actor: Blocker
 ) -> dict[str, Any]:
-    """Shut the account and sign the customer out everywhere."""
-    customer = _customer(db, customer_id)
+    """Shut the account and sign the customer out everywhere, for a reason
+    from the list; whether the customer reads it is chosen each time."""
+    customer = _customer(db, customer_id, staff_too=False)
     services.block_customer(
-        db, customer=customer, actor=actor, reason=body.reason, now=utcnow()
+        db,
+        customer=customer,
+        actor=actor,
+        reason=_block_reason(db, body),
+        shown_to_user=body.shown_to_user,
+        note=body.note or body.reason,
+        now=utcnow(),
     )
     return _done(db, "Akkaunt bloklandi.")
 
@@ -427,8 +467,10 @@ def unblock_customer(
     customer_id: uuid.UUID, body: ReasonIn, db: Db, actor: Blocker
 ) -> dict[str, Any]:
     """Open a blocked account again."""
-    customer = _customer(db, customer_id)
-    services.unblock_customer(db, customer=customer, actor=actor, reason=body.reason)
+    customer = _customer(db, customer_id, staff_too=False)
+    services.unblock_customer(
+        db, customer=customer, actor=actor, reason=body.reason, now=utcnow()
+    )
     return _done(db, "Akkaunt blokdan chiqarildi.")
 
 
@@ -437,7 +479,7 @@ def delete_customer(
     customer_id: uuid.UUID, body: DeleteIn, db: Db, actor: Owner
 ) -> dict[str, Any]:
     """Erase the account with everything in it; paid bills stay. Owner only."""
-    customer = _customer(db, customer_id)
+    customer = _customer(db, customer_id, staff_too=False)
     report = services.delete_account(
         db, customer=customer, actor=actor, typed_email=body.email
     )

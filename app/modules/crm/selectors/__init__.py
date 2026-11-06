@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.common.dates import localtime
 from app.common.db import utcnow
@@ -708,6 +708,12 @@ def _on_board(*, viewer: Viewer, filters: BoardFilters, now: datetime) -> Select
     return base.where(or_(CrmCard.closed_at.is_(None), CrmCard.closed_at >= recent))
 
 
+def _shown(query: Select[Any]) -> Select[Any]:
+    """Cards as the board prints them: each one's lead and holder in two reads
+    for the whole column, not one per card."""
+    return query.options(selectinload(CrmCard.lead), selectinload(CrmCard.assignee))
+
+
 def _ordered(query: Select[Any], kind: str) -> Select[Any]:
     if kind == StageKind.NEW:
         return query.order_by(CrmCard.created_at.desc(), CrmCard.id)
@@ -742,7 +748,9 @@ def column_page(
         CrmCard.stage_id == stage.id
     )
     cards = list(
-        db.scalars(_ordered(in_stage, stage.kind).offset(start).limit(CARDS_PER_COLUMN))
+        db.scalars(
+            _shown(_ordered(in_stage, stage.kind)).offset(start).limit(CARDS_PER_COLUMN)
+        )
     )
     return Column(stage=stage, cards=cards, total=_count(db, in_stage), start=start)
 
@@ -791,7 +799,9 @@ def board(
     columns = []
     for stage in stages:
         in_stage = base.where(CrmCard.stage_id == stage.id)
-        cards = list(db.scalars(_ordered(in_stage, stage.kind).limit(CARDS_PER_COLUMN)))
+        cards = list(
+            db.scalars(_shown(_ordered(in_stage, stage.kind)).limit(CARDS_PER_COLUMN))
+        )
         won = 0
         reasons: tuple[tuple[str, int], ...] = ()
         inner = in_stage.subquery()
@@ -816,14 +826,12 @@ def board(
                 reasons=reasons,
             )
         )
-    leads = {card.lead_id for column in columns for card in column.cards}
-    ad_ids = set(
-        db.scalars(
-            select(Lead.ad_external_id).where(
-                Lead.id.in_(leads), Lead.ad_external_id != ""
-            )
-        )
-    )
+    ad_ids = {
+        card.lead.ad_external_id
+        for column in columns
+        for card in column.cards
+        if card.lead.ad_external_id
+    }
     open_cards = visible_cards(viewer).where(CrmCard.closed_at.is_(None))
     start, end = _today(now)
     late = _count(db, open_cards.where(CrmCard.due_at < now))

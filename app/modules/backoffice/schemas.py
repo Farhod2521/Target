@@ -137,9 +137,21 @@ class PagesOut(BaseModel):
     allowed: int | None = Field(description="None without a live plan.")
 
 
+class BlockOut(BaseModel):
+    """The open block: why, whether the customer is told, and by whom."""
+
+    reason: ChoiceOut = Field(description="`value` is the reason's id.")
+    shown_to_user: bool
+    note: str = Field(description="The office's own note; never shown.")
+    blocked_by: PersonOut | None = Field(description="None: blocked before reasons.")
+    blocked_at: datetime
+
+
 class CustomerRowOut(BaseModel):
     customer: CustomerPersonOut
     is_blocked: bool
+    is_staff: bool = Field(description="A colleague's own account, for testing.")
+    block: BlockOut | None = Field(description="Set while blocked.")
     joined_at: datetime
     last_login_at: datetime | None
     business: BusinessLineOut | None
@@ -174,6 +186,11 @@ class CustomersOut(BaseModel):
 class ProfileOut(CustomerPersonOut):
     language: str
     is_blocked: bool
+    is_staff: bool = Field(
+        description="A colleague's account: password, block, delete and money "
+        "records are refused here (`staff_account`)."
+    )
+    block: BlockOut | None = Field(description="Set while blocked.")
     joined_at: datetime
     last_login_at: datetime | None
     prepared_at: datetime | None = Field(description="When preparation finished.")
@@ -1193,6 +1210,9 @@ class DashWaitingOut(BaseModel):
     feedback: int
     arizas: int
     holds: int = Field(description="Payments held longer than 12 hours.")
+    block_suggestions: int = Field(
+        0, description="Accounts the system asks Support to block."
+    )
 
 
 class DashProblemOut(BaseModel):
@@ -1799,3 +1819,45 @@ class ActivityOut(BaseModel):
     next_before: datetime | None = Field(
         description="Send as `before` for the next page; empty at the end."
     )
+
+
+class BlockReasonOut(BaseModel):
+    id: str
+    code: str | None = Field(description="Set on the reasons the system names.")
+    name: str
+    message_uz: str
+    message_ru: str
+    message_en: str
+    position: int
+    is_archived: bool
+    is_system: bool = Field(description="Its words may change; it cannot be archived.")
+
+
+class BlockReasonsOut(BaseModel):
+    rows: list[BlockReasonOut]
+    may_edit: bool = Field(description="The superuser keeps the list.")
+
+
+class SuggestionDetailOut(BaseModel):
+    external_user_id: str = Field(description="The Facebook or Google id reused.")
+    held_by: PersonOut | None = Field(description="The cabinet that already has it.")
+
+
+class ReasonLineOut(BaseModel):
+    id: str
+    name: str
+
+
+class BlockSuggestionOut(BaseModel):
+    id: str
+    customer: CustomerPersonOut
+    reason: ReasonLineOut
+    times: int = Field(description="How often the system refused it.")
+    first_at: datetime
+    last_at: datetime
+    detail: SuggestionDetailOut
+
+
+class BlockSuggestionsOut(BaseModel):
+    rows: list[BlockSuggestionOut]
+    total: int

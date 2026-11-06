@@ -3,7 +3,7 @@
 import logging
 import secrets
 from datetime import timedelta
-from typing import Any, Final, Literal
+from typing import Final, Literal
 
 from adskit import GrantDTO, ProviderError, registry
 from googleadskit import PROVIDER as GOOGLE
@@ -32,7 +32,6 @@ from app.modules.accounts.models import User
 from app.modules.audit.constants import EventName
 from app.modules.audit.services import emit
 from app.modules.integrations.constants import (
-    MAX_IDENTITY_REFUSALS,
     USABLE_CONNECTION_STATUSES,
     ConnectionKind,
     ConnectionStatus,
@@ -50,7 +49,6 @@ from app.modules.integrations.exceptions import (
 from app.modules.integrations.models import AdAccount, PageAccount, ProviderConnection
 from app.modules.integrations.selectors import (
     google_ads_on,
-    identity_refusals,
     meta_connection,
     owner_of_meta_user,
 )
@@ -58,7 +56,6 @@ from app.modules.integrations.selectors import (
 logger = logging.getLogger(__name__)
 STATE_BYTES: Final = 24
 NO_TOKEN = b""
-BLOCK_REASON = "meta_identity_reused"
 NAME_WIDTH = 255
 
 
@@ -276,8 +273,33 @@ def complete_google_connection(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        _suggest_google_block(db, user=user, external_user_id=grant.external_user_id)
         raise GoogleIdentityTaken from exc
     return connection
+
+
+def _suggest_google_block(db: Session, *, user: User, external_user_id: str) -> None:
+    """The Google twin of a Facebook account reused: refused, and handed to
+    Support to decide on."""
+    from app.modules.accounts.constants import BlockCode
+    from app.modules.accounts.services import suggest_block
+
+    if not external_user_id:
+        return
+    holder = db.scalar(
+        select(ProviderConnection.owner_id).where(
+            ProviderConnection.provider == GOOGLE,
+            ProviderConnection.external_user_id == external_user_id,
+            ProviderConnection.owner_id != user.id,
+        )
+    )
+    suggest_block(
+        db,
+        owner=user,
+        code=BlockCode.GOOGLE_IDENTITY_REUSED,
+        detail={"external_user_id": external_user_id, "held_by": str(holder or "")},
+    )
+    db.commit()
 
 
 def google_callback_uri(base_url: str) -> str:
@@ -310,7 +332,10 @@ def claim_identity(db: Session, *, user: User, external_user_id: str) -> None:
 def _record_refusal(
     db: Session, *, user: User, external_user_id: str, holder: User
 ) -> None:
-    from app.modules.accounts.services.block_user import block_user
+    """Refused, recorded, and handed to Support as a suggestion to block:
+    the system blocks nobody itself."""
+    from app.modules.accounts.constants import BlockCode
+    from app.modules.accounts.services import suggest_block
 
     emit(
         db,
@@ -325,22 +350,21 @@ def _record_refusal(
         },
     )
     db.flush()
-    refusals = identity_refusals(db, owner=user)
-    if refusals < MAX_IDENTITY_REFUSALS:
-        logger.warning(
-            "connect refused for account %s: identity %s is held elsewhere (%s/%s)",
-            user.id,
-            external_user_id,
-            refusals,
-            MAX_IDENTITY_REFUSALS,
-        )
-        return
-    details: dict[str, Any] = {
-        "external_user_id": external_user_id,
-        "held_by": str(holder.id),
-        "refusals": refusals,
-    }
-    block_user(db, user=user, reason=BLOCK_REASON, details=details)
+    logger.warning(
+        "connect refused for account %s: identity %s is held elsewhere",
+        user.id,
+        external_user_id,
+    )
+    suggest_block(
+        db,
+        owner=user,
+        code=BlockCode.META_IDENTITY_REUSED,
+        detail={
+            "external_user_id": external_user_id,
+            "held_by": str(holder.id),
+            "held_by_email": holder.email,
+        },
+    )
 
 
 def _stored(db: Session, connection: ProviderConnection) -> bool:

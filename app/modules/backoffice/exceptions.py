@@ -101,6 +101,29 @@ class AlreadyBlocked(DomainError):
         super().__init__("Bu akkaunt allaqachon bloklangan.")
 
 
+class StaffAccountGuarded(DomainError):
+    status_code = 403
+    code = "staff_account"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu xodim akkaunti: parol, blok, o'chirish va pul yozuvlari "
+            "Jamoa bo'limida boshqariladi."
+        )
+
+
+class BlockReasonArchived(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu sabab arxivda. Boshqa sababni tanlang.")
+
+
+class BlockReasonFixed(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu sababni tizim ishlatadi: matnini o'zgartirish mumkin, arxivlab bo'lmaydi."
+        )
+
+
 class NotBlocked(DomainError):
     def __init__(self) -> None:
         super().__init__("Bu akkaunt bloklanmagan.")

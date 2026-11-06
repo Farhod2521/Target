@@ -726,3 +726,34 @@ def test_a_manager_cannot_make_a_pixel(client: TestClient, db: Session) -> None:
     answer = client.post(f"{CRM}/settings/pixel/create", headers=staff)
 
     assert answer.status_code == 404
+
+
+def test_the_board_reads_leads_once_not_once_per_card(
+    client: TestClient, db: Session
+) -> None:
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    column = board["columns"][0]
+    assert len(column["cards"]) == 3
+    seen: list[str] = []
+
+    def _record(*args: Any) -> None:
+        seen.append(" ".join(str(args[2]).split()))
+
+    event.listen(Engine, "before_cursor_execute", _record)
+    try:
+        again = client.get(CRM, headers=head).json()
+        page = client.get(f"{CRM}/columns/{column['stage']['id']}", headers=head)
+    finally:
+        event.remove(Engine, "before_cursor_execute", _record)
+
+    assert page.status_code == 200, page.text
+    assert [c["lead"]["full_name"] for c in again["columns"][0]["cards"]] == [
+        c["lead"]["full_name"] for c in column["cards"]
+    ]
+    assert {c["lead"]["ad_external_id"] for c in page.json()["cards"]} == {"ad_1"}
+    lead_reads = [sql for sql in seen if sql.startswith("SELECT leads.id")]
+    assert len(lead_reads) == 2, lead_reads
