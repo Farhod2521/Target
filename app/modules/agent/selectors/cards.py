@@ -15,7 +15,6 @@ from app.modules.agent import aftermath, aims, causes
 from app.modules.agent.aftermath import Comparison
 from app.modules.agent.constants import (
     ACTION_LABELS,
-    AUTOMATION_NOTES,
     NARROWING_LABELS,
     NEW_PICTURE_NAMED,
     NO_AUDIENCE_LEFT,
@@ -39,7 +38,6 @@ from app.modules.agent.selectors.suggestions import (
     waiting,
 )
 from app.modules.integrations.models import AdAccount
-from core.agent.rules import PROVIDER_ADVICE
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,19 +314,10 @@ def _note(row: AgentSuggestion) -> Any:
 
     step = str((row.payload or {}).get("step", ""))
     if row.kind == SuggestionKind.SWAP_TARGETING:
-        if row.rule == PROVIDER_ADVICE:
-            return _automation_note(row)
         return WIDENING_LABELS.get(step, "")
     if row.kind == SuggestionKind.NARROW_TARGETING:
         return NARROWING_LABELS.get(step, "")
     return ""
-
-
-def _automation_note(row: AgentSuggestion) -> Any:
-    """What the provider's mode would not accept beside the switch."""
-    moved = (row.evidence or {}).get("changed") or ()
-    lines = [AUTOMATION_NOTES[field] for field in moved if field in AUTOMATION_NOTES]
-    return ". ".join(str(line) for line in lines)
 
 
 __all__ = ["Card", "card_for", "history_cards", "outcome_cards", "pending_cards"]

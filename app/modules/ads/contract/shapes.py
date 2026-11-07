@@ -342,12 +342,6 @@ class Stats(Camel):
     ctr: float = Field(description="A fraction: 0.019 is 1.9%.")
 
 
-class Note(Camel):
-    tone: Literal["reco", "warn", "danger"]
-    text: str
-    where: str | None = None
-
-
 class DetailSettings(Camel):
     type_en: str
     result_event: str
@@ -389,7 +383,6 @@ class CampaignDetail(Camel):
     stats: Stats | None
     daily: None = None
     ads: list[CampaignAd]
-    notes: list[Note]
     settings: DetailSettings
     groups: list[DetailGroup] | None
     history: list[HistoryRow]

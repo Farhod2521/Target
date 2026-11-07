@@ -794,3 +794,13 @@ def test_a_failed_read_before_a_write_raises_rather_than_answering_empty() -> No
 
     with pytest.raises(MetaAPIError):
         read_targeting(object_id="120", token="t", client=graph)
+
+
+def test_an_adset_is_never_a_dynamic_creative_one() -> None:
+    """TZ 7.2: a dynamic creative group reports combinations, not adverts,
+    and the diagnosis has to name the advert that works."""
+    graph, seen = recording(on_get={"targeting": TARGETING})
+
+    create_adset(account_id="act_1", spec=ADSET, token="t", client=graph, dry_run=False)
+
+    assert sent(seen[0])["is_dynamic_creative"] == "false"

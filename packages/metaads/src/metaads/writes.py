@@ -186,6 +186,10 @@ def create_adset(
                 # refuses.
                 "attribution_spec": list(spec.attribution) or None,
                 "frequency_control_specs": list(spec.frequency_control) or None,
+                # Said rather than left to the default: a dynamic creative
+                # group reports combinations, not adverts, and the diagnosis
+                # names the advert that works.
+                "is_dynamic_creative": False,
                 "status": spec.status,
             },
             token=token,

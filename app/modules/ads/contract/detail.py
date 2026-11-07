@@ -70,13 +70,6 @@ HISTORY_STATUSES: Final[dict[str, str]] = {
     ActionStatus.PENDING: "pending",
     ActionStatus.REVERTED: "cancelled",
 }
-NOTE_TONES: Final[dict[str, str]] = {
-    "warn": "warn",
-    "warning": "warn",
-    "danger": "danger",
-    "error": "danger",
-    "bad": "danger",
-}
 COST_KEYS: Final = ("cpl", "platform_cpl", "cpc", "cpm")
 RESULT_KEYS: Final = ("leads", "leads_reported", "link_clicks", "clicks")
 
@@ -364,13 +357,6 @@ def campaign_detail(
         "stats": stats_of(panel, currency=currency, provider=provider),
         "daily": None,
         "ads": ads,
-        "notes": [
-            note
-            for note in (
-                _note(item) for item in getattr(campaign, "recommendations", [])
-            )
-            if note is not None
-        ],
         "settings": {
             "type_en": (built.provider_goal_label or built.provider_label)
             if built
@@ -416,27 +402,6 @@ def campaign_detail(
             report,
             names={ad["external_id"]: ad["name"] for ad in ads if ad["name"]},
         ),
-    }
-
-
-def _note(item: Any) -> dict[str, Any] | None:
-    if not isinstance(item, dict):
-        return None
-    text = next(
-        (
-            item[key]
-            for key in ("text", "message", "summary", "title")
-            if isinstance(item.get(key), str) and item[key]
-        ),
-        None,
-    )
-    if text is None:
-        return None
-    tone = str(item.get("tone") or item.get("level") or "").lower()
-    return {
-        "tone": NOTE_TONES.get(tone, "reco"),
-        "text": text,
-        "where": str(item.get("where") or "") or None,
     }
 
 

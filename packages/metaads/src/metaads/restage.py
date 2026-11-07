@@ -32,7 +32,8 @@ from typing import Any, Final
 from adskit.errors import InvalidRequest
 
 from metaads.client import GraphClient
-from metaads.writing import fake_id, id_of, post_object
+from metaads.enhancements import post_creative
+from metaads.writing import fake_id
 
 _CREATIVE: Final = "creative"
 
@@ -190,13 +191,12 @@ def create_from_story(
     if dry_run:
         return fake_id(_CREATIVE)
 
-    payload = post_object(
-        path=f"{account_id}/adcreatives",
+    return post_creative(
+        account_id=account_id,
         data={"name": name, "object_story_spec": dict(story)},
         token=token,
         client=client,
     )
-    return id_of(payload)
 
 
 def _block_of(story: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:

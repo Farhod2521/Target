@@ -43,7 +43,6 @@ from app.modules.notifications.selectors.inbox_leads import (
 )
 from app.modules.notifications.selectors.inbox_meta import meta_items
 from app.modules.notifications.selectors.inbox_notes import (
-    advice_items,
     ranking_items,
     refusal_items,
 )
@@ -108,7 +107,6 @@ def page_inbox(
                 *stuck_sweep_items(db, owner=owner, page=view.page, now=now),
                 *unpriced_items(db, owner=owner, view=view, now=now),
                 *ranking_items(db, owner=owner, view=view, now=now),
-                *advice_items(db, owner=owner, view=view),
                 *diagnosis_items(db, owner=owner, view=view, now=now),
                 *_repairs(db, owner=owner, view=view, now=now),
             ]

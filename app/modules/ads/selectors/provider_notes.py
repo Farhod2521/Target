@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session, selectinload
 from app.modules.accounts.models import User
 from app.modules.ads.constants import NOT_RUNNING
 from app.modules.ads.models import Ad, AdSet, Campaign
-from app.modules.ads.recommendations import WEAK_CONFIDENCE
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.ads.troubles import known
 from app.modules.integrations.models import AdAccount
@@ -19,7 +18,6 @@ from app.modules.integrations.models import AdAccount
 ACCOUNT_NOTES = 25
 REFUSAL = "refusal"
 ISSUE = "issue"
-ADVICE = "advice"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,9 +44,6 @@ def provider_notes(*, campaign: Campaign) -> tuple[ProviderNote, ...]:
         notes.extend(_issues(adset))
     for ad in ads:
         notes.extend(_issues(ad))
-    notes.extend(_advice(campaign))
-    for adset in adsets:
-        notes.extend(_advice(adset))
     return tuple(notes)
 
 
@@ -118,44 +113,6 @@ def account_notes(
         notes.extend(_issues(ad))
     skipped = set(answered)
     return _collapsed([note for note in notes if note.ref.id not in skipped])[:limit]
-
-
-def account_advice(
-    db: Session,
-    *,
-    owner: User,
-    ad_account: AdAccount | None = None,
-    limit: int = ACCOUNT_NOTES,
-    scope: PageScope | None = None,
-) -> tuple[ProviderNote, ...]:
-    """What the provider suggests could be better, across the whole cabinet."""
-    account = _account(db, owner, ad_account)
-    if account is None:
-        return ()
-    campaigns = db.scalars(
-        select(Campaign).where(
-            Campaign.owner_id == owner.id,
-            Campaign.ad_account_id == account.id,
-            ~_beyond(scope, Campaign.external_id, level="campaign"),
-            _running(Campaign.delivery),
-        )
-    ).all()
-    adsets = db.scalars(
-        select(AdSet)
-        .join(Campaign, Campaign.id == AdSet.campaign_id)
-        .where(
-            AdSet.owner_id == owner.id,
-            Campaign.ad_account_id == account.id,
-            ~_beyond(scope, AdSet.external_id, level="adset"),
-            _running(AdSet.delivery),
-        )
-    ).all()
-    found: list[ProviderNote] = []
-    for campaign in campaigns:
-        found.extend(_advice(campaign))
-    for adset in adsets:
-        found.extend(_advice(adset))
-    return _collapsed(found)[:limit]
 
 
 def _collapsed(notes: list[ProviderNote]) -> tuple[ProviderNote, ...]:
@@ -230,30 +187,6 @@ def _campaign_pk(row: Campaign | AdSet | Ad) -> str:
     if isinstance(row, AdSet):
         return str(row.campaign_id)
     return str(row.adset.campaign_id)
-
-
-def _advice(row: Campaign | AdSet) -> list[ProviderNote]:
-    found = []
-    for item in row.recommendations or ():
-        if not isinstance(item, dict):
-            continue
-        if _text(item.get("confidence")).upper() in WEAK_CONFIDENCE:
-            continue
-        title = _text(item.get("title"))
-        body = _text(item.get("message"))
-        if not title and not body:
-            continue
-        found.append(
-            ProviderNote(
-                kind=ADVICE,
-                title=title or body,
-                body=body,
-                where=_name(row),
-                ref=_ref(row),
-                code=_text(item.get("code")),
-            )
-        )
-    return found
 
 
 def _refusals(ad: Ad) -> list[ProviderNote]:
