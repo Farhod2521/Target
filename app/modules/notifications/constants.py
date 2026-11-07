@@ -114,7 +114,8 @@ DAILY_REPORT_LATEST_HOUR: Final = 9
 WEEKLY_REPORT_HOUR: Final = 8
 WEEKLY_REPORT_LATEST_HOUR: Final = 10
 FREQUENCY_HOUR: Final = 9
-FREQUENCY_MAX_ITEMS: Final = 5
+# One message holds the day's levels while it stays under Telegram's 4096.
+FREQUENCY_MAX_CHARS: Final = 3800
 NOTICE_TRIES: Final = 3
 UNDELIVERED_DAYS: Final = 7
 OUTCOME_NOTICE_HOURS: Final = 24

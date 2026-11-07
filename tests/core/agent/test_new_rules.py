@@ -140,7 +140,7 @@ def _worn(**overrides: Any) -> AdSetFacts:
     figures: dict[str, Any] = {
         "early": Half(days=3, impressions=30_000, link_clicks=300),
         "late": Half(days=4, impressions=30_000, link_clicks=120),
-        "week_frequency": 180,
+        "week_frequency": 210,
         "targeting": {"age_min": 25, "age_max": 45},
         "totals": {"leads": 4, "qualified": 2},
     }

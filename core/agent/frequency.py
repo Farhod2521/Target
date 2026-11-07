@@ -6,11 +6,11 @@ they were shown it - so the figure here is the provider's range count, the
 same one the diagnosis, the cards and the chat read, and never a mean of
 daily frequencies.
 
-Three levels, each said once, and only upwards: a suggestion at 1.70, a
-warning at 2.00, and at 2.50 a change that is required and does not go
-away until a creative is added or the frequency falls back. A group whose
-frequency falls under 1.70, or that gets a new creative, starts again from
-nothing. The bars are the brief's starting values.
+Three levels (TZ 6.2), each said once, and only upwards: a suggestion at
+2.00, a warning at 2.50, and at 3.00 a change that is required and does not
+go away until a creative is added or the frequency falls under 3.00. A group
+whose frequency falls under 2.00, or that gets a new creative, starts again
+from nothing (TZ 6.5.4).
 
 Pure, like the rest of ``core``: what was said before arrives as plain
 values and the answer is a decision, not a write.
@@ -27,9 +27,9 @@ Level = Literal["advice", "warning", "required"]
 
 # The bars, in hundredths of a showing per person, lowest first.
 BARS: Final[tuple[tuple[Level, int], ...]] = (
-    ("advice", 170),
-    ("warning", 200),
-    ("required", 250),
+    ("advice", 200),
+    ("warning", 250),
+    ("required", 300),
 )
 RANK: Final[dict[Level, int]] = {
     level: index for index, (level, _bar) in enumerate(BARS)
@@ -80,6 +80,9 @@ class Decision:
 
     reset: bool = False
     raise_to: Level | None = None
+    # The required level's message goes: the frequency fell under its bar.
+    # The level stays said - it is not raised again (TZ 6.2).
+    ease: bool = False
 
 
 def decide(
@@ -101,10 +104,11 @@ def decide(
     if reading.spend_minor < min_spend_minor:
         return Decision()
     level = level_of(frequency)
-    if level is None:
-        return Decision()
     highest = max((RANK[each] for each in said), default=-1)
-    return Decision(raise_to=level if RANK[level] > highest else None)
+    ease = highest == RANK["required"] and level != "required"
+    if level is None:
+        return Decision(ease=ease)
+    return Decision(raise_to=level if RANK[level] > highest else None, ease=ease)
 
 
 __all__ = [

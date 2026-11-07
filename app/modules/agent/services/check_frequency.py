@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.common.config import settings
 from app.modules.accounts.models import User
-from app.modules.agent.constants import FrequencyAnswer
+from app.modules.agent.constants import FrequencyAnswer, FrequencyLevel
 from app.modules.agent.models import FrequencyAlert
 from app.modules.agent.selectors.frequency import (
     Candidate,
@@ -83,6 +83,10 @@ def _one(
                     row.answer, row.answered_at = FrequencyAnswer.CREATIVE_ADDED, now
         _close(rows, now=now)
         return None
+    if decision.ease:
+        for row in rows:
+            if row.level == FrequencyLevel.REQUIRED and row.eased_at is None:
+                row.eased_at = now
     if decision.raise_to is None:
         return None
     _close([row for row in rows if RANK[row.level] < RANK[decision.raise_to]], now=now)

@@ -22,11 +22,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
+from app.common.contract import Camel
 from app.common.db import utcnow
 from app.common.exceptions import DomainError, NotFound
 from app.modules.accounts.models import User
 from app.modules.ads.constants import ManagedLevel
-from app.modules.ads.models import Ad
+from app.modules.ads.models import Ad, AdSet
 from app.modules.ads.selectors.actions import account_of, campaigns_for, managed_target
 from app.modules.ads.selectors.creatives import creative_of
 from app.modules.ads.selectors.media import asset_row, media_library
@@ -46,7 +47,11 @@ from app.modules.agent.frequency_copy import (
 )
 from app.modules.agent.models import AgentSuggestion, FrequencyAlert
 from app.modules.agent.selectors.cards import history_cards
-from app.modules.agent.selectors.frequency import alerts_to_show, creative_target
+from app.modules.agent.selectors.frequency import (
+    alerts_to_show,
+    creative_target,
+    pressing_alerts,
+)
 from app.modules.agent.selectors.launch_watch import watched_groups
 from app.modules.agent.selectors.policy import policy_for
 from app.modules.agent.selectors.runs import recent
@@ -414,6 +419,39 @@ def watch_act(adset_id: str, move: str, db: Db, user: CurrentUser) -> dict[str, 
     )
 
 
+class PressingAlert(BaseModel):
+    id: str
+    level: str = Field(description="`warning` (2.50) or `required` (3.00).")
+    title: str
+    body: str
+
+
+class PressingAlerts(BaseModel):
+    alerts: list[PressingAlert]
+
+
+@router.get("/frequency/pressing", response_model=PressingAlerts)
+def frequency_pressing(db: Db, user: CurrentUser) -> dict[str, Any]:
+    """TZ 6.2: the levels the dashboard shows at its top - 2.50 and 3.00."""
+    from app.modules.notifications.selectors.inbox_page import inbox_page
+
+    view = inbox_page(db, owner=user)
+    rows = pressing_alerts(
+        db, owner=user, now=utcnow(), hidden_adsets=view.scope.outside
+    )
+    return {
+        "alerts": [
+            {
+                "id": str(row.id),
+                "level": row.level,
+                "title": frequency_title(row),
+                "body": frequency_body(row),
+            }
+            for row in rows
+        ]
+    }
+
+
 @router.post("/frequency/{alert_id}/fine")
 def frequency_fine(alert_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     """«Reklama yaxshi ishlayapti»."""
@@ -422,14 +460,19 @@ def frequency_fine(alert_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, 
     return _answered(db, user, "Javobingiz saqlandi.")
 
 
-@router.get("/frequency/{alert_id}/creative")
+class FrequencyCreative(Camel):
+    external_id: str = Field(description="The advert whose copy window opens.")
+    campaign_id: str = Field(description="This product's id of its campaign.")
+
+
+@router.get("/frequency/{alert_id}/creative", response_model=FrequencyCreative)
 def frequency_creative(
     alert_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> dict[str, str]:
-    """«Qo'shimcha kreativ qo'shamiz»: the advert to add a creative beside.
+    """«Qo'shimcha kreativ qo'shamiz»: the advert whose copy window opens (TZ 6.3).
 
-    The client opens the advert's edit screen,
-    ``/api/v1/campaigns/manage/ad/{external_id}/edit``.
+    The client opens the campaign's page with the advert's «Duplikat» window
+    on a new creative (TZ 2.3).
     """
     row = db.scalar(
         select(FrequencyAlert).where(
@@ -441,9 +484,16 @@ def frequency_creative(
         if row is not None
         else ""
     )
-    if not advert:
+    campaign = (
+        db.scalar(
+            select(AdSet.campaign_id).where(
+                AdSet.owner_id == user.id,
+                AdSet.external_id == row.adset_external_id,
+            )
+        )
+        if row is not None
+        else None
+    )
+    if not advert or campaign is None:
         raise NotFound("Bu guruhda ishlab turgan reklama topilmadi.")
-    return {
-        "ad_external_id": advert,
-        "edit_url": f"/api/v1/campaigns/manage/ad/{advert}/edit",
-    }
+    return {"external_id": advert, "campaign_id": str(campaign)}

@@ -805,7 +805,7 @@ def test_hisobot_sends_yesterday_and_bugun_says_today_is_quiet(
     assert "Bugun hali" in _sent(phone)[-1]["text"]
 
 
-def test_the_frequency_levels_are_said_short_with_the_center(
+def test_the_frequency_levels_carry_their_two_answers(
     client: TestClient, db: Session, phone: FakeBot
 ) -> None:
     user = _cabinet(client, db)
@@ -828,11 +828,22 @@ def test_the_frequency_levels_are_said_short_with_the_center(
 
     assert deliver_frequency_for(db, owner=user, now=MORNING)
     (message,) = _sent(phone)
-    (button,) = message["buttons"]
-    assert button.text == "Batafsil" and button.web_app and not button.data
+    # TZ 6.3: the copy window on the site, and the answer pressed right here.
+    add, fine = message["buttons"]
+    assert add.text == "Qo'shimcha kreativ qo'shamiz" and add.web_app
+    assert fine.text == "Reklama yaxshi ishlayapti" and fine.data
+    assert "Batafsil" not in message["text"]
     row = db.scalar(select(FrequencyAlert))
     assert row is not None and row.telegram_sent_at is not None
     assert not deliver_frequency_for(db, owner=user, now=MORNING)
+
+    assert (
+        handle_update(db, payload=_press("700", fine.data, message_id=101), now=MORNING)
+        == "frequency_fine"
+    )
+    db.expire_all()
+    row = db.scalar(select(FrequencyAlert))
+    assert row is not None and row.answer == "working_well"
 
 
 def test_a_frequency_line_left_as_it_is_is_not_told(

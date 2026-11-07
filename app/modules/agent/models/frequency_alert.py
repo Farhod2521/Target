@@ -38,6 +38,9 @@ class FrequencyAlert(Base):
     hidden_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cost_after_7d_minor: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # TZ 6.2: the required level's message went when the frequency fell under
+    # its bar; the row stays open so the level is not said again.
+    eased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # -- django extras --
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
     ad_account: Mapped["AdAccount"] = relationship(foreign_keys=[ad_account_id], lazy="select")  # noqa: F821
