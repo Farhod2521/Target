@@ -4,6 +4,7 @@ from fastapi import APIRouter, status
 
 from app.api.deps import CurrentUser, Db
 from app.modules.accounts import services
+from app.modules.accounts.constants import SocialProvider
 from app.modules.accounts.models import User
 from app.modules.accounts.phone import clean_phone
 from app.modules.accounts.routers.auth import token_pair
@@ -16,8 +17,14 @@ from app.modules.accounts.schemas import (
     PasswordChanged,
     PasswordIn,
     PhoneIn,
+    RoleIn,
+    SocialLinkOut,
+    SocialLinksOut,
+    SocialStartIn,
+    SocialStartOut,
     UserOut,
 )
+from app.modules.accounts.services import social_login
 
 router = APIRouter(prefix="/account", tags=["account"])
 
@@ -59,6 +66,41 @@ def update_password(body: PasswordIn, user: CurrentUser, db: Db) -> PasswordChan
 def update_expert_mode(body: ExpertModeIn, user: CurrentUser, db: Db) -> User:
     """Open Reklama and the dashboard in Expert mode, or in the plain one."""
     return services.set_expert_mode(db, user=user, on=body.on)
+
+
+@router.put("/role", response_model=UserOut)
+def update_role(body: RoleIn, user: CurrentUser, db: Db) -> User:
+    """«Siz kimsiz?» - answered once when ``role_needed``, changeable later."""
+    return services.set_role(db, user=user, role=body.role)
+
+
+@router.get("/social", response_model=SocialLinksOut)
+def social_links(user: CurrentUser, db: Db) -> SocialLinksOut:
+    return SocialLinksOut(
+        providers=social_login.providers(),
+        linked=[
+            SocialLinkOut.model_validate(identity)
+            for identity in social_login.linked(db, owner=user)
+        ],
+        has_password=user.has_password,
+    )
+
+
+@router.post("/social/{provider}/start", response_model=SocialStartOut)
+def social_link_start(
+    provider: SocialProvider, body: SocialStartIn, user: CurrentUser
+) -> SocialStartOut:
+    """Tie a Google account to this one, whatever its email. The browser
+    comes back to ``next`` (Settings by default) with ``?linked=google`` or
+    ``?social_error=taken|cancelled|failed|expired``."""
+    url = social_login.start(provider=provider.value, next_path=body.next, linking=user)
+    return SocialStartOut(url=url)
+
+
+@router.delete("/social/{provider}", status_code=status.HTTP_204_NO_CONTENT)
+def social_unlink(provider: SocialProvider, user: CurrentUser, db: Db) -> None:
+    """Refused (``social_last_way``) while it is the only way in."""
+    social_login.unlink(db, owner=user, provider=provider.value)
 
 
 @router.put("/language", response_model=UserOut)

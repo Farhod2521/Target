@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 
-from app.modules.accounts.constants import Language
+from app.modules.accounts.constants import Language, Role
 from app.modules.accounts.schemas.account import UserOut
 
 
@@ -11,6 +11,11 @@ class SignupIn(BaseModel):
     phone: str = Field(min_length=1, max_length=32)
     language: Language = Language.UZ
     referral_code: str = Field(default="", max_length=32)
+    role: Role | None = Field(
+        default=None,
+        description="«Siz kimsiz?». The form sends it; an account opened "
+        "without it is asked once after signing in (`role_needed`).",
+    )
 
 
 class LoginIn(BaseModel):
@@ -69,3 +74,37 @@ class ResetTargetOut(BaseModel):
 class NewPasswordIn(BaseModel):
     new_password1: str = Field(min_length=1, max_length=128)
     new_password2: str = Field(min_length=1, max_length=128)
+
+
+class SocialProvidersOut(BaseModel):
+    """The sign-in pages' buttons, in the order to draw them; empty = none."""
+
+    providers: list[str]
+
+
+class SocialStartIn(BaseModel):
+    next: str = Field(default="", max_length=512)
+    referral_code: str = Field(default="", max_length=32)
+    language: Language | None = None
+
+
+class SocialStartOut(BaseModel):
+    url: str = Field(description="Google's screen: send the browser there.")
+
+
+class SocialPendingOut(BaseModel):
+    """What Google gave, shown on the finishing page."""
+
+    provider: str
+    email: str
+    full_name: str
+
+
+class SocialCompleteIn(BaseModel):
+    phone: str = Field(min_length=1, max_length=32)
+    role: Role
+    full_name: str = Field(
+        default="",
+        max_length=255,
+        description="Empty keeps the name Google gave.",
+    )

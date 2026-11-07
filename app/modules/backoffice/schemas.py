@@ -147,8 +147,26 @@ class BlockOut(BaseModel):
     blocked_at: datetime
 
 
+class RoleOut(BaseModel):
+    """Who the owner said they are at sign-up (`business_owner`, `targetolog`,
+    `marketer`, `agency`, `other`)."""
+
+    code: str
+    label: str
+
+
+class SignInOut(BaseModel):
+    """A Google (later Telegram, Facebook) account that signs this one in."""
+
+    provider: str
+    email: str = Field(description="The provider's address at the last sign-in.")
+    linked_at: datetime
+    last_used_at: datetime | None
+
+
 class CustomerRowOut(BaseModel):
     customer: CustomerPersonOut
+    role: RoleOut | None = Field(description="None: not asked yet.")
     is_blocked: bool
     is_staff: bool = Field(description="A colleague's own account, for testing.")
     block: BlockOut | None = Field(description="Set while blocked.")
@@ -181,6 +199,9 @@ class CustomersOut(BaseModel):
     managers: list[ChoiceOut] = Field(
         description="Sales staff, for the `manager` filter; `none` is nobody's."
     )
+    roles: list[ChoiceOut] = Field(
+        description="For the `role` filter; `none` is owners not asked yet."
+    )
 
 
 class ProfileOut(CustomerPersonOut):
@@ -194,6 +215,11 @@ class ProfileOut(CustomerPersonOut):
     joined_at: datetime
     last_login_at: datetime | None
     prepared_at: datetime | None = Field(description="When preparation finished.")
+    role: RoleOut | None = Field(description="None: not asked yet.")
+    social_only: bool = Field(
+        description="No password: signs in only through Google (or the like)."
+    )
+    sign_ins: list[SignInOut] = Field(description="Google and the like, tied.")
 
 
 class BusinessOut(BaseModel):

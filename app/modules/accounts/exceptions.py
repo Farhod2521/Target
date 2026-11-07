@@ -1,4 +1,4 @@
-from app.common.exceptions import Conflict, DomainError
+from app.common.exceptions import Conflict, DomainError, InputRefused, NotFound
 
 
 class UnsupportedLanguage(DomainError):
@@ -133,3 +133,45 @@ class ResetLinkInvalid(DomainError):
 
     def __init__(self) -> None:
         super().__init__("Havola eskirgan yoki ishlatilgan. Botdan yangi havola oling.")
+
+
+class SocialSignInOff(NotFound):
+    code = "social_unavailable"
+
+    def __init__(self) -> None:
+        super().__init__("Bu usul bilan kirish hozircha yoqilmagan.")
+
+
+class SocialPendingExpired(DomainError):
+    """The finishing form (phone and role) outlived its half hour, or was
+    already spent: the Google button has to be pressed again."""
+
+    status_code = 410
+    code = "social_expired"
+
+    def __init__(self) -> None:
+        super().__init__("Vaqt tugadi. Google orqali qaytadan kiring.")
+
+
+class PhoneTaken(InputRefused):
+    """A new account by Google for a number another account holds: one
+    person opening a second account by mistake, far more often than not."""
+
+    code = "phone_taken"
+
+    def __init__(self) -> None:
+        super().__init__(
+            {
+                "phone": "Bu raqam bilan akkaunt bor. Parol bilan kiring va "
+                "Google'ni Sozlamalardan ulang."
+            }
+        )
+
+
+class SocialLastWay(Conflict):
+    """Unlinking the only way in: an account opened by Google has no password."""
+
+    code = "social_last_way"
+
+    def __init__(self) -> None:
+        super().__init__("Avval parol o'rnating: aks holda akkauntga kira olmaysiz.")

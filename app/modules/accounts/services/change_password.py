@@ -33,13 +33,16 @@ def change_password(
     Every token issued before this moment stops working, as Django's session
     hash did: somebody changing a password they think is known is asking
     for exactly that. The caller hands the device that asked a fresh pair.
+
+    An account opened by Google has no password to ask for: its first one
+    is set without it.
     """
     key = str(user.id)
     if throttle.spent(
         bucket=FAILURES_BUCKET, key=key, limit=PASSWORD_FAILURES_PER_USER
     ):
         raise TooManyAttempts
-    if not check_password(current_password, user.password):
+    if user.has_password and not check_password(current_password, user.password):
         throttle.record(
             bucket=FAILURES_BUCKET, key=key, window_seconds=PASSWORD_WINDOW_SECONDS
         )

@@ -28,6 +28,18 @@ class Grant(BaseModel):
         return scope in self.scopes
 
 
+class GoogleProfile(BaseModel):
+    """The person a Google sign-in names. ``subject`` is Google's own id for
+    them and never changes; the email can, so accounts are tied by subject."""
+
+    model_config = ConfigDict(frozen=True)
+
+    subject: str
+    email: str = Field(default="", repr=False)
+    email_verified: bool = False
+    name: str = Field(default="", repr=False)
+
+
 class Tab(BaseModel):
     """One tab: the id every write addresses, and the name a person sees.
 

@@ -22,6 +22,40 @@ LANGUAGE_LABELS = {
     Language.RU: "Ruscha",
     Language.EN: "Inglizcha",
 }
+
+
+class Role(Choices):
+    """Who the owner said they are, asked at sign-up (or once, at the next
+    sign-in, of an account opened before the question)."""
+
+    BUSINESS_OWNER = "business_owner"
+    TARGETOLOG = "targetolog"
+    MARKETER = "marketer"
+    AGENCY = "agency"
+    OTHER = "other"
+
+
+ROLE_LABELS = {
+    Role.BUSINESS_OWNER: "Biznes egasi",
+    Role.TARGETOLOG: "Targetolog",
+    Role.MARKETER: "Marketolog / SMM",
+    Role.AGENCY: "Agentlik",
+    Role.OTHER: "Boshqa",
+}
+
+
+class SocialProvider(Choices):
+    GOOGLE = "google"
+
+
+SOCIAL_PROVIDER_LABELS = {SocialProvider.GOOGLE: "Google"}
+# The Google round trip: the consent screen, a second account picked, a slow
+# phone. The finishing form (phone and role) gets longer.
+SOCIAL_STATE_TTL_SECONDS: Final = 15 * 60
+SOCIAL_STATE_KEY: Final = "accounts:social:state:{state}"
+SOCIAL_PENDING_TTL_SECONDS: Final = 30 * 60
+SOCIAL_PENDING_KEY: Final = "accounts:social:pending:{token}"
+SOCIAL_TOKEN_BYTES: Final = 32
 PURGE_ORDER: tuple[str, ...] = (
     "businesses.CustomCategory",
     "audit.ErrorEvent",
@@ -66,6 +100,7 @@ PURGE_ORDER: tuple[str, ...] = (
     "sales.SalesCommission",
     "sales.SalesMonth",
     "sales.SalesClaim",
+    "accounts.SocialIdentity",
     "accounts.BlockSuggestion",
     "accounts.AccountBlock",
     "backoffice.StaffAction",

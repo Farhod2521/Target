@@ -21,6 +21,9 @@ from app.main import app
 
 TABLES = [
     "users",
+    "social_identities",
+    "block_reasons",
+    "account_blocks",
     "events",
     "referral_codes",
     "referral_access",

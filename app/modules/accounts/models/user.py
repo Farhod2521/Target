@@ -25,6 +25,8 @@ class User(Base):
     language: Mapped[str] = mapped_column(String(8), nullable=False, default='ru')
     # The advertising screens and the dashboard as an expert reads them.
     expert_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Who the owner said they are (constants.Role); "" until asked.
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     welcomed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     prepared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -32,3 +34,14 @@ class User(Base):
     is_staff: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     date_joined: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     crm_owner_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+
+    @property
+    def has_password(self) -> bool:
+        """False for an account opened by Google, and for Django's unusable
+        ("!"-prefixed) ones: no password signs these in."""
+        return bool(self.password) and not self.password.startswith("!")
+
+    @property
+    def role_needed(self) -> bool:
+        """An owner who has not said who they are yet; managers are never asked."""
+        return not self.role and self.crm_owner_id is None

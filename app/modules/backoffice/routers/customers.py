@@ -9,10 +9,12 @@ from datetime import date, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 
 from app.api.deps import Db
 from app.common.timezone import localtime
-from app.modules.accounts.models import AccountBlock, User
+from app.modules.accounts.constants import Role
+from app.modules.accounts.models import AccountBlock, SocialIdentity, User
 from app.modules.backoffice.constants import ADMIN_ROLES
 from app.modules.backoffice.permissions import staff_required
 from app.modules.backoffice.routers._out import amounts, choices, person_out, trace_out
@@ -29,6 +31,7 @@ from app.modules.backoffice.selectors.card import (
 )
 from app.modules.backoffice.selectors.customers import (
     NO_MANAGER,
+    NO_ROLE,
     SORTS,
     STATES,
     CustomerRow,
@@ -109,11 +112,20 @@ def _term(row: CustomerRow) -> dict[str, Any]:
     }
 
 
+def _role_out(user: User) -> dict[str, str] | None:
+    """Who the owner said they are; None until asked."""
+    if not user.role:
+        return None
+    label = Role(user.role).label if user.role in Role.values else user.role
+    return {"code": user.role, "label": label}
+
+
 def row_out(row: CustomerRow) -> dict[str, Any]:
     user = row.user
     business = row.business
     return {
         "customer": {**(person_out(user) or {}), "phone": user.phone},
+        "role": _role_out(user),
         "is_blocked": not user.is_active,
         "is_staff": user.is_staff,
         "block": block_out(row.block),
@@ -157,6 +169,7 @@ def customers(
     ),
     joined_to: date | None = Query(None, description="Office calendar day, included."),
     manager: str = Query("", description="A sales manager's id, or `none`."),
+    role: str = Query("", description="A value from `roles`; `none` = not asked yet."),
     sort: str = Query("", description="A value from `sorts`; empty follows the chip."),
     offset: int = Query(0, ge=0),
     as_of: datetime | None = Query(None, description="`as_of` from the first page."),
@@ -172,6 +185,7 @@ def customers(
             joined_from=joined_from,
             joined_to=joined_to,
             manager=manager,
+            role=role if role in Role.values or role == NO_ROLE else "",
             sort=sort if sort in dict(SORTS) else "",
         ),
         offset=offset,
@@ -187,6 +201,7 @@ def customers(
         "states": choices(STATES),
         "sorts": choices(SORTS),
         "plans": choices([(p.code, p.name) for p in every_plan(db)]),
+        "roles": choices([*Role.choices, (NO_ROLE, "So'ralmagan")]),
         "managers": choices(
             [(NO_MANAGER, "Menejersiz")]
             + [(str(m.id), m.full_name or m.email) for m in managers(db)]
@@ -412,6 +427,21 @@ def customer(customer_id: uuid.UUID, db: Db, user: Admin) -> dict[str, Any]:
             "joined_at": owner.date_joined,
             "last_login_at": owner.last_login,
             "prepared_at": owner.prepared_at,
+            "role": _role_out(owner),
+            "social_only": not owner.has_password,
+            "sign_ins": [
+                {
+                    "provider": identity.provider,
+                    "email": identity.email,
+                    "linked_at": identity.created_at,
+                    "last_used_at": identity.last_used_at,
+                }
+                for identity in db.scalars(
+                    select(SocialIdentity)
+                    .where(SocialIdentity.owner_id == owner.id)
+                    .order_by(SocialIdentity.created_at)
+                )
+            ],
         },
         "businesses": [
             {

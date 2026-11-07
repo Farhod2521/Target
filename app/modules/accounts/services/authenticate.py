@@ -36,7 +36,7 @@ def authenticate(db: Session, *, email: str, password: str, address: str = "") -
     matches = check_password(password, stored or _decoy())
     if user is None or not stored or not matches:
         raise BadCredentials
-    _refuse_blocked(db, user=user)
+    refuse_blocked(db, user=user)
     if needs_rehash(user.password):
         user.password = make_password(password)
     note_sign_in(db, user=user, via="password", address=address)
@@ -44,7 +44,7 @@ def authenticate(db: Session, *, email: str, password: str, address: str = "") -
     return user
 
 
-def _refuse_blocked(db: Session, *, user: User) -> None:
+def refuse_blocked(db: Session, *, user: User) -> None:
     if not user.is_active:
         raise AccountBlocked(blocked_message(db, user=user))
     if user.crm_owner_id is not None:

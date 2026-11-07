@@ -25,6 +25,7 @@ def sign_up(
     phone: str,
     language: str,
     referral_code: str = "",
+    role: str = "",
 ) -> User:
     """The signup form opens the account at once; the email is confirmed later."""
     email = normalize_email(email)
@@ -42,6 +43,7 @@ def sign_up(
         phone=phone,
         language=language,
         referral_code=referral_code,
+        role=role,
     )
 
 
@@ -55,13 +57,18 @@ def register_user(
     phone: str = "",
     language: str = Language.UZ,
     referral_code: str = "",
+    role: str = "",
+    commit: bool = True,
 ) -> User:
+    """Neither password given leaves none: an account opened by Google signs
+    in by Google until its owner sets one."""
     user = User(
         email=normalize_email(email),
         full_name=full_name.strip(),
         phone=phone,
         language=language,
-        password=password_hash or make_password(password),
+        role=role,
+        password=password_hash or (make_password(password) if password else ""),
         date_joined=utcnow(),
     )
     db.add(user)
@@ -77,7 +84,8 @@ def register_user(
         name=EventName.USER_REGISTERED,
         aggregate_type="user",
         aggregate_id=user.id,
-        payload={"email": user.email, "language": user.language},
+        payload={"email": user.email, "language": user.language, "role": user.role},
     )
-    db.commit()
+    if commit:
+        db.commit()
     return user

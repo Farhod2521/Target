@@ -57,6 +57,7 @@ SORTS = (
     ("last_login", "Oxirgi kirish"),
 )
 NO_MANAGER = "none"
+NO_ROLE = "none"
 Money = tuple[tuple[str, int], ...]
 
 
@@ -76,6 +77,7 @@ class Narrowing:
     joined_to: date | None = None
     manager: str = ""
     sort: str = ""
+    role: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,6 +253,13 @@ def _by_manager(manager: str) -> ColumnElement[bool]:
     return User.id.in_(_open_claims().where(SalesClaim.manager_id == wanted))
 
 
+def _by_role(role: str) -> ColumnElement[bool]:
+    """A role from `Role`, or `none` for owners not asked yet."""
+    if not role:
+        return true()
+    return User.role == ("" if role == NO_ROLE else role)
+
+
 def _ordered(query: Select[Any], *, narrowing: Narrowing, now: datetime) -> Select[Any]:
     """Each chip in the order somebody works through it, unless a sort is named.
 
@@ -308,6 +317,7 @@ def narrowed_accounts(
             joined_from=narrowing.joined_from, joined_to=narrowing.joined_to, now=now
         ),
         _by_manager(narrowing.manager),
+        _by_role(narrowing.role),
     )
     return _ordered(query, narrowing=narrowing, now=now)
 

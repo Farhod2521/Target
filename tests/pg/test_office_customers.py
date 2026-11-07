@@ -425,3 +425,41 @@ def test_the_staff_chip_lists_colleagues_and_only_it_does(
     assert colleagues["rows"][0]["is_staff"] is True
     assert _emails(found("state=staff&q=support@")) == ["support@office.test"]
     assert found("state=staff&q=active@")["total"] == 0
+
+
+def test_the_role_is_shown_and_filtered_and_the_card_names_google(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.accounts.models import SocialIdentity
+
+    people = _world(db)
+    people["active"].role = "targetolog"
+    db.add(
+        SocialIdentity(
+            owner_id=people["active"].id,
+            provider="google",
+            subject="g-1",
+            email="active@gmail.com",
+        )
+    )
+    db.commit()
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+
+    listed = client.get(f"{URL}?role=targetolog", headers=support).json()
+    assert _emails(listed) == ["active@shop.test"]
+    assert listed["rows"][0]["role"] == {"code": "targetolog", "label": "Targetolog"}
+    assert {"value": "none", "label": "So'ralmagan"} in listed["roles"]
+    unasked = _emails(client.get(f"{URL}?role=none", headers=support).json())
+    assert "active@shop.test" not in unasked and "trial@shop.test" in unasked
+    assert _emails(client.get(f"{URL}?role=boss", headers=support).json()) == _emails(
+        client.get(URL, headers=support).json()
+    )
+
+    profile = client.get(f"{URL}/{people['active'].id}", headers=support).json()[
+        "profile"
+    ]
+    assert profile["role"]["code"] == "targetolog"
+    assert profile["social_only"] is True  # "!" is Django's no-password
+    assert [(x["provider"], x["email"]) for x in profile["sign_ins"]] == [
+        ("google", "active@gmail.com")
+    ]

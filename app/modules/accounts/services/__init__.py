@@ -46,7 +46,11 @@ from app.modules.accounts.services.save_account import (
     save_account,
     save_phone,
 )
-from app.modules.accounts.services.set_language import set_expert_mode, set_language
+from app.modules.accounts.services.set_language import (
+    set_expert_mode,
+    set_language,
+    set_role,
+)
 
 __all__ = [
     "BLOCK_SUGGESTED",
@@ -85,6 +89,7 @@ __all__ = [
     "set_expert_mode",
     "set_language",
     "set_member_password",
+    "set_role",
     "sign_up",
     "suggest_block",
     "unblock_user",

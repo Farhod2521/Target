@@ -91,6 +91,9 @@ class Env(BaseSettings):
     google_oauth_client_secret: str = Field(
         default="", alias="GOOGLE_OAUTH_CLIENT_SECRET"
     )
+    # The sign-in pages' «Google» button. Off until the redirect URI
+    # (<SITE_URL>/api/v1/auth/social/google/callback) is on the OAuth client.
+    google_login_enabled: bool = Field(default=False, alias="GOOGLE_LOGIN_ENABLED")
     google_picker_api_key: str = Field(default="", alias="GOOGLE_PICKER_API_KEY")
     google_cloud_project_number: str = Field(
         default="", alias="GOOGLE_CLOUD_PROJECT_NUMBER"

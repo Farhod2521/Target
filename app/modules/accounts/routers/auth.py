@@ -83,6 +83,7 @@ def signup(body: SignupIn, request: Request, db: Db) -> SignedUp:
         phone=clean_phone(body.phone),
         language=body.language,
         referral_code=body.referral_code,
+        role=body.role.value if body.role else "",
     )
     pair = token_pair(user)
     return SignedUp(

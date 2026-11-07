@@ -5,6 +5,9 @@ from app.modules.accounts.schemas.account import (
     LanguageIn,
     PasswordIn,
     PhoneIn,
+    RoleIn,
+    SocialLinkOut,
+    SocialLinksOut,
     UserOut,
 )
 from app.modules.accounts.schemas.auth import (
@@ -19,6 +22,11 @@ from app.modules.accounts.schemas.auth import (
     ResetLinkOut,
     ResetTargetOut,
     SignupIn,
+    SocialCompleteIn,
+    SocialPendingOut,
+    SocialProvidersOut,
+    SocialStartIn,
+    SocialStartOut,
     TokenPair,
 )
 
@@ -39,7 +47,15 @@ __all__ = [
     "RefreshIn",
     "ResetLinkOut",
     "ResetTargetOut",
+    "RoleIn",
     "SignupIn",
+    "SocialCompleteIn",
+    "SocialLinkOut",
+    "SocialLinksOut",
+    "SocialPendingOut",
+    "SocialProvidersOut",
+    "SocialStartIn",
+    "SocialStartOut",
     "TokenPair",
     "UserOut",
 ]

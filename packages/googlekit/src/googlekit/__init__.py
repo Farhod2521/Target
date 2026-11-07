@@ -12,7 +12,15 @@ from googlekit.errors import (
     TabMissing,
     Unavailable,
 )
-from googlekit.models import DriveFile, Grant, SheetColumn, Spreadsheet, Tab
+from googlekit.login import LOGIN_SCOPES, login_profile, login_url
+from googlekit.models import (
+    DriveFile,
+    GoogleProfile,
+    Grant,
+    SheetColumn,
+    Spreadsheet,
+    Tab,
+)
 from googlekit.oauth import (
     DEFAULT_SCOPES,
     SCOPE_ADWORDS,
@@ -28,12 +36,14 @@ __all__ = [
     "CELL_MAX_CHARS",
     "DATE_TIME_PATTERN",
     "DEFAULT_SCOPES",
+    "LOGIN_SCOPES",
     "SCOPE_ADWORDS",
     "SCOPE_DRIVE_FILE",
     "AccessRevoked",
     "CellValue",
     "GoogleAPIError",
     "GoogleError",
+    "GoogleProfile",
     "Grant",
     "OutcomeUnknown",
     "PermissionMissing",
@@ -46,6 +56,8 @@ __all__ = [
     "Unavailable",
     "authorize_url",
     "exchange_code",
+    "login_profile",
+    "login_url",
     "refresh",
     "revoke",
     "serial",

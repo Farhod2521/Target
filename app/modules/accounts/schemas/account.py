@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.modules.accounts.constants import Language
+from app.modules.accounts.constants import Language, Role
 
 
 class UserOut(BaseModel):
@@ -25,6 +25,21 @@ class UserOut(BaseModel):
     crm_owner_id: uuid.UUID | None = Field(
         default=None,
         description="Set on a CRM manager's login: whose board it works in.",
+    )
+    role: str = Field(
+        default="",
+        description="Who the owner said they are (`business_owner`, `targetolog`, "
+        "`marketer`, `agency`, `other`); empty until asked.",
+    )
+    role_needed: bool = Field(
+        default=False,
+        description="Ask «Siz kimsiz?» once, before anything else: an owner "
+        "with no role yet. Never true for a CRM manager.",
+    )
+    has_password: bool = Field(
+        default=True,
+        description="False for an account opened by Google: «Parol o'rnatish» "
+        "needs no current password.",
     )
 
 
@@ -54,3 +69,24 @@ class ExpertModeIn(BaseModel):
 
 class LanguageIn(BaseModel):
     language: Language
+
+
+class RoleIn(BaseModel):
+    role: Role
+
+
+class SocialLinkOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    provider: str
+    email: str = Field(description="The provider's address at the last sign-in.")
+    created_at: datetime
+    last_used_at: datetime | None
+
+
+class SocialLinksOut(BaseModel):
+    """Settings' «Kirish usullari»: the providers on offer, the ones tied."""
+
+    providers: list[str]
+    linked: list[SocialLinkOut]
+    has_password: bool
