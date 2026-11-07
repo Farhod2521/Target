@@ -8,21 +8,47 @@ campaigns a group may go into, the groups an advert may go into.
 import uuid
 from typing import Any
 
-from fastapi import status
+from fastapi import HTTPException, status
 from metaads.campaigns import REMOVED_STATUSES
+from metaads.restage import button_of, welcome_of
 from pydantic import Field
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, Db
 from app.common.contract import Camel
-from app.modules.ads import actions
-from app.modules.ads.constants import ManagedLevel
-from app.modules.ads.contract.shapes import AdditionStarted
+from app.modules.ads import actions, selectors
+from app.modules.ads.constants import BUTTON_LABELS, ManagedLevel
+from app.modules.ads.contract.adverts import ad_edit_form
+from app.modules.ads.contract.shapes import AdditionStarted, AdEdit
 from app.modules.ads.models import Campaign
 from app.modules.ads.routers import _detail, _target, router
+from app.modules.ads.routers.editing import (
+    HEADLINE_LIMIT,
+    MESSAGE_LIMIT,
+    WelcomeIn,
+    _ad_forms,
+    _ad_library,
+)
 from app.modules.ads.selectors.pages import campaign_on_page
-from app.modules.ads.services.copies import NEW_GROUP
+from app.modules.ads.services.additions import story_of
+from app.modules.ads.services.copies import NEW_GROUP, offered_buttons, same_budget
 from core.agent.guardrails import ACTIVE, FINISHED
+
+
+class NewCreative(Camel):
+    """TZ 2.3: what the advert's copy says and shows instead of the original."""
+
+    message: str | None = Field(default=None, max_length=MESSAGE_LIMIT)
+    headline: str | None = Field(default=None, max_length=HEADLINE_LIMIT)
+    description: str | None = Field(default=None, max_length=HEADLINE_LIMIT)
+    picture: str | None = Field(default=None, description="A row of `library`.")
+    lead_form: str | None = Field(
+        default=None, description="A form of `forms.options`."
+    )
+    button: str | None = Field(default=None, description="A key of `buttons`.")
+    welcome: WelcomeIn | None = Field(
+        default=None, description="A chat advert's greeting (TZ 2.5)."
+    )
 
 
 class CopyInto(Camel):
@@ -30,6 +56,24 @@ class CopyInto(Camel):
         default="",
         description="A group's campaign or an advert's group (external id); "
         "`new` puts an advert in a new group; empty keeps the original's.",
+    )
+    creative: NewCreative | None = Field(
+        default=None,
+        description="An advert only: a new creative; left out, the original's.",
+    )
+
+
+class ButtonChoice(Camel):
+    key: str
+    label: str
+
+
+class CopyCreativeForm(AdEdit):
+    """The advert's creative as it is, and what a new one may take instead."""
+
+    button: str = Field(description="The button's word now; empty: none to change.")
+    buttons: list[ButtonChoice] = Field(
+        description="Its own first; only it when the word cannot change."
     )
 
 
@@ -45,12 +89,20 @@ class CopyPlaces(Camel):
 
 
 def _started(
-    db: Db, user: Any, *, level: str, external_id: str, into: str
+    db: Db,
+    user: Any,
+    *,
+    level: str,
+    external_id: str,
+    into: str,
+    creative: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     log = actions.request(
         db,
         user=user,
-        ask=actions.Copy(level=level, external_id=external_id, into=into),
+        ask=actions.Copy(
+            level=level, external_id=external_id, into=into, creative=creative
+        ),
     )
     db.commit()
     return {"action_id": str(log.id)}
@@ -101,7 +153,9 @@ def copy_group_places(external_id: str, db: Db, user: CurrentUser) -> dict[str, 
     shown = [
         row
         for row in others
-        if _open(row) and campaign_on_page(db, owner=user, campaign=row)
+        if _open(row)
+        and same_budget(row, own)
+        and campaign_on_page(db, owner=user, campaign=row)
     ]
     return {"places": [_place(row, own=own) for row in [own, *shown]]}
 
@@ -141,11 +195,66 @@ def copy_ad_places(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any
 def copy_ad(
     external_id: str, body: CopyInto, db: Db, user: CurrentUser
 ) -> dict[str, str]:
-    """TZ 2.3: the advert as it is - into a running group active, into a new one paused."""
-    _target(db, user, ManagedLevel.AD, external_id)
+    """TZ 2.3: the advert - into a running group active, into a new one paused.
+
+    With ``creative`` it carries a new picture, words, form or button instead
+    of the original's creative.
+    """
+    ad = _target(db, user, ManagedLevel.AD, external_id)
+    creative = None
+    if body.creative is not None:
+        asked = body.creative
+        picture = asked.picture or ""
+        if picture and picture not in {
+            str(row.id) for row in _ad_library(db, user, ad)
+        }:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Bu rasm kutubxonada yo'q.",
+            )
+        creative = {
+            "message": asked.message,
+            "headline": asked.headline,
+            "description": asked.description,
+            "asset_id": picture,
+            "lead_form_id": asked.lead_form or "",
+            "button": asked.button or "",
+            "welcome": asked.welcome.model_dump() if asked.welcome else None,
+        }
     return _started(
-        db, user, level=ManagedLevel.AD, external_id=external_id, into=body.into
+        db,
+        user,
+        level=ManagedLevel.AD,
+        external_id=external_id,
+        into=body.into,
+        creative=creative,
     )
+
+
+@router.get("/ads/{external_id}/copy/creative", response_model=CopyCreativeForm)
+def copy_ad_creative(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
+    """TZ 2.3: the original's words, the library, the forms and the buttons."""
+    ad = _target(db, user, ManagedLevel.AD, external_id)
+    content = selectors.creative_of(db, owner=user, ad=ad)
+    story = story_of(db, owner=user, ad=ad)
+    keys = offered_buttons(story) if story is not None else ()
+    return ad_edit_form(
+        ad,
+        initial={
+            "message": getattr(content, "message", "") or "",
+            "headline": getattr(content, "headline", "") or "",
+            "description": getattr(content, "description", "") or "",
+        },
+        can_swap=story is not None,
+        library=[selectors.asset_row(row) for row in _ad_library(db, user, ad)],
+        forms=_ad_forms(db, user, ad),
+        limits={"headline": HEADLINE_LIMIT, "message": MESSAGE_LIMIT},
+        early_hours=0,
+        welcome=welcome_of(story) if story is not None else None,
+    ) | {
+        "button": str(button_of(story).get("type") or ""),
+        "buttons": [{"key": key, "label": BUTTON_LABELS.get(key, key)} for key in keys],
+    }
 
 
 __all__ = ["NEW_GROUP"]

@@ -21,9 +21,14 @@ from app.modules.ads.contract.listing import (
     figures_of,
     figures_range,
 )
+from app.modules.ads.contract.tree import opens_of
 from app.modules.ads.contract.words import controls_of, status_of
 from app.modules.ads.selectors.failures import last_refusal
-from app.modules.ads.selectors.rejections import first_turned_down, rejection_of
+from app.modules.ads.selectors.rejections import (
+    POST_KINDS,
+    first_turned_down,
+    rejection_of,
+)
 
 
 def _reach(chips: Any) -> dict[str, int]:
@@ -216,6 +221,10 @@ def manager(
                             level=ManagedLevel.AD,
                         ),
                         "rejection": rejection_of(ad),
+                        # TZ 2.6: «Lid formani almashtirish» / «Xabar shablonini o'zgartirish».
+                        "opens": opens_of(ad, content),
+                        "can_swap": (getattr(content, "kind", "") or "")
+                        not in POST_KINDS,
                     }
                 )
     return out

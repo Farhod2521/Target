@@ -158,7 +158,9 @@ def test_a_custom_conversion_is_offered_and_sent_with_its_type(
         "1",
         events=[{"event": "Lead", "count": 5}],
         conversions=[
-            {"id": "55", "name": "Rahmat sahifasi", "event": "LEAD", "count": 7}
+            {"id": "55", "name": "Rahmat sahifasi", "event": "LEAD", "count": 7},
+            # A type this product cannot buy on is not offered at all.
+            {"id": "56", "name": "Mahsulot", "event": "CUSTOMIZE_PRODUCT"},
         ],
     )
 

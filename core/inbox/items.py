@@ -40,6 +40,7 @@ ItemKind = Literal[
     "support",
     "feedback",
     "checkup",
+    "copy",
 ]
 
 Level = Literal["urgent", "decision", "news"]

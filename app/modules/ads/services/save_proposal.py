@@ -143,16 +143,17 @@ def _apply_advanced(db: Session, *, launch: CampaignLaunch, edit: AdvancedEdit) 
     ):
         choose_campaign_type(db, launch=launch, key=edit.campaign_type)
         changed = True
-    if edit.conversion_event and edit.conversion_event != effective_conversion_event(
-        db, launch=launch
-    ):
-        choose_conversion_event(db, launch=launch, key=edit.conversion_event)
-        changed = True
+    # The pixel first: the event is one of its own (TZ 3).
     chosen = chosen_pixel(db, launch=launch)
     if edit.pixel_id and edit.pixel_id != (
         chosen.external_id if chosen is not None else ""
     ):
         choose_pixel(db, launch=launch, external_id=edit.pixel_id)
+        changed = True
+    if edit.conversion_event and edit.conversion_event != effective_conversion_event(
+        db, launch=launch
+    ):
+        choose_conversion_event(db, launch=launch, key=edit.conversion_event)
         changed = True
     if edit.call_to_action and edit.call_to_action != effective_button(
         db, launch=launch

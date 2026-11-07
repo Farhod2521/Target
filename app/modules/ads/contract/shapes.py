@@ -178,6 +178,9 @@ class CampaignAd(Camel):
     can_swap: bool | None = Field(
         None, description="False: the words live on the page's post, changed there."
     )
+    opens: Literal["form", "chat"] | None = Field(
+        None, description="TZ 2.6: what the button opens - its form or a chat."
+    )
 
 
 class AdGroup(Camel):
@@ -562,6 +565,22 @@ class WordLimits(Camel):
     headline: int
 
 
+class WelcomeQuestion(Camel):
+    title: str
+    response: str = Field(
+        default="", description="Sent when it is tapped; may be empty."
+    )
+
+
+class WelcomeForm(Camel):
+    """TZ 2.5: a chat advert's greeting, its quick questions and their answers."""
+
+    text: str
+    questions: list[WelcomeQuestion]
+    max_questions: int
+    max_chars: int = Field(description="The longest quick question.")
+
+
 class AdEdit(Camel):
     external_id: str
     campaign: CampaignRef
@@ -575,6 +594,7 @@ class AdEdit(Camel):
     library: list[LibraryItem]
     forms: AdForms | None
     early_hours: int
+    welcome: WelcomeForm | None = None
 
 
 class GroupSource(Camel):
@@ -663,6 +683,12 @@ class ManagerRow(Camel):
     problem: str | None = None
     refusal: Refusal | None = None
     rejection: Refusal | None = None
+    opens: Literal["form", "chat"] | None = Field(
+        None, description="An advert's row: what its button opens (TZ 2.6)."
+    )
+    can_swap: bool | None = Field(
+        None, description="An advert's row: false when its words live on a post."
+    )
 
 
 class ManagerData(Camel):

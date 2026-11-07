@@ -18,7 +18,7 @@ from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.selectors.advice import conversion_event_recommendation
 from app.modules.ads.selectors.campaign_type import campaign_type_locked
 from app.modules.ads.selectors.goals import goal_preset
-from app.modules.ads.selectors.pixel import chosen_pixel
+from app.modules.ads.selectors.pixel import chosen_pixel, usable_pixels
 from core.targeting import EVENT_KEY, ConversionEvent, conversion_events
 from core.targeting.conversion_events import event_for_snippet
 
@@ -42,12 +42,28 @@ class CustomConversion:
 
 
 def offered_conversions(
-    db: Session, *, launch: CampaignLaunch
+    db: Session, *, launch: CampaignLaunch, pixel_id: str = ""
 ) -> tuple[CustomConversion, ...]:
-    """The chosen pixel's custom conversions, keyed ``cc:<id>`` beside the events."""
+    """The chosen pixel's custom conversions, keyed ``cc:<id>`` beside the events.
+
+    Only those counted as one of the provider's events: the ad set is bought
+    on that event with the conversion beside it, and a type this product does
+    not know would be bought as the preset's own event instead.
+    """
     if not preset_event(db, launch=launch):
         return ()
+    known = {row.key for row in conversion_events(provider=launch.provider)}
     pixel = chosen_pixel(db, launch=launch)
+    if pixel_id:
+        # The pixel picked in the same save as the event (TZ 3).
+        pixel = next(
+            (
+                row
+                for row in usable_pixels(db, launch=launch)
+                if row.external_id == pixel_id
+            ),
+            pixel,
+        )
     rows = pixel.conversions if pixel and isinstance(pixel.conversions, list) else []
     return tuple(
         CustomConversion(
@@ -58,13 +74,17 @@ def offered_conversions(
             count=_count(row.get("count")),
         )
         for row in rows
-        if isinstance(row, dict) and row.get("id")
+        if isinstance(row, dict)
+        and row.get("id")
+        and str(row.get("event") or "") in known
     )
 
 
-def offered_keys(db: Session, *, launch: CampaignLaunch) -> tuple[str, ...]:
+def offered_keys(
+    db: Session, *, launch: CampaignLaunch, pixel_id: str = ""
+) -> tuple[str, ...]:
     return tuple(row.key for row in offered_events(db, launch=launch)) + tuple(
-        row.key for row in offered_conversions(db, launch=launch)
+        row.key for row in offered_conversions(db, launch=launch, pixel_id=pixel_id)
     )
 
 
@@ -131,6 +151,16 @@ def preset_event(db: Session, *, launch: CampaignLaunch) -> str:
 def chosen_conversion_event(*, launch: CampaignLaunch) -> str:
     owner = str(launch.answers.get(CONVERSION_EVENT) or "")
     return owner or draft_field.conversion_event(launch.draft or {})
+
+
+def event_label(db: Session, *, launch: CampaignLaunch, key: str) -> str:
+    """What a chosen event is called: a custom conversion by its own name."""
+    if not key.startswith(CUSTOM_CONVERSION):
+        return key
+    found = next(
+        (row for row in offered_conversions(db, launch=launch) if row.key == key), None
+    )
+    return found.name if found is not None else key
 
 
 def effective_conversion_event(db: Session, *, launch: CampaignLaunch) -> str:

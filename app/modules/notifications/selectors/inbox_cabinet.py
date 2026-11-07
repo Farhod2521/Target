@@ -6,12 +6,15 @@ reply and its answer to a piece of feedback.
 
 from datetime import datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.routes import reverse
 from app.modules.accounts.models import User
-from app.modules.ads.models import LapseHold
+from app.modules.ads.models import Campaign, LapseHold
 from app.modules.ads.selectors.lapse import last_warning_due, open_hold
+from app.modules.audit.constants import ActionStatus, ActionType
+from app.modules.audit.models import ActionLog
 from app.modules.billing.constants import EXPIRY_REMINDER_DAYS
 from app.modules.billing.models import Subscription
 from app.modules.billing.selectors.subscription import (
@@ -26,6 +29,8 @@ from app.modules.referrals.selectors import last_answered_feedback
 from core.inbox import InboxItem
 
 FEEDBACK_ANSWER_DAYS = 14
+# TZ 2.1: how long «the copy is ready» stays in the list.
+COPY_READY_DAYS = 2
 
 
 def _feedback(db: Session, *, owner: User, now: datetime) -> list[InboxItem]:
@@ -48,6 +53,42 @@ def _feedback(db: Session, *, owner: User, now: datetime) -> list[InboxItem]:
             href=f"{reverse('referrals:wallet')}?yol=fikr",
         )
     ]
+
+
+def _copies(db: Session, *, owner: User, now: datetime) -> list[InboxItem]:
+    """TZ 2.1: a campaign's copy made in the background is ready."""
+    rows = db.scalars(
+        select(ActionLog)
+        .where(
+            ActionLog.owner_id == owner.id,
+            ActionLog.action == ActionType.COPY_CAMPAIGN,
+            ActionLog.status == ActionStatus.APPLIED,
+            ActionLog.applied_at >= now - timedelta(days=COPY_READY_DAYS),
+        )
+        .order_by(ActionLog.applied_at.desc())
+    )
+    items = []
+    for log in rows:
+        source = db.scalar(
+            select(Campaign.name).where(
+                Campaign.owner_id == owner.id,
+                Campaign.provider == log.target_provider,
+                Campaign.external_id == log.target_external_id,
+            )
+        )
+        items.append(
+            InboxItem(
+                key=f"copy:{log.id}",
+                kind="copy",
+                level="news",
+                title=f"Kampaniya nusxasi tayyor: «{source or log.target_external_id} — nusxa»",
+                body="Nusxa to'xtatilgan holatda. Tekshirib, o'zingiz yoqasiz.",
+                since=log.applied_at,
+                action="Kampaniyalarni ochish",
+                href=reverse("ads:campaigns"),
+            )
+        )
+    return items
 
 
 def _connection(db: Session, *, owner: User) -> list[InboxItem]:
@@ -219,7 +260,8 @@ def cabinet_items(
         *_setup(db, owner=owner, live=live),
         *_support(db, owner=owner),
         *_feedback(db, owner=owner, now=now),
+        *_copies(db, owner=owner, now=now),
     ]
 
 
-__all__ = ["FEEDBACK_ANSWER_DAYS", "cabinet_items"]
+__all__ = ["COPY_READY_DAYS", "FEEDBACK_ANSWER_DAYS", "cabinet_items"]

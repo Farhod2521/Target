@@ -503,9 +503,8 @@ def _sync_conversions(
         logger.info("custom conversions failed for %s: %s", account.external_id, exc)
         return
     by_pixel: dict[str, list[dict[str, Any]]] = {}
-    for row in found[:MOST_CONVERSIONS]:
-        if not row.is_usable or not row.pixel_id:
-            continue
+    usable = [row for row in found if row.is_usable and row.pixel_id]
+    for row in usable[:MOST_CONVERSIONS]:
         try:
             count: int | None = custom_conversion_count(
                 conversion_id=row.id, token=token

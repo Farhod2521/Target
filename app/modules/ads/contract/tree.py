@@ -2,6 +2,7 @@
 
 from typing import Any, Final
 
+from metaads.restage import button_of
 from sqlalchemy.orm import Session
 
 from app.common.contract import money
@@ -51,7 +52,16 @@ def ad_item(ad: Any, *, position: int, chips: Any, currency: str) -> dict[str, A
         ),
         "rejection": rejection_of(ad),
         "can_swap": kind not in POST_KINDS,
+        "opens": opens_of(ad, content),
     }
+
+
+def opens_of(ad: Any, content: Any) -> str | None:
+    """TZ 2.6: what the advert's button opens - a form, a chat, or neither."""
+    if ad.lead_form_external_id:
+        return "form"
+    value = button_of(getattr(content, "story_raw", None)).get("value") or {}
+    return "chat" if value.get("app_destination") else None
 
 
 def ad_figures(db: Session, *, owner: User, campaign: Any) -> dict[str, Any]:

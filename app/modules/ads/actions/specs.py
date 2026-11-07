@@ -120,6 +120,10 @@ class NewAdvert:
     description: str | None = None
     asset_id: str = ""
     lead_form_id: str = ""
+    # A chat advert's greeting (TZ 2.5); ``None`` keeps it.
+    welcome: dict[str, Any] | None = None
+    # TZ 2.4 «Shu e'londa»: this advert takes the new creative, none is made.
+    in_place: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +161,8 @@ class Copy:
     level: str
     external_id: str
     into: str = ""
+    # An advert's new creative (TZ 2.3); ``None`` copies the original's.
+    creative: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,6 +274,8 @@ SPECS: dict[type, Spec] = {
             description=ask.description,
             asset_id=ask.asset_id,
             lead_form_id=ask.lead_form_id,
+            welcome=ask.welcome,
+            in_place=ask.in_place,
         ),
     ),
     NewGroup: Spec(
@@ -289,6 +297,7 @@ SPECS: dict[type, Spec] = {
             level=ask.level,
             external_id=ask.external_id,
             into=ask.into,
+            creative=ask.creative,
         ),
     ),
     NewAd: Spec(

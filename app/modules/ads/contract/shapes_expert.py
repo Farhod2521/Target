@@ -36,6 +36,12 @@ class ExpertRow(Camel):
     problem: str | None = None
     refusal: Refusal | None = None
     rejection: Refusal | None = None
+    opens: Literal["form", "chat"] | None = Field(
+        None, description="An advert's row: what its button opens (TZ 2.6)."
+    )
+    can_swap: bool | None = Field(
+        None, description="An advert's row: false when its words live on a post."
+    )
     outcome: str = Field(description="What one result is for this row's goal.")
     currency: str
     cells: dict[str, Cell] = Field(description="One per metric, keyed by its key.")

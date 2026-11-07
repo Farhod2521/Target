@@ -7,11 +7,13 @@ from typing import Any
 
 from adskit import ExternalRef
 from adskit.dto import ActionResult, StatusDTO
-from adskit.errors import ProviderError
+from adskit.errors import InvalidRequest, ProviderError
+from metaads import welcome as greeting
 from metaads.assets import MetaAssets
 from metaads.launcher import MetaLauncher
-from metaads.restage import changed, restage
+from metaads.restage import changed, restage, welcome_of
 from metaads.specs import STATUS_ACTIVE, STATUS_PAUSED
+from metaads.writes import set_creative
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -25,6 +27,8 @@ from app.modules.ads.exceptions import (
     NothingChanged,
     UnknownLeadForm,
     UnknownMedia,
+    WelcomeNotOffered,
+    WelcomeRefused,
 )
 from app.modules.ads.models import Ad, MediaAsset
 from app.modules.ads.services.manage import (
@@ -94,8 +98,16 @@ def plan_swap(
     description: str | None = None,
     asset_id: str = "",
     lead_form_id: str = "",
+    welcome: dict[str, Any] | None = None,
+    in_place: bool = False,
 ) -> Planned:
-    """Replace what one advert says, by making the next one."""
+    """Replace what one advert says, by making the next one.
+
+    ``in_place`` (TZ 2.4) keeps the advert and gives it the new creative:
+    Meta reviews it again and its likes and comments start from nothing.
+    ``welcome`` is a chat advert's greeting (TZ 2.5): ``text`` and
+    ``questions`` of ``title`` and ``response``.
+    """
     from app.modules.ads.selectors import creative_of
     from app.modules.billing.services import require_live_subscription
 
@@ -110,7 +122,8 @@ def plan_swap(
     picture = _picture(db, owner=user, asset_id=asset_id)
     form = _form(db, owner=user, ad=target, lead_form_id=lead_form_id)
     words = {"message": message, "headline": headline, "description": description}
-    if not changed(story, **words, **picture, **form):
+    chat = welcome_plan(story, welcome)
+    if not changed(story, **words, **picture, **form, **_greeting(chat)):
         raise NothingChanged
     context = _ad_context(db, owner=user, target=target)
     verdict = check_creative_swap(
@@ -127,11 +140,56 @@ def plan_swap(
         level=LEVEL,
         external_id=external_id,
         action=ActionType.CREATIVE_SWAP,
-        requested={**words, **picture, **form, "asset_id": asset_id},
+        requested={
+            **words,
+            **picture,
+            **form,
+            **chat,
+            "asset_id": asset_id,
+            "in_place": in_place,
+        },
         previous=state_payload(target) | {"creative": creative.external_id},
         dispatch=_dispatch,
         revertible=False,
     )
+
+
+def welcome_plan(story: dict[str, Any], asked: dict[str, Any] | None) -> dict[str, Any]:
+    """The greeting asked for, checked; nothing when none was asked."""
+    if asked is None:
+        return {}
+    now = welcome_of(story)
+    if now is None:
+        raise WelcomeNotOffered
+    text = str(asked.get("text") or "")
+    rows = [
+        {
+            "title": str(row.get("title") or ""),
+            "response": str(row.get("response") or ""),
+        }
+        for row in asked.get("questions") or ()
+    ]
+    wanted = greeting.from_rows(text, rows)
+    try:
+        greeting.checked(wanted)
+    except InvalidRequest as exc:
+        raise WelcomeRefused from exc
+    if wanted == now:
+        # Sent back as it is: rewriting it would still be a new creative.
+        return {}
+    return {"welcome": {"text": text, "questions": rows}}
+
+
+def _greeting(asked: dict[str, Any]) -> dict[str, Any]:
+    """The restage argument for a stored ``welcome``; nothing when none."""
+    found = asked.get("welcome")
+    if not isinstance(found, dict):
+        return {}
+    return {
+        "welcome": greeting.from_rows(
+            str(found.get("text") or ""), found.get("questions") or []
+        )
+    }
 
 
 def _picture(db: Session, *, owner: User, asset_id: str) -> dict[str, str]:
@@ -244,6 +302,11 @@ def _finish_swap(db: Session, job: Any, result: ActionResult) -> None:
         before=job.before,
         after=after,
     )
+    if result.applied.get("in_place") and not job.dry_run:
+        # The advert's new creative reaches the mirror with the next read.
+        from app.modules.ads.services.mirror import _queue
+
+        _queue(db, job.account)
 
 
 def swap_refusal(
@@ -312,6 +375,7 @@ def _swap(
         description=asked.get("description"),
         **_frame(asked=asked, token=token, dry_run=dry_run),
         lead_form_id=str(asked.get("lead_form_id") or ""),
+        **_greeting(asked),
     )
     account_ref = ExternalRef(
         provider=log.target_provider, level="account", id=account_id
@@ -323,6 +387,14 @@ def _swap(
         token=token,
         dry_run=dry_run,
     )
+    if asked.get("in_place"):
+        return _in_place(
+            launcher=launcher,
+            ref=ref,
+            creative=creative.ref,
+            token=token,
+            dry_run=dry_run,
+        )
     try:
         made = launcher.create_ad(
             account=account_ref,
@@ -349,6 +421,30 @@ def _swap(
         ok=True,
         ref=ref,
         applied={"creative": creative.ref.id, "ad": made.ref.id, "status": PAUSED},
+        dry_run=dry_run,
+    )
+
+
+def _in_place(
+    *,
+    launcher: MetaLauncher,
+    ref: ExternalRef,
+    creative: ExternalRef,
+    token: str,
+    dry_run: bool,
+) -> ActionResult:
+    """TZ 2.4 «Shu e'londa»: the same advert, showing the new creative."""
+    try:
+        set_creative(
+            ad_id=ref.id, creative_id=creative.id, token=token, dry_run=dry_run
+        )
+    except ProviderError:
+        _sweep(launcher=launcher, ref=creative, token=token, dry_run=dry_run)
+        raise
+    return ActionResult(
+        ok=True,
+        ref=ref,
+        applied={"creative": creative.id, "in_place": True},
         dry_run=dry_run,
     )
 

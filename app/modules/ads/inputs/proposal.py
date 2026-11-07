@@ -471,7 +471,7 @@ def _advanced(
     )
     _choice(
         body.conversion_event,
-        list(offered_keys(db, launch=launch)),
+        list(offered_keys(db, launch=launch, pixel_id=body.pixel_id or "")),
         field="advanced.conversion_event",
         problems=problems,
     )
