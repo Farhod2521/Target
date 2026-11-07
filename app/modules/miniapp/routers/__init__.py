@@ -13,8 +13,8 @@ from app.common.routes import reverse
 from app.modules.accounts.services import note_sign_in
 from app.modules.miniapp.constants import BRIDGE_SCRIPT, NEXT_FIELD
 from app.modules.miniapp.exceptions import MiniAppRefused
-from app.modules.miniapp.schemas import AuthOut, EntryOut, LinkOut
-from app.modules.miniapp.services import authenticate, link_launch
+from app.modules.miniapp.schemas import AuthOut, EntryOut, LinkOut, SignupOut
+from app.modules.miniapp.services import authenticate, hold_signup, link_launch
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/miniapp", tags=["miniapp"])
@@ -66,6 +66,18 @@ def auth(body: AuthIn, db: Db) -> dict[str, Any]:
         "token_type": "bearer",
         "in_telegram": True,
     }
+
+
+@router.post("/signup", responses={200: {"model": SignupOut}})
+def signup(body: AuthIn, db: Db) -> dict[str, Any]:
+    """A Telegram no cabinet holds: the finishing form (email, phone, role)
+    that opens one without a password. Refusals are 200 with ``error``, as
+    ``/auth`` answers them; ``linked`` means ``/auth`` opens a cabinet."""
+    try:
+        path = hold_signup(db, init_data=body.init_data, now=utcnow())
+    except MiniAppRefused as exc:
+        return {"error": exc.code, "message": exc.message}
+    return {"finish_url": path}
 
 
 @router.post("/link", responses={200: {"model": LinkOut}})

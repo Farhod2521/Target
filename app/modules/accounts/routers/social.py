@@ -37,7 +37,10 @@ def finish_form(token: str) -> SocialPendingOut:
     token is ``social_expired`` (410): press Google again."""
     held = social_login.pending(token=token)
     return SocialPendingOut(
-        provider=held.provider, email=held.email, full_name=held.full_name
+        provider=held.provider,
+        email=held.email,
+        full_name=held.full_name,
+        needs_email=not held.email,
     )
 
 
@@ -45,10 +48,12 @@ def finish_form(token: str) -> SocialPendingOut:
 def finish_signup(
     token: str, body: SocialCompleteIn, request: Request, db: Db
 ) -> HandedOff:
-    """The phone and the role: the account is opened and signed in.
+    """The phone and the role (and the email, from Telegram): the account
+    is opened and signed in.
 
-    A number another account holds is ``phone_taken`` under ``phone``; the
-    token survives it, so the form can be corrected and sent again.
+    A number another account holds is ``phone_taken`` under ``phone``; a
+    typed address another account holds is ``email_in_use`` under ``email``.
+    The token survives both, so the form can be corrected and sent again.
     """
     if not throttle.hit(
         bucket=SIGNUP_BUCKET,
@@ -66,6 +71,7 @@ def finish_signup(
         phone=clean_phone(body.phone),
         role=body.role.value,
         full_name=body.full_name.strip(),
+        email=str(body.email or ""),
         address=client_address(request),
     )
     pair = token_pair(user)
@@ -104,6 +110,19 @@ def start(
         language=body.language.value if body.language else "",
     )
     return SocialStartOut(url=url)
+
+
+@router.get("/telegram/callback/{state}", include_in_schema=False)
+def telegram_callback(state: str, request: Request, db: Db) -> RedirectResponse:
+    """The Login Widget sends the browser here with the Telegram account's
+    signed fields in the query; it leaves as the Google callback does."""
+    path = social_login.finish_telegram(
+        db,
+        state=state,
+        query=dict(request.query_params),
+        address=client_address(request),
+    )
+    return RedirectResponse(f"{settings.site_url}{path}", status_code=302)
 
 
 @router.get("/{provider}/callback", include_in_schema=False)

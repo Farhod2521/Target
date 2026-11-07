@@ -99,6 +99,7 @@ def test_somebody_new_gives_phone_and_role_then_signs_in(
         "provider": "google",
         "email": "new@gmail.com",
         "full_name": "Vali Aliyev",
+        "needs_email": False,
     }
 
     done = client.post(

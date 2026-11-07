@@ -33,6 +33,13 @@ class ProofExpired(MiniAppRefused):
         super().__init__("Seans eskirdi. Telegram'dan qayta oching.")
 
 
+class AlreadyLinked(MiniAppRefused):
+    code = "linked"
+
+    def __init__(self) -> None:
+        super().__init__("Bu Telegram allaqachon kabinetga ulangan. Kabinetni oching.")
+
+
 class ChatNotLinked(MiniAppRefused):
     code = "unlinked"
 

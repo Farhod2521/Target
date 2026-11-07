@@ -93,11 +93,14 @@ class SocialStartOut(BaseModel):
 
 
 class SocialPendingOut(BaseModel):
-    """What Google gave, shown on the finishing page."""
+    """What the provider gave, shown on the finishing page."""
 
     provider: str
-    email: str
+    email: str = Field(description="Empty from Telegram: `email` is asked.")
     full_name: str
+    needs_email: bool = Field(
+        default=False, description="The form asks for the email (Telegram)."
+    )
 
 
 class SocialCompleteIn(BaseModel):
@@ -106,5 +109,9 @@ class SocialCompleteIn(BaseModel):
     full_name: str = Field(
         default="",
         max_length=255,
-        description="Empty keeps the name Google gave.",
+        description="Empty keeps the name the provider gave.",
+    )
+    email: EmailStr | None = Field(
+        default=None,
+        description="Required when `needs_email`; ignored otherwise.",
     )

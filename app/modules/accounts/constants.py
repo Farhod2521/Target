@@ -46,9 +46,10 @@ ROLE_LABELS = {
 
 class SocialProvider(Choices):
     GOOGLE = "google"
+    TELEGRAM = "telegram"
 
 
-SOCIAL_PROVIDER_LABELS = {SocialProvider.GOOGLE: "Google"}
+SOCIAL_PROVIDER_LABELS = {SocialProvider.GOOGLE: "Google", SocialProvider.TELEGRAM: "Telegram"}
 # The Google round trip: the consent screen, a second account picked, a slow
 # phone. The finishing form (phone and role) gets longer.
 SOCIAL_STATE_TTL_SECONDS: Final = 15 * 60
@@ -56,6 +57,9 @@ SOCIAL_STATE_KEY: Final = "accounts:social:state:{state}"
 SOCIAL_PENDING_TTL_SECONDS: Final = 30 * 60
 SOCIAL_PENDING_KEY: Final = "accounts:social:pending:{token}"
 SOCIAL_TOKEN_BYTES: Final = 32
+# The Login Widget's redirect follows Telegram's confirmation at once; an
+# older one is somebody else's copied address.
+TELEGRAM_LOGIN_MAX_AGE_SECONDS: Final = 10 * 60
 PURGE_ORDER: tuple[str, ...] = (
     "businesses.CustomCategory",
     "audit.ErrorEvent",

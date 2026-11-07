@@ -168,6 +168,21 @@ class PhoneTaken(InputRefused):
         )
 
 
+class EmailInUse(InputRefused):
+    """The address typed on the Telegram finishing form is another account's:
+    that person signs in with the password and ties Telegram from Settings."""
+
+    code = "email_in_use"
+
+    def __init__(self) -> None:
+        super().__init__(
+            {
+                "email": "Bu email bilan akkaunt bor. Parol bilan kiring va "
+                "Telegram'ni Profildan ulang."
+            }
+        )
+
+
 class SocialLastWay(Conflict):
     """Unlinking the only way in: an account opened by Google has no password."""
 

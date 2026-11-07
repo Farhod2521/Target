@@ -18,6 +18,12 @@ from telegramkit.errors import (
     TelegramTemporaryError,
     scrubbed,
 )
+from telegramkit.login import (
+    LoginWidgetError,
+    TelegramLogin,
+    login_digest,
+    verify_login,
+)
 from telegramkit.models import BotIdentity, Button, SentMessage, WebhookInfo
 from telegramkit.updates import (
     CALLBACK_DATA_MAX_BYTES,
@@ -56,11 +62,13 @@ __all__ = [
     "Command",
     "InitDataError",
     "InitDataExpired",
+    "LoginWidgetError",
     "OtherMessage",
     "Sender",
     "SentMessage",
     "TelegramAPIError",
     "TelegramError",
+    "TelegramLogin",
     "TelegramRateLimited",
     "TelegramTemporaryError",
     "TextMessage",
@@ -68,9 +76,11 @@ __all__ = [
     "VerifiedInitData",
     "WebhookInfo",
     "build_init_data",
+    "login_digest",
     "message_units",
     "parse_init_data",
     "read_update",
     "scrubbed",
     "secret_matches",
+    "verify_login",
 ]

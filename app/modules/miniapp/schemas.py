@@ -22,10 +22,20 @@ class AuthOut(BaseModel):
     message: str | None = None
 
 
+class SignupOut(BaseModel):
+    finish_url: str | None = Field(
+        None, description="The finishing form (email, phone, role); a cabinet path."
+    )
+    error: str | None = Field(
+        None, description="Instead when refused; `linked`: open the cabinet."
+    )
+    message: str | None = None
+
+
 class LinkOut(BaseModel):
     linked: bool = Field(
         description="False for a CRM manager: the bot speaks to owners only."
     )
 
 
-__all__ = ["AuthOut", "EntryOut", "LinkOut"]
+__all__ = ["AuthOut", "EntryOut", "LinkOut", "SignupOut"]
