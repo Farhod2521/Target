@@ -10,7 +10,11 @@ from sqlalchemy.orm import Session
 from app.modules.ads import draft as draft_field
 from app.modules.ads.constants import DraftSection
 from app.modules.ads.models import CampaignLaunch
-from core.targeting.placements import OFFERED_POSITIONS, PLACEMENT_KEYS
+from core.targeting.placements import (
+    INSTAGRAM_ONLY_PLACEMENTS,
+    OFFERED_POSITIONS,
+    PLACEMENT_KEYS,
+)
 from tests.pg.test_launch_api import _ready
 
 
@@ -73,7 +77,15 @@ def test_the_editor_offers_every_position_and_ticks_the_defaults(
     aud = _edit(client, path, auth)["aud"]
     assert aud["apps"] == "auto"
     assert aud["positions"] == {
-        "instagram": ["stream", "story", "reels"],
+        "instagram": [
+            "stream",
+            "story",
+            "reels",
+            "explore_home",
+            "profile_feed",
+            "profile_reels",
+            "ig_search",
+        ],
         "facebook": ["feed", "story", "facebook_reels"],
     }
     options = aud["positionOptions"]
@@ -155,11 +167,9 @@ def test_back_to_automatic_leaves_no_placement(client: TestClient, db: Session) 
     tabs["aud"]["apps"] = "auto"
     assert client.put(f"{path}/edit", json=tabs, headers=auth).status_code == 200
     assert _placements(db, path) == {}
-    assert _edit(client, path, auth)["aud"]["positions"]["instagram"] == [
-        "stream",
-        "story",
-        "reels",
-    ]
+    assert _edit(client, path, auth)["aud"]["positions"]["instagram"] == list(
+        INSTAGRAM_ONLY_PLACEMENTS["instagram_positions"]
+    )
 
 
 @pytest.mark.parametrize(

@@ -18,7 +18,7 @@ Alohida test akkaunti kerak emas. Javoblar prod bazasidagi (nusxa 2026-11-05) Ad
 
 | # | Savol | Natija |
 |---|---|---|
-| T5 | `explore`, `explore_home` qabul qilinadimi? | ✅ Ha. Oxirgi 30 kunda boshlangan faol guruhlarda `explore` 42 ta, `explore_home` 90 ta. Bizning `RETIRED_POSITIONS` xato — tuzatiladi. Jami bazada: story 10 432, stream 10 401, reels 10 381, profile_feed 9 225, explore_home 6 519, explore 5 171, ig_search 4 346, profile_reels 2 009, reels_overlay 404. |
+| T5 | `explore`, `explore_home` qabul qilinadimi? | 🟡 Tuzatildi (3-bosqich): v26.0 changelog — `explore` olib tashlangan, uni ko'rsatgan so'rov **xato** beradi. `explore_home` placement reference'da hali bor — yuboriladi. `reels_overlay` reference'da yo'q — yuborilmaydi. Prod'dagi guruhlarda `explore` borligi isbot emas: ular Ads Manager'da yoki eski versiyada yaratilgan bo'lishi mumkin. Jami bazada: story 10 432, stream 10 401, reels 10 381, profile_feed 9 225, explore_home 6 519, explore 5 171, ig_search 4 346, profile_reels 2 009, reels_overlay 404. |
 | T6 | Tez savolga avtomatik javob ishlaydimi? | ✅ Ha. 4 669 ta kreativda `ice_breakers[].response` bor. Ko'pi bilan nechta savol bo'lishini bazadan aniq sanab bo'lmadi; prod'da ishlayotgan 4 ta chegarasi qoladi. |
 | T7 | Qaysi maqsad qaysi event'ni oladi? | ✅ `OUTCOME_LEADS`: LEAD 1 185, COMPLETE_REGISTRATION 281, OTHER 128, SUBMIT_APPLICATION 4. `OUTCOME_SALES`: PURCHASE 21, CONTENT_VIEW 7, OTHER 4, COMPLETE_REGISTRATION 3, START_TRIAL 2. Custom conversion shakli: `{"pixel_id", "custom_conversion_id", "custom_event_type"}` (3 ta guruhda). |
 | T1 | E'londa creative almashtirilsa nima bo'ladi? | Bazadan javob yo'q. Hujjat bo'yicha quriladi; UI'da TZ 2.4 dagi ogohlantirish chiqadi. |

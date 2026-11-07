@@ -28,9 +28,21 @@ STANDARD_PLACEMENTS: Final[Mapping[str, tuple[str, ...]]] = {
     "instagram_positions": ("stream", "story", "reels"),
 }
 
+# TZ 5: every Instagram position the v26.0 placement reference lists, but
+# `explore` - the changelog removed it and a request naming it is refused.
+# Meta leaves out, without an error, a position the objective cannot run on.
+# Checked again on each API upgrade.
 INSTAGRAM_ONLY_PLACEMENTS: Final[Mapping[str, tuple[str, ...]]] = {
     "publisher_platforms": ("instagram",),
-    "instagram_positions": ("stream", "story", "reels"),
+    "instagram_positions": (
+        "stream",
+        "story",
+        "reels",
+        "explore_home",
+        "profile_feed",
+        "profile_reels",
+        "ig_search",
+    ),
 }
 FACEBOOK_ONLY_PLACEMENTS: Final[Mapping[str, tuple[str, ...]]] = {
     "publisher_platforms": ("facebook",),
@@ -43,20 +55,10 @@ _BLOCKS: Final[Mapping[str, Mapping[str, tuple[str, ...]]]] = {
     "facebook": FACEBOOK_ONLY_PLACEMENTS,
 }
 
-INSTAGRAM_PLACEMENTS: Final[Mapping[str, tuple[str, ...]]] = {
-    "publisher_platforms": ("instagram",),
-    "instagram_positions": (
-        "stream",
-        "story",
-        "reels",
-        "profile_feed",
-        "ig_search",
-        "profile_reels",
-    ),
-}
+INSTAGRAM_PLACEMENTS: Final = INSTAGRAM_ONLY_PLACEMENTS
 
 RETIRED_POSITIONS: Mapping[str, tuple[str, ...]] = {
-    "instagram_positions": ("explore", "explore_home"),
+    "instagram_positions": ("explore",),
     "messenger_positions": ("story",),
 }
 
@@ -67,6 +69,7 @@ OFFERED_POSITIONS: Final[Mapping[str, tuple[str, ...]]] = {
         "stream",
         "story",
         "reels",
+        "explore_home",
         "profile_feed",
         "profile_reels",
         "ig_search",

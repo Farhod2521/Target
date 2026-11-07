@@ -173,7 +173,7 @@ DRAFT_SECTION_LABELS = {
 ADVICE_REASONS: dict[str, Any] = {
     "provider_expands": "Meta reklamaga kim javob berishini o'zi o'rganib, shunday odamlarni topib boradi. Meta ham shuni tavsiya qiladi.",
     "instagram_is_connected": "Sahifangizga Instagram ulangan - reklama faqat Instagram'da ko'rsatiladi. Xohlasangiz, Facebook'ni tanlashingiz mumkin.",
-    "no_instagram": "Sahifangizga Instagram ulanmagan - reklama faqat Facebook'da ko'rsatiladi.",
+    "no_instagram": "Instagram ulanmagan - reklama Facebook'da ko'rsatiladi. Instagram'da yoqmoqchi bo'lsangiz, Instagram'ni ulang yoki supportga yozing.",
     "chat_on_facebook": "Suhbat Messenger'da bo'ladi - reklama faqat Facebook'da ko'rsatiladi.",
     "same_questions": "Bu formada aynan shu savollar bor — yangisini yasashning hojati yo'q. Meta formani o'chirishga ruxsat bermaydi.",
     "nothing_matches": "Tayyor formalaringiz orasida aynan shu savollarni so'raydigani yo'q.",
@@ -340,7 +340,7 @@ TARGETING_MODE_NOTES = {
     TargetingMode.BROAD: "Qiziqishlar ishlatilmaydi. Hudud, yosh va jins aniq saqlanadi - Meta ulardan tashqariga chiqmaydi.",
 }
 INSTAGRAM_ONLY_LABEL: Final = "Faqat Instagram"
-INSTAGRAM_ONLY_NOTE: Final = "Reklama odamni Instagram profilingizga olib boradi, shuning uchun u faqat Instagram'da ko'rsatiladi — lenta, Stories, Reels va qidiruvda."
+INSTAGRAM_ONLY_NOTE: Final = "Reklama odamni Instagram profilingizga olib boradi, shuning uchun u faqat Instagram'da ko'rsatiladi — lenta, Stories, Reels, Explore va qidiruvda."
 LEGACY_PLAN_DESTINATIONS: Final[frozenset[str]] = frozenset(
     {"form", "website", "phone", "chat", "nothing"}
 )
@@ -366,7 +366,7 @@ OFFERED_PLACEMENT_MODES: Final[tuple[PlacementMode, ...]] = (
 )
 PLACEMENT_MODE_NOTES = {
     PlacementMode.AUTOMATIC: "Meta reklamani o'zi tanlagan joylarda - jumladan boshqa ilovalarda ham - ko'rsatadi va arzonrog'ini qidiradi. Ko'rsatish arzonlashadi, lekin murojaat sifati o'zgarishini biz joylashuv bo'yicha o'lchay olmaymiz.",
-    PlacementMode.INSTAGRAM: "Reklama faqat Instagram lentasi, Stories va Reels'da ko'rsatiladi. Facebook'ga va boshqa ilovalarga chiqmaydi.",
+    PlacementMode.INSTAGRAM: "Reklama Instagram'ning barcha joylarida - lenta, Stories, Reels, Explore, profil va qidiruvda ko'rsatiladi. Facebook'ga va boshqa ilovalarga chiqmaydi.",
     PlacementMode.FACEBOOK: "Reklama faqat Facebook lentasi, Stories va Reels'da ko'rsatiladi. Instagram'ga va boshqa ilovalarga chiqmaydi.",
     PlacementMode.STANDARD: "Reklama faqat Facebook lentasida, Instagram lentasi, Stories va Reels'da ko'rsatiladi. Boshqa ilovalarga chiqmaydi.",
 }
@@ -375,6 +375,7 @@ PLACEMENT_POSITION_LABELS: Final[dict[str, dict[str, str]]] = {
         "stream": "Instagram lentasi",
         "story": "Instagram Stories",
         "reels": "Instagram Reels",
+        "explore_home": "Instagram Explore",
         "profile_feed": "Instagram profil lentasi",
         "profile_reels": "Instagram profil Reels'i",
         "ig_search": "Instagram qidiruvi",
