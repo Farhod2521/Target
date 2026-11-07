@@ -783,7 +783,7 @@ def refresh_accounts(db: Session, *, user: User) -> None:
 
 def recheck_leads(db: Session, *, user: User) -> None:
     from app.modules.integrations.tasks import sync_pages_task
-    from app.modules.leads.tasks import subscribe_page_task
+    from app.modules.leads.tasks import reconcile_page_task, subscribe_page_task
 
     connection = _usable_connection(db, owner=user)
     page = active_page(db, owner=user)
@@ -795,10 +795,12 @@ def recheck_leads(db: Session, *, user: User) -> None:
     _spend(owner=user, question="leads")
     page_id, connection_id = str(page.id), str(connection.id)
     on_commit(db, lambda: subscribe_page_task.delay(page_id))
+    on_commit(db, lambda: reconcile_page_task.delay(page_id))
     on_commit(db, lambda: sync_pages_task.delay(connection_id))
 
 
 def connect_page_leads(db: Session, *, user: User, page_id: str) -> PageAccount:
+    from app.modules.integrations.tasks import sync_pages_task
     from app.modules.leads.tasks import reconcile_page_task, subscribe_page_task
 
     connection = _usable_connection(db, owner=user)
@@ -814,9 +816,11 @@ def connect_page_leads(db: Session, *, user: User, page_id: str) -> PageAccount:
     if absent:
         raise ConnectionTooNarrow(absent)
     _spend(owner=user, question=f"leads:{page.id}")
-    page_key = str(page.id)
+    page_key, connection_key = str(page.id), str(connection.id)
     on_commit(db, lambda: subscribe_page_task.delay(page_key))
     on_commit(db, lambda: reconcile_page_task.delay(page_key))
+    # Re-reads the pages: the lead terms flag only changes there.
+    on_commit(db, lambda: sync_pages_task.delay(connection_key))
     return page
 
 

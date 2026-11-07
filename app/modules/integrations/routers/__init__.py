@@ -479,7 +479,11 @@ def refresh_accounts(db: Db, user: CurrentUser) -> MessageOut:
 @router.post("/meta/leads/recheck", response_model=MessageOut)
 def recheck_leads(db: Db, user: CurrentUser) -> MessageOut:
     services.recheck_leads(db, user=user)
-    return _ok(db, "Lidlar ulanishi tekshirilmoqda.")
+    return _ok(
+        db,
+        "Lidlar ulanishi tekshirilmoqda. O'tkazib yuborilgan murojaatlar bir "
+        "necha daqiqada «Mijozlar» bo'limiga tushadi.",
+    )
 
 
 @router.post("/meta/pages/{page_id}/leads", response_model=MessageOut)
