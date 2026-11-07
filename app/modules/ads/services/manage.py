@@ -319,7 +319,15 @@ _DELETES = {ActionType.DELETE_CAMPAIGN, ActionType.DELETE_ADSET, ActionType.DELE
 ASPECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     STATUS: frozenset({ActionType.PAUSE, ActionType.RESUME, *_DELETES}),
     BUDGET: frozenset({ActionType.BUDGET_UP, ActionType.BUDGET_DOWN}),
-    ADDITION: frozenset({ActionType.CREATE_ADSET, ActionType.CREATE_AD}),
+    ADDITION: frozenset(
+        {
+            ActionType.CREATE_ADSET,
+            ActionType.CREATE_AD,
+            ActionType.COPY_CAMPAIGN,
+            ActionType.COPY_ADSET,
+            ActionType.COPY_AD,
+        }
+    ),
     TARGETING: frozenset({ActionType.TARGETING_SWAP}),
     END_TIME: frozenset({ActionType.END_TIME_SET}),
     SPEND_CAP: frozenset({ActionType.SPEND_CAP_SET}),
@@ -862,6 +870,9 @@ EVENTS: dict[str, str] = {
     ActionType.CREATIVE_SWAP: EventName.CREATIVE_CHANGED,
     ActionType.CREATE_ADSET: EventName.ADSET_CREATED,
     ActionType.CREATE_AD: EventName.AD_CREATED,
+    ActionType.COPY_CAMPAIGN: EventName.CAMPAIGN_CREATED,
+    ActionType.COPY_ADSET: EventName.ADSET_CREATED,
+    ActionType.COPY_AD: EventName.AD_CREATED,
 }
 LIMIT_FIELDS: dict[str, str] = {
     ActionType.END_TIME_SET: "end_time",

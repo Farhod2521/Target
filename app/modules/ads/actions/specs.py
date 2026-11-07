@@ -25,6 +25,7 @@ from app.modules.accounts.models import User
 from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.exceptions import NothingToRevert
 from app.modules.ads.services.additions import plan_new_ad, plan_new_group
+from app.modules.ads.services.copies import plan_copy
 from app.modules.ads.services.manage import (
     BUDGET_ACTIONS,
     BY_HAND,
@@ -146,6 +147,19 @@ class NewAd:
 
 
 @dataclass(frozen=True, slots=True)
+class Copy:
+    """TZ 2: Meta's copy of a campaign, a group or an advert.
+
+    ``into`` is where it goes: a group's campaign, an advert's group or
+    ``"new"`` for a group of its own; empty keeps the original's parent.
+    """
+
+    level: str
+    external_id: str
+    into: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class Delete:
     level: str
     external_id: str
@@ -165,6 +179,7 @@ Ask = (
     | NewAdvert
     | NewGroup
     | NewAd
+    | Copy
     | Delete
 )
 
@@ -264,6 +279,16 @@ SPECS: dict[type, Spec] = {
             name=ask.name,
             source=ask.source,
             daily_budget_minor=ask.daily_budget_minor,
+        ),
+    ),
+    Copy: Spec(
+        "copy",
+        lambda db, user, ask, _origin: plan_copy(
+            db,
+            user=user,
+            level=ask.level,
+            external_id=ask.external_id,
+            into=ask.into,
         ),
     ),
     NewAd: Spec(
@@ -430,6 +455,7 @@ __all__ = [
     "Ask",
     "Audience",
     "Budget",
+    "Copy",
     "Delete",
     "EndTime",
     "NewAd",

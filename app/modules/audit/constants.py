@@ -26,6 +26,9 @@ class ActionType(Choices):
     CREATIVE_SWAP = "creative_swap"
     CREATE_ADSET = "create_adset"
     CREATE_AD = "create_ad"
+    COPY_CAMPAIGN = "copy_campaign"
+    COPY_ADSET = "copy_adset"
+    COPY_AD = "copy_ad"
     CREATE_CAMPAIGN = "create_campaign"
     DELETE_CAMPAIGN = "delete_campaign"
     DELETE_AD = "delete_ad"
@@ -67,6 +70,9 @@ ACTION_TYPE_LABELS = {
     ActionType.CREATIVE_SWAP: "Reklama mazmunini almashtirish",
     ActionType.CREATE_ADSET: "Yangi guruh yaratish",
     ActionType.CREATE_AD: "Yangi reklama yaratish",
+    ActionType.COPY_CAMPAIGN: "Kampaniyani nusxalash",
+    ActionType.COPY_ADSET: "Guruhni nusxalash",
+    ActionType.COPY_AD: "Reklamani nusxalash",
     ActionType.CREATE_CAMPAIGN: "Kampaniya yaratish",
     ActionType.DELETE_CAMPAIGN: "Kampaniyani o'chirish",
     ActionType.DELETE_AD: "Reklamani o'chirish",

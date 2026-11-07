@@ -175,6 +175,15 @@ def apply_new_group_task(log_id: str) -> str:
 
 
 @celery_app.task(queue="agent")
+def apply_copy_task(log_id: str) -> str:
+    """TZ 2: Meta's copy of a campaign, a group or an advert. Never retried: every call creates."""
+    from app.modules.ads.services.copies import apply_copy
+
+    with task_session() as db:
+        return apply_copy(db, log_id=log_id)
+
+
+@celery_app.task(queue="agent")
 def apply_new_ad_task(log_id: str) -> str:
     """Make a new advert from one that works. Never retried: every call creates."""
     from app.modules.ads.services.additions import apply_new_ad
