@@ -16,6 +16,7 @@ from app.modules.agent.selectors.frequency import (
     frequency_candidates,
     newest_ads,
 )
+from app.modules.agent.selectors.price_rise import usual_prices
 from app.modules.audit.constants import EventName
 from app.modules.audit.services import emit
 from core.agent.frequency import RANK, decide
@@ -37,6 +38,8 @@ def check_frequency(db: Session, *, owner: User, now: datetime) -> list[Frequenc
     ):
         open_rows[row.adset_external_id].append(row)
     newest = newest_ads(db, owner=owner, adset_ids=list(open_rows))
+    # TZ 6.4: «odatda» is the usual price of TZ 1.2.
+    usual = usual_prices(db, owner=owner, now=now) if candidates else {}
     raised: list[FrequencyAlert] = []
     for adset_id, rows in open_rows.items():
         if adset_id not in candidates:
@@ -48,6 +51,7 @@ def check_frequency(db: Session, *, owner: User, now: datetime) -> list[Frequenc
             found=found,
             rows=open_rows.get(adset_id, []),
             newest=newest.get(adset_id),
+            usual=usual.get(adset_id),
             now=now,
         )
         if made is not None:
@@ -64,6 +68,7 @@ def _one(
     found: Candidate,
     rows: list[FrequencyAlert],
     newest: datetime | None,
+    usual: int | None,
     now: datetime,
 ) -> FrequencyAlert | None:
     """One group: start it again, raise it a level, or leave it."""
@@ -101,7 +106,7 @@ def _one(
         ctr_before_bp=found.ctr_before_bp,
         ctr_now_bp=found.ctr_now_bp,
         cost_minor=found.cost_minor,
-        cost_usual_minor=found.cost_usual_minor,
+        cost_usual_minor=usual,
         currency=found.account.currency,
     )
     db.add(row)

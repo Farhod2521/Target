@@ -144,15 +144,10 @@ def _dear(spend: int, results: int) -> Running:
     )
 
 
-def test_past_twice_the_usual_on_a_shared_budget_is_advised_paused() -> None:
-    found = running_watch(_group(owns_budget=False), _dear(5 * USUAL, 2))
-    assert found is not None
-    assert found.stage == "dearer"
-    assert (found.moves, found.advised, found.tag) == (
-        ("pause", "wait"),
-        "pause",
-        "2026-W41",
-    )
+def test_past_twice_the_usual_is_left_to_the_price_rise() -> None:
+    """TZ 1 replaced the 2× «Qimmatlashdi» line: a dearer group is the price
+    rise's, at three times its usual price - see core/agent/price_rise."""
+    assert running_watch(_group(owns_budget=False), _dear(5 * USUAL, 2)) is None
 
 
 def test_a_budget_of_its_own_is_left_to_the_nights_card() -> None:
@@ -170,14 +165,6 @@ def test_under_three_results_worth_spent_nothing_is_said() -> None:
         _dear(3 * USUAL - 1, 1), recent=Tally(spend_minor=3 * USUAL - 1, results=1)
     )
     assert running_watch(_group(owns_budget=False), facts) is None
-
-
-def test_a_small_budget_s_dear_days_are_judged_on_the_whole_week() -> None:
-    """Three days under three results' worth, a week past it: the brief asks
-    whether the group has said enough, not whether three days have."""
-    found = running_watch(_group(owns_budget=False), _dear(2 * USUAL + USUAL // 2, 1))
-    assert found is not None
-    assert found.stage == "dearer"
 
 
 def test_without_a_fortnights_median_the_price_is_not_judged() -> None:

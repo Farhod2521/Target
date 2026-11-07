@@ -8,7 +8,8 @@ unlinked chat get the one sentence about connecting.
 
 Anything else typed in a linked chat is a question for the assistant, or the
 answer to the survey question waiting there; the survey's buttons answer it,
-and so does «Reklama yaxshi ishlayapti» under a frequency message (TZ 6.3).
+and so does «Reklama yaxshi ishlayapti» under a frequency message (TZ 6.3),
+and «Reklamani to'xtatish» and «Kuzataman» under a price rise (TZ 1.5).
 Not here yet, from Django: the buttons under ad notices and under the
 assistant's answers. Until they are, such a press is answered "not
 available" and the answer links to the cabinet's chat.
@@ -63,6 +64,10 @@ from app.modules.notifications.services.frequency_press import (
 )
 from app.modules.notifications.services.link import link_chat, stop_chat
 from app.modules.notifications.services.password_reset import answer_reset_request
+from app.modules.notifications.services.price_press import (
+    handle_price_press,
+    is_price_press,
+)
 from app.modules.notifications.services.send import answer, send_to
 from app.modules.notifications.services.survey_bot import handle_survey_text
 from app.modules.notifications.services.survey_press import (
@@ -90,6 +95,8 @@ def handle_update(db: Session, *, payload: dict[str, Any], now: datetime) -> str
                 return handle_survey_press(db, client=client, press=update, now=now)
             if is_frequency_press(update.data):
                 return handle_frequency_press(db, client=client, press=update, now=now)
+            if is_price_press(update.data):
+                return handle_price_press(db, client=client, press=update, now=now)
             answer(
                 client=client,
                 query_id=update.query_id,

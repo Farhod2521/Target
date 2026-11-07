@@ -30,12 +30,20 @@ LEVEL_OF: Final[dict[str, Level]] = {
 def frequency_items(
     db: Session, *, owner: User, view: InboxPage, now: datetime
 ) -> list[InboxItem]:
-    """The page's open levels, each with its two buttons."""
+    """The page's open levels, each with its two buttons - but for one said
+    in its group's price rise of the same night (TZ 6.5.6)."""
+    from app.modules.agent.selectors.price_alerts import (
+        merged_frequencies,
+        price_alerts_to_show,
+    )
+
+    hidden = view.scope.outside
+    prices = price_alerts_to_show(db, owner=owner, hidden_adsets=hidden)
+    said = {level.id for level in merged_frequencies(db, rows=prices).values()}
     return [
         _item(row)
-        for row in alerts_to_show(
-            db, owner=owner, now=now, hidden_adsets=view.scope.outside
-        )
+        for row in alerts_to_show(db, owner=owner, now=now, hidden_adsets=hidden)
+        if row.id not in said
     ]
 
 
@@ -68,7 +76,8 @@ def _item(row: FrequencyAlert) -> InboxItem:
             ),
             ItemAction(
                 label=str(WORKING_WELL),
-                href=reverse("agent:frequency_fine", args=[row.id]),
+                # A press the server answers: the API's own path, not a page.
+                href=f"/api/v1/agent/frequency/{row.id}/fine",
             ),
         ),
     )

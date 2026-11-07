@@ -19,7 +19,7 @@ from app.modules.agent.selectors.same_day import RESULT_COLUMNS, adset_sums, kin
 from app.modules.agent.selectors.week_frequency import DAYS, week_readings
 from app.modules.integrations.models import AdAccount
 from core.agent import AdSetFacts, Policy
-from core.agent.benchmark import count_in, family_of, peers, result_cost
+from core.agent.benchmark import count_in, family_of, result_cost
 from core.agent.frequency import RANK, Reading
 from core.metrics import counted_leads, measured
 
@@ -36,7 +36,6 @@ class Candidate:
     ctr_before_bp: int | None
     ctr_now_bp: int | None
     cost_minor: int | None
-    cost_usual_minor: int | None
 
 
 def frequency_candidates(db: Session, *, owner: User, now: datetime) -> list[Candidate]:
@@ -74,7 +73,6 @@ def frequency_candidates(db: Session, *, owner: User, now: datetime) -> list[Can
         for item in live:
             if item.external_id in found or item.external_id not in week:
                 continue
-            usual = peers(facts.adsets, item, facts.usual).cost_minor
             found[item.external_id] = Candidate(
                 account=account,
                 name=item.name,
@@ -82,7 +80,6 @@ def frequency_candidates(db: Session, *, owner: User, now: datetime) -> list[Can
                 ctr_before_bp=item.launch_ctr_bp,
                 ctr_now_bp=item.recent.link_ctr_bp,
                 cost_minor=_cost(item),
-                cost_usual_minor=usual,
             )
     return list(found.values())
 

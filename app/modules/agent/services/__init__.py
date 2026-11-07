@@ -6,6 +6,7 @@ lives in its own file and is re-exported here.
 
 from app.modules.agent.services.act_on_watch import act_on_watch
 from app.modules.agent.services.answer_frequency import answer_working_well
+from app.modules.agent.services.answer_price import answer_pause, answer_watching
 from app.modules.agent.services.approve_suggestion import (
     approve_suggestion,
     carry_out,
@@ -13,6 +14,7 @@ from app.modules.agent.services.approve_suggestion import (
 )
 from app.modules.agent.services.assess_outcomes import assess_outcomes, assess_owner
 from app.modules.agent.services.check_frequency import check_frequency
+from app.modules.agent.services.check_prices import check_prices
 from app.modules.agent.services.diagnose_account import diagnose_account
 from app.modules.agent.services.propose_fixes import propose_fixes
 from app.modules.agent.services.reject_suggestion import reject_suggestion
@@ -29,12 +31,15 @@ from app.modules.agent.services.stop_fruitless import stop_fruitless
 __all__ = [
     "Repaired",
     "act_on_watch",
+    "answer_pause",
+    "answer_watching",
     "answer_working_well",
     "approve_suggestion",
     "assess_outcomes",
     "assess_owner",
     "carry_out",
     "check_frequency",
+    "check_prices",
     "diagnose_account",
     "propose_fixes",
     "reject_suggestion",

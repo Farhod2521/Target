@@ -34,9 +34,10 @@ def _week(monkeypatch: pytest.MonkeyPatch, campaign: Any, frequency: int) -> Non
         ctr_before_bp=140,
         ctr_now_bp=90,
         cost_minor=125,
-        cost_usual_minor=90,
     )
     monkeypatch.setattr(night, "frequency_candidates", lambda *_, **__: [candidate])
+    # TZ 6.4: «odatda» is TZ 1.2's usual price.
+    monkeypatch.setattr(night, "usual_prices", lambda *_, **__: {"s_1": 90})
 
 
 def _open(db: Session) -> list[FrequencyAlert]:

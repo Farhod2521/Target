@@ -4,6 +4,7 @@ from app.modules.agent.models.agent_policy import AgentPolicy
 from app.modules.agent.models.agent_run import AgentRun
 from app.modules.agent.models.agent_suggestion import AgentSuggestion
 from app.modules.agent.models.frequency_alert import FrequencyAlert
+from app.modules.agent.models.price_alert import PriceAlert
 
 __all__ = [
     "AdSetDiagnosis",
@@ -12,4 +13,5 @@ __all__ = [
     "AgentRun",
     "AgentSuggestion",
     "FrequencyAlert",
+    "PriceAlert",
 ]

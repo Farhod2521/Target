@@ -188,6 +188,21 @@ FREQUENCY_ANSWER_LABELS = {
     FrequencyAnswer.CREATIVE_ADDED: "Kreativ qo'shildi",
     FrequencyAnswer.WORKING_WELL: "Reklama yaxshi ishlayapti",
 }
+
+
+class PriceAnswer(Choices):
+    """TZ 1.7: what the owner answered a price rise with."""
+
+    CREATIVE_ADDED = "creative_added"
+    PAUSED = "paused"
+    WATCHING = "watching"
+
+
+PRICE_ANSWER_LABELS = {
+    PriceAnswer.CREATIVE_ADDED: "Yangi kreativ qo'shildi",
+    PriceAnswer.PAUSED: "Reklama to'xtatildi",
+    PriceAnswer.WATCHING: "Kuzatilmoqda",
+}
 APPROVE_WORD: Final = "O'zgartirish"
 REJECT_WORD: Final = "Rad etish"
 ACTION_LABELS: Final[dict[str, str]] = {

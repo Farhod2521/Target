@@ -242,6 +242,8 @@ class EventName(Choices):
     AGENT_FIX_APPLIED = "agent.fix_applied"
     FREQUENCY_ALERTED = "agent.frequency_alerted"
     FREQUENCY_ANSWERED = "agent.frequency_answered"
+    PRICE_ALERTED = "agent.price_alerted"
+    PRICE_ANSWERED = "agent.price_answered"
     MEDIA_UPLOADED = "media.uploaded"
     MEDIA_DELETED = "media.deleted"
     DELIVERY_STOPPED = "delivery.stopped"
@@ -368,6 +370,8 @@ EVENT_NAME_LABELS = {
     EventName.AGENT_FIX_APPLIED: "Agent o'zi tuzatdi",
     EventName.FREQUENCY_ALERTED: "Chastota ogohlantirishi",
     EventName.FREQUENCY_ANSWERED: "Chastotaga javob",
+    EventName.PRICE_ALERTED: "Lid narxi ogohlantirishi",
+    EventName.PRICE_ANSWERED: "Lid narxiga javob",
     EventName.MEDIA_UPLOADED: "Fayl kutubxonaga yuklandi",
     EventName.MEDIA_DELETED: "Fayl kutubxonadan o'chirildi",
     EventName.DELIVERY_STOPPED: "Reklama to'xtadi",

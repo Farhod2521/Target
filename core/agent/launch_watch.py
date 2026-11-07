@@ -73,8 +73,6 @@ Stage = Literal[
     "stalled",
     # Past the first week: days without a result, at three, seven, fourteen.
     "dry",
-    # Past the first week: the last week's price well above the weeks before.
-    "dearer",
     # Past the first week: cheaper than before, and the budget spent up.
     "cheaper",
     # Stopped by the agent itself - see :mod:`core.agent.auto_stop`.
