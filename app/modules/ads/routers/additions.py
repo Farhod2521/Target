@@ -18,7 +18,7 @@ from app.common.exceptions import InputRefused
 from app.common.money import provider_money
 from app.modules.accounts.models import User
 from app.modules.ads import actions, selectors
-from app.modules.ads.constants import LAUNCH_NAME_MAX, ManagedLevel
+from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.contract.adverts import ad_edit_form
 from app.modules.ads.contract.shapes import (
     AdditionStarted,
@@ -45,7 +45,6 @@ from app.modules.ads.services.swap import NAME_SUFFIX
 
 
 class AddGroupIn(Camel):
-    name: str = Field(min_length=1, max_length=LAUNCH_NAME_MAX)
     source: str = Field(
         default="", description="A group of this campaign; empty: its first."
     )
@@ -57,7 +56,6 @@ class AddGroupIn(Camel):
 
 
 class AddAdIn(Camel):
-    name: str = Field(min_length=1, max_length=LAUNCH_NAME_MAX)
     source: str = Field(
         default="", description="The advert to copy; empty: the nearest."
     )
@@ -109,12 +107,14 @@ def new_group(
 ) -> dict[str, str]:
     """Open a paused copy of one of this campaign's groups."""
     campaign = _detail(db, user, campaign_id)
+    source = source_group(campaign=campaign, external_id=body.source)
     log = actions.request(
         db,
         user=user,
         ask=actions.NewGroup(
             external_id=campaign.external_id,
-            name=body.name.strip(),
+            # TZ 4: the system names groups and adverts, the owner does not.
+            name=f"{source.name}{NAME_SUFFIX}",
             source=body.source,
             daily_budget_minor=_budget(body, campaign),
         ),
@@ -168,7 +168,6 @@ def new_ad_form(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
         early_hours=0,
     ) | {
         "group": group.external_id,
-        "name": f"{ad.name}{NAME_SUFFIX}",
         "warns_learning": group.is_learning,
     }
 
@@ -195,7 +194,7 @@ def new_ad(
         user=user,
         ask=actions.NewAd(
             external_id=group.external_id,
-            name=body.name.strip(),
+            name=f"{ad.name}{NAME_SUFFIX}",
             message=body.message,
             headline=body.headline,
             description=body.description,

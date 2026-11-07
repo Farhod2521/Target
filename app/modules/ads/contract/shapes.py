@@ -597,7 +597,6 @@ class NewAdForm(AdEdit):
     """The advert a new one starts from; ``external_id`` names it as ``source``."""
 
     group: str
-    name: str
     warns_learning: bool = Field(
         description="Adding an advert restarts this group's learning."
     )

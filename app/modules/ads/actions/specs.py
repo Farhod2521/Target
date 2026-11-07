@@ -35,6 +35,7 @@ from app.modules.ads.services.manage import (
     parse_datetime,
     plan_budget,
     plan_end_time,
+    plan_name,
     plan_places,
     plan_spend_cap,
     plan_status,
@@ -81,6 +82,14 @@ class SpendCap:
 
     external_id: str
     spend_cap_minor: int
+
+
+@dataclass(frozen=True, slots=True)
+class Rename:
+    """A campaign's new name (TZ 4: campaigns only)."""
+
+    external_id: str
+    name: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +159,7 @@ Ask = (
     | Budget
     | EndTime
     | SpendCap
+    | Rename
     | Audience
     | Places
     | NewAdvert
@@ -207,6 +217,12 @@ SPECS: dict[type, Spec] = {
             user=user,
             external_id=ask.external_id,
             spend_cap_minor=ask.spend_cap_minor,
+        ),
+    ),
+    Rename: Spec(
+        "name",
+        lambda db, user, ask, _origin: plan_name(
+            db, user=user, external_id=ask.external_id, name=ask.name
         ),
     ),
     Audience: Spec(
@@ -322,6 +338,7 @@ KINDS: dict[str, str] = {
     ActionType.TARGETING_SWAP: "audience",
     ActionType.END_TIME_SET: "end_time",
     ActionType.SPEND_CAP_SET: "spend_cap",
+    ActionType.NAME_SET: "name",
     ActionType.CREATIVE_SWAP: "advert",
 }
 DELETES = frozenset(
@@ -395,6 +412,9 @@ def undoing(original: ActionLog) -> Ask | None:
         if ceiling is None:
             return None
         return SpendCap(external_id=external_id, spend_cap_minor=int(ceiling))
+    if original.action == ActionType.NAME_SET:
+        name = str(previous.get("name") or "")
+        return Rename(external_id=external_id, name=name) if name else None
     if original.action not in (ActionType.PAUSE, ActionType.RESUME):
         return None
     wanted = str(previous.get("delivery", ""))
@@ -416,6 +436,7 @@ __all__ = [
     "NewAdvert",
     "NewGroup",
     "Pause",
+    "Rename",
     "Resume",
     "Spec",
     "SpendCap",

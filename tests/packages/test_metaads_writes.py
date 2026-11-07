@@ -36,6 +36,7 @@ from metaads.writes import (
     delete_object,
     dropped_from,
     read_targeting,
+    set_name,
     set_status,
     write_targeting,
 )
@@ -196,7 +197,9 @@ def test_budget_sharing_is_answered_rather_than_left_out() -> None:
     assert sent(seen[0])["is_adset_budget_sharing_enabled"] == "false"
 
 
-def test_a_campaign_budget_goes_up_with_its_strategy_and_says_nothing_of_sharing() -> None:
+def test_a_campaign_budget_goes_up_with_its_strategy_and_says_nothing_of_sharing() -> (
+    None
+):
     """How Meta's campaign budget is switched on: the two fields, and no flag.
     The sharing answer is for campaigns without a budget; true beside one is 4834002."""
     graph, seen = recording()
@@ -804,3 +807,24 @@ def test_an_adset_is_never_a_dynamic_creative_one() -> None:
     create_adset(account_id="act_1", spec=ADSET, token="t", client=graph, dry_run=False)
 
     assert sent(seen[0])["is_dynamic_creative"] == "false"
+
+
+def test_a_name_goes_to_the_object_itself() -> None:
+    """TZ 4: ``POST /{campaign_id}`` with ``name`` and nothing else."""
+    graph, seen = recording()
+
+    assert set_name(
+        object_id="120210", name="Kuzgi qabul", token="t", client=graph, dry_run=False
+    )
+
+    assert seen[0].url.path.endswith("/120210")
+    assert sent(seen[0])["name"] == "Kuzgi qabul"
+    assert set(sent(seen[0])) <= {"name", "access_token"}
+
+
+def test_a_rehearsed_name_sends_nothing() -> None:
+    graph, seen = recording()
+
+    set_name(object_id="120210", name="X", token="t", client=graph, dry_run=True)
+
+    assert seen == []

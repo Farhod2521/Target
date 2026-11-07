@@ -930,6 +930,40 @@ def campaign_patch(
     return state | {"notes": adjusted_sentences(saved["adjustments"])}
 
 
+class CampaignNameIn(Camel):
+    name: str = Field(description="The new name; spaces are collapsed.")
+
+
+@router.post("/{campaign_id}/name", response_model=ControlState)
+def campaign_rename(
+    campaign_id: uuid.UUID, body: CampaignNameIn, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    """TZ 4: a running campaign's name, sent to Meta like any other change.
+
+    Answers the campaign's state, followed like any press. An empty name or
+    one over ``LAUNCH_NAME_MAX`` characters is refused under ``name``.
+    """
+    from app.common.exceptions import InputRefused
+    from app.modules.ads.exceptions import CampaignNameEmpty, CampaignNameTooLong
+    from app.modules.ads.routers import control_state
+
+    campaign = selectors.campaign_detail(db, owner=user, campaign_id=campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Kampaniya topilmadi.")
+    try:
+        actions.request(
+            db,
+            user=user,
+            ask=actions.Rename(external_id=campaign.external_id, name=body.name),
+        )
+    except (CampaignNameEmpty, CampaignNameTooLong) as exc:
+        raise InputRefused({"name": str(exc)}) from None
+    db.commit()
+    return control_state(
+        db, user, level=ManagedLevel.CAMPAIGN, external_id=campaign.external_id
+    )
+
+
 def _followed(
     sections: dict[str, Any], *, sent: dict[str, Any], edit: Any
 ) -> tuple[str, str]:

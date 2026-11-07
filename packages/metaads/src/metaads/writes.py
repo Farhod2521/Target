@@ -326,6 +326,28 @@ def set_end_time(
     return bool(payload.get(_SUCCESS, True))
 
 
+def set_name(
+    *,
+    object_id: str,
+    name: str,
+    token: str,
+    client: GraphClient | None = None,
+    dry_run: bool = True,
+) -> bool:
+    """What the object is called in Ads Manager. ``POST /{id}`` with ``name``.
+
+    Meta neither re-reviews an object for its name nor resets its learning,
+    so this is the one write here that changes nothing about delivery.
+    """
+    if dry_run or is_dry_run_id(object_id):
+        return True
+
+    payload = post_object(
+        path=object_id, data={"name": name}, token=token, client=client
+    )
+    return bool(payload.get(_SUCCESS, True))
+
+
 def set_spend_cap(
     *,
     object_id: str,

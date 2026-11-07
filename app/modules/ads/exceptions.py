@@ -734,6 +734,11 @@ class ProposalLocked(DomainError):
         )
 
 
+class CampaignNameEmpty(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Kampaniya nomi bo'sh bo'lmasin.")
+
+
 class CampaignNameTooLong(DomainError):
     def __init__(self, *, limit: int) -> None:
         super().__init__(

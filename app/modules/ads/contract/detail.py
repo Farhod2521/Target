@@ -52,6 +52,7 @@ HISTORY_WORDS: Final[dict[str, str]] = {
     ActionType.TARGETING_SWAP: "Auditoriya o'zgartirildi",
     ActionType.END_TIME_SET: "Tugash sanasi",
     ActionType.SPEND_CAP_SET: "Umumiy chegara",
+    ActionType.NAME_SET: "Nom o'zgartirildi",
     ActionType.CREATIVE_SWAP: "Yangi reklama",
     ActionType.CREATE_ADSET: "Yangi guruh",
     ActionType.CREATE_AD: "Yangi reklama",

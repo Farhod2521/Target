@@ -22,6 +22,7 @@ class ActionType(Choices):
     TARGETING_SWAP = "targeting_swap"
     END_TIME_SET = "end_time_set"
     SPEND_CAP_SET = "spend_cap_set"
+    NAME_SET = "name_set"
     CREATIVE_SWAP = "creative_swap"
     CREATE_ADSET = "create_adset"
     CREATE_AD = "create_ad"
@@ -62,6 +63,7 @@ ACTION_TYPE_LABELS = {
     ActionType.TARGETING_SWAP: "Auditoriyani almashtirish",
     ActionType.END_TIME_SET: "Tugash sanasini belgilash",
     ActionType.SPEND_CAP_SET: "Umumiy chegarani belgilash",
+    ActionType.NAME_SET: "Kampaniya nomini o'zgartirish",
     ActionType.CREATIVE_SWAP: "Reklama mazmunini almashtirish",
     ActionType.CREATE_ADSET: "Yangi guruh yaratish",
     ActionType.CREATE_AD: "Yangi reklama yaratish",
@@ -221,6 +223,7 @@ class EventName(Choices):
     LAUNCH_CLEANUP_REQUESTED = "launch.cleanup_requested"
     LAUNCH_COPY_EDITED = "launch.copy_edited"
     LAUNCH_RENAMED = "launch.renamed"
+    CAMPAIGN_RENAMED = "campaign.renamed"
     LAUNCH_BUDGET_FITTED = "launch.budget_fitted"
     LAUNCH_ADS_TRIMMED = "launch.ads_trimmed"
     TARGETING_CHANGED = "targeting.changed"
@@ -346,6 +349,7 @@ EVENT_NAME_LABELS = {
     EventName.LAUNCH_CLEANUP_REQUESTED: "Meta'dagi qoldiqni o'chirish so'raldi",
     EventName.LAUNCH_COPY_EDITED: "Reklama matni tahrirlandi",
     EventName.LAUNCH_RENAMED: "Kampaniya nomi o'zgartirildi",
+    EventName.CAMPAIGN_RENAMED: "Ishlab turgan kampaniya nomi o'zgartirildi",
     EventName.LAUNCH_BUDGET_FITTED: "Byudjet reklamalar soniga moslandi",
     EventName.LAUNCH_ADS_TRIMMED: "Ortiqcha reklamalar olib tashlandi",
     EventName.TARGETING_CHANGED: "Auditoriya o'zgartirildi",

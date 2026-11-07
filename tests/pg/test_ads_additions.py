@@ -156,8 +156,9 @@ def test_a_new_group_is_a_paused_copy_with_its_own_name_and_money(
     assert additions.apply_new_group(db, log_id=str(log.id)) == "applied"
 
     sent = dict(fake.calls)["adset"]
+    # TZ 4: the system names the group - what the owner sends is ignored.
     assert (sent.name, sent.campaign_id, sent.status) == (
-        "Yangi guruh",
+        "Guruh · yangi",
         "c_1",
         "PAUSED",
     )
@@ -261,6 +262,8 @@ def test_a_new_advert_is_a_paused_copy_with_what_was_typed(
     assert made["creative"]["story"]["page_id"] == "page_1"
     assert made["ad"]["status"] == "PAUSED"
     assert made["ad"]["adset"].id == "s_1"
+    # TZ 4: the advert is named by the system, after the one it copies.
+    assert made["ad"]["name"].endswith(" · yangi")
     db.expire_all()
     row = db.scalar(select(Ad).where(Ad.external_id == "ad_new"))
     assert row is not None

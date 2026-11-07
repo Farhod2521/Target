@@ -629,7 +629,8 @@ START_DAY_CHOICES: tuple[tuple[str, Any], ...] = (
     (START_TODAY, "Bugun"),
     (START_TOMORROW, "Ertaga"),
 )
-LAUNCH_NAME_MAX = 80
+# TZ 4: a campaign's name, before and after it runs.
+LAUNCH_NAME_MAX = 100
 MAX_ADS_PER_CAMPAIGN = 10
 DEFAULT_ADSETS_PER_CAMPAIGN = 5
 # As Meta takes them, and as editing a running advert already allows.

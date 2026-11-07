@@ -132,6 +132,11 @@ class Unavailable:
     ) -> ActionResult:
         raise self._refuse()
 
+    def set_name(
+        self, *, ref: ExternalRef, name: str, token: str, dry_run: bool = True
+    ) -> ActionResult:
+        raise self._refuse()
+
     def delete(
         self, *, ref: ExternalRef, token: str, dry_run: bool = True
     ) -> ActionResult:
