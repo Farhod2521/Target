@@ -6,8 +6,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
-revision: str = "0032"
-down_revision: str | Sequence[str] | None = "0031"
+revision: str = "0033"
+down_revision: str | Sequence[str] | None = "0032"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
