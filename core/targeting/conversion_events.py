@@ -90,6 +90,23 @@ _OBJECTIVE_EVENTS: Final[dict[str, frozenset[str]]] = {
 }
 
 
+LEADS_OBJECTIVE: Final = "OUTCOME_LEADS"
+SALES_OBJECTIVE: Final = "OUTCOME_SALES"
+
+
+def objective_for_event(*, key: str, default: str) -> str:
+    """TZ 3: a request event is bought as leads, a shopping one as sales.
+
+    ``OTHER`` - a custom conversion's or a custom event's - names neither,
+    and keeps the campaign's own objective.
+    """
+    if key in REQUEST_EVENTS:
+        return LEADS_OBJECTIVE
+    if key in _OBJECTIVE_EVENTS[SALES_OBJECTIVE] and key != "OTHER":
+        return SALES_OBJECTIVE
+    return default
+
+
 def events_for(*, provider: str, objective: str) -> tuple[ConversionEvent, ...]:
     """Every event this objective may be bought against, in reading order."""
     allowed = _OBJECTIVE_EVENTS.get(objective)
@@ -118,7 +135,9 @@ def counts_a_request(event: ConversionEvent) -> bool:
 __all__ = [
     "CONVERSION_EVENTS",
     "EVENT_KEY",
+    "LEADS_OBJECTIVE",
     "REQUEST_EVENTS",
+    "SALES_OBJECTIVE",
     "SNIPPET_EVENTS",
     "ConversionEvent",
     "conversion_event",
@@ -126,4 +145,5 @@ __all__ = [
     "counts_a_request",
     "event_for_snippet",
     "events_for",
+    "objective_for_event",
 ]

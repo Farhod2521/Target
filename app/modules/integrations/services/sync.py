@@ -21,6 +21,8 @@ from metaads.accounts import (
     create_pixel as make_pixel,
 )
 from metaads.accounts import (
+    custom_conversion_count,
+    custom_conversions,
     list_ad_accounts,
     list_pages,
     list_pixels,
@@ -86,6 +88,8 @@ from app.modules.integrations.services.access import account_ref, port_for, toke
 
 logger = logging.getLogger(__name__)
 MOST_PIXELS: Final = 5
+# Meta allows a hundred per account; each costs one stats read per sweep.
+MOST_CONVERSIONS: Final = 20
 _REVOKED_CODE: Final = "revoked"
 EMPTY_PROFILE: Final[dict[str, Any]] = {
     "instagram_name": "",
@@ -480,8 +484,49 @@ def sync_pixel_events(db: Session, *, ad_account_id: object) -> str:
         ]
         pixel.events_synced_at = utcnow()
         read += 1
+    _sync_conversions(db, account=account, pixels=pixels, token=token)
     db.commit()
     return str(read)
+
+
+def _sync_conversions(
+    db: Session, *, account: AdAccount, pixels: list[PixelAccount], token: str
+) -> None:
+    """TZ 3: each pixel's usable custom conversions, with seven-day counts.
+
+    A refused read leaves what was there: a conversion list is not wiped
+    because Meta was busy for one sweep.
+    """
+    try:
+        found = custom_conversions(account_id=account.external_id, token=token)
+    except MetaError as exc:
+        logger.info("custom conversions failed for %s: %s", account.external_id, exc)
+        return
+    by_pixel: dict[str, list[dict[str, Any]]] = {}
+    for row in found[:MOST_CONVERSIONS]:
+        if not row.is_usable or not row.pixel_id:
+            continue
+        try:
+            count: int | None = custom_conversion_count(
+                conversion_id=row.id, token=token
+            )
+        except MetaError as exc:
+            logger.info("conversion stats failed for %s: %s", row.id, exc)
+            count = None
+        by_pixel.setdefault(row.pixel_id, []).append(
+            {
+                "id": row.id,
+                "name": row.name,
+                "event": row.custom_event_type,
+                "count": count,
+                "last_fired_at": row.last_fired_time.isoformat()
+                if row.last_fired_time
+                else None,
+            }
+        )
+    for pixel in pixels:
+        pixel.conversions = by_pixel.get(pixel.external_id, [])
+    db.flush()
 
 
 def sync_instagram_profile(db: Session, *, page: PageAccount, token: str) -> bool:

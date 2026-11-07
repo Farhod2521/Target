@@ -44,6 +44,7 @@ PROVEN_DEFAULT: Final = "proven_default"
 
 EVENT_ALREADY_ARRIVING: Final = "event_already_arriving"
 EVENT_NOTHING_SEEN: Final = "event_nothing_seen"
+LEAD_EVENT: Final = "LEAD"
 
 BUILD_A_NEW_ONE: Final = ""
 
@@ -90,6 +91,9 @@ def conversion_event_advice(
         return None
 
     seen = [key for key in offered if key in fired]
+    # TZ 3: Lead is the usual pick whenever the site sends it.
+    if LEAD_EVENT in seen:
+        return Advice(value=LEAD_EVENT, reason=EVENT_ALREADY_ARRIVING)
     asked = [key for key in seen if key in requests]
     if asked:
         return Advice(value=asked[0], reason=EVENT_ALREADY_ARRIVING)

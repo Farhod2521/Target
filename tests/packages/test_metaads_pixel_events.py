@@ -9,7 +9,13 @@ caller only ever wants the sum of those slices.
 from typing import Any
 
 import httpx
-from metaads.accounts import EVENT_AGGREGATION, pixel_events
+from metaads.accounts import (
+    EVENT_AGGREGATION,
+    custom_conversion_count,
+    custom_conversions,
+    pixel_events,
+    stats_since,
+)
 from metaads.client import GraphClient
 
 PIXEL = "777"
@@ -97,3 +103,48 @@ def test_the_events_are_asked_for_by_name_rather_than_by_url() -> None:
 
     assert f"{PIXEL}/stats" in str(seen[0].url)
     assert f"aggregation={EVENT_AGGREGATION}" in str(seen[0].url)
+
+
+def test_the_seven_day_window_is_asked_for_not_left_to_meta() -> None:
+    """TZ 3: left out, Meta answers a shorter window than the screens say."""
+    client, seen = answering({"data": []})
+
+    pixel_events(pixel_id=PIXEL, token="t", client=client)
+
+    since = int(seen[0].url.params["start_time"])
+    assert abs(since - stats_since()) < 60
+    assert stats_since(now=8 * 86_400) == 86_400
+
+
+def test_custom_conversions_carry_the_pixel_they_count_on() -> None:
+    client, seen = answering(
+        {
+            "data": [
+                {
+                    "id": "55",
+                    "name": "Rahmat",
+                    "custom_event_type": "LEAD",
+                    "pixel": {"id": "777"},
+                    "is_archived": False,
+                },
+                {"id": "56", "name": "Eski", "is_archived": True},
+            ]
+        }
+    )
+
+    found = custom_conversions(account_id="act_1", token="t", client=client)
+
+    assert seen[0].url.path.endswith("/act_1/customconversions")
+    assert [(row.id, row.pixel_id, row.is_usable) for row in found] == [
+        ("55", "777", True),
+        ("56", "", False),
+    ]
+
+
+def test_a_custom_conversions_fires_are_added_up() -> None:
+    client, seen = answering(
+        {"data": [{"count": 3, "timestamp": "x"}, {"data": [{"count": 4}]}]}
+    )
+
+    assert custom_conversion_count(conversion_id="55", token="t", client=client) == 7
+    assert seen[0].url.params["aggregation"] == "count"

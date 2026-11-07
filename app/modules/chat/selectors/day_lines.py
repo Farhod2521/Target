@@ -29,6 +29,8 @@ from core.metrics.arithmetic import change_pct
 from core.metrics.outcomes import SITE_GOAL, site_event
 
 REGISTRATION: Final = "registration"
+# TZ 3: «site_event:PURCHASE» - any other site event, under its own name.
+SITE_EVENT: Final = "site_event:"
 MESSAGE_PURCHASE: Final = "message_purchase"
 OTHER_RESULT: Final = "other"
 REGISTRATION_EVENT: Final = "COMPLETE_REGISTRATION"
@@ -79,8 +81,11 @@ def report_kind(
     wanted = goal.strip().upper()
     if wanted == MESSAGE_PURCHASE_GOAL:
         return MESSAGE_PURCHASE
-    if wanted == SITE_GOAL and site_event(promoted) == REGISTRATION_EVENT:
+    event = site_event(promoted) if wanted == SITE_GOAL else ""
+    if event == REGISTRATION_EVENT:
         return REGISTRATION
+    if event and event != "OTHER":
+        return f"{SITE_EVENT}{event}"
     return OTHER_RESULT
 
 
@@ -91,7 +96,7 @@ def figure_of(*, parts: Iterable[Part], currency: str) -> Figure:
     for kind, sums, ours in parts:
         money = int(sums.get("spend", 0) or 0)
         spend += money
-        if kind != "lead" and kind not in COUNTED:
+        if kind != "lead" and _counted_in(kind) is None:
             uncounted += money
             continue
         tally = counted.setdefault(kind, [0, 0])
@@ -156,8 +161,12 @@ def result_count(*, kind: str, sums: Mapping[str, int], ours: int) -> int:
                 reported=reported,
             ),
         )
-    field = COUNTED.get(kind)
+    field = _counted_in(kind)
     return int(sums.get(field, 0) or 0) if field else 0
+
+
+def _counted_in(kind: str) -> str | None:
+    return "results" if kind.startswith(SITE_EVENT) else COUNTED.get(kind)
 
 
 def _result(*, kind: str, count: int, spend: int, currency: str) -> Result:

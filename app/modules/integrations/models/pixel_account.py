@@ -30,6 +30,8 @@ class PixelAccount(Base):
     is_unavailable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     recent_events: Mapped[Any] = mapped_column(Json, nullable=False, default=list)
+    # TZ 3: [{"id", "name", "event", "count", "last_fired_at"}] - custom conversions counted on this pixel.
+    conversions: Mapped[Any] = mapped_column(Json, nullable=False, default=list)
     events_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

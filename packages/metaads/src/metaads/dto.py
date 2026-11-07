@@ -37,6 +37,7 @@ from metaads.campaign_rows import (
 )
 from metaads.connection_rows import (
     AccessTokenDTO,
+    CustomConversionRow,
     GranularScopeDTO,
     MediaDTO,
     PersonDTO,
@@ -60,6 +61,7 @@ __all__ = [
     "CreativeRow",
     "CustomAudienceDataSourceRow",
     "CustomAudienceRow",
+    "CustomConversionRow",
     "GranularScopeDTO",
     "InstagramAccountDTO",
     "InstagramProfileDTO",

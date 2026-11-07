@@ -102,6 +102,9 @@ class OnboardingAnswers:
     chat_channel: ChatChannel = DEFAULT_CHAT_CHANNEL
     campaign_type: str = ""
     conversion_event: str = ""
+    # TZ 3: a custom conversion chosen instead of a standard event; its own
+    # event type is then in ``conversion_event``.
+    custom_conversion_id: str = ""
     url_tags: str = ""
     call_to_action: str = ""
     attribution_key: str = ""

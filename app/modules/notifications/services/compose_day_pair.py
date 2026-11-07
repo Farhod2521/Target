@@ -19,6 +19,8 @@ from urllib.parse import urlencode
 from telegramkit import Button
 
 from app.common.money import number_format
+from app.modules.ads.constants import CONVERSION_EVENT_LABELS
+from app.modules.chat.selectors.day_lines import SITE_EVENT
 from app.modules.notifications.keys import daily_list_data, weekly_list_data
 from app.modules.notifications.services.compose import (
     Message,
@@ -198,8 +200,17 @@ def _row(label: str, value: str) -> str:
     return f"{escaped(label)}: {_bold(value)}"
 
 
+def _site_event_name(kind: str) -> str:
+    """TZ 3: a site event under its own name - «Xarid», «Obuna bo'lish»."""
+    if kind.startswith(SITE_EVENT):
+        return str(
+            CONVERSION_EVENT_LABELS.get(kind.removeprefix(SITE_EVENT), "Boshqa natija")
+        )
+    return "Boshqa natija"
+
+
 def _goal_card(book: DayBook, result: Result) -> str:
-    name = GOAL_NAMES.get(result.kind, "Boshqa natija")
+    name = GOAL_NAMES.get(result.kind) or _site_event_name(result.kind)
     if result.count == 0:
         rows = [_row("Natija", "yo'q")]
     else:

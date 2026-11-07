@@ -23,7 +23,7 @@ from core.targeting.contracts import (
 from core.targeting.conversion_events import (
     EVENT_KEY,
     conversion_event,
-    events_for,
+    objective_for_event,
 )
 from core.targeting.destinations import AdDestination, needs_link
 from core.targeting.destinations import channel as chat_channel
@@ -37,6 +37,8 @@ from core.targeting.quality import goal_for as quality_goal
 from core.targeting.render import render
 from core.targeting.tracking import clean_tags, tags_are_usable
 from core.targeting.validators import validate_structure
+
+OFFSITE_GOAL: Final = "OFFSITE_CONVERSIONS"
 
 
 def build(
@@ -89,6 +91,8 @@ def build(
         conversion=conversion,
     )
     notes.extend(promotion_notes)
+    if kind_goal == OFFSITE_GOAL and EVENT_KEY in promoted:
+        objective = objective_for_event(key=str(promoted[EVENT_KEY]), default=objective)
 
     mode, mode_notes = _mode(business=business, answers=answers)
     notes.extend(mode_notes)
@@ -237,23 +241,30 @@ def _promoted_object(
         _counted_event(
             rendered,
             provider=provider,
-            objective=objective,
             chosen=answers.conversion_event,
+            conversion_id=answers.custom_conversion_id,
         ),
         [],
     )
 
 
 def _counted_event(
-    promoted: dict[str, Any], *, provider: str, objective: str, chosen: str
+    promoted: dict[str, Any], *, provider: str, chosen: str, conversion_id: str
 ) -> dict[str, Any]:
-    """The event this ad set is bought against, once the owner has had a say."""
+    """The event this ad set is bought against, once the owner has had a say.
+
+    TZ 3: any event the provider counts - the objective follows it - or a
+    custom conversion, sent with its own event type as production's are.
+    """
     if not chosen or EVENT_KEY not in promoted:
         return promoted
     known = conversion_event(provider=provider, key=chosen)
-    if known is None or known not in events_for(provider=provider, objective=objective):
+    if known is None:
         return promoted
-    return dict(promoted) | {EVENT_KEY: known.key}
+    found = dict(promoted) | {EVENT_KEY: known.key}
+    if conversion_id:
+        found["custom_conversion_id"] = conversion_id
+    return found
 
 
 def _button(

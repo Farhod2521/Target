@@ -304,14 +304,24 @@ def _advanced(found: dict[str, Any]) -> list[dict[str, Any]]:
         )
     events = advanced.get("conversion_events")
     if events:
+        options = [*events["arriving_options"], *events["other_options"]]
         pick(
             "conversion_event",
             "Conversion event",
-            [*events["arriving_options"], *events["other_options"]],
+            options,
             events["chosen"],
             events["locked"],
             events.get("source") == "owner",
         )
+        if rows and rows[-1]["key"] == "conversion_event":
+            rows[-1]["hints"] = [
+                {
+                    "meta": _seven_days(row.get("count")),
+                    "warn": text(row.get("warning")),
+                    "group": text(row.get("group")),
+                }
+                for row in options
+            ]
     pixels = advanced.get("pixels") or []
     if pixels:
         chosen = next((row for row in pixels if row.get("is_chosen")), None)
@@ -322,6 +332,10 @@ def _advanced(found: dict[str, Any]) -> list[dict[str, Any]]:
                 "value": (chosen or {}).get("name") or "",
                 "mode": "",
                 "options": [row["name"] for row in pixels],
+                "hints": [
+                    {"meta": _seven_days(row.get("events_seen")), "warn": ""}
+                    for row in pixels
+                ],
             }
         )
     buttons = advanced.get("buttons")
@@ -410,6 +424,11 @@ def _position_options() -> dict[str, list[dict[str, Any]]]:
 
 def _ticked(positions: dict[str, list[str]]) -> dict[str, list[str]]:
     return {app: sorted(items) for app, items in positions.items()}
+
+
+def _seven_days(count: object) -> str:
+    """TZ 3: an event's or a pixel's seven-day count; empty before any read."""
+    return "" if count is None else f"7 kunda {count} ta"
 
 
 def edit_from(answer: dict[str, Any]) -> dict[str, Any]:

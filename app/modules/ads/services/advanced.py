@@ -53,7 +53,7 @@ from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.naming import campaign_name
 from app.modules.ads.rows import fresh
 from app.modules.ads.selectors.campaign_type import campaign_type_locked
-from app.modules.ads.selectors.conversion_event import offered_events
+from app.modules.ads.selectors.conversion_event import offered_keys
 from app.modules.ads.selectors.delivery_options import (
     MAX_CAP_DAYS,
     goal_builds_a_form,
@@ -142,7 +142,7 @@ def choose_conversion_event(
 ) -> CampaignLaunch:
     if campaign_type_locked(launch=launch):
         raise ConversionEventLocked
-    if key not in {row.key for row in offered_events(db, launch=launch)}:
+    if key not in offered_keys(db, launch=launch):
         raise ConversionEventNotOffered
     return save_answers(db, launch=launch, **{CONVERSION_EVENT: key})
 
@@ -188,7 +188,9 @@ def choose_budget(
         raise DeliveryOptionUnusable
     if sharing and level != BUDGET_AT_ADSET:
         raise DeliveryOptionUnusable
-    return save_answers(db, launch=launch, **{BUDGET_LEVEL: level, BUDGET_SHARING: sharing})
+    return save_answers(
+        db, launch=launch, **{BUDGET_LEVEL: level, BUDGET_SHARING: sharing}
+    )
 
 
 def choose_attribution(

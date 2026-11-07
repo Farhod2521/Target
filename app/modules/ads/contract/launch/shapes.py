@@ -470,6 +470,14 @@ class LeadFormEdit(Camel):
     privacy: str
 
 
+class AdvHint(Camel):
+    """One option's line under its name, and its warning (TZ 3)."""
+
+    meta: str = Field(default="", description="E.g. «7 kunda 312 ta».")
+    warn: str = Field(default="", description="Shown, never refuses the pick.")
+    group: str = Field(default="", description="`event`, `custom` or `` .")
+
+
 class AdvRow(Camel):
     key: str
     en: str = Field(description="The network's own name for the setting.")
@@ -477,6 +485,9 @@ class AdvRow(Camel):
     mode: Literal["ro", "me", "", "sw"]
     options: list[str]
     on: bool | None = None
+    hints: list[AdvHint] | None = Field(
+        default=None, description="One per option, in order; absent for most rows."
+    )
 
 
 class EditBudget(Camel):

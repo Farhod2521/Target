@@ -285,6 +285,14 @@ CONVERSION_EVENT_LABELS: dict[str, Any] = {
     "DONATE": "Xayriya",
     "OTHER": "Boshqa hodisa",
 }
+# TZ 3: a custom conversion's key beside the standard events, and the
+# seven-day warnings. Neither warning refuses the pick.
+CUSTOM_CONVERSION: Final = "cc:"
+FEW_EVENTS: Final = 10
+EVENT_NOT_ARRIVING: Final = (
+    "Bu event saytingizdan kelmayapti. Reklama o'rgana olmaydi. Avval event'ni sozlang."
+)
+EVENT_FEW: Final = "Event kam, reklama sekin o'rganadi."
 CAMPAIGN_TYPE_HINTS: dict[str, Any] = {
     "calls_many": "Meta reklamani qo'ng'iroq qilishi ehtimoli yuqori odamlarga ko'rsatadi.",
     "calls_engaged": "Xuddi shu qo'ng'iroq — farqi faqat Meta maqsadida (kulrang yozuv).",
