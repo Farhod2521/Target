@@ -31,8 +31,11 @@ from typing import Any, Final
 
 from adskit.errors import InvalidRequest
 
+from metaads import welcome as greeting
 from metaads.client import GraphClient
-from metaads.writing import fake_id, id_of, post_object
+from metaads.enhancements import post_creative
+from metaads.welcome import Welcome
+from metaads.writing import fake_id
 
 _CREATIVE: Final = "creative"
 
@@ -80,8 +83,10 @@ def restage(
     video_id: str = "",
     thumbnail_url: str = "",
     lead_form_id: str = "",
+    button: str = "",
+    welcome: Welcome | None = None,
 ) -> dict[str, Any]:
-    """One story spec with new words, picture or form, and nothing else moved.
+    """One story spec with new words, picture, form or button, and nothing else moved.
 
     ``None`` is "not asked about" and an empty string is "take that line
     out". The two have to be different: a form that sends every field on
@@ -97,6 +102,12 @@ def restage(
     an advert that already opens one: giving a link advert a form changes
     what kind of advert it is, which is a new campaign's question, so that
     is refused rather than quietly built.
+
+    ``button`` changes the button's word (TZ 2.3) and keeps its ``value``:
+    the link, the form or the chat it opens stays the same.
+
+    ``welcome`` rewrites a chat advert's greeting, its quick questions and
+    their answers (TZ 2.5); see :mod:`metaads.welcome`.
 
     Raises :class:`~adskit.errors.InvalidRequest` when there is no block to
     work from. Two creatives answer that way and both are real: one that
@@ -129,6 +140,10 @@ def restage(
     rebuilt.update({key: value for key, value in picture.items() if value})
     if lead_form_id:
         _put_form(rebuilt, lead_form_id)
+    if button:
+        _put_button(rebuilt, button)
+    if welcome is not None:
+        greeting.put(rebuilt, welcome)
 
     revised = {key: value for key, value in dict(story).items() if key not in _BLOCKS}
     revised[kind] = rebuilt
@@ -151,6 +166,14 @@ def _put_form(block: dict[str, Any], lead_form_id: str) -> None:
     }
 
 
+def _put_button(block: dict[str, Any], button: str) -> None:
+    """Another word on the button; where it leads stays as it was."""
+    current = block.get("call_to_action")
+    if not isinstance(current, dict) or not current.get("type"):
+        raise InvalidRequest("this advert carries no button", code="restage_button")
+    block["call_to_action"] = {**current, "type": button}
+
+
 def restageable(story: Any) -> bool:
     """Whether this stored story has a block new words could go into."""
     try:
@@ -158,6 +181,24 @@ def restageable(story: Any) -> bool:
     except InvalidRequest:
         return False
     return True
+
+
+def button_of(story: Any) -> dict[str, Any]:
+    """The story's button as Meta holds it, ``{}`` when it has none."""
+    try:
+        _kind, block = _block_of(story)
+    except InvalidRequest:
+        return {}
+    found = block.get("call_to_action")
+    return found if isinstance(found, dict) else {}
+
+
+def welcome_of(story: Any) -> Welcome | None:
+    """A chat advert's greeting; ``None`` for an advert that opens no chat."""
+    if not (button_of(story).get("value") or {}).get("app_destination"):
+        return None
+    _kind, block = _block_of(story)
+    return greeting.read(block)
 
 
 def changed(story: Mapping[str, Any], **asked: Any) -> bool:
@@ -190,13 +231,12 @@ def create_from_story(
     if dry_run:
         return fake_id(_CREATIVE)
 
-    payload = post_object(
-        path=f"{account_id}/adcreatives",
+    return post_creative(
+        account_id=account_id,
         data={"name": name, "object_story_spec": dict(story)},
         token=token,
         client=client,
     )
-    return id_of(payload)
 
 
 def _block_of(story: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -243,4 +283,4 @@ def _normalised(story: Mapping[str, Any]) -> dict[str, Any]:
     return restage(story)
 
 
-__all__ = ["changed", "create_from_story", "restage"]
+__all__ = ["button_of", "changed", "create_from_story", "restage", "welcome_of"]

@@ -70,9 +70,7 @@ from core.agent.rules.money import (
 from core.agent.rules.quality import JUNK, junk
 from core.agent.rules.refresh import REFRESH_AD, refresh_ad
 from core.agent.rules.trouble import (
-    PROVIDER_ADVICE,
     PROVIDER_STOPPED,
-    provider_advice,
     provider_stopped,
 )
 
@@ -197,23 +195,15 @@ RULES: tuple[Rule, ...] = (
     # only when *every* ad set under a campaign is stopped, and a narrowed
     # account would answer that question about half a campaign.
     Rule(code=IDLE, run=idle, needs_leads=False),
-    # The two whose subject is the provider rather than the figures. The
-    # first is the reason ``judgeable`` needed an exception - a group the
-    # provider stopped is invisible to every rule above it - and it is
-    # uncapped because it reports a fact rather than an opinion.
+    # The one whose subject is the provider rather than the figures, and
+    # the reason ``judgeable`` needed an exception - a group the provider
+    # stopped is invisible to every rule above it. Uncapped because it
+    # reports a fact rather than an opinion.
     Rule(
         code=PROVIDER_STOPPED,
         run=provider_stopped,
         needs_leads=False,
         uncapped=True,
-        our_campaigns_only=True,
-    ),
-    # The provider's own advice, which is an improvement like the rest and
-    # is capped with them.
-    Rule(
-        code=PROVIDER_ADVICE,
-        run=provider_advice,
-        needs_leads=False,
         our_campaigns_only=True,
     ),
     # One advert the provider stopped over its picture, and a picture the
@@ -478,7 +468,6 @@ __all__ = [
     "IDLE",
     "JUNK",
     "NARROW_AUDIENCE",
-    "PROVIDER_ADVICE",
     "PROVIDER_STOPPED",
     "REFRESH_AD",
     "REFUSED_AD",
@@ -499,7 +488,6 @@ __all__ = [
     "idle",
     "junk",
     "narrow_audience",
-    "provider_advice",
     "provider_stopped",
     "saturated",
     "scan",

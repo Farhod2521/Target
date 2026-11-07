@@ -22,9 +22,13 @@ class ActionType(Choices):
     TARGETING_SWAP = "targeting_swap"
     END_TIME_SET = "end_time_set"
     SPEND_CAP_SET = "spend_cap_set"
+    NAME_SET = "name_set"
     CREATIVE_SWAP = "creative_swap"
     CREATE_ADSET = "create_adset"
     CREATE_AD = "create_ad"
+    COPY_CAMPAIGN = "copy_campaign"
+    COPY_ADSET = "copy_adset"
+    COPY_AD = "copy_ad"
     CREATE_CAMPAIGN = "create_campaign"
     DELETE_CAMPAIGN = "delete_campaign"
     DELETE_AD = "delete_ad"
@@ -62,9 +66,13 @@ ACTION_TYPE_LABELS = {
     ActionType.TARGETING_SWAP: "Auditoriyani almashtirish",
     ActionType.END_TIME_SET: "Tugash sanasini belgilash",
     ActionType.SPEND_CAP_SET: "Umumiy chegarani belgilash",
+    ActionType.NAME_SET: "Kampaniya nomini o'zgartirish",
     ActionType.CREATIVE_SWAP: "Reklama mazmunini almashtirish",
     ActionType.CREATE_ADSET: "Yangi guruh yaratish",
     ActionType.CREATE_AD: "Yangi reklama yaratish",
+    ActionType.COPY_CAMPAIGN: "Kampaniyani nusxalash",
+    ActionType.COPY_ADSET: "Guruhni nusxalash",
+    ActionType.COPY_AD: "Reklamani nusxalash",
     ActionType.CREATE_CAMPAIGN: "Kampaniya yaratish",
     ActionType.DELETE_CAMPAIGN: "Kampaniyani o'chirish",
     ActionType.DELETE_AD: "Reklamani o'chirish",
@@ -221,6 +229,7 @@ class EventName(Choices):
     LAUNCH_CLEANUP_REQUESTED = "launch.cleanup_requested"
     LAUNCH_COPY_EDITED = "launch.copy_edited"
     LAUNCH_RENAMED = "launch.renamed"
+    CAMPAIGN_RENAMED = "campaign.renamed"
     LAUNCH_BUDGET_FITTED = "launch.budget_fitted"
     LAUNCH_ADS_TRIMMED = "launch.ads_trimmed"
     TARGETING_CHANGED = "targeting.changed"
@@ -233,6 +242,8 @@ class EventName(Choices):
     AGENT_FIX_APPLIED = "agent.fix_applied"
     FREQUENCY_ALERTED = "agent.frequency_alerted"
     FREQUENCY_ANSWERED = "agent.frequency_answered"
+    PRICE_ALERTED = "agent.price_alerted"
+    PRICE_ANSWERED = "agent.price_answered"
     MEDIA_UPLOADED = "media.uploaded"
     MEDIA_DELETED = "media.deleted"
     DELIVERY_STOPPED = "delivery.stopped"
@@ -346,6 +357,7 @@ EVENT_NAME_LABELS = {
     EventName.LAUNCH_CLEANUP_REQUESTED: "Meta'dagi qoldiqni o'chirish so'raldi",
     EventName.LAUNCH_COPY_EDITED: "Reklama matni tahrirlandi",
     EventName.LAUNCH_RENAMED: "Kampaniya nomi o'zgartirildi",
+    EventName.CAMPAIGN_RENAMED: "Ishlab turgan kampaniya nomi o'zgartirildi",
     EventName.LAUNCH_BUDGET_FITTED: "Byudjet reklamalar soniga moslandi",
     EventName.LAUNCH_ADS_TRIMMED: "Ortiqcha reklamalar olib tashlandi",
     EventName.TARGETING_CHANGED: "Auditoriya o'zgartirildi",
@@ -358,6 +370,8 @@ EVENT_NAME_LABELS = {
     EventName.AGENT_FIX_APPLIED: "Agent o'zi tuzatdi",
     EventName.FREQUENCY_ALERTED: "Chastota ogohlantirishi",
     EventName.FREQUENCY_ANSWERED: "Chastotaga javob",
+    EventName.PRICE_ALERTED: "Lid narxi ogohlantirishi",
+    EventName.PRICE_ANSWERED: "Lid narxiga javob",
     EventName.MEDIA_UPLOADED: "Fayl kutubxonaga yuklandi",
     EventName.MEDIA_DELETED: "Fayl kutubxonadan o'chirildi",
     EventName.DELIVERY_STOPPED: "Reklama to'xtadi",

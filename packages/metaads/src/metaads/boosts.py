@@ -58,9 +58,10 @@ from pydantic import Field, field_validator, model_validator
 
 from metaads.client import GraphClient
 from metaads.dto_base import MetaDTO
+from metaads.enhancements import post_creative
 from metaads.specs import CTA_NO_BUTTON, MAX_WELCOME_QUESTIONS, checked_questions
 from metaads.stories import greeting
-from metaads.writing import fake_id, graph_client, id_of, post_object
+from metaads.writing import fake_id, graph_client
 
 _CREATIVE: Final = "creative"
 
@@ -227,13 +228,9 @@ def create_boost_creative(
     if dry_run:
         return fake_id(_CREATIVE)
 
-    payload = post_object(
-        path=f"{account_id}/adcreatives",
-        data=boost_payload(spec),
-        token=token,
-        client=client,
+    return post_creative(
+        account_id=account_id, data=boost_payload(spec), token=token, client=client
     )
-    return id_of(payload)
 
 
 def read_creative(

@@ -6,7 +6,6 @@ from app.common.money import format_minor
 from app.modules.agent.selectors.watched import Watched
 from app.modules.metrics.selectors.results import words_for
 from core.agent.running_watch import RECENT_DAYS, Running, Tally
-from core.agent.usual import TREND_DAYS
 from core.metrics import formulas
 
 
@@ -15,7 +14,6 @@ def running_body(row: Watched, facts: Running) -> str:
     body: dict[str, Callable[[Watched, Running], str]] = {
         "stalled": _stalled,
         "dry": _dry,
-        "dearer": _dearer,
         "cheaper": _cheaper,
     }
     return body[row.watch.stage](row, facts)
@@ -64,29 +62,6 @@ def _dry(row: Watched, facts: Running) -> str:
             "Yana bir necha kun kuzatamiz. Shunday davom etsa, to'xtatishni "
             "taklif qilamiz."
         )
-    return f"{said} {advice}"
-
-
-def _dearer(row: Watched, facts: Running) -> str:
-    last, usual = facts.last, facts.usual_cost_minor or 0
-    cost = _cost(last)
-    tenths = (cost * 10) // usual if usual else 0
-    said = (
-        "%(cost_label)s oxirgi %(days)s kunda %(recent)s (%(count)s ta), "
-        "odatda %(usual)s. Bu %(times)s barobar qimmat."
-    ) % {
-        "cost_label": words_for(row.kind).cost_label,
-        "days": TREND_DAYS,
-        "recent": _money(row, cost),
-        "count": last.results,
-        "usual": _money(row, usual),
-        "times": f"{tenths // 10},{tenths % 10}",
-    }
-    advice = (
-        "Byudjet kampaniyadagi boshqa guruhlar bilan umumiy, shuning uchun uni "
-        "shu yerdan o'zgartirmaymiz. Guruhni to'xtatib, rasm yoki formani "
-        "yangilang."
-    )
     return f"{said} {advice}"
 
 

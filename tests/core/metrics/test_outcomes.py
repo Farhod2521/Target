@@ -193,3 +193,17 @@ def test_the_older_names_of_a_profile_visit_are_counted() -> None:
     """Live ad sets under both report ``results`` equal to ``profile_visits``."""
     assert outcome_of("VISIT_INSTAGRAM_PROFILE") == "profile"
     assert outcome_of("PROFILE_AND_PAGE_ENGAGEMENT") == "profile"
+
+
+def test_tz3_a_custom_conversion_bought_as_lead_is_not_the_pixels_lead() -> None:
+    """Its count is Meta's results for the conversion, not the Lead column."""
+    promoted = {
+        "pixel_id": "1",
+        "custom_event_type": "LEAD",
+        "custom_conversion_id": "9",
+    }
+
+    assert outcome_for("OFFSITE_CONVERSIONS", promoted) == "none"
+    assert (
+        outcome_for("OFFSITE_CONVERSIONS", {"custom_event_type": "LEAD"}) == "site_lead"
+    )

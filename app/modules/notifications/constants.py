@@ -93,6 +93,9 @@ CALLBACK_WATCH_DELETE_SURE: Final = "wy"
 CALLBACK_WATCH_WAIT: Final = "ww"
 CALLBACK_WATCH_RESUME: Final = "wr"
 CALLBACK_FREQUENCY_FINE: Final = "fw"
+# TZ 1.5: «Reklamani to'xtatish» and «Kuzataman» under a price rise.
+CALLBACK_PRICE_PAUSE: Final = "np"
+CALLBACK_PRICE_WATCH: Final = "nw"
 CALLBACK_SUPPORT_SEND: Final = "sy"
 CALLBACK_SUPPORT_DROP: Final = "sn"
 SUPPORT_CONFIRM_KEY: Final = "notifications:support-confirm:{token}"
@@ -114,7 +117,8 @@ DAILY_REPORT_LATEST_HOUR: Final = 9
 WEEKLY_REPORT_HOUR: Final = 8
 WEEKLY_REPORT_LATEST_HOUR: Final = 10
 FREQUENCY_HOUR: Final = 9
-FREQUENCY_MAX_ITEMS: Final = 5
+# One message holds the day's levels while it stays under Telegram's 4096.
+FREQUENCY_MAX_CHARS: Final = 3800
 NOTICE_TRIES: Final = 3
 UNDELIVERED_DAYS: Final = 7
 OUTCOME_NOTICE_HOURS: Final = 24

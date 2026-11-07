@@ -1,10 +1,15 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 from core.metrics import Outcome
 from core.metrics.formulas import RESULT_OF, result_per
-from core.metrics.outcomes import SITE_GOAL, outcome_for
+from core.metrics.outcomes import (
+    SITE_GOAL,
+    is_custom_conversion,
+    outcome_for,
+    site_event,
+)
 
 UNCOUNTED_NOTES: dict[str, Any] = {
     "OFFSITE_CONVERSIONS": "Bu reklamaning natijasi sizning saytingizda sanaladi — bu yerda murojaat soni ko'rinmaydi."
@@ -95,17 +100,58 @@ RESULT_WORDS: dict[Outcome, "ResultText"] = {
 }
 
 
+# TZ 3: a website event other than the pixel's Lead, counted from Meta's
+# own results and named by the event - «29 ro'yxatdan o'tish».
+EVENT_RESULT_WORDS: dict[str, Any] = {
+    "LEAD": "murojaat",
+    "CONTACT": "bog'lanish",
+    "COMPLETE_REGISTRATION": "ro'yxatdan o'tish",
+    "SUBMIT_APPLICATION": "ariza",
+    "SCHEDULE": "uchrashuv belgilash",
+    "START_TRIAL": "sinovni boshlash",
+    "SUBSCRIBE": "obuna",
+    "FIND_LOCATION": "manzilni topish",
+    "CONTENT_VIEW": "sahifa ko'rish",
+    "SEARCH": "qidiruv",
+    "ADD_TO_CART": "savatga qo'shish",
+    "ADD_TO_WISHLIST": "saqlanganlarga qo'shish",
+    "INITIATED_CHECKOUT": "to'lovni boshlash",
+    "ADD_PAYMENT_INFO": "to'lov ma'lumoti",
+    "PURCHASE": "xarid",
+    "DONATE": "xayriya",
+}
+SITE_EVENT_WORD: Final = "natija"
+
+
+def site_event_result(
+    optimization_goal: str, promoted_object: Mapping[str, object] | None
+) -> tuple[str, Any] | None:
+    """``("results", word)`` for a site event the outcomes leave uncounted."""
+    if optimization_goal.strip().upper() != SITE_GOAL:
+        return None
+    if outcome_for(optimization_goal, promoted_object) != "none":
+        return None
+    event = site_event(promoted_object)
+    if not event and not is_custom_conversion(promoted_object):
+        return None
+    return "results", EVENT_RESULT_WORDS.get(event, SITE_EVENT_WORD)
+
+
 def counted_result(
     optimization_goal: str, promoted_object: Mapping[str, object] | None = None
 ) -> tuple[str, Any] | None:
     text = RESULT_WORDS.get(outcome_for(optimization_goal, promoted_object))
-    return (text.field, text.one) if text is not None else None
+    if text is None:
+        return site_event_result(optimization_goal, promoted_object)
+    return text.field, text.one
 
 
 def uncounted_note(
     optimization_goal: str, promoted_object: Mapping[str, object] | None = None
 ) -> Any:
     if outcome_for(optimization_goal, promoted_object) != "none":
+        return ""
+    if site_event_result(optimization_goal, promoted_object) is not None:
         return ""
     return UNCOUNTED_NOTES.get(optimization_goal.strip().upper(), "")
 

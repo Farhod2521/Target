@@ -277,6 +277,11 @@ class OpenAICampaigns:
             token=token,
         )
 
+    def set_name(
+        self, *, ref: ExternalRef, name: str, token: str, dry_run: bool = True
+    ) -> ActionResult:
+        raise PortNotAvailable(provider=PROVIDER, port="campaigns.set_name")
+
     def delete(
         self, *, ref: ExternalRef, token: str, dry_run: bool = True
     ) -> ActionResult:

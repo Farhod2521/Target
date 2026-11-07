@@ -38,8 +38,9 @@ import json
 from typing import Any, Final
 
 from metaads.client import GraphClient
+from metaads.enhancements import post_creative
 from metaads.specs import CTA_NO_BUTTON, TEL_SCHEME, CarouselCard, CreativeSpec
-from metaads.writing import fake_id, id_of, post_object
+from metaads.writing import fake_id
 
 _CREATIVE: Final = "creative"
 
@@ -92,13 +93,7 @@ def create_creative(
     if spec.url_tags:
         data["url_tags"] = spec.url_tags
 
-    payload = post_object(
-        path=f"{account_id}/adcreatives",
-        data=data,
-        token=token,
-        client=client,
-    )
-    return id_of(payload)
+    return post_creative(account_id=account_id, data=data, token=token, client=client)
 
 
 def story_spec(spec: CreativeSpec) -> dict[str, Any]:

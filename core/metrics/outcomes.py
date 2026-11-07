@@ -46,9 +46,20 @@ def outcome_for(
 ) -> Outcome:
     """What one result is for an ad set: its goal, and what it promotes."""
     goal = optimization_goal.strip().upper()
-    if goal == SITE_GOAL and _event_of(promoted_object) == SITE_LEAD_EVENT:
+    if (
+        goal == SITE_GOAL
+        and _event_of(promoted_object) == SITE_LEAD_EVENT
+        and not is_custom_conversion(promoted_object)
+    ):
         return "site_lead"
     return outcome_of(goal)
+
+
+def is_custom_conversion(promoted_object: Mapping[str, object] | None) -> bool:
+    """TZ 3: bought on a custom conversion - its count is Meta's results."""
+    return isinstance(promoted_object, Mapping) and bool(
+        promoted_object.get("custom_conversion_id")
+    )
 
 
 def site_event(promoted_object: Mapping[str, object] | None) -> str:
@@ -103,6 +114,7 @@ __all__ = [
     "campaign_goal",
     "counts_leads",
     "is_counted",
+    "is_custom_conversion",
     "outcome_for",
     "outcome_of",
 ]

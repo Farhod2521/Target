@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 from adskit.errors import InvalidRequest
-from metaads.restage import changed, restage
+from metaads.restage import button_of, changed, restage
 
 
 def a_still() -> dict[str, Any]:
@@ -214,3 +214,26 @@ def test_an_advert_with_no_form_is_not_given_one() -> None:
 def test_a_new_form_is_a_change() -> None:
     assert changed(a_still(), lead_form_id="form-10")
     assert not changed(a_still(), lead_form_id="form-9")
+
+
+# --- The button (TZ 2.3) -------------------------------------------------
+
+
+def test_another_word_on_the_button_keeps_where_it_leads() -> None:
+    revised = restage(a_still(), button="APPLY_NOW")
+
+    assert revised["link_data"]["call_to_action"] == {
+        "type": "APPLY_NOW",
+        "value": {"lead_gen_form_id": "form-9"},
+    }
+    assert button_of(a_still())["type"] == "SIGN_UP"
+
+
+def test_a_story_without_a_button_takes_none() -> None:
+    story = a_still()
+    del story["link_data"]["call_to_action"]
+
+    with pytest.raises(InvalidRequest):
+        restage(story, button="APPLY_NOW")
+    assert button_of(story) == {}
+    assert button_of(None) == {}

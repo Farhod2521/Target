@@ -24,6 +24,7 @@ from app.modules.agent.selectors.policy import (
 from app.modules.agent.selectors.suggestions import owners_with_outcomes_due
 from app.modules.agent.services.assess_outcomes import assess_owner
 from app.modules.agent.services.check_frequency import check_frequency
+from app.modules.agent.services.check_prices import check_prices
 from app.modules.agent.services.diagnose_account import diagnose_account
 from app.modules.agent.services.propose_fixes import propose_fixes
 from app.modules.agent.services.release_stalled_runs import release_stalled_runs
@@ -176,8 +177,8 @@ def stop_all_fruitless() -> int:
 
 @celery_app.task(queue="agent", ignore_result=True)
 def check_frequency_task(owner_id: str) -> int:
-    """One owner's frequency levels for the morning, then the Telegram message
-    about them - Django's order. Returns how many were raised."""
+    """One owner's frequency levels and price rises (TZ 1) for the morning,
+    then the one Telegram message about them. Returns how many were raised."""
     from app.modules.billing.selectors.subscription import has_live_subscription
     from app.modules.notifications.tasks import deliver_frequency_task
 
@@ -185,7 +186,9 @@ def check_frequency_task(owner_id: str) -> int:
         owner = _owner(db, owner_id)
         if owner is None or not has_live_subscription(db, owner=owner):
             return 0
-        raised = len(check_frequency(db, owner=owner, now=utcnow()))
+        now = utcnow()
+        raised = len(check_frequency(db, owner=owner, now=now))
+        raised += len(check_prices(db, owner=owner, now=now))
     deliver_frequency_task.delay(owner_id)
     return raised
 

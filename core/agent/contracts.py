@@ -57,25 +57,6 @@ SuggestionKind = Literal[
     "new_picture",
 ]
 
-# What the provider itself suggests changing about an object, as meanings
-# rather than as the provider's own numbers.
-#
-# **A closed set of meanings, and the translation happens outside this
-# package.** Meta leaves a recommendation on an ad set as a code, a title
-# and a paragraph of English, and it adds new ones without telling anybody.
-# A rule that read those would be a rule about Meta, and a rule that
-# guessed at an unfamiliar code would propose a change to somebody's live
-# account on the strength of a number it had never seen. So the Django
-# layer maps the ones it recognises onto this list - see
-# ``apps.ads.recommendations`` - and everything else reaches the owner as
-# what the provider said, on the waiting list, with no button on it.
-ProviderAdvice = Literal[
-    # "Let the platform show this beyond the audience you named." The one
-    # recommendation this product can carry out today, because it is a
-    # write to the targeting spec and nothing else.
-    "broader_audience",
-]
-
 
 @dataclass(frozen=True, slots=True)
 class Policy:

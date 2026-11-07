@@ -805,7 +805,7 @@ def test_hisobot_sends_yesterday_and_bugun_says_today_is_quiet(
     assert "Bugun hali" in _sent(phone)[-1]["text"]
 
 
-def test_the_frequency_levels_are_said_short_with_the_center(
+def test_the_frequency_levels_carry_their_two_answers(
     client: TestClient, db: Session, phone: FakeBot
 ) -> None:
     user = _cabinet(client, db)
@@ -828,11 +828,95 @@ def test_the_frequency_levels_are_said_short_with_the_center(
 
     assert deliver_frequency_for(db, owner=user, now=MORNING)
     (message,) = _sent(phone)
-    (button,) = message["buttons"]
-    assert button.text == "Batafsil" and button.web_app and not button.data
+    # TZ 6.3: the copy window on the site, and the answer pressed right here.
+    add, fine = message["buttons"]
+    assert add.text == "Qo'shimcha kreativ qo'shamiz" and add.web_app
+    assert fine.text == "Reklama yaxshi ishlayapti" and fine.data
+    assert "Batafsil" not in message["text"]
     row = db.scalar(select(FrequencyAlert))
     assert row is not None and row.telegram_sent_at is not None
     assert not deliver_frequency_for(db, owner=user, now=MORNING)
+
+    assert (
+        handle_update(db, payload=_press("700", fine.data, message_id=101), now=MORNING)
+        == "frequency_fine"
+    )
+    db.expire_all()
+    row = db.scalar(select(FrequencyAlert))
+    assert row is not None and row.answer == "working_well"
+
+
+def test_a_price_rise_says_its_group_s_frequency_and_carries_three_answers(
+    client: TestClient, db: Session, phone: FakeBot
+) -> None:
+    from app.modules.agent.models import PriceAlert
+
+    user = _cabinet(client, db)
+    _linked(db, user)
+    account = db.scalar(select(AdAccount).where(AdAccount.owner_id == user.id))
+    assert account is not None
+    db.add_all(
+        [
+            PriceAlert(
+                owner_id=user.id,
+                provider=PROVIDER,
+                ad_account_id=account.id,
+                adset_external_id="s_1",
+                name="Guruh",
+                result_kind="lead",
+                currency="USD",
+                spend_minor=6_200,
+                results=10,
+                cost_minor=620,
+                cost_usual_minor=200,
+                times=310,
+                baseline_source="account_history",
+                causes=[
+                    {"key": "hook", "now": 12.0, "usual": 27.0, "ratio": 0.44},
+                    {
+                        "key": "ctr",
+                        "now": 0.6,
+                        "usual": 1.3,
+                        "ratio": 0.46,
+                        "context": True,
+                    },
+                ],
+            ),
+            FrequencyAlert(
+                owner_id=user.id,
+                provider=PROVIDER,
+                ad_account_id=account.id,
+                adset_external_id="s_1",
+                name="Guruh",
+                level=FrequencyLevel.WARNING,
+                frequency=253,
+                currency="USD",
+            ),
+        ]
+    )
+    db.commit()
+
+    assert deliver_frequency_for(db, owner=user, now=MORNING)
+    (message,) = _sent(phone)
+    # TZ 1.5 and 6.5.6: one part for the group, the price rise's three answers.
+    assert "To'xtang, lid narxi oshib ketdi" in message["text"]
+    assert "Sabab: videoning boshi odamni to'xtatmayapti." in message["text"]
+    assert "Hook Rate: 12% (odatda 27%) · CTR: 0,6% (odatda 1,3%)" in message["text"]
+    assert "Frequency: 2,53" in message["text"]
+    add, stop, watch = message["buttons"]
+    assert add.text == "Yangi kreativ qo'shish" and add.web_app
+    assert (stop.text, watch.text) == ("Reklamani to'xtatish", "Kuzataman")
+    assert not deliver_frequency_for(db, owner=user, now=MORNING)
+
+    assert (
+        handle_update(
+            db, payload=_press("700", watch.data, message_id=101), now=MORNING
+        )
+        == "price_watching"
+    )
+    db.expire_all()
+    assert db.scalar(select(PriceAlert)).answer == "watching"
+    assert db.scalar(select(FrequencyAlert)).answer == "working_well"
 
 
 def test_a_frequency_line_left_as_it_is_is_not_told(

@@ -74,7 +74,7 @@ class InboxItemOut(BaseModel):
     kind: str = Field(
         description="suggestion, stop, connection, refusal, trouble, subscription, "
         "launch, figures, leads, unpriced, ranking, advice, repair, wait, landing, "
-        "creative, audience, lead_gap, sweep, unheard_page, watch, frequency, "
+        "creative, audience, lead_gap, sweep, unheard_page, watch, frequency, price, "
         "meta_hold, account_blocked, feedback or checkup."
     )
     level: str = Field(description="`urgent`, `decision` or `news`.")

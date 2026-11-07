@@ -16,7 +16,6 @@ from app.modules.ads.selectors.provider_notes import (
     ACCOUNT_NOTES,
     REFUSAL,
     ProviderNote,
-    account_advice,
     account_notes,
 )
 from app.modules.ads.troubles import known
@@ -106,31 +105,6 @@ def _note_key(note: ProviderNote) -> str:
     return f"refusal:{digest[:REFUSAL_DIGEST_CHARS]}"
 
 
-def advice_items(db: Session, *, owner: User, view: InboxPage) -> list[InboxItem]:
-    """What the provider itself suggests would work better. News, always."""
-    scope = built_here(db, owner=owner, view=view)
-    notes = _interleaved(
-        [
-            account_advice(db, owner=owner, ad_account=account, scope=scope)
-            for account in view.accounts
-        ],
-        limit=ACCOUNT_NOTES,
-    )
-    return [
-        InboxItem(
-            key=_note_key(note),
-            kind="advice",
-            level="news",
-            title=note.title,
-            body=note.body if note.body != note.title else "",
-            action="Ko'rish",
-            href=reverse("ads:campaigns"),
-            subject=Subject(ref=note.ref, name=_where(note), code=note.code),
-        )
-        for note in notes
-    ]
-
-
 def ranking_items(
     db: Session, *, owner: User, view: InboxPage, now: datetime
 ) -> list[InboxItem]:
@@ -192,4 +166,4 @@ def _ranking(*, row: LowRanking, provider: str) -> InboxItem:
     )
 
 
-__all__ = ["advice_items", "ranking_items", "refusal_items"]
+__all__ = ["ranking_items", "refusal_items"]

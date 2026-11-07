@@ -1,7 +1,7 @@
-"""The two rules whose subject is the provider rather than the figures.
+"""The rule whose subject is the provider rather than the figures.
 
 What is asked here is mostly about the *boundary*, because the boundary is
-the whole risk. One of these rules exists to see ad sets every other rule
+the whole risk. The rule exists to see ad sets every other rule
 in the package refuses to look at, and it proposes taking part of somebody's
 audience out of a live campaign - so the questions are which faults it fires
 on, which it deliberately leaves alone, and what the card is told when the
@@ -17,8 +17,8 @@ from typing import Any
 import pytest
 from adskit import ProviderName
 
-from core.agent import AccountFacts, AdSetFacts, Policy, broaden, find, repair, scan
-from core.agent.rules import PROVIDER_ADVICE, PROVIDER_STOPPED
+from core.agent import AccountFacts, AdSetFacts, Policy, find, repair, scan
+from core.agent.rules import PROVIDER_STOPPED
 from core.metrics import Totals
 
 META = ProviderName("meta")
@@ -205,66 +205,6 @@ def test_a_stopped_group_never_weighs_nothing() -> None:
     assert found[0].weight == 15_000
 
 
-# --- The provider's own advice -------------------------------------------
-def _advised(**overrides: Any) -> AdSetFacts:
-    """A delivering group Meta advises on, whose leads cost what the account's
-    do - so the advice is the only thing there is to propose about it."""
-    fields: dict[str, Any] = {
-        "advice": ("broader_audience",),
-        "delivery": "active",
-        "totals": {"leads": 40, "qualified": 16},
-    }
-    fields.update(overrides)
-    return _adset(**fields)
-
-
-def test_the_platforms_own_advice_becomes_a_proposal() -> None:
-    """It is on every mirrored ad set, and this rule is what turns it into
-    something somebody can act on."""
-    found = [
-        item
-        for item in scan(account=_account(_advised()), policy=POLICY)
-        if item.rule == PROVIDER_ADVICE
-    ]
-
-    assert found and found[0].kind == "swap_targeting"
-
-
-def test_advice_the_group_has_already_taken_proposes_nothing() -> None:
-    """A button that changes nothing is the one failure a button cannot
-    recover from - and the provider does leave the recommendation on an ad
-    set that has taken it."""
-    taken = dict(AIMED) | {"targeting_automation": {"advantage_audience": 1}}
-    found = scan(account=_account(_advised(targeting=taken)), policy=POLICY)
-
-    assert [item.rule for item in found if item.rule == PROVIDER_ADVICE] == []
-
-
-def test_advice_is_not_acted_on_while_the_group_is_learning() -> None:
-    """Unlike its neighbour: this is an improvement to something that is
-    running, and editing the targeting of a group the provider is still
-    learning for throws that learning away for nothing."""
-    found = scan(account=_account(_advised(is_learning=True)), policy=POLICY)
-
-    assert [item.rule for item in found if item.rule == PROVIDER_ADVICE] == []
-
-
-def test_the_age_limits_the_mode_will_not_accept_are_named() -> None:
-    """The provider refuses this mode above an ``age_min`` of 25 and takes
-    no ``age_max`` at all, so an advertiser who typed an upper age is about
-    to be sent a spec without one."""
-    narrow = dict(AIMED) | {"age_min": 35, "age_max": 55}
-    found = [
-        item
-        for item in scan(account=_account(_advised(targeting=narrow)), policy=POLICY)
-        if item.rule == PROVIDER_ADVICE
-    ]
-
-    assert set(found[0].evidence["changed"]) == {"age_min", "age_max"}
-    assert found[0].payload["targeting"]["age_min"] == 25
-    assert "age_max" not in found[0].payload["targeting"]
-
-
 # --- The cap, and the one thing it does not apply to ---------------------
 def test_every_fault_is_offered_however_many_there_are() -> None:
     """ "They will still be there tomorrow" is the argument for the cap and
@@ -282,29 +222,12 @@ def test_every_fault_is_offered_however_many_there_are() -> None:
     assert POLICY.max_per_run == 3
 
 
-def test_the_cap_still_holds_for_the_improvements_beside_them() -> None:
-    """One list, two allowances: the faults are all offered and the
-    improvements still stop at three."""
-    broken = [_broken(external_id=f"broken-{index}") for index in range(2)]
-    advised = [
-        _advised(external_id=f"advised-{index}", totals={"spend_minor": 10_000 * index})
-        for index in range(1, 6)
-    ]
-
-    offered = find(account=_account(*broken, *advised), policy=POLICY)
-    kinds = [item.rule for item in offered]
-
-    assert kinds.count(PROVIDER_STOPPED) == 2
-    assert kinds.count(PROVIDER_ADVICE) == 3
-
-
-# --- The two pure helpers under them --------------------------------------
+# --- The pure helper under it --------------------------------------
 def test_the_spec_that_arrives_is_never_edited_in_place() -> None:
     """The rest of the pass is still reading it."""
     spec = {"custom_audiences": [{"id": "aud-gone"}, {"id": "aud-live"}]}
 
     repair(spec, unusable=["aud-gone"])
-    broaden(spec)
 
     assert spec["custom_audiences"] == [{"id": "aud-gone"}, {"id": "aud-live"}]
 
@@ -338,13 +261,6 @@ def test_a_campaign_built_elsewhere_is_never_given_a_new_audience() -> None:
     found = scan(account=_account(_broken(is_ours=False)), policy=POLICY)
 
     assert found == []
-
-
-def test_the_provider_s_advice_stops_at_our_own_campaigns_too() -> None:
-    """It is the platform's advice and it is still an audience change."""
-    found = scan(account=_account(_advised(is_ours=False)), policy=POLICY)
-
-    assert [item.rule for item in found if item.rule == PROVIDER_ADVICE] == []
 
 
 def test_a_campaign_built_elsewhere_gets_nothing_at_all() -> None:

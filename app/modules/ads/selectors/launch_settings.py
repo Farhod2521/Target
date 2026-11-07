@@ -48,6 +48,7 @@ from app.modules.ads.selectors.campaign_type import (
 from app.modules.ads.selectors.conversion_event import (
     chosen_conversion_event,
     conversion_event_source,
+    event_label,
 )
 from app.modules.ads.selectors.lead_form import form_depth
 from app.modules.ads.selectors.tracking import chosen_url_tags, effective_button
@@ -237,6 +238,7 @@ def launch_settings(db: Session, *, launch: CampaignLaunch) -> LaunchSettings:
     answers = launch.answers or {}
     names = _place_names(stored)
     button = effective_button(db, launch=launch)
+    event = event_label(db, launch=launch, key=chosen_conversion_event(launch=launch))
     return LaunchSettings(
         id=launch.id,
         goal=goal_labels().get(str(answers.get("goal") or ""), ""),
@@ -259,12 +261,12 @@ def launch_settings(db: Session, *, launch: CampaignLaunch) -> LaunchSettings:
         audience_upper=launch.audience_upper,
         audience=audience_lines(launch.targeting, names=names),
         button=str(BUTTON_LABELS.get(button, button)) if button else "",
-        conversion_event=chosen_conversion_event(launch=launch),
+        conversion_event=event,
         url_tags=chosen_url_tags(launch=launch),
         attribution=_attribution(answers),
         frequency_cap=_frequency_cap(answers),
         buys_qualified_leads=launch.buy_qualified_leads,
-        decisions=_decisions(launch, stored, button=button),
+        decisions=_decisions(launch, stored, button=button, event=event),
         ads=_ads(db, launch, stored),
         form=_form_setup(launch, stored),
         # Sent once at the launch and not mirrored back: what this product asked for.
@@ -298,7 +300,7 @@ def audience_lines(
 
 
 def _decisions(
-    launch: CampaignLaunch, stored: dict[str, Any], *, button: str
+    launch: CampaignLaunch, stored: dict[str, Any], *, button: str, event: str
 ) -> tuple[Decision, ...]:
     answers = launch.answers or {}
     picked = draft_field.chosen(stored, DraftSection.AUDIENCE)
@@ -306,7 +308,6 @@ def _decisions(
     mode = str(audience.get("targeting_mode") or "")
     placement = str(audience.get("placement_mode") or "")
     kind = effective_campaign_type(launch=launch)
-    event = chosen_conversion_event(launch=launch)
     picks = _labels(draft_field.chosen(stored, DraftSection.INTERESTS))
     found = [
         Decision(

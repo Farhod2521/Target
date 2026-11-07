@@ -25,6 +25,7 @@ from app.modules.accounts.models import User
 from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.exceptions import NothingToRevert
 from app.modules.ads.services.additions import plan_new_ad, plan_new_group
+from app.modules.ads.services.copies import plan_copy
 from app.modules.ads.services.manage import (
     BUDGET_ACTIONS,
     BY_HAND,
@@ -35,6 +36,7 @@ from app.modules.ads.services.manage import (
     parse_datetime,
     plan_budget,
     plan_end_time,
+    plan_name,
     plan_places,
     plan_spend_cap,
     plan_status,
@@ -84,6 +86,14 @@ class SpendCap:
 
 
 @dataclass(frozen=True, slots=True)
+class Rename:
+    """A campaign's new name (TZ 4: campaigns only)."""
+
+    external_id: str
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
 class Audience:
     """An ad group's whole audience, replaced."""
 
@@ -110,6 +120,10 @@ class NewAdvert:
     description: str | None = None
     asset_id: str = ""
     lead_form_id: str = ""
+    # A chat advert's greeting (TZ 2.5); ``None`` keeps it.
+    welcome: dict[str, Any] | None = None
+    # TZ 2.4 «Shu e'londa»: this advert takes the new creative, none is made.
+    in_place: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +151,21 @@ class NewAd:
 
 
 @dataclass(frozen=True, slots=True)
+class Copy:
+    """TZ 2: Meta's copy of a campaign, a group or an advert.
+
+    ``into`` is where it goes: a group's campaign, an advert's group or
+    ``"new"`` for a group of its own; empty keeps the original's parent.
+    """
+
+    level: str
+    external_id: str
+    into: str = ""
+    # An advert's new creative (TZ 2.3); ``None`` copies the original's.
+    creative: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Delete:
     level: str
     external_id: str
@@ -150,11 +179,13 @@ Ask = (
     | Budget
     | EndTime
     | SpendCap
+    | Rename
     | Audience
     | Places
     | NewAdvert
     | NewGroup
     | NewAd
+    | Copy
     | Delete
 )
 
@@ -209,6 +240,12 @@ SPECS: dict[type, Spec] = {
             spend_cap_minor=ask.spend_cap_minor,
         ),
     ),
+    Rename: Spec(
+        "name",
+        lambda db, user, ask, _origin: plan_name(
+            db, user=user, external_id=ask.external_id, name=ask.name
+        ),
+    ),
     Audience: Spec(
         "audience",
         lambda db, user, ask, origin: plan_targeting(
@@ -237,6 +274,8 @@ SPECS: dict[type, Spec] = {
             description=ask.description,
             asset_id=ask.asset_id,
             lead_form_id=ask.lead_form_id,
+            welcome=ask.welcome,
+            in_place=ask.in_place,
         ),
     ),
     NewGroup: Spec(
@@ -248,6 +287,17 @@ SPECS: dict[type, Spec] = {
             name=ask.name,
             source=ask.source,
             daily_budget_minor=ask.daily_budget_minor,
+        ),
+    ),
+    Copy: Spec(
+        "copy",
+        lambda db, user, ask, _origin: plan_copy(
+            db,
+            user=user,
+            level=ask.level,
+            external_id=ask.external_id,
+            into=ask.into,
+            creative=ask.creative,
         ),
     ),
     NewAd: Spec(
@@ -322,6 +372,7 @@ KINDS: dict[str, str] = {
     ActionType.TARGETING_SWAP: "audience",
     ActionType.END_TIME_SET: "end_time",
     ActionType.SPEND_CAP_SET: "spend_cap",
+    ActionType.NAME_SET: "name",
     ActionType.CREATIVE_SWAP: "advert",
 }
 DELETES = frozenset(
@@ -395,6 +446,9 @@ def undoing(original: ActionLog) -> Ask | None:
         if ceiling is None:
             return None
         return SpendCap(external_id=external_id, spend_cap_minor=int(ceiling))
+    if original.action == ActionType.NAME_SET:
+        name = str(previous.get("name") or "")
+        return Rename(external_id=external_id, name=name) if name else None
     if original.action not in (ActionType.PAUSE, ActionType.RESUME):
         return None
     wanted = str(previous.get("delivery", ""))
@@ -410,12 +464,14 @@ __all__ = [
     "Ask",
     "Audience",
     "Budget",
+    "Copy",
     "Delete",
     "EndTime",
     "NewAd",
     "NewAdvert",
     "NewGroup",
     "Pause",
+    "Rename",
     "Resume",
     "Spec",
     "SpendCap",

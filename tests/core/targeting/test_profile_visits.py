@@ -125,9 +125,9 @@ def test_the_advert_is_shown_on_instagram_only_whatever_was_answered(
 
 
 def test_explore_is_never_among_the_instagram_positions() -> None:
-    assert not {"explore", "explore_home"} & set(
-        INSTAGRAM_PLACEMENTS["instagram_positions"]
-    )
+    """v26.0 refuses ``explore``; ``explore_home`` is still listed (TZ 5)."""
+    assert "explore" not in INSTAGRAM_PLACEMENTS["instagram_positions"]
+    assert "explore_home" in INSTAGRAM_PLACEMENTS["instagram_positions"]
 
 
 def test_the_built_spec_names_the_profile() -> None:

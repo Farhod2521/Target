@@ -6,6 +6,7 @@ pairs it will accept - and that an answer nobody recognises leaves the
 catalogue's own event in place rather than sending a name at all.
 """
 
+import pytest
 from adskit import MinorUnits
 
 from core.targeting import (
@@ -32,7 +33,7 @@ PROVIDER = "meta"
 CATALOG = PresetCatalog.from_directory(CATALOG_DIR)
 
 
-def built(event: str = "") -> BuiltTargeting:
+def built(event: str = "", conversion_id: str = "") -> BuiltTargeting:
     return build(
         provider=PROVIDER,
         answers=OnboardingAnswers(
@@ -40,6 +41,7 @@ def built(event: str = "") -> BuiltTargeting:
             goal="site_leads",
             daily_budget_minor=MinorUnits(5000),
             conversion_event=event,
+            custom_conversion_id=conversion_id,
         ),
         business=BusinessProfile(name="Osh", category="services", country_code="UZ"),
         catalog=CATALOG,
@@ -120,9 +122,46 @@ def test_an_event_the_provider_has_no_word_for_changes_nothing() -> None:
     assert built("WHATEVER").promoted_object[EVENT_KEY] == "LEAD"
 
 
-def test_an_event_the_objective_does_not_take_changes_nothing() -> None:
-    """Meta refuses a purchase bought under the leads objective."""
-    assert built("PURCHASE").promoted_object[EVENT_KEY] == "LEAD"
+def test_tz3_a_shopping_event_is_bought_as_sales() -> None:
+    """Meta refuses a purchase bought under the leads objective, so the
+    objective follows the event (TZ 3)."""
+    spec = built("PURCHASE")
+
+    assert spec.promoted_object[EVENT_KEY] == "PURCHASE"
+    assert spec.objective == "OUTCOME_SALES"
+    assert spec.optimization_goal == "OFFSITE_CONVERSIONS"
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        "LEAD",
+        "COMPLETE_REGISTRATION",
+        "CONTACT",
+        "SCHEDULE",
+        "SUBMIT_APPLICATION",
+        "SUBSCRIBE",
+    ],
+)
+def test_tz3_a_request_event_is_bought_as_leads(event: str) -> None:
+    spec = built(event)
+
+    assert spec.promoted_object[EVENT_KEY] == event
+    assert spec.objective == "OUTCOME_LEADS"
+
+
+@pytest.mark.parametrize("event", ["INITIATED_CHECKOUT", "ADD_TO_CART"])
+def test_tz3_checkout_and_cart_are_bought_as_sales(event: str) -> None:
+    assert built(event).objective == "OUTCOME_SALES"
+
+
+def test_tz3_a_custom_conversion_is_sent_with_its_own_event_type() -> None:
+    """As production's are: the pixel, the conversion, and its event type."""
+    spec = built("OTHER", conversion_id="cc_9")
+
+    assert spec.promoted_object["custom_conversion_id"] == "cc_9"
+    assert spec.promoted_object[EVENT_KEY] == "OTHER"
+    assert spec.objective == "OUTCOME_LEADS"
 
 
 def test_each_objective_offers_only_its_own_events() -> None:

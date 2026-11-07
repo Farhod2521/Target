@@ -43,7 +43,7 @@ from app.modules.ads.inputs.proposal_body import (
 from app.modules.ads.inputs.questions import read_rows, rows_error
 from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.selectors.audiences_chosen import area_options
-from app.modules.ads.selectors.conversion_event import offered_events
+from app.modules.ads.selectors.conversion_event import offered_keys
 from app.modules.ads.selectors.delivery_options import cost_cap_choice
 from app.modules.ads.selectors.goals import goal_preset
 from app.modules.ads.selectors.lead_form import default_title, kept_questions
@@ -471,7 +471,7 @@ def _advanced(
     )
     _choice(
         body.conversion_event,
-        [row.key for row in offered_events(db, launch=launch)],
+        list(offered_keys(db, launch=launch, pixel_id=body.pixel_id or "")),
         field="advanced.conversion_event",
         problems=problems,
     )

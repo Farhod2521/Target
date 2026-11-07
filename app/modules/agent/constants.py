@@ -188,6 +188,21 @@ FREQUENCY_ANSWER_LABELS = {
     FrequencyAnswer.CREATIVE_ADDED: "Kreativ qo'shildi",
     FrequencyAnswer.WORKING_WELL: "Reklama yaxshi ishlayapti",
 }
+
+
+class PriceAnswer(Choices):
+    """TZ 1.7: what the owner answered a price rise with."""
+
+    CREATIVE_ADDED = "creative_added"
+    PAUSED = "paused"
+    WATCHING = "watching"
+
+
+PRICE_ANSWER_LABELS = {
+    PriceAnswer.CREATIVE_ADDED: "Yangi kreativ qo'shildi",
+    PriceAnswer.PAUSED: "Reklama to'xtatildi",
+    PriceAnswer.WATCHING: "Kuzatilmoqda",
+}
 APPROVE_WORD: Final = "O'zgartirish"
 REJECT_WORD: Final = "Rad etish"
 ACTION_LABELS: Final[dict[str, str]] = {
@@ -212,7 +227,6 @@ RULE_LABELS: Final[dict[str, str]] = {
     "weak_ad": "Bitta reklama pulni behuda yeyapti",
     "idle": "Hech narsa ishlamayapti",
     "provider_stopped": "Auditoriya buzilgan, reklama to'xtagan",
-    "provider_advice": "Meta ko'proq odamga yetkazishni taklif qilyapti",
     "refresh_ad": "Reklamaga yangi rasm kerak",
     "broken_picture": "Rasm ko'rinmayapti, reklama to'xtagan",
     "refused_ad": "Meta reklamani rad etdi",
@@ -229,7 +243,6 @@ RULE_TONES: Final[dict[str, str]] = {
     "narrow_audience": "warn",
     "weak_ad": "warn",
     "provider_stopped": "bad",
-    "provider_advice": "good",
     "refresh_ad": "warn",
     "broken_picture": "bad",
     "refused_ad": "bad",
@@ -267,10 +280,6 @@ WIDENING_LABELS: Final[dict[str, str]] = {
     "radius": "Qamrov masofasi kengaytiriladi",
     "age": "Yosh oralig'i kengaytiriladi",
     "interests": "Qiziqishlar bo'yicha cheklov olib tashlanadi",
-}
-AUTOMATION_NOTES: Final[dict[str, str]] = {
-    "age_max": "Yosh yuqori chegarasi olib tashlanadi",
-    "age_min": "Eng kichik yosh 25 ga tushiriladi",
 }
 NO_AUDIENCE_LEFT: Final = "Sizning ro'yxatlaringizdan biri ham qolmaydi - reklama qolgan sozlamalarga mos hammaga ko'rsatiladi."
 NEW_PICTURE_NAMED: Final = "Kutubxonadagi «%(name)s» qo'yiladi."

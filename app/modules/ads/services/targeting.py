@@ -38,8 +38,9 @@ from app.modules.ads.selectors.advice import (
 from app.modules.ads.selectors.audiences_chosen import chosen_audiences
 from app.modules.ads.selectors.campaign_type import chosen_campaign_type
 from app.modules.ads.selectors.conversion_event import (
+    chosen_conversion,
     chosen_conversion_event,
-    offered_events,
+    offered_keys,
 )
 from app.modules.ads.selectors.copy_notes import destination_phone
 from app.modules.ads.selectors.goals import destination_link, goal_preset
@@ -363,13 +364,24 @@ def launch_answers(
         ),
         chat_channel=_channel(launch.answers.get("chat_channel")),
         campaign_type=chosen_campaign_type(launch=launch),
-        conversion_event=chosen_conversion_event(launch=launch),
+        **_counted_on(db, launch=launch),
         url_tags=chosen_url_tags(launch=launch),
         call_to_action=chosen_button(launch=launch),
         attribution_key=str(launch.answers.get(ATTRIBUTION) or ""),
         frequency_cap=_frequency(launch.answers.get(FREQUENCY_CAP)),
         total_cap_minor=_minor(launch.total_cap_minor),
     )
+
+
+def _counted_on(db: Session, *, launch: CampaignLaunch) -> dict[str, str]:
+    """The event the launch is bought on; a custom conversion by its own type."""
+    custom = chosen_conversion(db, launch=launch)
+    if custom is not None:
+        return {
+            "conversion_event": custom.event,
+            "custom_conversion_id": custom.external_id,
+        }
+    return {"conversion_event": chosen_conversion_event(launch=launch)}
 
 
 def _frequency(value: object) -> tuple[int, int] | None:
@@ -510,7 +522,7 @@ def apply_conversion_event(db: Session, *, launch: CampaignLaunch) -> None:
         draft, draft_field.CONVERSION_EVENT
     ):
         return
-    offered = tuple(row.key for row in offered_events(db, launch=launch))
+    offered = offered_keys(db, launch=launch)
     advice = conversion_event_recommendation(db, launch=launch, offered=offered)
     if advice is None:
         return

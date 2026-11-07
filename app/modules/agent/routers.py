@@ -22,11 +22,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
+from app.common.contract import Camel
 from app.common.db import utcnow
 from app.common.exceptions import DomainError, NotFound
 from app.modules.accounts.models import User
 from app.modules.ads.constants import ManagedLevel
-from app.modules.ads.models import Ad
+from app.modules.ads.models import Ad, AdSet
 from app.modules.ads.selectors.actions import account_of, campaigns_for, managed_target
 from app.modules.ads.selectors.creatives import creative_of
 from app.modules.ads.selectors.media import asset_row, media_library
@@ -44,11 +45,23 @@ from app.modules.agent.frequency_copy import (
     frequency_body,
     frequency_title,
 )
-from app.modules.agent.models import AgentSuggestion, FrequencyAlert
+from app.modules.agent.models import AgentSuggestion, FrequencyAlert, PriceAlert
+from app.modules.agent.price_copy import ADD_CREATIVE as ADD_PRICE_CREATIVE
+from app.modules.agent.price_copy import PAUSE as PAUSE_PRICE
+from app.modules.agent.price_copy import WATCHING, price_body, price_title
 from app.modules.agent.selectors.cards import history_cards
-from app.modules.agent.selectors.frequency import alerts_to_show, creative_target
+from app.modules.agent.selectors.frequency import (
+    alerts_to_show,
+    creative_target,
+    pressing_alerts,
+)
 from app.modules.agent.selectors.launch_watch import watched_groups
 from app.modules.agent.selectors.policy import policy_for
+from app.modules.agent.selectors.price_alerts import (
+    merged_frequencies,
+    price_alerts_to_show,
+    price_creative_target,
+)
 from app.modules.agent.selectors.runs import recent
 from app.modules.agent.selectors.same_day import burning_groups
 from app.modules.agent.selectors.suggestions import one
@@ -56,6 +69,8 @@ from app.modules.agent.selectors.summary import proposals
 from app.modules.agent.selectors.verdicts import campaign_verdicts
 from app.modules.agent.services import (
     act_on_watch,
+    answer_pause,
+    answer_watching,
     answer_working_well,
     approve_suggestion,
     reject_suggestion,
@@ -127,6 +142,23 @@ def _alert(row: FrequencyAlert) -> dict[str, Any]:
     }
 
 
+def _price(row: PriceAlert, merged: FrequencyAlert | None) -> dict[str, Any]:
+    return {
+        "id": str(row.id),
+        "adset_external_id": row.adset_external_id,
+        "ad_external_id": row.ad_external_id,
+        "times": row.times,
+        "title": price_title(row),
+        "body": price_body(row, frequency=merged),
+        "created_at": row.created_at,
+        "buttons": {
+            "creative": ADD_PRICE_CREATIVE,
+            "pause": PAUSE_PRICE,
+            "watch": WATCHING,
+        },
+    }
+
+
 def _waiting(db: Session, *, user: User, now: datetime) -> dict[str, Any]:
     from app.modules.integrations.selectors.slots import enabled_ad_accounts
 
@@ -134,6 +166,9 @@ def _waiting(db: Session, *, user: User, now: datetime) -> dict[str, Any]:
     scope = current_page_scope(db, owner=user)
     hidden = scope.outside
     accounts = enabled_ad_accounts(db, owner=user)
+    prices = price_alerts_to_show(db, owner=user, hidden_adsets=hidden)
+    merged = merged_frequencies(db, rows=prices)
+    said = {level.id for level in merged.values()}
     return jsonable_encoder(
         {
             "cards": open_ones.cards,
@@ -151,7 +186,9 @@ def _waiting(db: Session, *, user: User, now: datetime) -> dict[str, Any]:
             "frequency": [
                 _alert(row)
                 for row in alerts_to_show(db, owner=user, now=now, hidden_adsets=hidden)
+                if row.id not in said
             ],
+            "price": [_price(row, merged.get(row.adset_external_id)) for row in prices],
             "burning": [
                 asdict(row)
                 for account in accounts
@@ -414,6 +451,39 @@ def watch_act(adset_id: str, move: str, db: Db, user: CurrentUser) -> dict[str, 
     )
 
 
+class PressingAlert(BaseModel):
+    id: str
+    level: str = Field(description="`warning` (2.50) or `required` (3.00).")
+    title: str
+    body: str
+
+
+class PressingAlerts(BaseModel):
+    alerts: list[PressingAlert]
+
+
+@router.get("/frequency/pressing", response_model=PressingAlerts)
+def frequency_pressing(db: Db, user: CurrentUser) -> dict[str, Any]:
+    """TZ 6.2: the levels the dashboard shows at its top - 2.50 and 3.00."""
+    from app.modules.notifications.selectors.inbox_page import inbox_page
+
+    view = inbox_page(db, owner=user)
+    rows = pressing_alerts(
+        db, owner=user, now=utcnow(), hidden_adsets=view.scope.outside
+    )
+    return {
+        "alerts": [
+            {
+                "id": str(row.id),
+                "level": row.level,
+                "title": frequency_title(row),
+                "body": frequency_body(row),
+            }
+            for row in rows
+        ]
+    }
+
+
 @router.post("/frequency/{alert_id}/fine")
 def frequency_fine(alert_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     """«Reklama yaxshi ishlayapti»."""
@@ -422,14 +492,19 @@ def frequency_fine(alert_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, 
     return _answered(db, user, "Javobingiz saqlandi.")
 
 
-@router.get("/frequency/{alert_id}/creative")
+class FrequencyCreative(Camel):
+    external_id: str = Field(description="The advert whose copy window opens.")
+    campaign_id: str = Field(description="This product's id of its campaign.")
+
+
+@router.get("/frequency/{alert_id}/creative", response_model=FrequencyCreative)
 def frequency_creative(
     alert_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> dict[str, str]:
-    """«Qo'shimcha kreativ qo'shamiz»: the advert to add a creative beside.
+    """«Qo'shimcha kreativ qo'shamiz»: the advert whose copy window opens (TZ 6.3).
 
-    The client opens the advert's edit screen,
-    ``/api/v1/campaigns/manage/ad/{external_id}/edit``.
+    The client opens the campaign's page with the advert's «Duplikat» window
+    on a new creative (TZ 2.3).
     """
     row = db.scalar(
         select(FrequencyAlert).where(
@@ -441,9 +516,63 @@ def frequency_creative(
         if row is not None
         else ""
     )
-    if not advert:
+    campaign = (
+        db.scalar(
+            select(AdSet.campaign_id).where(
+                AdSet.owner_id == user.id,
+                AdSet.external_id == row.adset_external_id,
+            )
+        )
+        if row is not None
+        else None
+    )
+    if not advert or campaign is None:
         raise NotFound("Bu guruhda ishlab turgan reklama topilmadi.")
-    return {
-        "ad_external_id": advert,
-        "edit_url": f"/api/v1/campaigns/manage/ad/{advert}/edit",
-    }
+    return {"external_id": advert, "campaign_id": str(campaign)}
+
+
+# -- buttons under a price rise (TZ 1.5) ------------------------------------------------
+
+
+@router.post("/price/{alert_id}/watch")
+def price_watch(alert_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
+    """«Kuzataman»: kept; nothing more about the group for 72 hours."""
+    answer_watching(db, user=user, alert_id=str(alert_id), now=utcnow())
+    db.commit()
+    return _answered(db, user, "Javobingiz saqlandi. 72 soat kuzatamiz.")
+
+
+@router.post("/price/{alert_id}/pause")
+def price_pause(alert_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
+    """«Reklamani to'xtatish»: the group is paused."""
+    try:
+        answer_pause(db, user=user, alert_id=str(alert_id), now=utcnow())
+    except DomainError:
+        db.rollback()
+        raise
+    db.commit()
+    return _answered(db, user, SENT["pause"])
+
+
+@router.get("/price/{alert_id}/creative", response_model=FrequencyCreative)
+def price_creative(alert_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, str]:
+    """«Yangi kreativ qo'shish»: the advert whose copy window opens (TZ 2.3)."""
+    row = db.scalar(
+        select(PriceAlert).where(
+            PriceAlert.owner_id == user.id, PriceAlert.id == alert_id
+        )
+    )
+    advert = price_creative_target(db, owner=user, row=row) if row is not None else ""
+    campaign = (
+        db.scalar(
+            select(AdSet.campaign_id).where(
+                AdSet.owner_id == user.id,
+                AdSet.external_id == row.adset_external_id,
+            )
+        )
+        if row is not None
+        else None
+    )
+    if not advert or campaign is None:
+        raise NotFound("Bu guruhda reklama topilmadi.")
+    return {"external_id": advert, "campaign_id": str(campaign)}

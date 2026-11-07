@@ -343,6 +343,11 @@ class GoogleCampaigns:
     ) -> ActionResult:
         raise PortNotAvailable(provider=PROVIDER, port="campaigns.set_spend_cap")
 
+    def set_name(
+        self, *, ref: ExternalRef, name: str, token: str, dry_run: bool = True
+    ) -> ActionResult:
+        raise PortNotAvailable(provider=PROVIDER, port="campaigns.set_name")
+
     # --- Reading ---------------------------------------------------------
 
     @staticmethod

@@ -255,6 +255,22 @@ class CampaignControlPort(Protocol):
         """
         ...
 
+    def set_name(
+        self,
+        *,
+        ref: ExternalRef,
+        name: str,
+        token: str,
+        dry_run: bool = True,
+    ) -> ActionResult:
+        """What the object is called in the provider's own console.
+
+        A label and nothing else: the provider does not re-review an object
+        for its name, and delivery does not change. The length is checked
+        on this side of the boundary, where the owner's form is.
+        """
+        ...
+
     def delete(
         self,
         *,

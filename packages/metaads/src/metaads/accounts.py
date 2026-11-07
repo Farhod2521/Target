@@ -8,12 +8,19 @@ where their account went.
 """
 
 import logging
+import time
 from collections.abc import Iterable, Sequence
 from typing import Any, Final
 from urllib.parse import urlencode
 
 from metaads.client import GraphClient
-from metaads.dto import AdAccountDTO, PageDTO, PixelDTO, PixelEventRow
+from metaads.dto import (
+    AdAccountDTO,
+    CustomConversionRow,
+    PageDTO,
+    PixelDTO,
+    PixelEventRow,
+)
 from metaads.errors import MetaAPIError, MetaError
 from metaads.parsing import parsed_all
 
@@ -384,6 +391,15 @@ PIXEL_STATS_DAYS: Final = 7
 EVENT_AGGREGATION: Final = "event"
 
 
+def stats_since(now: float | None = None) -> int:
+    """The start of the provider's seven-day window, as Unix seconds.
+
+    Sent explicitly: left out, Meta answers a shorter window than the week
+    the screens say (TZ 3: each event beside its seven-day count).
+    """
+    return int((time.time() if now is None else now) - PIXEL_STATS_DAYS * 86_400)
+
+
 def pixel_events(
     *, pixel_id: str, token: str, client: GraphClient | None = None
 ) -> list[PixelEventRow]:
@@ -408,6 +424,7 @@ def pixel_events(
         rows = graph.get_all(
             f"{pixel_id}/stats",
             aggregation=EVENT_AGGREGATION,
+            start_time=stats_since(),
         )
     finally:
         if client is None:
@@ -427,6 +444,61 @@ def pixel_events(
         PixelEventRow(event=name, count=times)
         for name, times in sorted(counted.items(), key=lambda pair: -pair[1])
     ]
+
+
+CUSTOM_CONVERSION_FIELDS: Final = (
+    "id,name,custom_event_type,pixel{id},last_fired_time,is_archived,is_unavailable"
+)
+
+
+def custom_conversions(
+    *, account_id: str, token: str, client: GraphClient | None = None
+) -> list[CustomConversionRow]:
+    """Every custom conversion on one ad account, the pixel each counts on."""
+    graph = client or GraphClient(token=token)
+    try:
+        rows = graph.get_all(
+            f"{account_id}/customconversions", fields=CUSTOM_CONVERSION_FIELDS
+        )
+    finally:
+        if client is None:
+            graph.close()
+    return parsed_all(
+        CustomConversionRow,
+        [
+            {**row, "pixel_id": str((row.get("pixel") or {}).get("id") or "")}
+            for row in rows
+            if isinstance(row, dict)
+        ],
+    )
+
+
+def custom_conversion_count(
+    *, conversion_id: str, token: str, client: GraphClient | None = None
+) -> int:
+    """How many times one custom conversion fired in the seven-day window.
+
+    Meta documents ``aggregation=count`` as the number of fires, hourly for
+    a pixel, but not the fields of a result row. So every ``count`` found on
+    a row, or on the rows inside it, is added.
+    """
+    graph = client or GraphClient(token=token)
+    try:
+        rows = graph.get_all(
+            f"{conversion_id}/stats", aggregation="count", start_time=stats_since()
+        )
+    finally:
+        if client is None:
+            graph.close()
+    total = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        total += _times(row.get("count"))
+        for entry in row.get("data") or ():
+            if isinstance(entry, dict):
+                total += _times(entry.get("count"))
+    return total
 
 
 def _times(value: object) -> int:

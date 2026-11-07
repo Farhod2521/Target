@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.common.money import format_minor
 from app.modules.accounts.models import User
-from app.modules.ads.recommendations import WEAK_CONFIDENCE
+from app.modules.ads.recommendations import technical
 from app.modules.agent.causes import cause_label, cause_line
 from app.modules.agent.figures import decimal_of
 from app.modules.agent.models import AdSetDiagnosis
@@ -69,14 +69,14 @@ def reading_of(row: AdSetDiagnosis | None, *, currency: str) -> Reading:
 
 
 def advice_of(recommendations: object) -> str:
-    """The provider's first confident piece of advice about a group, its title."""
+    """The provider's first technical recommendation about a group, its title.
+
+    Only a technical one (TZ 7.4) - see :mod:`app.modules.ads.recommendations`.
+    Budget, placement and audience advice never reaches the chat.
+    """
     if not isinstance(recommendations, list):
         return ""
-    for item in recommendations:
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("confidence") or "").strip().upper() in WEAK_CONFIDENCE:
-            continue
+    for item in technical(recommendations):
         title = str(item.get("title") or item.get("message") or "").strip()
         if title:
             return title

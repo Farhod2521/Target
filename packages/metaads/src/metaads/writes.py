@@ -186,6 +186,10 @@ def create_adset(
                 # refuses.
                 "attribution_spec": list(spec.attribution) or None,
                 "frequency_control_specs": list(spec.frequency_control) or None,
+                # Said rather than left to the default: a dynamic creative
+                # group reports combinations, not adverts, and the diagnosis
+                # names the advert that works.
+                "is_dynamic_creative": False,
                 "status": spec.status,
             },
             token=token,
@@ -316,6 +320,54 @@ def set_end_time(
     payload = post_object(
         path=object_id,
         data={"end_time": end_time},
+        token=token,
+        client=client,
+    )
+    return bool(payload.get(_SUCCESS, True))
+
+
+def set_name(
+    *,
+    object_id: str,
+    name: str,
+    token: str,
+    client: GraphClient | None = None,
+    dry_run: bool = True,
+) -> bool:
+    """What the object is called in Ads Manager. ``POST /{id}`` with ``name``.
+
+    Meta neither re-reviews an object for its name nor resets its learning,
+    so this is the one write here that changes nothing about delivery.
+    """
+    if dry_run or is_dry_run_id(object_id):
+        return True
+
+    payload = post_object(
+        path=object_id, data={"name": name}, token=token, client=client
+    )
+    return bool(payload.get(_SUCCESS, True))
+
+
+def set_creative(
+    *,
+    ad_id: str,
+    creative_id: str,
+    token: str,
+    client: GraphClient | None = None,
+    dry_run: bool = True,
+) -> bool:
+    """The advert shows another creative. ``POST /{ad_id}`` with ``creative``.
+
+    TZ 2.4: the advert keeps its id and its figures, and Meta reviews it
+    again; likes and comments start from nothing, because they belong to
+    the old creative's post.
+    """
+    if dry_run or is_dry_run_id(ad_id):
+        return True
+
+    payload = post_object(
+        path=ad_id,
+        data={"creative": {"creative_id": creative_id}},
         token=token,
         client=client,
     )
@@ -544,6 +596,7 @@ __all__ = [
     "dropped_from",
     "read_targeting",
     "set_budget",
+    "set_creative",
     "set_status",
     "write_targeting",
 ]

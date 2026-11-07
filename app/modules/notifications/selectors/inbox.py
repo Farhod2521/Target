@@ -43,11 +43,11 @@ from app.modules.notifications.selectors.inbox_leads import (
 )
 from app.modules.notifications.selectors.inbox_meta import meta_items
 from app.modules.notifications.selectors.inbox_notes import (
-    advice_items,
     ranking_items,
     refusal_items,
 )
 from app.modules.notifications.selectors.inbox_page import InboxPage, inbox_page
+from app.modules.notifications.selectors.inbox_price import price_items
 from app.modules.notifications.selectors.inbox_spend import quiet_waits
 from app.modules.notifications.selectors.inbox_stops import stop_items
 from app.modules.notifications.selectors.inbox_watch import watch_items
@@ -98,6 +98,7 @@ def page_inbox(
                 *stop_items(db, owner=owner, view=view),
                 *meta_items(db, owner=owner, accounts=view.accounts),
                 *watch_items(db, owner=owner, view=view, now=now),
+                *price_items(db, owner=owner, view=view, now=now),
                 *frequency_items(db, owner=owner, view=view, now=now),
                 *refusal_items(db, owner=owner, view=view, now=now),
                 *_launch(db, owner=owner, view=view),
@@ -108,7 +109,6 @@ def page_inbox(
                 *stuck_sweep_items(db, owner=owner, page=view.page, now=now),
                 *unpriced_items(db, owner=owner, view=view, now=now),
                 *ranking_items(db, owner=owner, view=view, now=now),
-                *advice_items(db, owner=owner, view=view),
                 *diagnosis_items(db, owner=owner, view=view, now=now),
                 *_repairs(db, owner=owner, view=view, now=now),
             ]

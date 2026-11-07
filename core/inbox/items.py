@@ -35,11 +35,13 @@ ItemKind = Literal[
     "burn",
     "watch",
     "frequency",
+    "price",
     "meta_hold",
     "account_blocked",
     "support",
     "feedback",
     "checkup",
+    "copy",
 ]
 
 Level = Literal["urgent", "decision", "news"]
@@ -74,6 +76,7 @@ ADVICE: Final[dict[str, str]] = {
     "checkup": "Agent tarixini ko'rib chiqing yoki AI dan so'rang.",
     "watch": "Rasm yoki formani yangilang, keyin reklamani qayta yoqing.",
     "frequency": "Yangi rasm qo'shing, reklama yangi odamlarga yetadi.",
+    "price": "Sababini o'qing: yangi kreativ qo'shing yoki reklamani to'xtating.",
     "ranking": "Rasm va matnni yangilang, baho shundan ko'tariladi.",
     "creative": "Rasm yoki matnni almashtiring.",
     "audience": "Auditoriyani kengaytiring yoki o'zgartiring.",

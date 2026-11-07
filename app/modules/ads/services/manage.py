@@ -28,6 +28,7 @@ from app.modules.accounts.models import User
 from app.modules.ads.constants import (
     ACTION_STALE_MINUTES,
     BLOCKED_STANDINGS,
+    LAUNCH_NAME_MAX,
     MANAGE_LOG_PREFIX,
     ManagedLevel,
 )
@@ -36,6 +37,8 @@ from app.modules.ads.exceptions import (
     AlreadyInState,
     BudgetBelowMinimum,
     CampaignFinished,
+    CampaignNameEmpty,
+    CampaignNameTooLong,
     ChangeInFlight,
     ChangeRefused,
     ForeignAudience,
@@ -308,6 +311,7 @@ BUDGET: Final = "budget"
 TARGETING: Final = "targeting"
 END_TIME: Final = "end_time"
 SPEND_CAP: Final = "spend_cap"
+NAME: Final = "name"
 CREATIVE: Final = "creative"
 REMOVAL: Final = "removal"
 ADDITION: Final = "addition"
@@ -315,10 +319,19 @@ _DELETES = {ActionType.DELETE_CAMPAIGN, ActionType.DELETE_ADSET, ActionType.DELE
 ASPECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     STATUS: frozenset({ActionType.PAUSE, ActionType.RESUME, *_DELETES}),
     BUDGET: frozenset({ActionType.BUDGET_UP, ActionType.BUDGET_DOWN}),
-    ADDITION: frozenset({ActionType.CREATE_ADSET, ActionType.CREATE_AD}),
+    ADDITION: frozenset(
+        {
+            ActionType.CREATE_ADSET,
+            ActionType.CREATE_AD,
+            ActionType.COPY_CAMPAIGN,
+            ActionType.COPY_ADSET,
+            ActionType.COPY_AD,
+        }
+    ),
     TARGETING: frozenset({ActionType.TARGETING_SWAP}),
     END_TIME: frozenset({ActionType.END_TIME_SET}),
     SPEND_CAP: frozenset({ActionType.SPEND_CAP_SET}),
+    NAME: frozenset({ActionType.NAME_SET}),
     CREATIVE: frozenset({ActionType.CREATIVE_SWAP}),
     REMOVAL: frozenset(_DELETES),
 }
@@ -708,6 +721,35 @@ def plan_spend_cap(
     )
 
 
+def plan_name(db: Session, *, user: User, external_id: str, name: str) -> Planned:
+    """A campaign's new name. TZ 4: campaigns only, never empty, at most
+    ``LAUNCH_NAME_MAX`` characters. Allowed whatever the campaign is doing:
+    a name changes nothing about delivery."""
+    _live(db, user)
+    wanted = " ".join(name.split())
+    if not wanted:
+        raise CampaignNameEmpty
+    if len(wanted) > LAUNCH_NAME_MAX:
+        raise CampaignNameTooLong(limit=LAUNCH_NAME_MAX)
+    target = target_for(
+        db,
+        user=user,
+        level=ManagedLevel.CAMPAIGN,
+        external_id=external_id,
+        aspect=NAME,
+    )
+    if wanted == (target.name or ""):
+        raise AlreadyInState
+    return Planned(
+        target=target,
+        level=ManagedLevel.CAMPAIGN,
+        external_id=external_id,
+        action=ActionType.NAME_SET,
+        requested={"name": wanted},
+        previous=state_payload(target) | {"name": target.name or ""},
+    )
+
+
 def plan_targeting(
     db: Session,
     *,
@@ -814,7 +856,7 @@ WRITES: frozenset[str] = (
     frozenset(STATUS_WANTED)
     | BUDGET_ACTIONS
     | LIMIT_ACTIONS
-    | {ActionType.TARGETING_SWAP}
+    | {ActionType.TARGETING_SWAP, ActionType.NAME_SET}
 )
 EVENTS: dict[str, str] = {
     ActionType.PAUSE: EventName.CAMPAIGN_PAUSED,
@@ -824,13 +866,20 @@ EVENTS: dict[str, str] = {
     ActionType.TARGETING_SWAP: EventName.TARGETING_CHANGED,
     ActionType.END_TIME_SET: EventName.BUDGET_CHANGED,
     ActionType.SPEND_CAP_SET: EventName.BUDGET_CHANGED,
+    ActionType.NAME_SET: EventName.CAMPAIGN_RENAMED,
     ActionType.CREATIVE_SWAP: EventName.CREATIVE_CHANGED,
     ActionType.CREATE_ADSET: EventName.ADSET_CREATED,
     ActionType.CREATE_AD: EventName.AD_CREATED,
+    ActionType.COPY_CAMPAIGN: EventName.CAMPAIGN_CREATED,
+    ActionType.COPY_ADSET: EventName.ADSET_CREATED,
+    ActionType.COPY_AD: EventName.AD_CREATED,
 }
 LIMIT_FIELDS: dict[str, str] = {
     ActionType.END_TIME_SET: "end_time",
     ActionType.SPEND_CAP_SET: "spend_cap_minor",
+    # Not a limit, but kept and written back the same way: the previous
+    # name is what an undo restores, the applied one is the mirror's.
+    ActionType.NAME_SET: "name",
 }
 
 
@@ -989,6 +1038,8 @@ def _refused(
         return _ad_refusal(
             db, log=log, state=state, target=target, port=port, token=token
         )
+    if log.action == ActionType.NAME_SET:
+        return ""
     if log.action == ActionType.TARGETING_SWAP:
         verdict = check_targeting_change(
             state=state,
@@ -1076,6 +1127,10 @@ def _write(
     if log.action == ActionType.END_TIME_SET:
         return provider.campaigns.set_end_time(
             ref=ref, end_time=str(payload["end_time"]), token=token, dry_run=dry_run
+        )
+    if log.action == ActionType.NAME_SET:
+        return provider.campaigns.set_name(
+            ref=ref, name=str(payload["name"]), token=token, dry_run=dry_run
         )
     if log.action == ActionType.SPEND_CAP_SET:
         return provider.campaigns.set_spend_cap(
@@ -1172,7 +1227,7 @@ def _limit(*, log: ActionLog, result: ActionResult) -> tuple[str, Any] | None:
         return None
     if field == "end_time":
         return field, parse_datetime(str(result.applied.get("end_time", "")))
-    return field, result.applied.get("spend_cap_minor")
+    return field, result.applied.get(field)
 
 
 def _snapshot(status: StatusDTO) -> dict[str, Any]:

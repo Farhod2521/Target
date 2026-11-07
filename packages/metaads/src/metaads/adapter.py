@@ -196,6 +196,7 @@ from metaads.writes import delete_object as remove_object
 from metaads.writes import read_targeting as read_adset_targeting
 from metaads.writes import set_budget as write_budget
 from metaads.writes import set_end_time as write_end_time
+from metaads.writes import set_name as write_name
 from metaads.writes import set_spend_cap as write_spend_cap
 from metaads.writes import set_status as write_status
 from metaads.writes import write_targeting
@@ -863,6 +864,17 @@ class MetaCampaigns:
             applied={"spend_cap_minor": int(spend_cap_minor)},
             dry_run=dry_run,
         )
+
+    def set_name(
+        self, *, ref: ExternalRef, name: str, token: str, dry_run: bool = True
+    ) -> ActionResult:
+        """What the object is called in Ads Manager."""
+        with session(token) as graph:
+            ok = write_name(
+                object_id=ref.id, name=name, token=token, client=graph, dry_run=dry_run
+            )
+
+        return ActionResult(ok=ok, ref=ref, applied={"name": name}, dry_run=dry_run)
 
     def delete(
         self, *, ref: ExternalRef, token: str, dry_run: bool = True

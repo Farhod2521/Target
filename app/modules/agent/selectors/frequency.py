@@ -19,7 +19,7 @@ from app.modules.agent.selectors.same_day import RESULT_COLUMNS, adset_sums, kin
 from app.modules.agent.selectors.week_frequency import DAYS, week_readings
 from app.modules.integrations.models import AdAccount
 from core.agent import AdSetFacts, Policy
-from core.agent.benchmark import count_in, family_of, peers, result_cost
+from core.agent.benchmark import count_in, family_of, result_cost
 from core.agent.frequency import RANK, Reading
 from core.metrics import counted_leads, measured
 
@@ -36,7 +36,6 @@ class Candidate:
     ctr_before_bp: int | None
     ctr_now_bp: int | None
     cost_minor: int | None
-    cost_usual_minor: int | None
 
 
 def frequency_candidates(db: Session, *, owner: User, now: datetime) -> list[Candidate]:
@@ -60,7 +59,10 @@ def frequency_candidates(db: Session, *, owner: User, now: datetime) -> list[Can
             db, owner=owner, account=account, policy=policy, now=now, scope=scope
         )
         live = [
-            item for item in facts.adsets if item.delivery == _ACTIVE and item.is_ours
+            # TZ 6.1: every delivering group of a connected account, ours or not.
+            item
+            for item in facts.adsets
+            if item.delivery == _ACTIVE
         ]
         week = week_readings(
             db,
@@ -71,7 +73,6 @@ def frequency_candidates(db: Session, *, owner: User, now: datetime) -> list[Can
         for item in live:
             if item.external_id in found or item.external_id not in week:
                 continue
-            usual = peers(facts.adsets, item, facts.usual).cost_minor
             found[item.external_id] = Candidate(
                 account=account,
                 name=item.name,
@@ -79,7 +80,6 @@ def frequency_candidates(db: Session, *, owner: User, now: datetime) -> list[Can
                 ctr_before_bp=item.launch_ctr_bp,
                 ctr_now_bp=item.recent.link_ctr_bp,
                 cost_minor=_cost(item),
-                cost_usual_minor=usual,
             )
     return list(found.values())
 
@@ -93,6 +93,7 @@ def alerts_to_show(
         select(a).where(
             a.owner_id == owner.id,
             a.closed_at.is_(None),
+            a.eased_at.is_(None),
             or_(
                 a.answer == "",
                 and_(
@@ -107,21 +108,15 @@ def alerts_to_show(
     return sorted(rows, key=lambda row: (-RANK[row.level], row.created_at))
 
 
-def has_pressing_alerts(db: Session, *, owner: User) -> bool:
-    """Whether any warning or required level is open. One indexed read."""
-    a = FrequencyAlert
-    return (
-        db.scalar(
-            select(a.id)
-            .where(
-                a.owner_id == owner.id,
-                a.closed_at.is_(None),
-                a.level.in_([FrequencyLevel.WARNING, FrequencyLevel.REQUIRED]),
-            )
-            .limit(1)
-        )
-        is not None
-    )
+def pressing_alerts(
+    db: Session, *, owner: User, now: datetime, hidden_adsets: Collection[str] = ()
+) -> list[FrequencyAlert]:
+    """TZ 6.2: the 2.50 and 3.00 levels waiting, for the dashboard's top."""
+    return [
+        row
+        for row in alerts_to_show(db, owner=owner, now=now, hidden_adsets=hidden_adsets)
+        if row.level in (FrequencyLevel.WARNING, FrequencyLevel.REQUIRED)
+    ]
 
 
 def creative_target(db: Session, *, owner: User, adset_id: str) -> str:
@@ -221,6 +216,6 @@ __all__ = [
     "cost_between",
     "creative_target",
     "frequency_candidates",
-    "has_pressing_alerts",
     "newest_ads",
+    "pressing_alerts",
 ]

@@ -4,6 +4,7 @@ Registered on the campaigns router. A save opens changes through the same
 services the switches use, so every guardrail and audit row is the same.
 """
 
+import logging
 import uuid
 from dataclasses import asdict, replace
 from datetime import date, datetime, time, timedelta
@@ -12,6 +13,7 @@ from typing import Any, Literal
 
 from adskit.errors import ProviderError
 from fastapi import HTTPException, Query, status
+from metaads.specs import MAX_QUESTION_CHARS, MAX_WELCOME_QUESTIONS
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -24,6 +26,8 @@ from app.modules.accounts.models import User
 from app.modules.ads import actions, selectors, services
 from app.modules.ads.constants import (
     GEO_SEARCHES_PER_MINUTE,
+    LEAD_FORM_NAME_MAX,
+    MAX_CUSTOM_QUESTIONS,
     MAX_GEO_PLACES,
     MAX_GEO_SEARCH,
     ManagedLevel,
@@ -70,6 +74,8 @@ from core.targeting.revise import (
     excluded_places_of,
     revise,
 )
+
+logger = logging.getLogger(__name__)
 
 GEO_SEARCH_BUCKET = "geo-search"
 REACH_BUCKET = "campaign-reach"
@@ -125,10 +131,13 @@ def _ad_library(db: Session, user: User, ad: Any) -> list[Any]:
 @router.get("/ads/{external_id}/edit", response_model=AdEdit)
 def ad_edit(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     """What this advert says now, the pictures it may be given, and the forms it may open."""
+    from metaads.restage import welcome_of
+
     from app.modules.ads.contract.adverts import ad_edit_form
 
     ad = _target(db, user, ManagedLevel.AD, external_id)
     content = selectors.creative_of(db, owner=user, ad=ad)
+    story = getattr(content, "story_raw", None)
     return ad_edit_form(
         ad,
         initial={
@@ -136,7 +145,8 @@ def ad_edit(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
             "headline": getattr(content, "headline", "") or "",
             "description": getattr(content, "description", "") or "",
         },
-        can_swap=bool(getattr(content, "story_raw", None)),
+        can_swap=bool(story),
+        welcome=welcome_of(story) if story else None,
         library=[selectors.asset_row(row) for row in _ad_library(db, user, ad)],
         forms=_ad_forms(db, user, ad),
         limits={"headline": HEADLINE_LIMIT, "message": MESSAGE_LIMIT},
@@ -150,6 +160,18 @@ def ad_edit(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     )
 
 
+class WelcomeQuestionIn(Camel):
+    title: str = Field(max_length=MAX_QUESTION_CHARS)
+    response: str = Field(default="", max_length=MESSAGE_LIMIT)
+
+
+class WelcomeIn(Camel):
+    text: str = Field(default="", max_length=MESSAGE_LIMIT)
+    questions: list[WelcomeQuestionIn] = Field(
+        default_factory=list, max_length=MAX_WELCOME_QUESTIONS
+    )
+
+
 class AdEditIn(Camel):
     message: str = Field(default="", max_length=MESSAGE_LIMIT)
     headline: str = Field(default="", max_length=HEADLINE_LIMIT)
@@ -160,6 +182,57 @@ class AdEditIn(Camel):
     lead_form: str | None = Field(
         default=None, description="A form id from `forms.options`; empty keeps it"
     )
+    welcome: WelcomeIn | None = Field(
+        default=None, description="A chat advert's greeting; left out keeps it."
+    )
+    in_place: bool = Field(
+        default=False,
+        description="TZ 2.4: this advert takes the new creative - Meta reviews it "
+        "again, likes and comments start from nothing. False: a new advert is "
+        "made and this one stops.",
+    )
+
+
+class NewFormIn(Camel):
+    name: str = Field(default="", max_length=LEAD_FORM_NAME_MAX)
+    questions: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_CUSTOM_QUESTIONS,
+        description="Asked after the name and the phone, each a short answer.",
+    )
+
+
+class NewFormOut(Camel):
+    id: str
+    name: str
+
+
+@router.post("/ads/{external_id}/forms", response_model=NewFormOut)
+def ad_new_form(
+    external_id: str, body: NewFormIn, db: Db, user: CurrentUser
+) -> dict[str, str]:
+    """TZ 2.4 «Yangi forma yaratish»: a form on this lead advert's page, made now."""
+    from app.modules.ads.services.page_forms import new_form
+
+    ad = _target(db, user, ManagedLevel.AD, external_id)
+    try:
+        made, name = new_form(
+            db,
+            owner=user,
+            ad=ad,
+            name=body.name,
+            questions=body.questions,
+            now=utcnow(),
+        )
+    except ProviderError as exc:
+        db.rollback()
+        logger.info("a new form for %s was refused: %s", external_id, exc)
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Meta formani yaratmadi. Savollarni tekshirib, qayta urinib ko'ring.",
+        ) from exc
+    db.commit()
+    return {"id": made, "name": name}
 
 
 @router.post("/ads/{external_id}/edit", response_model=ControlState)
@@ -205,6 +278,8 @@ def ad_edit_save(
             description=body.description,
             asset_id=(body.picture or ""),
             lead_form_id=(body.lead_form or ""),
+            welcome=body.welcome.model_dump() if body.welcome is not None else None,
+            in_place=body.in_place,
         ),
     )
     db.commit()
@@ -928,6 +1003,40 @@ def campaign_patch(
     level, external_id = _followed(form["sections"], sent=sections, edit=edit)
     state = control_state(db, user, level=level, external_id=external_id)
     return state | {"notes": adjusted_sentences(saved["adjustments"])}
+
+
+class CampaignNameIn(Camel):
+    name: str = Field(description="The new name; spaces are collapsed.")
+
+
+@router.post("/{campaign_id}/name", response_model=ControlState)
+def campaign_rename(
+    campaign_id: uuid.UUID, body: CampaignNameIn, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    """TZ 4: a running campaign's name, sent to Meta like any other change.
+
+    Answers the campaign's state, followed like any press. An empty name or
+    one over ``LAUNCH_NAME_MAX`` characters is refused under ``name``.
+    """
+    from app.common.exceptions import InputRefused
+    from app.modules.ads.exceptions import CampaignNameEmpty, CampaignNameTooLong
+    from app.modules.ads.routers import control_state
+
+    campaign = selectors.campaign_detail(db, owner=user, campaign_id=campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Kampaniya topilmadi.")
+    try:
+        actions.request(
+            db,
+            user=user,
+            ask=actions.Rename(external_id=campaign.external_id, name=body.name),
+        )
+    except (CampaignNameEmpty, CampaignNameTooLong) as exc:
+        raise InputRefused({"name": str(exc)}) from None
+    db.commit()
+    return control_state(
+        db, user, level=ManagedLevel.CAMPAIGN, external_id=campaign.external_id
+    )
 
 
 def _followed(

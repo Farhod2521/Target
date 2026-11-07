@@ -30,13 +30,34 @@ def usable_pixels(db: Session, *, launch: CampaignLaunch) -> tuple[PixelAccount,
 
 
 def chosen_pixel(db: Session, *, launch: CampaignLaunch) -> PixelAccount | None:
-    """The tag this launch will name, or ``None`` when there is none to name."""
+    """The tag this launch will name, or ``None`` when there is none to name.
+
+    TZ 3: the owner's pick; else the one pixel; else the one that sent the
+    most events in the last seven days - the active one, then the name,
+    breaking a tie.
+    """
     named = str(launch.answers.get(PIXEL_ID) or "")
     if named:
         found = db.scalar(_usable(launch).where(PixelAccount.external_id == named))
         if found is not None:
             return found
-    return db.scalar(_usable(launch).where(PixelAccount.is_active.is_(True)).limit(1))
+    usable = usable_pixels(db, launch=launch)
+    if not usable:
+        return None
+    return max(usable, key=lambda row: (events_total(row), row.is_active))
+
+
+def events_total(pixel: PixelAccount) -> int:
+    """Every event the pixel sent in the last seven days, as last synced."""
+    rows = pixel.recent_events if isinstance(pixel.recent_events, list) else []
+    total = 0
+    for row in rows:
+        if isinstance(row, dict):
+            try:
+                total += int(str(row.get("count") or 0))
+            except ValueError:
+                continue
+    return total
 
 
 def launch_conversion_source(
@@ -70,9 +91,7 @@ def pixel_choices(db: Session, *, launch: CampaignLaunch) -> tuple[PixelOption, 
             name=row.name or row.external_id,
             is_chosen=row.external_id == chosen_id,
             last_fired_at=row.last_fired_at,
-            events_seen=len(row.recent_events)
-            if isinstance(row.recent_events, list)
-            else 0,
+            events_seen=events_total(row),
         )
         for row in found
     )

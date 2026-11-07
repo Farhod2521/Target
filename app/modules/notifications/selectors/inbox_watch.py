@@ -11,7 +11,6 @@ from adskit import ExternalRef, ProviderName
 from sqlalchemy.orm import Session
 
 from app.common.money import format_minor
-from app.common.routes import reverse
 from app.modules.accounts.models import User
 from app.modules.agent.selectors.launch_watch import watched_groups
 from app.modules.agent.selectors.watched import Watched
@@ -30,7 +29,6 @@ LEVEL_OF: dict[Stage, Level] = {
     "fruitless": "urgent",
     "stalled": "decision",
     "dry": "urgent",
-    "dearer": "decision",
     "cheaper": "decision",
     "stopped": "urgent",
 }
@@ -66,7 +64,6 @@ def watch_title(row: Watched) -> str:
         "quiet": "Hozircha natija yo'q",
         "fruitless": "3 kunda natija bo'lmadi",
         "stalled": "Reklama to'xtab qoldi",
-        "dearer": "Natija qimmatlashdi",
         "cheaper": "Natija arzonlashdi - byudjetni oshirish mumkin",
         "stopped": "Natija bo'lmagani uchun reklama to'xtatildi",
     }
@@ -158,7 +155,8 @@ def _action(row: Watched, move: Move) -> ItemAction:
         return ItemAction(label="Tavsiya: kuting" if advised else "", advised=True)
     return ItemAction(
         label=move_label(row, move),
-        href=reverse("agent:watch_act", args=[row.adset_id, move]),
+        # A press the server answers: the API's own path, not a page.
+        href=f"/api/v1/agent/watch/{row.adset_id}/{move}",
         advised=advised,
         confirm=delete_question(row) if move == "delete" else "",
     )

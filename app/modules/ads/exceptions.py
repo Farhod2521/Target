@@ -675,6 +675,26 @@ class CreativeNotEditable(DomainError):
         )
 
 
+class FormNeedsBusiness(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Forma uchun biznes ma'lumotlari kerak. Avval biznes profilini to'ldiring."
+        )
+
+
+class WelcomeNotOffered(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Xabar shabloni faqat xabar reklamasida bor.")
+
+
+class WelcomeRefused(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Shablonni tekshiring: ko'pi bilan 4 ta savol, har biri 80 belgigacha, "
+            "savollar bo'lsa salomlashish matni ham bo'lishi kerak."
+        )
+
+
 class NothingChanged(DomainError):
     def __init__(self) -> None:
         super().__init__("Hech narsa o'zgarmadi.")
@@ -732,6 +752,11 @@ class ProposalLocked(DomainError):
         super().__init__(
             "Reklama yaratilgan. Taklifni endi bu yerda o'zgartirib bo'lmaydi."
         )
+
+
+class CampaignNameEmpty(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Kampaniya nomi bo'sh bo'lmasin.")
 
 
 class CampaignNameTooLong(DomainError):

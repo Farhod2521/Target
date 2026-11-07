@@ -8,7 +8,7 @@ account's usual price and skip learning groups, and the morning report
 speaks once a day about the day before. So this asks them, on finished
 days only, and says something exactly when a line is crossed.
 
-**Four lines.**
+**Three lines.**
 
 *Nothing spent.* A group that spent before and spent nothing on the last
 finished day is not running, whatever its switch says.
@@ -19,12 +19,8 @@ in that time would have bought at least one result at what one usually
 costs - the night's usual price, the one every card quotes; the budget is
 the bar only where none exists.
 
-*Dearer.* The brief's one "dearer": the last three finished days against
-the usual price - the fortnight's median day - past twice it and on three
-results' usual price spent - see :func:`core.agent.usual.price_level`. Said only for a
-group whose budget is not its own: one that has its own is answered by the
-night's budget card on the same reading, and a message beside the card
-would say it twice.
+*Dearer* is not said here any more: TZ 1's price rise says it, at three
+times the usual price - see :mod:`core.agent.price_rise`.
 
 *Cheaper, and short of money.* The same comparison the other way, said
 only when the budget is already being spent to the end: a cheap group
@@ -39,7 +35,6 @@ from typing import Final
 
 from core.agent.launch_watch import Move, Watch, WatchedGroup
 from core.agent.sufficiency import enough_spent, enough_to_decide
-from core.agent.usual import price_level
 
 # How many finished days count as "the last week", and how many before
 # them are what it is compared against.
@@ -119,12 +114,7 @@ class Running:
 
 def running_watch(group: WatchedGroup, facts: Running) -> Watch | None:
     """What to say about a group past its first week, or nothing."""
-    return (
-        _stalled(group, facts)
-        or _dry(group, facts)
-        or _dearer(group, facts)
-        or _cheaper(group, facts)
-    )
+    return _stalled(group, facts) or _dry(group, facts) or _cheaper(group, facts)
 
 
 def _stalled(group: WatchedGroup, facts: Running) -> Watch | None:
@@ -178,26 +168,6 @@ def _dry_enough(group: WatchedGroup, facts: Running, *, step: int) -> bool:
     # No price anywhere: half a day's budget per dry day, the first
     # week's own bar.
     return budget > 0 and facts.dry_spend_minor * 2 >= budget * step
-
-
-def _dearer(group: WatchedGroup, facts: Running) -> Watch | None:
-    if not _priced(group) or _may_move_budget(group):
-        return None
-    level = price_level(
-        spend_minor=facts.last.spend_minor,
-        count=facts.last.results,
-        usual_cost_minor=facts.usual_cost_minor,
-        window_spend_minor=facts.recent.spend_minor,
-    )
-    if level != "act" or not facts.last.results:
-        return None
-    return Watch(
-        stage="dearer",
-        moves=("pause", "wait"),
-        advised="pause",
-        tag=facts.week,
-        step_pct=RUNNING_STEP_PCT,
-    )
 
 
 def _cheaper(group: WatchedGroup, facts: Running) -> Watch | None:

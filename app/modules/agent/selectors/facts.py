@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from app.modules.accounts.models import User
 from app.modules.ads.constants import LEARNING_LIMITED
 from app.modules.ads.models import AdSet, Campaign
-from app.modules.ads.recommendations import meanings
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.agent.selectors.account_reads import (
     Slices,
@@ -201,7 +200,6 @@ def _adset(
         is_ours=bool(row.campaign_id) and row.campaign.external_id in ours,
         issue_codes=tuple(str(code) for code in row.issue_codes or ()),
         unusable_audience_ids=unusable_in(targeting=row.targeting_raw, held=held),
-        advice=meanings(row.recommendations or ()),
         funnel=figures.funnel,
         landing=landing.get(row.external_id) or Landing(),
         slices=cuts,

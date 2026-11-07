@@ -177,6 +177,27 @@ class PixelEventRow(MetaDTO):
     count: int = 0
 
 
+class CustomConversionRow(MetaDTO):
+    """One custom conversion on an ad account: a pixel's event under a rule.
+
+    ``pixel`` is the pixel it is counted on; ``custom_event_type`` is what an
+    ad set bought on it reports itself as. Archived and flagged ones are kept
+    so the caller can leave them out with a reason.
+    """
+
+    id: str
+    name: str = ""
+    custom_event_type: str = ""
+    pixel_id: str = ""
+    last_fired_time: datetime | None = None
+    is_archived: bool = False
+    is_unavailable: bool = False
+
+    @property
+    def is_usable(self) -> bool:
+        return not self.is_archived and not self.is_unavailable
+
+
 class MediaDTO(MetaDTO):
     """One thing an ad can be made out of: an image, a video, or a post.
 

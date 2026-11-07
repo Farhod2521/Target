@@ -786,4 +786,5 @@ def ad_delete(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
 
 
 from app.modules.ads.routers import additions as _additions  # noqa: E402, F401
+from app.modules.ads.routers import copies as _copies  # noqa: E402, F401
 from app.modules.ads.routers import editing as _editing  # noqa: E402, F401

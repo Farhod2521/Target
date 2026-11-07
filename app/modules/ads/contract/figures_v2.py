@@ -56,6 +56,7 @@ OUTCOME_KINDS: Final[dict[str, str]] = {
 # Launched for this: no ad set goal says so, and the launch is what knows.
 KEPT_KINDS: Final = frozenset({"sub"})
 CONVERSION_LABELS: Final[dict[str, str]] = {
+    "LEAD": "Murojaatlar",
     "COMPLETE_REGISTRATION": "Ro'yxatdan o'tishlar",
     "PURCHASE": "Xaridlar",
     "ADD_TO_CART": "Savatga qo'shishlar",
@@ -63,6 +64,14 @@ CONVERSION_LABELS: Final[dict[str, str]] = {
     "CONTACT": "Aloqaga chiqishlar",
     "SCHEDULE": "Yozilishlar",
     "SUBSCRIBE": "Obunalar",
+    "SUBMIT_APPLICATION": "Arizalar",
+    "START_TRIAL": "Sinovni boshlashlar",
+    "FIND_LOCATION": "Manzilni topishlar",
+    "CONTENT_VIEW": "Sahifa ko'rishlar",
+    "SEARCH": "Qidiruvlar",
+    "ADD_TO_WISHLIST": "Saqlanganlarga qo'shishlar",
+    "ADD_PAYMENT_INFO": "To'lov ma'lumotini kiritishlar",
+    "DONATE": "Xayriyalar",
 }
 CONVERSION_LABEL: Final = "Konversiyalar"
 # Goals shown from Meta's results column rather than the outcome's own figure.

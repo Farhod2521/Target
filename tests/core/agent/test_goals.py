@@ -37,7 +37,6 @@ from core.agent.rules import (
     IDLE,
     JUNK,
     NARROW_AUDIENCE,
-    PROVIDER_ADVICE,
     PROVIDER_STOPPED,
     REFRESH_AD,
     REFUSED_AD,
@@ -58,10 +57,8 @@ POLICY = Policy()
 # The rules that price a result - each group against its own kind, and a
 # kind nothing counts never judged. None of them needs leads any more.
 PRICED = {WASTING, EXPENSIVE, WINNING}
-# What has the same meaning whatever the campaign was selling. The last two
-# are the ones whose subject is the provider: a deleted audience is deleted
-# on a call campaign as on a form, and the platform's advice about who to
-# show an advert to has nothing to do with what a lead costs.
+# What has the same meaning whatever the campaign was selling. A deleted
+# audience is deleted on a call campaign as on a form.
 ANY_GOAL = {
     STARVED,
     NARROW_AUDIENCE,
@@ -70,7 +67,6 @@ ANY_GOAL = {
     REFRESH_AD,
     IDLE,
     PROVIDER_STOPPED,
-    PROVIDER_ADVICE,
     # A picture the provider cannot show, or words it refused, stop a call
     # advert as they stop a form.
     BROKEN_PICTURE,

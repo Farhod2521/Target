@@ -19,7 +19,7 @@ from typing import Any
 from adskit import ProviderName
 
 from core.agent.ad_facts import AdFacts, LibraryImage
-from core.agent.contracts import Policy, ProviderAdvice
+from core.agent.contracts import Policy
 from core.agent.funnel import Funnel, Landing
 from core.agent.usual import Usual
 from core.metrics import Outcome, SegmentComparison, SegmentFigures, Totals, formulas
@@ -229,9 +229,6 @@ class AdSetFacts:
     # them out - see :mod:`core.agent.repair`, which also says why only
     # one side of the spec may be edited.
     unusable_audience_ids: tuple[str, ...] = ()
-    # What the provider suggests could be better here. Meanings, not its
-    # own codes - see :data:`core.agent.contracts.ProviderAdvice`.
-    advice: tuple[ProviderAdvice, ...] = ()
     # The window one count per step, and what a click lands on - the two
     # things the diagnosis reads that no rule above does. See
     # :mod:`core.agent.funnel`.

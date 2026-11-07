@@ -105,7 +105,16 @@ def test_instagram_alone_names_no_other_app() -> None:
     spec, _ = validate_structure(BASE, placement_mode="instagram")
 
     assert spec["publisher_platforms"] == ["instagram"]
-    assert spec["instagram_positions"] == ["stream", "story", "reels"]
+    # TZ 5: every Instagram position v26.0 takes, `explore` aside.
+    assert spec["instagram_positions"] == [
+        "stream",
+        "story",
+        "reels",
+        "explore_home",
+        "profile_feed",
+        "profile_reels",
+        "ig_search",
+    ]
     assert "facebook_positions" not in spec
 
 
@@ -191,8 +200,7 @@ def test_the_standard_list_holds_nothing_the_provider_has_retired() -> None:
 def test_instagram_explore_is_stripped_because_it_is_refused() -> None:
     """v26.0: "requests that explicitly specify Explore return an error".
 
-    Both spellings, because the changelog names the placement and the
-    reference page lists the pair.
+    Only ``explore``: the reference page still lists ``explore_home``.
     """
     spec: dict[str, object] = {"instagram_positions": ["stream", "explore"]}
     notes: list[object] = []
@@ -382,7 +390,15 @@ def test_positions_of_an_app_the_mode_skips_are_not_written() -> None:
         placement_positions={"facebook": ("feed",)},
     )
     assert "facebook_positions" not in spec
-    assert spec["instagram_positions"] == ["stream", "story", "reels"]
+    assert spec["instagram_positions"] == [
+        "stream",
+        "story",
+        "reels",
+        "explore_home",
+        "profile_feed",
+        "profile_reels",
+        "ig_search",
+    ]
 
 
 def test_no_positions_leave_the_saved_launches_as_they_were() -> None:

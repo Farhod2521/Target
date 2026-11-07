@@ -1,7 +1,8 @@
 """The button on the advert, and which ones each kind of advert may carry."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 from core.targeting.destinations import AdDestination
 
@@ -67,4 +68,32 @@ def button(*, provider: str, sends_to: AdDestination, key: str) -> AdButton | No
     return None
 
 
-__all__ = ["BUTTONS", "FIXED_BUTTONS", "AdButton", "button", "buttons_for"]
+def kept_destination(*, current: Mapping[str, Any]) -> AdDestination | None:
+    """What a running advert's button leads to, when another word may go on it.
+
+    TZ 2.3: a new creative keeps where the advert leads and may change only the
+    word. A form and a link take any word of their kind. A chat button names
+    its app in the word itself (``INSTAGRAM_MESSAGE``, ``WHATSAPP_MESSAGE``),
+    and a call or a profile has one word only - those stay as they are.
+    """
+    value = current.get("value")
+    value = value if isinstance(value, Mapping) else {}
+    if str(current.get("type") or "") in FIXED_BUTTONS.values():
+        return None
+    if value.get("lead_gen_form_id"):
+        return "form"
+    if value.get("app_destination"):
+        return None
+    if value.get("link"):
+        return "website"
+    return None
+
+
+__all__ = [
+    "BUTTONS",
+    "FIXED_BUTTONS",
+    "AdButton",
+    "button",
+    "buttons_for",
+    "kept_destination",
+]

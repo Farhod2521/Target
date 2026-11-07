@@ -35,7 +35,10 @@ def ad_edit_form(
     forms: dict[str, Any] | None,
     limits: dict[str, int],
     early_hours: int,
+    welcome: Any = None,
 ) -> dict[str, Any]:
+    from metaads.specs import MAX_QUESTION_CHARS, MAX_WELCOME_QUESTIONS
+
     campaign = ad.adset.campaign
     return {
         "external_id": ad.external_id,
@@ -71,6 +74,18 @@ def ad_edit_form(
         if forms
         else None,
         "early_hours": early_hours,
+        # TZ 2.5: a chat advert's greeting; none on an advert that opens no chat.
+        "welcome": {
+            "text": welcome.text,
+            "questions": [
+                {"title": row.title, "response": row.response}
+                for row in welcome.questions
+            ],
+            "max_questions": MAX_WELCOME_QUESTIONS,
+            "max_chars": MAX_QUESTION_CHARS,
+        }
+        if welcome is not None
+        else None,
     }
 
 

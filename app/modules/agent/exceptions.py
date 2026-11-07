@@ -48,3 +48,10 @@ class FrequencyAlertGone(DomainError):
         super().__init__(
             message or "Bu ogohlantirish endi dolzarb emas. Ro'yxatni yangilang."
         )
+
+
+class PriceAlertGone(DomainError):
+    def __init__(self, message: str = "") -> None:
+        super().__init__(
+            message or "Bu ogohlantirish endi dolzarb emas. Ro'yxatni yangilang."
+        )

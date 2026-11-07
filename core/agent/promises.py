@@ -25,7 +25,6 @@ from core.agent.rules import (
     IDLE,
     JUNK,
     NARROW_AUDIENCE,
-    PROVIDER_ADVICE,
     PROVIDER_STOPPED,
     REFRESH_AD,
     REFUSED_AD,
@@ -74,7 +73,6 @@ EXPECTATIONS: Final[dict[str, str]] = {
     # is deliberate: a promise invented for a new rule is a promise with
     # no test behind it.
     PROVIDER_STOPPED: "delivery_resumes",
-    PROVIDER_ADVICE: "more_delivery",
     # The second promise about a group made through one of its adverts. The
     # advert that gets a new picture is switched off and replaced by one with
     # a new id, so the group is the only thing whose figures continue.
@@ -432,7 +430,6 @@ CHECKS: Final[dict[str, Check]] = {
     NARROW_AUDIENCE: _cheaper_reported_leads,
     WEAK_AD: _group_gets_cheaper,
     PROVIDER_STOPPED: _delivery_resumes,
-    PROVIDER_ADVICE: _more_delivery,
 }
 
 
