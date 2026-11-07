@@ -16,6 +16,7 @@ from typing import Any, Final
 from adskit import ExternalRef, ProviderName, registry
 from adskit.dto import ActionResult, StatusDTO
 from adskit.errors import PermissionDenied, ProviderError
+from metaads import PROVIDER as META
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -38,6 +39,7 @@ from app.modules.ads.exceptions import (
     BudgetBelowMinimum,
     CampaignFinished,
     CampaignNameEmpty,
+    CampaignNameNotOffered,
     CampaignNameTooLong,
     ChangeInFlight,
     ChangeRefused,
@@ -721,15 +723,18 @@ def plan_spend_cap(
     )
 
 
-def plan_name(db: Session, *, user: User, external_id: str, name: str) -> Planned:
-    """A campaign's new name. TZ 4: campaigns only, never empty, at most
-    ``LAUNCH_NAME_MAX`` characters. Allowed whatever the campaign is doing:
-    a name changes nothing about delivery."""
+def plan_name(
+    db: Session, *, user: User, external_id: str, name: str, restore: bool = False
+) -> Planned:
+    """A campaign's new name. TZ 4: campaigns only, Meta only, never empty, at
+    most ``LAUNCH_NAME_MAX`` characters. Allowed whatever the campaign is
+    doing: a name changes nothing about delivery. ``restore`` puts an earlier
+    name back as it was, even one made longer in Ads Manager."""
     _live(db, user)
-    wanted = " ".join(name.split())
+    wanted = name.strip() if restore else " ".join(name.split())
     if not wanted:
         raise CampaignNameEmpty
-    if len(wanted) > LAUNCH_NAME_MAX:
+    if not restore and len(wanted) > LAUNCH_NAME_MAX:
         raise CampaignNameTooLong(limit=LAUNCH_NAME_MAX)
     target = target_for(
         db,
@@ -738,6 +743,8 @@ def plan_name(db: Session, *, user: User, external_id: str, name: str) -> Planne
         external_id=external_id,
         aspect=NAME,
     )
+    if target.provider != META:
+        raise CampaignNameNotOffered
     if wanted == (target.name or ""):
         raise AlreadyInState
     return Planned(

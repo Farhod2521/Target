@@ -468,3 +468,67 @@ def test_a_paused_advert_is_no_delivery_problem_but_a_refused_one_is(
     db.execute(update(Ad).where(Ad.external_id == "a_2").values(delivery="rejected"))
     db.commit()
     assert check_prices(db, owner=owner, now=now) == []
+
+
+def test_an_advert_paused_on_its_own_closes_its_rise(
+    client: TestClient, db: Session
+) -> None:
+    """Its group still runs, but the dear advert no longer does: no news."""
+    _headers, owner, account = _cabinet(client, db)
+    now = utcnow()
+    _history(db, owner_id=owner.id, account=account, now=now)
+    _window(db, owner=owner, account=account, now=now, spend=12_000, results=12)
+    # a_2, in the same group, keeps running at the usual price.
+    for back in (1, 2, 3):
+        _day(
+            db,
+            owner_id=owner.id,
+            account=account,
+            adset_id="s_1",
+            ad_id="a_2",
+            day=_today(account, now) - timedelta(days=back),
+            spend=600,
+            results=3,
+        )
+    db.commit()
+    (row,) = check_prices(db, owner=owner, now=now)
+    assert row.ad_external_id == "a_1"
+    db.execute(update(Ad).where(Ad.external_id == "a_1").values(delivery="paused"))
+    db.commit()
+
+    check_prices(db, owner=owner, now=now + timedelta(hours=1))
+
+    assert _open(db) == []
+
+
+def test_watching_keeps_the_same_message_s_frequency_quiet_for_72_hours(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.agent.selectors.frequency import alerts_to_show
+
+    headers, owner, account = _cabinet(client, db)
+    now = utcnow()
+    _history(db, owner_id=owner.id, account=account, now=now)
+    _window(db, owner=owner, account=account, now=now, spend=12_000, results=12)
+    (row,) = check_prices(db, owner=owner, now=now)
+    db.add(
+        FrequencyAlert(
+            owner_id=owner.id,
+            provider=PROVIDER,
+            ad_account_id=account.id,
+            adset_external_id="s_1",
+            name="Guruh",
+            level="required",
+            frequency=310,
+            currency="USD",
+        )
+    )
+    db.commit()
+
+    watched = client.post(f"/api/v1/agent/price/{row.id}/watch", headers=headers)
+
+    assert watched.status_code == 200, watched.text
+    db.expire_all()
+    later = utcnow() + timedelta(hours=48)
+    assert alerts_to_show(db, owner=owner, now=later) == []
+    assert alerts_to_show(db, owner=owner, now=later + timedelta(hours=25))

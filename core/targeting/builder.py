@@ -258,13 +258,16 @@ def _counted_event(
     """
     if not chosen or EVENT_KEY not in promoted:
         return promoted
+    if conversion_id:
+        # The provider's own type for the conversion, even one we have no word for.
+        return dict(promoted) | {
+            EVENT_KEY: chosen,
+            "custom_conversion_id": conversion_id,
+        }
     known = conversion_event(provider=provider, key=chosen)
     if known is None:
         return promoted
-    found = dict(promoted) | {EVENT_KEY: known.key}
-    if conversion_id:
-        found["custom_conversion_id"] = conversion_id
-    return found
+    return dict(promoted) | {EVENT_KEY: known.key}
 
 
 def _button(

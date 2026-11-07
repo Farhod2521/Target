@@ -65,12 +65,24 @@ def test_the_pixel_that_sent_most_in_seven_days_is_chosen(
     client: TestClient, db: Session
 ) -> None:
     launch = _launch(client, db)
-    _pixel(db, launch, "1", events=[{"event": "Lead", "count": 3}], active=True)
+    _pixel(db, launch, "1", events=[{"event": "Lead", "count": 3}])
     _pixel(db, launch, "2", events=[{"event": "PageView", "count": 900}])
 
     found = chosen_pixel(db, launch=launch)
 
     assert found is not None and found.external_id == "2"
+
+
+def test_the_pixel_chosen_in_the_cabinet_beats_a_busier_one(
+    client: TestClient, db: Session
+) -> None:
+    launch = _launch(client, db)
+    _pixel(db, launch, "1", events=[{"event": "Lead", "count": 3}], active=True)
+    _pixel(db, launch, "2", events=[{"event": "PageView", "count": 900}])
+
+    found = chosen_pixel(db, launch=launch)
+
+    assert found is not None and found.external_id == "1"
 
 
 def test_the_owners_pixel_stays_chosen(client: TestClient, db: Session) -> None:

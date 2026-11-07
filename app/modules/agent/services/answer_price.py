@@ -1,7 +1,7 @@
 """The owner's answer to a price rise (TZ 1.5): stop the group, or watch it."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.modules.accounts.models import User
 from app.modules.ads import actions
 from app.modules.ads.constants import ManagedLevel
-from app.modules.agent.constants import PriceAnswer
+from app.modules.agent.constants import PRICE_QUIET_HOURS, PriceAnswer
 from app.modules.agent.exceptions import PriceAlertGone
 from app.modules.agent.models import PriceAlert
 from app.modules.audit.constants import EventName
@@ -88,7 +88,13 @@ def _frequency_answered(
         return
     from app.modules.agent.services.answer_frequency import answer_working_well
 
-    answer_working_well(db, user=user, alert_id=str(level.id), now=now)
+    answered = answer_working_well(db, user=user, alert_id=str(level.id), now=now)
+    if answered.hidden_until is not None:
+        # The price's 72 quiet hours, not the frequency's own day.
+        answered.hidden_until = max(
+            answered.hidden_until, now + timedelta(hours=PRICE_QUIET_HOURS)
+        )
+        db.flush()
 
 
 __all__ = ["answer_pause", "answer_watching", "open_price_alert"]

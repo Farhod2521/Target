@@ -91,6 +91,8 @@ class Rename:
 
     external_id: str
     name: str
+    # An undo puts the earlier name back exactly, however it was written.
+    restore: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,7 +245,11 @@ SPECS: dict[type, Spec] = {
     Rename: Spec(
         "name",
         lambda db, user, ask, _origin: plan_name(
-            db, user=user, external_id=ask.external_id, name=ask.name
+            db,
+            user=user,
+            external_id=ask.external_id,
+            name=ask.name,
+            restore=ask.restore,
         ),
     ),
     Audience: Spec(
@@ -448,7 +454,9 @@ def undoing(original: ActionLog) -> Ask | None:
         return SpendCap(external_id=external_id, spend_cap_minor=int(ceiling))
     if original.action == ActionType.NAME_SET:
         name = str(previous.get("name") or "")
-        return Rename(external_id=external_id, name=name) if name else None
+        return (
+            Rename(external_id=external_id, name=name, restore=True) if name else None
+        )
     if original.action not in (ActionType.PAUSE, ActionType.RESUME):
         return None
     wanted = str(previous.get("delivery", ""))

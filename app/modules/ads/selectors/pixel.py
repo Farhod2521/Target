@@ -32,9 +32,9 @@ def usable_pixels(db: Session, *, launch: CampaignLaunch) -> tuple[PixelAccount,
 def chosen_pixel(db: Session, *, launch: CampaignLaunch) -> PixelAccount | None:
     """The tag this launch will name, or ``None`` when there is none to name.
 
-    TZ 3: the owner's pick; else the one pixel; else the one that sent the
-    most events in the last seven days - the active one, then the name,
-    breaking a tie.
+    TZ 3: the owner's pick on this launch; else the pixel they chose in the
+    cabinet; else the one that sent the most events in the last seven days,
+    the name breaking a tie.
     """
     named = str(launch.answers.get(PIXEL_ID) or "")
     if named:
@@ -44,7 +44,9 @@ def chosen_pixel(db: Session, *, launch: CampaignLaunch) -> PixelAccount | None:
     usable = usable_pixels(db, launch=launch)
     if not usable:
         return None
-    return max(usable, key=lambda row: (events_total(row), row.is_active))
+    if usable[0].is_active:
+        return usable[0]
+    return max(usable, key=events_total)
 
 
 def events_total(pixel: PixelAccount) -> int:

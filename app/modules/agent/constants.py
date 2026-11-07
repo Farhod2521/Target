@@ -313,3 +313,5 @@ AUTO_STOP_FRESH_MINUTES: Final = 60
 STOPPED_SHOWN_DAYS: Final = 7
 NO_WORDS_PREFIX: Final = "no_words:"
 WORDLESS_QUIET_HOURS: Final = 24
+# TZ 1.5: after a price rise is said, or watched, nothing more for 72 hours.
+PRICE_QUIET_HOURS: Final = 72

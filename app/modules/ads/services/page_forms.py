@@ -34,9 +34,12 @@ CONTACTS: tuple[str, ...] = ("full_name", "phone")
 def new_form(
     db: Session, *, owner: User, ad: Ad, name: str, questions: list[str], now: datetime
 ) -> tuple[str, str]:
-    """The form made on the advert's page; its id and its name."""
+    """The form made on the advert's page; its id and its name. Only while the
+    subscription runs, like every other write to Meta."""
+    from app.modules.billing.services import require_live_subscription
     from app.modules.leads.services import record_lead_form
 
+    require_live_subscription(db, owner=owner)
     page = form_page(db, owner=owner, ad=ad)
     business = business_for_page(db, owner=owner, page=page)
     if page is None:

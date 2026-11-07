@@ -417,3 +417,43 @@ def test_a_new_form_is_made_on_the_adverts_page(
     assert made[0]["page_token"] == "page-token"
     form = client.get("/api/v1/campaigns/ads/a_1/edit", headers=headers).json()
     assert "f_new" in [row["id"] for row in form["forms"]["options"]]
+
+
+def test_no_form_is_made_once_the_subscription_ended(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.integrations.exceptions import SubscriptionRequired
+
+    headers, owner, _campaign = _signed_in(client, db)
+    _lead(db, owner)
+    made: list[Any] = []
+
+    def ended(*_a: Any, **_k: Any) -> None:
+        raise SubscriptionRequired
+
+    page = db.scalar(select(PageAccount).where(PageAccount.owner_id == owner.id))
+    db.add(
+        Business(
+            user_id=owner.id,
+            page_id=page.id,  # type: ignore[union-attr]
+            name="Bahor",
+            timezone="Asia/Tashkent",
+            country_code="UZ",
+        )
+    )
+    db.commit()
+    monkeypatch.setattr("app.modules.billing.services.require_live_subscription", ended)
+    monkeypatch.setattr(
+        page_forms, "create_lead_form", lambda **kw: made.append(kw) or "f_new"
+    )
+    monkeypatch.setattr(page_forms, "_decrypted", lambda _page: "page-token")
+    monkeypatch.setattr(page_forms.settings, "ads_dry_run", False)
+
+    answer = client.post(
+        "/api/v1/campaigns/ads/a_1/forms",
+        json={"name": "Kuzgi forma", "questions": []},
+        headers=headers,
+    )
+
+    assert answer.status_code >= 400
+    assert made == []

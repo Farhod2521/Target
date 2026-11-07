@@ -164,6 +164,15 @@ def test_tz3_a_custom_conversion_is_sent_with_its_own_event_type() -> None:
     assert spec.objective == "OUTCOME_LEADS"
 
 
+def test_tz3_a_custom_conversion_of_a_type_we_do_not_list_is_still_sent() -> None:
+    """Meta's newer types (a booking, a listing) are its own word: the
+    conversion goes as it is, not dropped for the preset's event."""
+    spec = built("SERVICE_BOOKING_REQUEST", conversion_id="cc_9")
+
+    assert spec.promoted_object["custom_conversion_id"] == "cc_9"
+    assert spec.promoted_object[EVENT_KEY] == "SERVICE_BOOKING_REQUEST"
+
+
 def test_each_objective_offers_only_its_own_events() -> None:
     leads = {
         row.key for row in events_for(provider=PROVIDER, objective="OUTCOME_LEADS")

@@ -759,6 +759,11 @@ class CampaignNameEmpty(DomainError):
         super().__init__("Kampaniya nomi bo'sh bo'lmasin.")
 
 
+class CampaignNameNotOffered(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu tarmoqda kampaniya nomini o'zgartirib bo'lmaydi.")
+
+
 class CampaignNameTooLong(DomainError):
     def __init__(self, *, limit: int) -> None:
         super().__init__(

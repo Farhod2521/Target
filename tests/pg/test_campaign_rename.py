@@ -161,4 +161,33 @@ def test_meta_is_sent_the_name_and_the_mirror_and_history_keep_it(
     history = client.get(f"/api/v1/campaigns/{campaign.id}", headers=headers).json()
     assert any("Nom" in row["text"] for row in history["history"]), history["history"]
     undo = undoing(db.get(ActionLog, log.id))
-    assert undo == actions.Rename(external_id="c_1", name="Bahor")
+    assert undo == actions.Rename(external_id="c_1", name="Bahor", restore=True)
+
+
+def test_undo_puts_back_a_long_name_made_in_ads_manager(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    """Meta allows longer names than we do: the earlier one comes back whole."""
+    _headers, owner, campaign = _signed_in(client, db)
+    earlier = "Bahor  " + "x" * LAUNCH_NAME_MAX
+
+    planned = manage.plan_name(
+        db, user=owner, external_id=campaign.external_id, name=earlier, restore=True
+    )
+
+    assert planned.requested["name"] == earlier
+
+
+def test_a_network_without_names_is_refused_before_anything_is_queued(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.ads.exceptions import CampaignNameNotOffered
+
+    _headers, owner, campaign = _signed_in(client, db)
+    campaign.provider = "google"
+    db.commit()
+
+    with pytest.raises(CampaignNameNotOffered):
+        manage.plan_name(
+            db, user=owner, external_id=campaign.external_id, name="Kuzgi qabul"
+        )

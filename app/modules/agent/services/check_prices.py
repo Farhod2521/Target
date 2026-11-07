@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
-from app.modules.agent.constants import PriceAnswer
+from app.modules.agent.constants import PRICE_QUIET_HOURS, PriceAnswer
 from app.modules.agent.models import PriceAlert
 from app.modules.agent.selectors.frequency import newest_ads
 from app.modules.agent.selectors.price_rise import (
@@ -22,7 +22,7 @@ from app.modules.audit.services import emit
 from core.agent.price_rise import Figures, Usual, causes, eased, risen, times
 
 # TZ 1.6: one message a group in 72 hours; «Kuzataman» keeps it quiet as long.
-QUIET: Final = timedelta(hours=72)
+QUIET: Final = timedelta(hours=PRICE_QUIET_HOURS)
 AFTER: Final = timedelta(days=7)
 
 
@@ -69,7 +69,9 @@ def _one(
     if usual is None or found.excepted:
         return None
     if row is not None:
-        if eased(_figures_of(found, row.ad_external_id), usual):
+        if _stopped(found, row.ad_external_id) or eased(
+            _figures_of(found, row.ad_external_id), usual
+        ):
             row.closed_at = now
             return None
         quiet_until = max(
@@ -129,6 +131,13 @@ def _target(found: Judged, usual: Usual) -> tuple[Advert | None, Figures] | None
         worst = max(adverts, key=lambda advert: times(advert.now, usual))
         return worst, worst.now
     return (None, found.now) if risen(found.now, usual) else None
+
+
+def _stopped(found: Judged, ad_id: str) -> bool:
+    """The named advert no longer runs: paused or gone, its price is no news."""
+    if not ad_id:
+        return False
+    return not any(advert.live for advert in found.adverts if advert.ad_id == ad_id)
 
 
 def _figures_of(found: Judged, ad_id: str) -> Figures:

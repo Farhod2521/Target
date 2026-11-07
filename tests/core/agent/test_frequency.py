@@ -64,6 +64,18 @@ def test_falling_under_three_takes_the_required_message_away() -> None:
     assert found == Decision(ease=True)
 
 
+def test_a_night_without_a_reading_keeps_the_required_message() -> None:
+    """No reach that night is no news: 3.00 is not taken away for it."""
+    found = decide(
+        reading=Reading(adset_id="g", impressions=0, reach=0, spend_minor=1_000),
+        said=["required"],
+        min_spend_minor=300,
+        new_creative=False,
+    )
+
+    assert found == Decision()
+
+
 def test_a_new_creative_starts_again() -> None:
     assert decide(
         reading=reading(310), said=["required"], min_spend_minor=300, new_creative=True

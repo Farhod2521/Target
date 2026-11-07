@@ -105,7 +105,8 @@ def decide(
         return Decision()
     level = level_of(frequency)
     highest = max((RANK[each] for each in said), default=-1)
-    ease = highest == RANK["required"] and level != "required"
+    # A night without a reading says nothing about the frequency falling.
+    ease = frequency is not None and highest == RANK["required"] and level != "required"
     if level is None:
         return Decision(ease=ease)
     return Decision(raise_to=level if RANK[level] > highest else None, ease=ease)
