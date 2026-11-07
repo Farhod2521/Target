@@ -9,17 +9,15 @@ which never answers JSON: it sends the browser on to a page of the cabinet.
 - Telegram: an account whose bot chat is linked to one of ours (the bot's
   «Start» from the cabinet) ties the two and signs it in (decided 2026-11-07).
 - Anything else is somebody new: the cabinet's finishing page asks for the
-  phone and the role - and the email, which Telegram never gives - and only
-  then is the account opened. A number or an address another account holds
+  phone (Telegram's verified number comes filled in) and the role - and the
+  email, which Telegram never gives - and only then is the account opened. A number or an address another account holds
   opens nothing: that person most likely has an account.
 
 Signed-in owners tie a provider account from Settings the same way; there
 the Google email need not match the account's.
 
-Telegram has no redirect of its own to start from: its Login Widget is a
-button drawn on our page (/accounts/telegram/<state>/), and after Telegram's
-own confirmation it sends the browser to the callback with the account's
-fields signed by the bot token.
+Both are OpenID Connect round trips through the same callback; Telegram's
+adds PKCE, its verifier kept with the state.
 
 Every way into the cabinet ends on the handoff page, which trades a one-use
 token for a session - the tokens never ride in an address.
@@ -36,7 +34,8 @@ from googlekit import GoogleError, login_profile, login_url
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from telegramkit import LoginWidgetError, verify_login
+from telegramkit import TelegramLoginError
+from telegramkit import login as telegram_login
 
 from app.common.cache import cache
 from app.common.config import settings
@@ -49,7 +48,6 @@ from app.modules.accounts.constants import (
     SOCIAL_STATE_KEY,
     SOCIAL_STATE_TTL_SECONDS,
     SOCIAL_TOKEN_BYTES,
-    TELEGRAM_LOGIN_MAX_AGE_SECONDS,
     Language,
     SocialProvider,
 )
@@ -73,7 +71,6 @@ logger = logging.getLogger(__name__)
 
 LOGIN_PATH = "/accounts/login/"
 FINISH_PATH = "/accounts/social/{token}/"
-TELEGRAM_PAGE_PATH = "/accounts/telegram/{state}/"
 SETTINGS_PATH = "/app/account/"
 LOGIN = "login"
 LINK = "link"
@@ -83,7 +80,7 @@ class SocialError:
     """Why the callback sent the browser back, as the ``social_error`` the
     sign-in page (or Settings) reads."""
 
-    CANCELLED = "cancelled"  # the person closed Google's screen
+    CANCELLED = "cancelled"  # the person closed the provider's screen
     EXPIRED = "expired"  # the round trip outlived its state, or the state was forged
     FAILED = "failed"  # the provider refused, or answered something unreadable
     UNVERIFIED = "unverified"  # Google has not confirmed the address
@@ -95,14 +92,16 @@ class SocialError:
 @dataclass(frozen=True, slots=True)
 class Vouched:
     """Who the provider says came back: its own id for them, the address it
-    vouches for (Telegram vouches for none), the name, and what Settings and
-    the office show of it (the Google address, the Telegram @handle)."""
+    vouches for (Telegram vouches for none), the name, what Settings and
+    the office show of it (the Google address, the Telegram @handle), and
+    the number Telegram verified (the finishing form starts from it)."""
 
     subject: str
     email: str = ""
     email_verified: bool = False
     name: str = ""
     label: str = ""
+    phone: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +117,7 @@ class Pending:
     referral_code: str
     next: str
     label: str = ""
+    phone: str = ""
 
 
 def providers() -> list[str]:
@@ -129,7 +129,11 @@ def providers() -> list[str]:
         and settings.google_oauth_client_secret
     ):
         found.append(SocialProvider.GOOGLE.value)
-    if settings.telegram_login_enabled and _bot_ready():
+    if (
+        settings.telegram_login_enabled
+        and settings.telegram_login_client_id
+        and settings.telegram_login_client_secret
+    ):
         found.append(SocialProvider.TELEGRAM.value)
     return found
 
@@ -137,12 +141,6 @@ def providers() -> list[str]:
 def callback_uri(provider: str) -> str:
     """The same string on both halves of the handshake, and on the OAuth client."""
     return f"{settings.site_url}/api/v1/auth/social/{provider}/callback"
-
-
-def telegram_callback_uri(state: str) -> str:
-    """Where the Login Widget sends the browser: the state rides in the path,
-    so Telegram's own query (the signed fields) stays apart from it."""
-    return f"{settings.site_url}/api/v1/auth/social/telegram/callback/{state}"
 
 
 def start(
@@ -154,11 +152,13 @@ def start(
     linking: User | None = None,
 ) -> str:
     """Where to send the browser. ``linking`` is the signed-in owner tying a
-    provider account from Settings; without it this is a sign-in or sign-up.
-    For Telegram it is our own page drawing the Login Widget."""
+    provider account from Settings; without it this is a sign-in or sign-up."""
     if provider not in providers():
         raise SocialSignInOff
     state = secrets.token_urlsafe(SOCIAL_TOKEN_BYTES)
+    verifier = (
+        telegram_login.new_verifier() if provider == SocialProvider.TELEGRAM else ""
+    )
     cache.set(
         SOCIAL_STATE_KEY.format(state=state),
         {
@@ -168,18 +168,17 @@ def start(
             "next": next_path[:512],
             "referral": referral_code[:32],
             "language": language if language in Language.values else "",
+            "verifier": verifier,
         },
         SOCIAL_STATE_TTL_SECONDS,
     )
     if provider == SocialProvider.TELEGRAM:
-        page = TELEGRAM_PAGE_PATH.format(state=state)
-        query = urlencode(
-            {
-                "bot": settings.telegram_bot_username.lstrip("@"),
-                "to": telegram_callback_uri(state),
-            }
+        return telegram_login.login_url(
+            client_id=settings.telegram_login_client_id,
+            redirect_uri=callback_uri(provider),
+            state=state,
+            verifier=verifier,
         )
-        return f"{settings.site_url}{page}?{query}"
     return login_url(
         client_id=settings.google_oauth_client_id,
         redirect_uri=callback_uri(provider),
@@ -196,14 +195,9 @@ def finish(
     error: str = "",
     address: str = "",
 ) -> str:
-    """Google's callback: the cabinet path to send the browser to, always.
-    (Telegram's has its own: ``finish_telegram``.)"""
+    """The provider's callback: the cabinet path to send the browser to, always."""
     found = _spend(SOCIAL_STATE_KEY.format(state=state)) if state else None
-    if (
-        provider != SocialProvider.GOOGLE
-        or not isinstance(found, dict)
-        or found.get("provider") != provider
-    ):
+    if not isinstance(found, dict) or found.get("provider") != provider:
         return _login_refused(SocialError.EXPIRED)
     linking = found.get("intent") == LINK
     if provider not in providers():
@@ -212,22 +206,12 @@ def finish(
         logger.info("%s sign-in not granted: %s", provider, error or "unknown")
         return _refused(found, SocialError.CANCELLED)
     try:
-        profile = login_profile(
-            client_id=settings.google_oauth_client_id,
-            client_secret=settings.google_oauth_client_secret,
-            redirect_uri=callback_uri(provider),
-            code=code,
+        vouched = _vouched(
+            provider, code=code, verifier=str(found.get("verifier") or "")
         )
-    except GoogleError as exc:
+    except (GoogleError, TelegramLoginError) as exc:
         logger.warning("%s sign-in failed: %s", provider, exc)
         return _refused(found, SocialError.FAILED)
-    vouched = Vouched(
-        subject=profile.subject,
-        email=profile.email,
-        email_verified=profile.email_verified,
-        name=profile.name,
-        label=profile.email,
-    )
     if linking:
         return _link(db, found=found, provider=provider, vouched=vouched)
     return _sign_in(
@@ -235,44 +219,53 @@ def finish(
     )
 
 
-def finish_telegram(
-    db: Session, *, state: str, query: dict[str, str], address: str = ""
-) -> str:
-    """The Login Widget's redirect: the cabinet path to send the browser to."""
-    provider = SocialProvider.TELEGRAM.value
-    found = _spend(SOCIAL_STATE_KEY.format(state=state)) if state else None
-    if not isinstance(found, dict) or found.get("provider") != provider:
-        return _login_refused(SocialError.EXPIRED)
-    if provider not in providers():
-        return _refused(found, SocialError.UNAVAILABLE)
-    try:
-        login = verify_login(
-            query,
-            bot_token=settings.telegram_bot_token,
-            now=int(utcnow().timestamp()),
-            max_age_seconds=TELEGRAM_LOGIN_MAX_AGE_SECONDS,
+def _vouched(provider: str, *, code: str, verifier: str) -> Vouched:
+    """Trade the callback's code for who the provider signed in."""
+    if provider == SocialProvider.TELEGRAM:
+        login = telegram_login.login_profile(
+            client_id=settings.telegram_login_client_id,
+            client_secret=settings.telegram_login_client_secret,
+            redirect_uri=callback_uri(provider),
+            code=code,
+            verifier=verifier,
         )
-    except LoginWidgetError as exc:
-        logger.warning("telegram sign-in refused: %s", exc.reason)
-        return _refused(found, SocialError.FAILED)
-    vouched = telegram_vouched(
-        user_id=login.id, name=login.name, username=login.username
+        return telegram_vouched(
+            user_id=login.id,
+            name=login.name,
+            username=login.username,
+            phone=login.phone,
+        )
+    profile = login_profile(
+        client_id=settings.google_oauth_client_id,
+        client_secret=settings.google_oauth_client_secret,
+        redirect_uri=callback_uri(provider),
+        code=code,
     )
-    if found.get("intent") == LINK:
-        return _link(db, found=found, provider=provider, vouched=vouched)
-    return _sign_in(
-        db, found=found, provider=provider, vouched=vouched, address=address
+    return Vouched(
+        subject=profile.subject,
+        email=profile.email,
+        email_verified=profile.email_verified,
+        name=profile.name,
+        label=profile.email,
     )
 
 
-def telegram_vouched(*, user_id: int, name: str, username: str) -> Vouched:
+def telegram_vouched(
+    *, user_id: int, name: str, username: str, phone: str = ""
+) -> Vouched:
     handle = f"@{username}" if username else ""
-    return Vouched(subject=str(user_id), name=name or username, label=handle or name)
+    digits = "".join(c for c in phone if c.isdigit())
+    return Vouched(
+        subject=str(user_id),
+        name=name or username,
+        label=handle or name,
+        phone=f"+{digits}" if digits else "",
+    )
 
 
 def hold_telegram(*, vouched: Vouched, language: str = "", next_path: str = "") -> str:
     """Somebody new opening the Mini App: the finishing form's token, as the
-    widget's redirect would have made it (the Mini App's launch is the proof)."""
+    callback would have made it (the Mini App's launch is the proof)."""
     return _hold(
         provider=SocialProvider.TELEGRAM.value,
         vouched=vouched,
@@ -476,6 +469,7 @@ def _hold(
             "referral_code": referral,
             "next": next_path,
             "label": vouched.label,
+            "phone": vouched.phone,
         },
         SOCIAL_PENDING_TTL_SECONDS,
     )
@@ -488,12 +482,6 @@ def bot_link_owner(db: Session, *, telegram_id: str) -> User | None:
 
     chat = chat_by_id(db, chat_id=telegram_id)
     return chat.owner if chat is not None and chat.is_active else None
-
-
-def _bot_ready() -> bool:
-    from app.modules.notifications.bot import is_configured
-
-    return is_configured()
 
 
 def _identity(db: Session, *, provider: str, subject: str) -> SocialIdentity | None:

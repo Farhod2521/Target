@@ -41,6 +41,7 @@ def finish_form(token: str) -> SocialPendingOut:
         email=held.email,
         full_name=held.full_name,
         needs_email=not held.email,
+        phone=held.phone,
     )
 
 
@@ -112,19 +113,6 @@ def start(
     return SocialStartOut(url=url)
 
 
-@router.get("/telegram/callback/{state}", include_in_schema=False)
-def telegram_callback(state: str, request: Request, db: Db) -> RedirectResponse:
-    """The Login Widget sends the browser here with the Telegram account's
-    signed fields in the query; it leaves as the Google callback does."""
-    path = social_login.finish_telegram(
-        db,
-        state=state,
-        query=dict(request.query_params),
-        address=client_address(request),
-    )
-    return RedirectResponse(f"{settings.site_url}{path}", status_code=302)
-
-
 @router.get("/{provider}/callback", include_in_schema=False)
 def callback(
     provider: SocialProvider,
@@ -134,12 +122,12 @@ def callback(
     code: str = "",
     error: str = "",
 ) -> RedirectResponse:
-    """Google sends the browser here; it leaves for one of:
+    """Google and Telegram send the browser here; it leaves for one of:
 
     - ``/accounts/handoff/<token>/`` - signed in (the handoff page spends it);
     - ``/accounts/social/<token>/`` - somebody new: phone and role first;
     - ``/accounts/login/?social_error=<why>`` - refused;
-    - Settings with ``?linked=google`` or ``?social_error=<why>`` - tying one.
+    - Settings with ``?linked=<provider>`` or ``?social_error=<why>`` - tying one.
     """
     path = social_login.finish(
         db,

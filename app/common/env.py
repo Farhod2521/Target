@@ -202,9 +202,15 @@ class Env(BaseSettings):
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_webhook_secret: str = Field(default="", alias="TELEGRAM_WEBHOOK_SECRET")
     telegram_bot_username: str = Field(default="", alias="TELEGRAM_BOT_USERNAME")
-    # The sign-in pages' «Telegram» button (the bot's Login Widget). Off until
-    # BotFather's /setdomain names the site for TELEGRAM_BOT_USERNAME.
+    # The sign-in pages' «Telegram» button: Log In with Telegram (OpenID
+    # Connect). BotFather -> the bot -> Login Widget shows the Client ID and
+    # Secret; <SITE_URL>/api/v1/auth/social/telegram/callback goes in its
+    # Allowed URLs.
     telegram_login_enabled: bool = Field(default=False, alias="TELEGRAM_LOGIN_ENABLED")
+    telegram_login_client_id: str = Field(default="", alias="TELEGRAM_LOGIN_CLIENT_ID")
+    telegram_login_client_secret: str = Field(
+        default="", alias="TELEGRAM_LOGIN_CLIENT_SECRET"
+    )
     telegram_channel_id: str = Field(default="", alias="TELEGRAM_CHANNEL_ID")
     telegram_mandatory_notices: bool = Field(
         default=True, alias="TELEGRAM_MANDATORY_NOTICES"

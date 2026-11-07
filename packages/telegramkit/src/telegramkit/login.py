@@ -1,82 +1,171 @@
-"""The Login Widget: proving that a browser came back from Telegram's own
-sign-in page as the Telegram account it names.
+"""Log In with Telegram: OpenID Connect, as core.telegram.org/bots/telegram-login
+describes it (the iframe Login Widget is archived there).
 
-The widget sends the browser to our address with the account's fields and
-a ``hash`` in the query string. Unlike a Mini App's ``initData``, the key is
-SHA-256 of the bot token itself (Telegram's "Checking authorization").
-Only Telegram's fields are signed; anything else in the query is ours.
+The browser goes to Telegram's ``/auth`` with a PKCE challenge, comes back to
+our redirect URI (registered in BotFather -> the bot -> Login Widget ->
+Allowed URLs) with a ``code``, and the server trades it, with the Client ID
+and Client Secret BotFather shows there, for an ID token.
+
+The ID token comes straight from Telegram's token endpoint over TLS and
+authenticated by the client secret, which OpenID Connect Core 3.1.3.7 counts
+as proof enough without checking the signature (googlekit.login does the
+same). Its audience, issuer and lifetime are still checked: a token minted
+for another bot must not open an account here.
 """
 
-import hmac
-from hashlib import sha256
-from typing import Final
+import base64
+import hashlib
+import json
+import secrets
+import time
+from typing import Any, Final
+from urllib.parse import urlencode
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
-# What Telegram puts in the redirect; the digest covers whichever of these came.
-LOGIN_FIELDS: Final = frozenset(
-    {"id", "first_name", "last_name", "username", "photo_url", "auth_date"}
-)
-HASH_FIELD: Final = "hash"
+AUTHORIZE_URL: Final = "https://oauth.telegram.org/auth"
+TOKEN_URL: Final = "https://oauth.telegram.org/token"
+ISSUER: Final = "https://oauth.telegram.org"
+# ``profile`` names the person, ``phone`` brings the number Telegram verified
+# (the person consents on Telegram's screen), ``telegram:bot_access`` lets the
+# bot write first.
+LOGIN_SCOPES: Final = ("openid", "profile", "phone", "telegram:bot_access")
+# Clocks drift; a token a few seconds past its time is still the one just minted.
+CLOCK_SKEW_SECONDS: Final = 300
+TIMEOUT_SECONDS: Final = 15.0
 
 
-class LoginWidgetError(Exception):
-    """The redirect cannot be trusted: no hash, a wrong one, or too old."""
-
-    def __init__(self, reason: str) -> None:
-        super().__init__(reason)
-        self.reason = reason
+class TelegramLoginError(Exception):
+    """Telegram refused the code, or answered something that names nobody."""
 
 
 class TelegramLogin(BaseModel):
-    """A Telegram account whose redirect checked out. ``id`` is the user's
-    id, which is also their private chat with the bot."""
+    """The person Telegram signed in. ``id`` is their Telegram user id, which
+    is also their private chat with the bot and a Mini App's ``user.id``."""
 
     model_config = ConfigDict(frozen=True)
 
     id: int
-    first_name: str = Field(default="", repr=False)
-    last_name: str = Field(default="", repr=False)
+    name: str = Field(default="", repr=False)
     username: str = ""
-
-    @property
-    def name(self) -> str:
-        return " ".join(p for p in (self.first_name, self.last_name) if p).strip()
+    phone: str = Field(default="", repr=False)  # digits, verified by Telegram
 
 
-def verify_login(
-    query: dict[str, str], *, bot_token: str, now: int, max_age_seconds: int
+def new_verifier() -> str:
+    """A PKCE code verifier, kept with the round trip's state."""
+    return secrets.token_urlsafe(48)
+
+
+def login_url(*, client_id: str, redirect_uri: str, state: str, verifier: str) -> str:
+    """Where to send the browser."""
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+        .rstrip(b"=")
+        .decode()
+    )
+    query = urlencode(
+        {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": " ".join(LOGIN_SCOPES),
+            "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+    )
+    return f"{AUTHORIZE_URL}?{query}"
+
+
+def login_profile(
+    *,
+    client_id: str,
+    client_secret: str,
+    redirect_uri: str,
+    code: str,
+    verifier: str,
+    http: httpx.Client | None = None,
+    now: float | None = None,
 ) -> TelegramLogin:
-    """Check one redirect's query (extra keys of ours are left out of the digest)."""
-    if not bot_token:
-        raise LoginWidgetError("no-token")
-    claimed = query.get(HASH_FIELD, "")
-    if not claimed:
-        raise LoginWidgetError("no-hash")
-    fields = {k: v for k, v in query.items() if k in LOGIN_FIELDS}
-    if not hmac.compare_digest(claimed, login_digest(fields, bot_token=bot_token)):
-        raise LoginWidgetError("bad-signature")
+    """Trade the callback's code for the person it signed in."""
+    form = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": client_id,
+        "code_verifier": verifier,
+    }
+    client = http or httpx.Client(timeout=TIMEOUT_SECONDS)
     try:
-        issued_at = int(fields.get("auth_date", ""))
-        user_id = int(fields.get("id", ""))
+        response = client.post(TOKEN_URL, data=form, auth=(client_id, client_secret))
+    except httpx.HTTPError as exc:
+        raise TelegramLoginError(
+            f"token endpoint unreachable: {type(exc).__name__}"
+        ) from None
+    finally:
+        if http is None:
+            client.close()
+    try:
+        payload = response.json()
     except ValueError:
-        raise LoginWidgetError("malformed") from None
-    age = now - issued_at
-    if age < -60 or age > max_age_seconds:
-        raise LoginWidgetError("expired")
+        payload = {}
+    if response.status_code != 200 or not isinstance(payload, dict):
+        error = payload.get("error") if isinstance(payload, dict) else ""
+        raise TelegramLoginError(
+            f"token endpoint refused: {response.status_code} {error or ''}".strip()
+        )
+    claims = _claims(str(payload.get("id_token") or ""))
+    if not claims:
+        raise TelegramLoginError("the token endpoint answered without an ID token")
+    audience = claims.get("aud")
+    audiences = audience if isinstance(audience, list) else [audience]
+    if str(client_id) not in {str(a) for a in audiences}:
+        raise TelegramLoginError("the ID token was minted for another bot")
+    if claims.get("iss") != ISSUER:
+        raise TelegramLoginError("the ID token was not issued by Telegram")
+    moment = time.time() if now is None else now
+    if float(claims.get("exp") or 0) + CLOCK_SKEW_SECONDS < moment:
+        raise TelegramLoginError("the ID token has expired")
+    try:
+        user_id = int(claims.get("id") or claims.get("sub") or "")
+    except ValueError:
+        raise TelegramLoginError("the ID token names nobody") from None
+    name = (
+        str(claims.get("name") or "").strip()
+        or " ".join(
+            str(claims.get(k) or "").strip() for k in ("given_name", "family_name")
+        ).strip()
+    )
+    verified = claims.get("phone_number_verified")
+    phone = str(claims.get("phone_number") or "").strip()
     return TelegramLogin(
         id=user_id,
-        first_name=fields.get("first_name", ""),
-        last_name=fields.get("last_name", ""),
-        username=fields.get("username", ""),
+        name=name,
+        username=str(claims.get("preferred_username") or "").lstrip("@"),
+        # Telegram's numbers are the accounts' own; only an explicit "no" drops it.
+        phone=phone if verified not in (False, "false") else "",
     )
 
 
-def login_digest(fields: dict[str, str], *, bot_token: str) -> str:
-    """The hash Telegram writes over these fields; tests sign with it too."""
-    check_string = "\n".join(f"{k}={v}" for k, v in sorted(fields.items()))
-    secret = sha256(bot_token.encode("utf-8")).digest()
-    return hmac.new(secret, check_string.encode("utf-8"), sha256).hexdigest()
+def _claims(id_token: str) -> dict[str, Any]:
+    """The ID token's claims, or none. See the module note on not verifying."""
+    parts = id_token.split(".")
+    if len(parts) != 3:
+        return {}
+    body = parts[1] + "=" * (-len(parts[1]) % 4)
+    try:
+        claims = json.loads(base64.urlsafe_b64decode(body))
+    except ValueError:
+        return {}
+    return claims if isinstance(claims, dict) else {}
 
 
-__all__ = ["LoginWidgetError", "TelegramLogin", "login_digest", "verify_login"]
+__all__ = [
+    "LOGIN_SCOPES",
+    "TelegramLogin",
+    "TelegramLoginError",
+    "login_profile",
+    "login_url",
+    "new_verifier",
+]

@@ -101,6 +101,10 @@ class SocialPendingOut(BaseModel):
     needs_email: bool = Field(
         default=False, description="The form asks for the email (Telegram)."
     )
+    phone: str = Field(
+        default="",
+        description="The number Telegram verified, +E.164: the phone field starts from it.",
+    )
 
 
 class SocialCompleteIn(BaseModel):
