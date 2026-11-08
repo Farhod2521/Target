@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.common.contract import money, zero_or
 from app.modules.accounts.models import User
-from app.modules.ads.constants import ManagedLevel
+from app.modules.ads import draft as draft_field
+from app.modules.ads.constants import LAUNCH_NOTES, ManagedLevel
 from app.modules.ads.contract.listing import access_of
 from app.modules.ads.contract.tree import campaign_tree
 from app.modules.ads.contract.words import (
@@ -293,6 +294,18 @@ def campaign_page(db: Session, *, owner: User, campaign: Any) -> dict[str, Any]:
     )
 
 
+def _launch_note(db: Session, *, owner: User, campaign: Any) -> str:
+    """What our launch had to change from the owner's pick, said once more here."""
+    from app.modules.ads import selectors
+
+    launch = selectors.campaign_launch(
+        db, owner=owner, campaign_external_id=str(campaign.external_id or "")
+    )
+    if launch is None:
+        return ""
+    return LAUNCH_NOTES.get(draft_field.launch_note(launch.draft), "")
+
+
 def campaign_detail(
     db: Session,
     *,
@@ -365,6 +378,7 @@ def campaign_detail(
             "type_en": (built.provider_goal_label or built.provider_label)
             if built
             else objective,
+            "launch_note": _launch_note(db, owner=owner, campaign=campaign),
             "result_event": (event.provider_label or str(event.label)) if event else "",
             "place": place_of(audience),
             "starts_at": starts.isoformat() if starts else None,

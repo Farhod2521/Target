@@ -412,6 +412,15 @@ def auto_start_delivery_task(launch_id: str, tries: int = 0) -> str:
     return outcome
 
 
+@celery_app.task(queue="webhooks", ignore_result=True)
+def restart_launches_task() -> int:
+    """Switch on again what a launch's own switch-on left off at Meta."""
+    from app.modules.ads.services.restart import restart_launches
+
+    with task_session() as db:
+        return restart_launches(db, now=utcnow())
+
+
 @celery_app.task(queue="agent", ignore_result=True)
 def clean_up_launch_task(launch_id: str) -> str:
     from app.modules.ads.services.launch import clean_up_launch

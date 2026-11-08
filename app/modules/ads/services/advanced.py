@@ -24,6 +24,7 @@ from app.modules.ads.constants import (
     HIGHER_INTENT,
     LAUNCH_NAME_MAX,
     LAUNCH_RELATED_TYPE,
+    NO_PIXEL_CLICKS,
     PIXEL_ID,
     URL_TAGS,
 )
@@ -80,7 +81,6 @@ from core.targeting import (
 
 logger = logging.getLogger(__name__)
 BLIND_GOALS: Final[dict[str, str]] = {"LANDING_PAGE_VIEWS": "LINK_CLICKS"}
-NO_PIXEL: Final = "no_pixel_clicks"
 READ: Final = "ok"
 
 
@@ -314,6 +314,6 @@ def without_blind_goal(
         swap,
         built.optimization_goal,
     )
-    draft_field.set_launch_note(fresh(launch, "draft"), NO_PIXEL)
+    draft_field.set_launch_note(fresh(launch, "draft"), NO_PIXEL_CLICKS)
     db.commit()
     return replace(built, optimization_goal=swap)

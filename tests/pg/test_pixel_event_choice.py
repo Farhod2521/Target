@@ -171,8 +171,8 @@ def test_a_custom_conversion_is_offered_and_sent_with_its_type(
         events=[{"event": "Lead", "count": 5}],
         conversions=[
             {"id": "55", "name": "Rahmat sahifasi", "event": "LEAD", "count": 7},
-            # A type this product cannot buy on is not offered at all.
-            {"id": "56", "name": "Mahsulot", "event": "CUSTOMIZE_PRODUCT"},
+            # A type Meta added after our list is offered as well (TZ 3).
+            {"id": "56", "name": "Bron", "event": "SERVICE_BOOKING_REQUEST"},
         ],
     )
 
@@ -183,8 +183,9 @@ def test_a_custom_conversion_is_offered_and_sent_with_its_type(
         for row in (*choices.arriving_options, *choices.other_options)
         if row.group == "custom"
     ]
-    assert [(row.key, row.label, row.count) for row in custom] == [
-        ("cc:55", "Rahmat sahifasi", 7)
+    assert sorted((row.key, row.label, row.count) for row in custom) == [
+        ("cc:55", "Rahmat sahifasi", 7),
+        ("cc:56", "Bron", None),
     ]
 
     choose_conversion_event(db, launch=launch, key="cc:55")
@@ -193,6 +194,16 @@ def test_a_custom_conversion_is_offered_and_sent_with_its_type(
     )
 
     assert (answers.conversion_event, answers.custom_conversion_id) == ("LEAD", "55")
+
+    choose_conversion_event(db, launch=launch, key="cc:56")
+    answers = launch_answers(
+        db, launch=launch, business=launch_business(db, launch=launch)
+    )
+
+    assert (answers.conversion_event, answers.custom_conversion_id) == (
+        "SERVICE_BOOKING_REQUEST",
+        "56",
+    )
 
 
 def test_the_sweep_keeps_each_pixels_custom_conversions(

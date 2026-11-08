@@ -46,13 +46,11 @@ def offered_conversions(
 ) -> tuple[CustomConversion, ...]:
     """The chosen pixel's custom conversions, keyed ``cc:<id>`` beside the events.
 
-    Only those counted as one of the provider's events: the ad set is bought
-    on that event with the conversion beside it, and a type this product does
-    not know would be bought as the preset's own event instead.
+    Each is bought on its own event type, one Meta added after this product's
+    list included (a booking, a listing): the builder sends it as it is.
     """
     if not preset_event(db, launch=launch):
         return ()
-    known = {row.key for row in conversion_events(provider=launch.provider)}
     pixel = chosen_pixel(db, launch=launch)
     if pixel_id:
         # The pixel picked in the same save as the event (TZ 3).
@@ -74,9 +72,7 @@ def offered_conversions(
             count=_count(row.get("count")),
         )
         for row in rows
-        if isinstance(row, dict)
-        and row.get("id")
-        and str(row.get("event") or "") in known
+        if isinstance(row, dict) and row.get("id")
     )
 
 

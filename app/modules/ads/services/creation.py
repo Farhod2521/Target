@@ -131,6 +131,7 @@ RUN_LOCK_PREFIX: Final = "launch-run:"
 RUN_LOCK_SECONDS: Final = 30 * 60
 LAUNCH_FAILED_HOOK: Final = "ads.launch_failed"
 WAITING: Final = "waiting"
+LATE_NOTE: Final = "Meta hozir javob bermadi."
 FAILURE_CODES: Final[dict[str, str]] = {
     "AuthFailed": "reconnect",
     "PermissionDenied": "reconnect",
@@ -746,8 +747,6 @@ def mirror_launch(db: Session, *, launch_id: UUID | str) -> str:
 
 def auto_start_delivery(db: Session, *, launch_id: UUID | str, tries: int = 0) -> str:
     """Ask this launch's objects to deliver. Returns a word for the log."""
-    from app.modules.ads.services.manage import BY_SYSTEM, start_delivery
-
     launch = db.get(CampaignLaunch, UUID(str(launch_id)))
     if launch is None:
         return "gone"
@@ -767,6 +766,15 @@ def auto_start_delivery(db: Session, *, launch_id: UUID | str, tries: int = 0) -
         return _too_late(db, launch=launch)
     if not still_starting(launch=launch, now=now):
         return _too_late(db, launch=launch)
+    return switch_on(db, launch=launch, targets=targets)
+
+
+def switch_on(
+    db: Session, *, launch: CampaignLaunch, targets: Sequence[tuple[str, str]]
+) -> str:
+    """Resume the launch's objects as the system and write down how it went."""
+    from app.modules.ads.services.manage import BY_SYSTEM, start_delivery
+
     held = owner_paused_campaign(db, launch=launch)
     if held:
         targets = [
@@ -814,7 +822,7 @@ def record_delivery(
 
 
 def _too_late(db: Session, *, launch: CampaignLaunch) -> str:
-    record_delivery(db, launch=launch, refused=["Meta hozir javob bermadi."])
+    record_delivery(db, launch=launch, refused=[LATE_NOTE])
     return "late"
 
 

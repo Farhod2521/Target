@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
 from app.modules.accounts.models import User
+from app.modules.ads.constants import LAUNCH_NOTES, NO_PIXEL_CLICKS
 from app.modules.ads.models import CampaignLaunch
 from app.modules.metrics.models import MetricsDaily
 from tests.pg.conftest import sign_up
@@ -134,6 +135,22 @@ def test_a_campaign_page_comes_in_one_answer(client: TestClient, db: Session) ->
     assert {"hasChoice", "hasFigures", "periods"} <= set(body["panel"])
     assert body["access"]["readOnly"] in (True, False)
     assert body["settings"]["limit"] is None, "no limit is not a limit of zero"
+
+
+def test_a_campaign_bought_for_clicks_for_want_of_a_pixel_says_so(
+    client: TestClient, db: Session
+) -> None:
+    headers, campaign = _cabinet_with_figures(client, db)
+    url = f"/api/v1/campaigns/{campaign.id}"
+    assert client.get(url, headers=headers).json()["settings"]["launchNote"] == ""
+    launch = db.scalar(select(CampaignLaunch))
+    assert launch is not None
+    launch.draft = {**(launch.draft or {}), "launch_note": NO_PIXEL_CLICKS}
+    db.commit()
+
+    body = client.get(url, headers=headers).json()
+
+    assert body["settings"]["launchNote"] == LAUNCH_NOTES[NO_PIXEL_CLICKS]
 
 
 def test_a_campaign_is_switched_by_its_own_id(

@@ -36,6 +36,11 @@ SCHEDULE: Final = [
         "3,13,23,33,43,53",
     ),
     Periodic(
+        "Yoqilmay qolgan yangi reklamalarni qayta yoqish",
+        f"{TASKS}.restart_launches_task",
+        "8,18,28,38,48,58",
+    ),
+    Periodic(
         "Tashlab ketilgan kutubxona yuklashlarini yopish",
         f"{TASKS}.sweep_abandoned_uploads_task",
         "6,36",
