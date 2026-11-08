@@ -470,3 +470,46 @@ def test_the_chat_does_not_open_a_held_answer(
 
 class _Kept(BaseModel):
     answer: str
+
+
+@pytest.mark.parametrize(("truncated", "kept"), [(1, False), (0, True)])
+def test_an_answer_cut_at_the_token_limit_is_not_kept(
+    db: Session, monkeypatch: pytest.MonkeyPatch, truncated: int, kept: bool
+) -> None:
+    """The reader sees what arrived; the next advertiser never gets half a step."""
+    from dataclasses import replace
+
+    owner, launch = _refused_launch(db)
+
+    class _Stream:
+        result = replace(_Claude().structured(schema=_Kept), truncated=truncated)
+
+    class _Chat:
+        def stream(self, **_: Any) -> _Stream:
+            return _Stream()
+
+    @contextmanager
+    def chat(**_: Any):  # type: ignore[no-untyped-def]
+        yield _Chat()
+
+    monkeypatch.setattr(chat_refusal, "claude", chat)
+    monkeypatch.setattr(
+        chat_refusal,
+        "drain",
+        lambda stream, *, safe, **_: safe.append("Meta formani rad etdi.\n\n1. Oching"),
+    )
+    monkeypatch.setattr(chat_refusal, "publish", lambda *a, **k: None)
+
+    chat_refusal.answer_refusal(
+        db,
+        turn_id="t",
+        payload={
+            "owner_id": str(owner.id),
+            "launch_id": str(launch.id),
+            "language": "uz",
+        },
+        now=utcnow(),
+    )
+    db.commit()
+
+    assert (ready_answer(db, key=LAUNCH_KEY, language="uz") is not None) is kept

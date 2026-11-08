@@ -136,7 +136,10 @@ def _sources(
         else str(business.offer_text or "")
     )
     sends_to = button_action(db, launch=launch) if launch is not None else NO_BUTTON
-    facts = "\n".join(part for part in (offer, creative.message) if part)
+    # Everything the prompt says the words may take a fact from: the offer
+    # and the advert's own three fields.
+    current = (creative.message, creative.headline, creative.description)
+    facts = "\n".join(part for part in (offer, *current) if part)
     if not facts.strip():
         raise _NoWordsError("no_offer")
     return _Sources(creative=creative, offer=offer, sends_to=sends_to, facts=facts)

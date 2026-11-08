@@ -80,7 +80,7 @@ LOOKING: Final[dict[str, Any]] = {
 }
 LOOKING_DEFAULT: Final = "Ma'lumotlarni ko'ryapman…"
 REFUSAL_PROMPT_NAME: Final = "refusal_answer"
-REFUSAL_MAX_TOKENS: Final = 900
+REFUSAL_MAX_TOKENS: Final = 2000
 REFUSAL_ANSWER_FIELDS: Final = {"uz": "answer_uz", "ru": "answer_ru", "en": "answer_en"}
 # The prompts' ``{{ language }}``: an answer is written in the language asked for.
 REFUSAL_LANGUAGE_NAMES: Final = {

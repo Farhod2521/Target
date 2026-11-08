@@ -245,4 +245,8 @@ buttons are plain words, never «brackets»; a comparison list is not cut to
 five lines; a look-up that finds nothing still leaves `preparations` to ask
 for a campaign started here; and a refused advert's repaired words are the
 agent's proposal on Amallar, which "nothing writes advert copy" used to deny.
+It also lets a refused budget change be prepared on the object the refusal
+names (`changes.py` says where the budget lives), and drops the "1000 people"
+example: for an owner the figure gate reads any count of people as the
+account's and masks it.
 Earlier versions were deleted from the folder on 2026-11-08 and live in git.

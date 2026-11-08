@@ -229,7 +229,10 @@ def _ask(
         related_type=RELATED_TYPE,
         related_id=payload.get("message_id", ""),
     )
-    if key and text and not gate.masked and shareable(text):
+    # A cut answer is kept from the next advertiser: its last step is half a
+    # sentence, and the saved row is served to them unread.
+    whole = not stream.result.truncated
+    if key and text and whole and not gate.masked and shareable(text):
         keep_answer(db, key=key, texts={language: text}, facts=facts, version=version)
 
 

@@ -450,7 +450,7 @@ class LaunchDraft(
         default_factory=list,
         description=(
             "Promptda aytilgan sonda reklama - ro'yxatdagi har rasmga "
-            "bittadan, o'sha tartibda. Har biri boshqa yondashuv: muammodan, "
+            "bittadan, o'sha tartibda. Har biri boshqa yondashuv: vaziyatdan, "
             "natijadan yoki takliftan boshlanadi. Ro'yxat bo'sh bo'lsa - bo'sh."
         ),
     )
