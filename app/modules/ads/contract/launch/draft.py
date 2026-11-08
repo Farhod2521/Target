@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.common.contract import Money
+from app.modules.ads.constants import LAUNCH_NOTES
 from app.modules.ads.contract.launch import review as review_words
 from app.modules.ads.contract.launch.failures import failure
 from app.modules.ads.contract.launch.words import (
@@ -289,7 +290,10 @@ def draft(
         "prep_error": prep_error_of((state or {}).get("error_code"))
         if status == "prep_failed"
         else None,
-        "delivery": {"reason": (state or {}).get("delivery_note") or ""}
+        "delivery": {
+            "reason": (state or {}).get("delivery_note") or "",
+            "note": LAUNCH_NOTES.get((state or {}).get("launch_note") or "", ""),
+        }
         if status == "created"
         else None,
         "created_ad_id": (state or {}).get("created_ad_id") or None,

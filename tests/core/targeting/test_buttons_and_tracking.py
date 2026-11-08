@@ -74,6 +74,11 @@ def test_an_advert_that_dials_has_nothing_to_choose() -> None:
     assert FIXED_BUTTONS["phone"] == "CALL_NOW"
 
 
+def test_a_chat_advert_has_nothing_to_choose() -> None:
+    """The chat's app names the word; a pick here was saved and never sent."""
+    assert buttons_for(provider=PROVIDER, sends_to="chat") == ()
+
+
 def test_a_word_from_another_destination_is_not_this_ones() -> None:
     assert button(provider=PROVIDER, sends_to="form", key="SEE_MENU") is None
     assert button(provider=PROVIDER, sends_to="website", key="SEE_MENU") is not None

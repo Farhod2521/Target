@@ -11,7 +11,12 @@ from app.common.config import settings
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.ads import draft as draft_field
-from app.modules.ads.constants import DraftSection, MediaKind
+from app.modules.ads.constants import (
+    LAUNCH_NOTES,
+    NO_PIXEL_CLICKS,
+    DraftSection,
+    MediaKind,
+)
 from app.modules.ads.models import Campaign, CampaignLaunch, GoogleLaunch, MediaAsset
 from app.modules.ads.routers import drafts
 from app.modules.ads.selectors.variants import launch_variants
@@ -520,3 +525,25 @@ def test_cleaning_up_what_meta_kept_queues_the_rollback(
     db.expire_all()
     assert db.get(CampaignLaunch, uuid.UUID(draft_id)) is not None
     assert any(name.endswith("clean_up_launch_task") for name, _ in queued)
+
+
+def test_made_but_not_on_says_why_meta_buys_clicks(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, draft_id = _opened(client, db)
+    launch = db.get(CampaignLaunch, uuid.UUID(draft_id))
+    assert launch is not None
+    launch.status = "created"
+    launch.created_refs = {"campaign": "c_1", "adset": ["s_1"], "ad": ["a_1"]}
+    launch.delivery_note = "Hisobda to'lov usuli yo'q."
+    launch.draft = {**(launch.draft or {}), "launch_note": NO_PIXEL_CLICKS}
+    db.commit()
+
+    shown = client.get(f"/api/v1/launch/drafts/{draft_id}", headers=auth)
+
+    assert shown.status_code == 200, shown.text
+    assert shown.json()["status"] == "created"
+    assert shown.json()["delivery"] == {
+        "reason": "Hisobda to'lov usuli yo'q.",
+        "note": LAUNCH_NOTES[NO_PIXEL_CLICKS],
+    }

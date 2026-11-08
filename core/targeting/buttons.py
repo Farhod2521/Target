@@ -42,10 +42,8 @@ BUTTONS: Final[dict[tuple[str, AdDestination], tuple[AdButton, ...]]] = {
         AdButton("meta", "SUBSCRIBE", "Subscribe"),
         AdButton("meta", "DOWNLOAD", "Download"),
     ),
-    ("meta", "chat"): (
-        AdButton("meta", "SEND_MESSAGE", "Send message"),
-        AdButton("meta", "LEARN_MORE", "Learn more"),
-    ),
+    # No "chat" row: the chat's app picks the word (MESSAGE_PAGE,
+    # INSTAGRAM_MESSAGE), so a word chosen here never reached Meta.
 }
 
 FIXED_BUTTONS: Final[dict[AdDestination, str]] = {

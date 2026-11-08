@@ -293,6 +293,14 @@ EVENT_NOT_ARRIVING: Final = (
     "Bu event saytingizdan kelmayapti. Reklama o'rgana olmaydi. Avval event'ni sozlang."
 )
 EVENT_FEW: Final = "Event kam, reklama sekin o'rganadi."
+NO_PIXEL_CLICKS: Final = "no_pixel_clicks"
+LAUNCH_NOTES: Final[dict[str, str]] = {
+    NO_PIXEL_CLICKS: (
+        "Saytda Meta pixel topilmadi, shuning uchun reklama sahifa ochilishi uchun "
+        "emas, havola bosilishi uchun ishlaydi. Pixel o'rnatilsa, keyingi reklamani "
+        "sahifa ochilishi uchun berish mumkin."
+    ),
+}
 CAMPAIGN_TYPE_HINTS: dict[str, Any] = {
     "calls_many": "Meta reklamani qo'ng'iroq qilishi ehtimoli yuqori odamlarga ko'rsatadi.",
     "calls_engaged": "Xuddi shu qo'ng'iroq — farqi faqat Meta maqsadida (kulrang yozuv).",

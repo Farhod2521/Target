@@ -347,6 +347,9 @@ class Stats(Camel):
 
 class DetailSettings(Camel):
     type_en: str
+    launch_note: str = Field(
+        default="", description="Why Meta buys another result than the one picked."
+    )
     result_event: str
     place: str
     starts_at: str | None

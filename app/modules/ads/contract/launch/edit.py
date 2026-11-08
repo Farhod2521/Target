@@ -263,6 +263,22 @@ def _form(found: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+def _names(options: list[dict[str, Any]]) -> list[str]:
+    """Each option as the tab writes it; a label two options share gets Meta's word.
+
+    The three call kinds are all «Qo'ng'iroqlar» and differ only in Meta's
+    objective, and a pick comes back by its name.
+    """
+    labels = [text(row.get("label")) for row in options]
+    shared = {label for label in labels if labels.count(label) > 1}
+    return [
+        f"{label} · {text(row.get('provider_label'))}"
+        if label in shared and text(row.get("provider_label"))
+        else label
+        for label, row in zip(labels, options, strict=True)
+    ]
+
+
 def _advanced(found: dict[str, Any]) -> list[dict[str, Any]]:
     """The advanced tab: what each setting is, read-only where the backend locks it."""
     advanced = found["advanced"]
@@ -278,8 +294,13 @@ def _advanced(found: dict[str, Any]) -> list[dict[str, Any]]:
     ) -> None:
         if not options:
             return
+        names = _names(options)
         label = next(
-            (text(row.get("label")) for row in options if row.get("key") == chosen),
+            (
+                name
+                for name, row in zip(names, options, strict=True)
+                if row.get("key") == chosen
+            ),
             chosen,
         )
         rows.append(
@@ -288,7 +309,7 @@ def _advanced(found: dict[str, Any]) -> list[dict[str, Any]]:
                 "en": en,
                 "value": label,
                 "mode": "ro" if locked else "me" if mine else "",
-                "options": [text(row.get("label")) for row in options],
+                "options": names,
             }
         )
 
@@ -566,7 +587,12 @@ def _advanced_patch(
 
     def key_of(options: list[dict[str, Any]], value: str) -> str:
         return next(
-            (row["key"] for row in options if text(row.get("label")) == value), ""
+            (
+                row["key"]
+                for name, row in zip(_names(options), options, strict=True)
+                if name == value
+            ),
+            "",
         )
 
     for row in rows:

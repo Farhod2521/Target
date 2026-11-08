@@ -240,6 +240,9 @@ class GoalPhrase(Camel):
 
 class Delivery(Camel):
     reason: str
+    note: str = Field(
+        default="", description="Why Meta buys another result than the one picked."
+    )
 
 
 class GoogleKeyword(Camel):
