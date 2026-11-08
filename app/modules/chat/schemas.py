@@ -69,25 +69,14 @@ class ChatScreenOut(BaseModel):
     free_total: int = Field(description="The plan's daily questions.")
 
 
-class CommentOut(BaseModel):
-    text: str
-    masked: int
-    is_pending: bool = Field(description="Still being written: ask again with `try`.")
-    advice: str
-
-
 class ReportOut(BaseModel):
     entitled: bool
     report: WeeklyReport | None = Field(
         description="Null without a plan or a completed week. Also carries "
-        "`silence` (why there is no sentence) and `wants_sentence` (bool)."
+        "`silence` and `wants_sentence` (bool)."
     )
-    comment: CommentOut | None = None
     silence: str = Field("", description="The words shown in place of a sentence.")
     headline_label: str = ""
-    next_try: int = Field(
-        0, description="Ask again with `?try=` this value; 0 means stop asking."
-    )
 
 
 __all__ = ["ChatScreenOut", "ReportOut"]

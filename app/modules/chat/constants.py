@@ -51,16 +51,10 @@ OFFERS_IN_CONTEXT: Final = 3
 CHOICE_POLL_SECONDS: Final = 3
 CONTEXT_WINDOW_DAYS: Final = 30
 PROMPT_NAME: Final = "chat_answer"
-REPORT_PROMPT_NAME: Final = "weekly_report"
-REPORT_TTL_SECONDS: Final = 7 * 24 * 3600
 CHANGES_IN_REPORT: Final = 4
 BARREN_MIN_SPEND_PCT: Final = 15
-REPORT_POLL_TRIES: Final = 6
-DAILY_PROMPT_NAME: Final = "daily_report"
-DAILY_RELATED_TYPE: Final = "daily_report"
 DAILY_USUAL_DAYS: Final = 7
 DAILY_REREAD_AFTER_HOURS: Final = 1
-REPORT_RELATED_TYPE: Final = "weekly_report"
 RELATED_TYPE: Final = "chat_message"
 LOOKING: Final[dict[str, Any]] = {
     "account_overview": "Hisobingizni ko'ryapman…",
