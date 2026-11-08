@@ -389,6 +389,11 @@ class EditAudience(Camel):
     positions: EditPositions | None = None
     position_options: EditPositionOptions | None = None
     optimize: Literal["all", "quality"]
+    optimize_offered: bool = Field(
+        default=False,
+        description="The «Faqat sifatli lidlar» choice is shown: a lead form goal "
+        "whose account Meta opened qualified-lead buying for.",
+    )
     age: list[int]
     ai_age: list[int]
     genders: list[Literal["m", "f"]]

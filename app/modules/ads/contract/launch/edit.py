@@ -58,6 +58,15 @@ END_OUT: Final = {
     "call": "call",
 }
 AREA: Final = "area:"
+# The reach goal's cap as the tab offers it: (times, days), none for Meta's own.
+FREQUENCY_CAPS: Final[tuple[tuple[int | None, int | None], ...]] = (
+    (None, None),
+    (1, 7),
+    (2, 7),
+    (3, 7),
+    (1, 1),
+    (2, 1),
+)
 SECTIONS: Final = ("aud", "geo", "int", "hab", "reach", "ads", "form", "adv", "budget")
 # A refused save, read back to the editor's names: an advert's own words...
 AD_FIELD: Final = {
@@ -279,6 +288,15 @@ def _names(options: list[dict[str, Any]]) -> list[str]:
     ]
 
 
+def _frequency(cap: tuple[Any, Any]) -> str:
+    times, days = cap
+    if not times or not days:
+        return "Meta o'zi belgilaydi"
+    return (
+        f"{days} kunda {times} martagacha" if days > 1 else f"Kuniga {times} martagacha"
+    )
+
+
 def _advanced(found: dict[str, Any]) -> list[dict[str, Any]]:
     """The advanced tab: what each setting is, read-only where the backend locks it."""
     advanced = found["advanced"]
@@ -379,14 +397,18 @@ def _advanced(found: dict[str, Any]) -> list[dict[str, Any]]:
             bool(delivery.get("locked")),
             False,
         )
-    if delivery.get("offers_cap") and delivery.get("cap_times"):
+    if delivery.get("offers_cap"):
+        chosen = (delivery.get("cap_times"), delivery.get("cap_days"))
+        options = [_frequency(cap) for cap in FREQUENCY_CAPS]
+        if _frequency(chosen) not in options:
+            options.append(_frequency(chosen))
         rows.append(
             {
                 "key": "frequency",
                 "en": "Frequency cap",
-                "value": f"{delivery['cap_times']} / {delivery.get('cap_days') or 7}",
-                "mode": "ro",
-                "options": [],
+                "value": _frequency(chosen),
+                "mode": "ro" if delivery.get("locked") else "",
+                "options": options,
             }
         )
     cap = advanced.get("cost_cap") or {}
@@ -504,6 +526,7 @@ def edit_from(answer: dict[str, Any]) -> dict[str, Any]:
             "optimize": "quality"
             if audience.get("lead_buying") == "quality"
             else "all",
+            "optimize_offered": bool(audience.get("lead_buying_modes")),
             "age": age,
             "ai_age": age,
             "genders": ["m" if item == 1 else "f" for item in genders],
@@ -619,6 +642,12 @@ def _advanced_patch(
             )
         if row["key"] == "cta" and advanced.get("buttons"):
             out["call_to_action"] = key_of(advanced["buttons"]["options"], row["value"])
+        if row["key"] == "frequency":
+            cap = next(
+                (cap for cap in FREQUENCY_CAPS if _frequency(cap) == row["value"]), None
+            )
+            if cap is not None:
+                out["cap_times"], out["cap_days"] = cap
         if row["key"] == "attribution":
             out["attribution"] = key_of(
                 (advanced.get("delivery") or {}).get("windows") or [], row["value"]
@@ -648,7 +677,7 @@ def proposal_patch(edit: dict[str, Any], answer: dict[str, Any]) -> ProposalIn:
         )
     ):
         audience["placement_positions"] = positions
-    if now_aud["optimize"] != was_aud["optimize"]:
+    if now_aud["optimize"] != was_aud["optimize"] and was_aud["optimize_offered"]:
         audience["lead_buying"] = (
             "quality" if now_aud["optimize"] == "quality" else "volume"
         )
