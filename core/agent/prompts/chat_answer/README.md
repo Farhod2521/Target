@@ -238,3 +238,11 @@ look-up. Nothing is carried out by the model: the look-up runs the campaigns
 screen's own checks without opening a change, the prepared change is kept on
 the answer as a confirm button, and pressing it calls the campaigns screen's
 service, which checks everything again (`app/modules/chat/services/changes.py`).
+
+`v27` removes contradictions and changes no behaviour. A finished video plan
+ends with a question and replies, which the reply rules used to forbid; reply
+buttons are plain words, never «brackets»; a comparison list is not cut to
+five lines; a look-up that finds nothing still leaves `preparations` to ask
+for a campaign started here; and a refused advert's repaired words are the
+agent's proposal on Amallar, which "nothing writes advert copy" used to deny.
+Earlier versions were deleted from the folder on 2026-11-08 and live in git.
