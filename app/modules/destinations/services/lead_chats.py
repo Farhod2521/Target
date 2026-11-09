@@ -62,8 +62,12 @@ from app.modules.destinations.constants import (
     LEAD_CHAT_WAITING_KEY,
     LEAD_POST_ANSWER_CHARS,
     LEAD_POST_BACKOFF_SECONDS,
+    LEAD_POST_MESSAGE_REFUSALS,
+    LEAD_POST_QUESTION_CHARS,
+    LEAD_POST_STALE_SECONDS,
     LEAD_POST_SWEEP_HOURS,
     LEAD_POST_SWEEP_LIMIT,
+    LEAD_POST_TEXT_CHARS,
     Channel,
     DeliveryStatus,
     LeadChatBroken,
@@ -377,6 +381,9 @@ def _link(
             "faqat yopiq (private) guruh yoki kanal ulanadi. Bot u yerdan chiqdi.",
         )
         _leave(client, target.chat_id)
+        # Anybody in an open group has read the link's token: it links nothing more.
+        cache.delete(LEAD_CHAT_TOKEN_KEY.format(token=token))
+        cache.delete(LEAD_CHAT_WAITING_KEY.format(user=adder))
         return "lead_chat_public"
     if not target.can_post:
         _say(
@@ -614,8 +621,8 @@ def post_lead(db: Session, *, lead_id: str, now: datetime) -> str | int:
     if not _claim(db, owner_id=owner.id, lead_id=lead.id, now=now):
         return "already"
     chat = seat.lead_chat
-    text, buttons = compose_lead(db, lead=lead, pair=pair)
     try:
+        text, buttons = compose_lead(db, lead=lead, pair=pair)
         with bot() as client:
             client.send_message(chat_id=chat.chat_id, text=text, buttons=buttons)
     except ChatMigrated as exc:
@@ -629,6 +636,10 @@ def post_lead(db: Session, *, lead_id: str, now: datetime) -> str | int:
         _release(db, lead_id=lead.id)
         return LEAD_POST_BACKOFF_SECONDS
     except (BotBlocked, ChatUnreachable, TelegramAPIError) as exc:
+        if _refuses_the_message(exc):
+            _set_delivery(db, lead_id=lead.id, status=DeliveryStatus.FAILED, now=now)
+            logger.warning("lead %s not posted to %s: %s", lead.id, chat.chat_id, exc)
+            return "failed"
         _release(db, lead_id=lead.id)
         reason = _reason(exc)
         rows = list(
@@ -645,13 +656,32 @@ def post_lead(db: Session, *, lead_id: str, now: datetime) -> str | int:
         for row in rows:
             _tell_owner_broken(db, client=None, row=row, now=now)
         return "broken"
+    except Exception:
+        db.rollback()
+        _release(db, lead_id=lead.id)
+        raise
+    _set_delivery(db, lead_id=lead.id, status=DeliveryStatus.DELIVERED, now=now)
+    return "posted"
+
+
+def _refuses_the_message(exc: TelegramError) -> bool:
+    """Telegram refused this message, not the chat: the next lead still goes."""
+    if isinstance(exc, (BotBlocked, ChatUnreachable)):
+        return False
+    lowered = str(exc).lower()
+    return any(words in lowered for words in LEAD_POST_MESSAGE_REFUSALS)
+
+
+def _set_delivery(
+    db: Session, *, lead_id: uuid.UUID, status: str, now: datetime
+) -> None:
+    delivered = now if status == DeliveryStatus.DELIVERED else None
     db.execute(
         update(LeadDelivery)
-        .where(_telegram_delivery(lead.id))
-        .values(status=DeliveryStatus.DELIVERED, delivered_at=now, updated_at=now)
+        .where(_telegram_delivery(lead_id))
+        .values(status=status, delivered_at=delivered, updated_at=now)
     )
     db.commit()
-    return "posted"
 
 
 def _migrate(db: Session, *, old: str, new: str, now: datetime) -> None:
@@ -697,7 +727,15 @@ def _telegram_delivery(lead_id: uuid.UUID) -> ColumnElement[bool]:
 def _claim(
     db: Session, *, owner_id: uuid.UUID, lead_id: uuid.UUID, now: datetime
 ) -> bool:
-    """The lead is ours to send: nobody else will, now or after a crash."""
+    """The lead is ours to send: nobody else will, now or after a crash.
+    A claim left half-way (the worker died mid-send) is taken over."""
+    db.execute(
+        delete(LeadDelivery).where(
+            _telegram_delivery(lead_id),
+            LeadDelivery.status == DeliveryStatus.SENDING,
+            LeadDelivery.sent_at < now - timedelta(seconds=LEAD_POST_STALE_SECONDS),
+        )
+    )
     claimed = db.scalar(
         insert(LeadDelivery)
         .values(
@@ -744,25 +782,35 @@ def compose_lead(
         lines.append(f"Email: {escaped(lead.email)}")
     if lead.city:
         lines.append(f"Shahar: {escaped(lead.city)}")
-    answers = extra_answers(lead)
-    if answers:
-        lines.append("")
-        lines += [
-            f"{escaped(question)}: {escaped(answer[:LEAD_POST_ANSWER_CHARS])}"
-            for question, answer in answers.items()
-        ]
-    lines.append("")
+    answered = [
+        f"{escaped(question[:LEAD_POST_QUESTION_CHARS])}: "
+        f"{escaped(answer[:LEAD_POST_ANSWER_CHARS])}"
+        for question, answer in extra_answers(lead).items()
+    ]
+    tail = [""]
     ad_name = (
         db.scalar(select(Ad.name).where(Ad.external_id == lead.ad_external_id))
         if lead.ad_external_id
         else None
     )
     if ad_name:
-        lines.append(f"Reklama: {escaped(ad_name)}")
+        tail.append(f"Reklama: {escaped(ad_name)}")
     if lead.form is not None and lead.form.name:
-        lines.append(f"Forma: {escaped(lead.form.name)}")
-    lines.append(f"Sahifa: {escaped(_pair_label(pair))}")
-    lines.append(f"Vaqt: {localtime(lead.submitted_at):%d.%m.%Y %H:%M}")
+        tail.append(f"Forma: {escaped(lead.form.name)}")
+    tail.append(f"Sahifa: {escaped(_pair_label(pair))}")
+    tail.append(f"Vaqt: {localtime(lead.submitted_at):%d.%m.%Y %H:%M}")
+    # Telegram takes no longer message: the last answers give way, never who and where.
+    shown = list(answered)
+    while (
+        shown
+        and len("\n".join([*lines, "", *shown, "…", *tail])) > LEAD_POST_TEXT_CHARS
+    ):
+        shown.pop()
+    if shown:
+        lines += ["", *shown]
+    if len(shown) < len(answered):
+        lines.append("…")
+    lines += tail
     site = settings.site_url.rstrip("/")
     buttons: tuple[Button, ...] = ()
     if site.startswith("https://"):
@@ -828,6 +876,7 @@ def sweep_lead_posts(db: Session, *, now: datetime) -> int:
     floor = now - timedelta(hours=LEAD_POST_SWEEP_HOURS)
     # Two minutes for the task queued as the lead arrived to run first.
     ceiling = now - timedelta(minutes=2)
+    stale = now - timedelta(seconds=LEAD_POST_STALE_SECONDS)
     owner_ids = list(
         db.scalars(
             select(LeadChatPair.owner_id)
@@ -871,6 +920,10 @@ def sweep_lead_posts(db: Session, *, now: datetime) -> int:
                     ~exists().where(
                         LeadDelivery.lead_id == Lead.id,
                         LeadDelivery.channel == Channel.TELEGRAM,
+                        or_(
+                            LeadDelivery.status != DeliveryStatus.SENDING,
+                            LeadDelivery.sent_at >= stale,
+                        ),
                     ),
                 )
                 .order_by(Lead.received_at)

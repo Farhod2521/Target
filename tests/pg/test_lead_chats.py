@@ -594,3 +594,85 @@ def test_the_other_bots_ignore_their_own_membership(db: Session) -> None:
 
     assert handle_support_update(db, payload=blocked, now=utcnow()) == "ignored"
     assert handle_staff_update(db, payload=blocked, now=utcnow()) == "ignored"
+
+
+def test_an_open_group_s_link_links_nothing_after(db: Session, fake: FakeBot) -> None:
+    world = _world(db)
+    _open(db, world)
+    handle_update(db, payload=_joined(GROUP, "supergroup", public=True), now=utcnow())
+
+    # The token was read in the open group: a private group added with it stays out.
+    handle_update(db, payload=_joined("-1007", "supergroup"), now=utcnow())
+    assert db.scalar(select(func.count()).select_from(LeadChat)) == 0
+
+
+def test_a_long_form_is_cut_to_what_telegram_takes(db: Session, fake: FakeBot) -> None:
+    world = _world(db)
+    _link_group(db, world)
+    lead = _lead(db, world, "Ali", "c_1")
+    lead.field_data_raw = [
+        {"name": f"savol_{n}_" + "s" * 200, "values": ["j" * 500]} for n in range(30)
+    ]
+    db.commit()
+
+    assert post_lead(db, lead_id=str(lead.id), now=utcnow()) == "posted"
+    text = fake.sent(GROUP)[-1]["text"]
+    assert len(text) <= 4000
+    assert "Ali" in text and "Sahifa:" in text and "…" in text
+
+
+def test_a_message_telegram_refuses_leaves_the_chat_alone(
+    db: Session, fake: FakeBot, queued: list[str]
+) -> None:
+    world = _world(db)
+    chat = _link_group(db, world)
+    db.execute(
+        LeadChatPair.__table__.update().values(linked_at=utcnow() - timedelta(hours=2))
+    )
+    chat.linked_at = utcnow() - timedelta(hours=2)
+    db.commit()
+    lead = _lead(db, world, "Ali", "c_1", ago=10)
+
+    fake.refuse = TelegramAPIError("Bad Request: can't parse entities: unclosed tag")
+    assert post_lead(db, lead_id=str(lead.id), now=utcnow()) == "failed"
+    assert db.scalars(select(LeadChat)).one().status == "active"
+    assert db.scalars(select(LeadDelivery)).one().status == "failed"
+    # Not sent again by the sweep, and the next lead still goes.
+    assert sweep_lead_posts(db, now=utcnow()) == 0
+    other = _lead(db, world, "Vali", "c_1")
+    assert post_lead(db, lead_id=str(other.id), now=utcnow()) == "posted"
+
+
+def test_a_send_cut_off_mid_way_is_taken_again(
+    db: Session, fake: FakeBot, queued: list[str]
+) -> None:
+    world = _world(db)
+    chat = _link_group(db, world)
+    db.execute(
+        LeadChatPair.__table__.update().values(linked_at=utcnow() - timedelta(hours=2))
+    )
+    chat.linked_at = utcnow() - timedelta(hours=2)
+    db.commit()
+    lead = _lead(db, world, "Ali", "c_1", ago=30)
+
+    def broken(*_: Any, **__: Any) -> Any:
+        raise RuntimeError("database went away")
+
+    real = lead_chats_module.compose_lead
+    lead_chats_module.compose_lead = broken  # type: ignore[assignment]
+    try:
+        with pytest.raises(RuntimeError):
+            post_lead(db, lead_id=str(lead.id), now=utcnow())
+    finally:
+        lead_chats_module.compose_lead = real  # type: ignore[assignment]
+    assert db.scalar(select(func.count()).select_from(LeadDelivery)) == 0
+
+    # A worker killed mid-send leaves its claim: it goes stale and is taken again.
+    assert (
+        post_lead(db, lead_id=str(lead.id), now=utcnow() - timedelta(minutes=20))
+        == "posted"
+    )
+    db.execute(LeadDelivery.__table__.update().values(status="sending"))
+    db.commit()
+    assert sweep_lead_posts(db, now=utcnow()) == 1
+    assert post_lead(db, lead_id=str(lead.id), now=utcnow()) == "posted"

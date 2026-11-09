@@ -81,11 +81,14 @@ CHANNEL_LABELS = {Channel.SHEETS: "Google jadval", Channel.TELEGRAM: "Telegram"}
 class DeliveryStatus(Choices):
     SENDING = "sending"
     DELIVERED = "delivered"
+    # Telegram refused this one message (too long, bad markup), not the chat.
+    FAILED = "failed"
 
 
 DELIVERY_STATUS_LABELS = {
     DeliveryStatus.SENDING: "Yuborilmoqda",
     DeliveryStatus.DELIVERED: "Yetkazildi",
+    DeliveryStatus.FAILED: "Yuborilmadi",
 }
 FIRST_TAB: Final = "0"
 DELIVERY_BATCH: Final = 200
@@ -165,6 +168,19 @@ LEAD_POST_BACKOFF_SECONDS: Final = 30
 LEAD_POST_SWEEP_HOURS: Final = 24
 LEAD_POST_SWEEP_LIMIT: Final = 200
 LEAD_POST_ANSWER_CHARS: Final = 300
+LEAD_POST_QUESTION_CHARS: Final = 100
+# Telegram takes 4096 characters; the answers that do not fit are left out.
+LEAD_POST_TEXT_CHARS: Final = 4000
+# A claim this old was never finished (the worker died mid-send): it is taken again.
+LEAD_POST_STALE_SECONDS: Final = 10 * 60
+# Telegram's words for a refusal of the message itself, not of the chat.
+LEAD_POST_MESSAGE_REFUSALS: Final = (
+    "message is too long",
+    "can't parse entities",
+    "text must be non-empty",
+    "button_url_invalid",
+    "wrong http url",
+)
 # Every linked chat is looked at hourly (public now? bot still there?),
 # a few per sweep so the sweep never holds a worker for long.
 LEAD_CHAT_CHECK_SECONDS: Final = 60 * 60
