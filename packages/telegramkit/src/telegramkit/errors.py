@@ -42,6 +42,17 @@ class BotBlocked(TelegramAPIError):
     """The person blocked the bot, or their account is gone."""
 
 
+class ChatMigrated(TelegramAPIError):
+    """A group became a supergroup: the same chat lives on under
+    ``migrate_to_chat_id``, and the old id is refused from now on."""
+
+    def __init__(
+        self, message: str, *, code: int | None = None, migrate_to_chat_id: str = ""
+    ) -> None:
+        super().__init__(message, code=code)
+        self.migrate_to_chat_id = migrate_to_chat_id
+
+
 class TelegramTemporaryError(TelegramError):
     """Transient: 5xx, a timeout, or a connection that never opened."""
 
@@ -69,9 +80,21 @@ def translate(*, status: int, payload: dict[str, Any]) -> TelegramError:
         )
     if status >= 500:
         return TelegramTemporaryError(description, code=status)
+    migrated = _migrated_to(payload)
+    if migrated:
+        return ChatMigrated(description, code=status, migrate_to_chat_id=migrated)
     if any(phrase in lowered for phrase in GONE_DESCRIPTIONS):
         return ChatUnreachable(description, code=status)
     return TelegramAPIError(description, code=status)
+
+
+def _migrated_to(payload: dict[str, Any]) -> str:
+    """The supergroup's id, from ``parameters.migrate_to_chat_id``, or ``""``."""
+    parameters = payload.get("parameters")
+    if not isinstance(parameters, dict):
+        return ""
+    value = parameters.get("migrate_to_chat_id")
+    return str(value) if isinstance(value, int) else ""
 
 
 def _retry_after(payload: dict[str, Any]) -> int | None:
@@ -86,6 +109,7 @@ def _retry_after(payload: dict[str, Any]) -> int | None:
 __all__ = [
     "GONE_DESCRIPTIONS",
     "BotBlocked",
+    "ChatMigrated",
     "ChatUnreachable",
     "TelegramAPIError",
     "TelegramError",

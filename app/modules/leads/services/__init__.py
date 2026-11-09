@@ -414,8 +414,10 @@ def store_lead(
         occurred_at=row.submitted_at,
     )
     from app.modules.crm.services import queue_placement
+    from app.modules.destinations.services.lead_chats import queue_lead_post
 
     queue_placement(db, lead_id=str(row.id))
+    queue_lead_post(db, lead_id=str(row.id))
     return CREATED
 
 

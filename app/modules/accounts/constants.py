@@ -66,6 +66,8 @@ PURGE_ORDER: tuple[str, ...] = (
     "leads.LeadOutcome",
     "leads.LeadSignal",
     "destinations.LeadDelivery",
+    "destinations.LeadChatPair",
+    "destinations.LeadChat",
     "destinations.FormSheet",
     "destinations.SheetLink",
     "crm.CrmActivity",

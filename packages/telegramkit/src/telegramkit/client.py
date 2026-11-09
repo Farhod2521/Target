@@ -16,12 +16,15 @@ from telegramkit.errors import (
 from telegramkit.models import (
     BotIdentity,
     Button,
+    ChatInfo,
     SentMessage,
     TelegramFile,
     WebhookInfo,
 )
 
 API_BASE_URL: Final = "https://api.telegram.org"
+# What a webhook asks for unless told otherwise: words and button presses.
+DEFAULT_UPDATES: Final = ("message", "callback_query")
 
 CONNECT_TIMEOUT_SECONDS: Final = 5.0
 READ_TIMEOUT_SECONDS: Final = 10.0
@@ -264,17 +267,41 @@ class BotClient:
             payload["show_alert"] = True
         self._call("answerCallbackQuery", payload)
 
-    def set_webhook(self, *, url: str, secret_token: str) -> None:
-        """Point Telegram at our endpoint, and at nothing else."""
+    def set_webhook(
+        self,
+        *,
+        url: str,
+        secret_token: str,
+        updates: tuple[str, ...] = DEFAULT_UPDATES,
+        drop_pending: bool = True,
+    ) -> None:
+        """Point Telegram at our endpoint, and at nothing else.
+
+        ``drop_pending=False`` for a bot already in use: what waits in
+        Telegram's queue is people's messages."""
         self._call(
             "setWebhook",
             {
                 "url": url,
                 "secret_token": secret_token,
-                "allowed_updates": ["message", "callback_query"],
-                "drop_pending_updates": True,
+                "allowed_updates": list(updates),
+                "drop_pending_updates": drop_pending,
             },
         )
+
+    def get_chat(self, *, chat_id: str) -> ChatInfo:
+        """A group's or a channel's title, type and - when public - handle."""
+        answer = self._call("getChat", {"chat_id": chat_id})
+        return ChatInfo(
+            id=str(answer.get("id") or chat_id),
+            type=str(answer.get("type") or ""),
+            title=str(answer.get("title") or ""),
+            username=str(answer.get("username") or ""),
+        )
+
+    def leave_chat(self, *, chat_id: str) -> None:
+        """Leave a group, or step down from a channel."""
+        self._call("leaveChat", {"chat_id": chat_id})
 
     def set_chat_menu_button(self, *, text: str, url: str) -> None:
         """Put a permanent Mini App button in the bot's menu, for everybody."""

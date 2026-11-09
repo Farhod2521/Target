@@ -1,9 +1,16 @@
-"""Celery tasks for delivering leads to the owner's spreadsheet.
+"""Celery tasks for delivering leads to the owner's spreadsheet and to a
+Telegram group or channel.
 
-No retries: the minute sweep is every retry there is.
+The spreadsheet has no retries: the minute sweep is every retry there is.
+A Telegram post waits as long as Telegram asks and tries again; what is
+still left after that the sweep posts.
 """
 
+from celery import Task
+from celery.exceptions import MaxRetriesExceededError
+
 from app.common.db import utcnow
+from app.modules.destinations.constants import LEAD_POST_RETRIES
 from app.modules.destinations.services import (
     check_sheet_link,
     deliver_to_sheet,
@@ -11,6 +18,11 @@ from app.modules.destinations.services import (
     revoke_sheet_token,
     sweep_sheet_checks,
     sweep_sheets,
+)
+from app.modules.destinations.services.lead_chats import (
+    check_lead_chats,
+    post_lead,
+    sweep_lead_posts,
 )
 from app.worker import celery_app, task_session
 
@@ -55,3 +67,28 @@ def check_sheet_link_task(link_id: str) -> str:
     """One link's daily check."""
     with task_session() as db:
         return check_sheet_link(db, link_id=link_id)
+
+
+@celery_app.task(
+    bind=True, queue="webhooks", ignore_result=True, max_retries=LEAD_POST_RETRIES
+)
+def post_lead_task(self: Task, lead_id: str) -> str:
+    """One lead into its pair's group or channel. A wait Telegram asked for
+    is a retry later, never a worker asleep."""
+    with task_session() as db:
+        outcome = post_lead(db, lead_id=lead_id, now=utcnow())
+    if isinstance(outcome, str):
+        return outcome
+    try:
+        raise self.retry(countdown=outcome)
+    except MaxRetriesExceededError:
+        return "left_for_sweep"
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def sweep_lead_posts_task() -> int:
+    """Every few minutes: the chats due a look, then the posts a lost task
+    or a long outage left."""
+    with task_session() as db:
+        check_lead_chats(db, now=utcnow())
+        return sweep_lead_posts(db, now=utcnow())

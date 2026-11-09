@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from telegramkit import (
     BotClient,
     ButtonPress,
+    ChatMembership,
     Command,
     TelegramError,
     TextMessage,
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 def handle_staff_update(db: Session, *, payload: dict[str, Any], now: datetime) -> str:
     """One delivery to the staff bot, acted on. Returns a word for the log."""
     update = read_update(payload)
-    if update is None:
+    if update is None or isinstance(update, ChatMembership):
         return "ignored"
     with staff_bot() as client:
         if isinstance(update, Command):

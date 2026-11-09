@@ -17,6 +17,8 @@ from telegramkit import (
     BotClient,
     Button,
     ButtonPress,
+    ChatMembership,
+    ChatMigrated,
     ChatUnreachable,
     Command,
     MediaMessage,
@@ -415,6 +417,101 @@ def test_set_webhook_narrows_what_telegram_may_deliver() -> None:
     body = json.loads(seen[0].content)
     assert body["allowed_updates"] == ["message", "callback_query"]
     assert body["secret_token"] == "s3cret"
+    assert body["drop_pending_updates"] is True
+
+
+def test_a_bot_in_use_keeps_its_queue_and_hears_about_its_chats() -> None:
+    seen: list[httpx.Request] = []
+    with client_answering({"ok": True, "result": True}, seen=seen) as bot:
+        bot.set_webhook(
+            url="https://example.test/hook/",
+            secret_token="s3cret",
+            updates=("message", "callback_query", "my_chat_member"),
+            drop_pending=False,
+        )
+
+    body = json.loads(seen[0].content)
+    assert body["allowed_updates"] == ["message", "callback_query", "my_chat_member"]
+    assert body["drop_pending_updates"] is False
+
+
+def test_get_chat_says_whether_anybody_can_read_it() -> None:
+    answer = {"ok": True, "result": {"id": -100, "type": "channel", "title": "Lid"}}
+    with client_answering(answer) as bot:
+        private = bot.get_chat(chat_id="-100")
+    answer["result"]["username"] = "ochiq"
+    with client_answering(answer) as bot:
+        public = bot.get_chat(chat_id="-100")
+
+    assert (private.id, private.type, private.title) == ("-100", "channel", "Lid")
+    assert private.public is False
+    assert public.public is True
+
+
+def test_a_group_turned_supergroup_names_its_new_id() -> None:
+    refusal = {
+        "ok": False,
+        "error_code": 400,
+        "description": "Bad Request: group chat was upgraded to a supergroup chat",
+        "parameters": {"migrate_to_chat_id": -1009},
+    }
+    with (
+        client_answering(refusal, status=400) as bot,
+        pytest.raises(ChatMigrated) as caught,
+    ):
+        bot.send_message(chat_id="-5", text="x")
+
+    assert caught.value.migrate_to_chat_id == "-1009"
+
+
+def test_the_bot_added_to_a_channel_is_read_with_who_did_it() -> None:
+    update = read_update(
+        {
+            "update_id": 1,
+            "my_chat_member": {
+                "chat": {
+                    "id": -100,
+                    "type": "channel",
+                    "title": "Lid",
+                    "username": "x",
+                },
+                "from": {"id": 42, "first_name": "Ali"},
+                "date": 0,
+                "old_chat_member": {"status": "left", "user": {"id": 1}},
+                "new_chat_member": {
+                    "status": "administrator",
+                    "user": {"id": 1},
+                    "can_post_messages": True,
+                },
+            },
+        }
+    )
+
+    assert isinstance(update, ChatMembership)
+    assert (update.chat_id, update.chat_type, update.title) == (
+        "-100",
+        "channel",
+        "Lid",
+    )
+    assert update.sender.id == "42"
+    assert update.present and update.can_post and update.public
+
+
+def test_a_command_says_where_it_was_typed() -> None:
+    update = read_update(
+        {
+            "update_id": 1,
+            "message": {
+                "message_id": 1,
+                "chat": {"id": -100, "type": "supergroup"},
+                "from": {"id": 42},
+                "text": "/start@client_bot lc_abc",
+            },
+        }
+    )
+
+    assert isinstance(update, Command)
+    assert (update.chat_type, update.argument) == ("supergroup", "lc_abc")
 
 
 def test_webhook_info_carries_telegram_s_own_account_of_the_failure() -> None:
@@ -974,9 +1071,12 @@ def test_a_refused_download_is_an_error_to_catch() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, content=b"no")
 
-    with BotClient(
-        token=TOKEN, client=httpx.Client(transport=httpx.MockTransport(handler))
-    ) as bot, pytest.raises(TelegramAPIError):
+    with (
+        BotClient(
+            token=TOKEN, client=httpx.Client(transport=httpx.MockTransport(handler))
+        ) as bot,
+        pytest.raises(TelegramAPIError),
+    ):
         bot.download_file(path="gone")
 
 

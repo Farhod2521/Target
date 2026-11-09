@@ -12,6 +12,7 @@ from telegramkit.client import (
 )
 from telegramkit.errors import (
     BotBlocked,
+    ChatMigrated,
     ChatUnreachable,
     TelegramAPIError,
     TelegramError,
@@ -26,6 +27,7 @@ from telegramkit.login import (
 from telegramkit.models import (
     BotIdentity,
     Button,
+    ChatInfo,
     SentMessage,
     TelegramFile,
     WebhookInfo,
@@ -34,6 +36,7 @@ from telegramkit.updates import (
     CALLBACK_DATA_MAX_BYTES,
     MEDIA_KINDS,
     ButtonPress,
+    ChatMembership,
     Command,
     MediaMessage,
     OtherMessage,
@@ -68,6 +71,9 @@ __all__ = [
     "BotIdentity",
     "Button",
     "ButtonPress",
+    "ChatInfo",
+    "ChatMembership",
+    "ChatMigrated",
     "ChatUnreachable",
     "Command",
     "InitDataError",
