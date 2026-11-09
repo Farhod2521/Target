@@ -19,7 +19,12 @@ from app.modules.ads.constants import LaunchStatus
 from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.trace import TRACE_DIR
 from app.modules.notifications.constants import NOTICES_WITHOUT_SUBSCRIPTION, NoticeKind
-from app.modules.notifications.models import InboxSeen, StaffChat, TelegramChat
+from app.modules.notifications.models import (
+    InboxSeen,
+    StaffChat,
+    SupportBotChat,
+    TelegramChat,
+)
 from core.inbox import LEFT_DAYS, LEFT_PREFIX
 
 logger = logging.getLogger(__name__)
@@ -91,6 +96,58 @@ def staff_chat_for(db: Session, *, owner: User) -> StaffChat | None:
     return db.scalars(
         select(StaffChat)
         .where(StaffChat.owner_id == owner.id, StaffChat.is_active.is_(True))
+        .limit(1)
+    ).first()
+
+
+def support_bot_chat_by_id(db: Session, *, chat_id: str) -> SupportBotChat | None:
+    """The support bot's row for one Telegram chat, live or stopped."""
+    return db.scalar(
+        select(SupportBotChat).where(SupportBotChat.chat_id == str(chat_id))
+    )
+
+
+def support_bot_chat_for(db: Session, *, owner: User) -> SupportBotChat | None:
+    """The owner's live support-bot chat: where the office's replies go."""
+    return db.scalars(
+        select(SupportBotChat)
+        .where(SupportBotChat.owner_id == owner.id, SupportBotChat.is_active.is_(True))
+        .limit(1)
+    ).first()
+
+
+def last_support_bot_chat_for(db: Session, *, owner: User) -> SupportBotChat | None:
+    """The owner's support-bot chat for the office: the live one, else the
+    one that stopped last, with why."""
+    return db.scalars(
+        select(SupportBotChat)
+        .where(SupportBotChat.owner_id == owner.id)
+        .order_by(SupportBotChat.is_active.desc(), SupportBotChat.updated_at.desc())
+        .limit(1)
+    ).first()
+
+
+def support_bot_usernames(
+    db: Session, *, guest_chat_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, str]:
+    """Each bot guest chat's Telegram handle, for the office's guest list."""
+    if not guest_chat_ids:
+        return {}
+    rows = db.execute(
+        select(SupportBotChat.guest_chat_id, SupportBotChat.username).where(
+            SupportBotChat.guest_chat_id.in_(guest_chat_ids)
+        )
+    ).all()
+    return {guest_id: username for guest_id, username in rows if guest_id}
+
+
+def support_bot_chat_for_guest(
+    db: Session, *, guest_chat_id: uuid.UUID
+) -> SupportBotChat | None:
+    """The support-bot chat a guest chat was opened from, if it was."""
+    return db.scalars(
+        select(SupportBotChat)
+        .where(SupportBotChat.guest_chat_id == guest_chat_id)
         .limit(1)
     ).first()
 
@@ -203,6 +260,7 @@ __all__ = [
     "deadline_text",
     "failed_launch",
     "last_chat_for",
+    "last_support_bot_chat_for",
     "launch_trace",
     "left_keys",
     "left_rows",
@@ -210,5 +268,9 @@ __all__ = [
     "staff_chat_by_id",
     "staff_chat_for",
     "staff_chats_where",
+    "support_bot_chat_by_id",
+    "support_bot_chat_for",
+    "support_bot_chat_for_guest",
+    "support_bot_usernames",
     "undelivered_notices",
 ]

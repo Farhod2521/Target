@@ -8,9 +8,32 @@ from app.common.choices import Choices
 class RelayBot(Choices):
     CUSTOMER = "customer"
     STAFF = "staff"
+    SUPPORT = "support"
 
 
-RELAY_BOT_LABELS = {RelayBot.CUSTOMER: "Asosiy bot", RelayBot.STAFF: "Xodimlar boti"}
+RELAY_BOT_LABELS = {
+    RelayBot.CUSTOMER: "Asosiy bot",
+    RelayBot.STAFF: "Xodimlar boti",
+    RelayBot.SUPPORT: "Yordam boti",
+}
+
+
+class MessageSource(Choices):
+    """Where a client wrote a message from. The office's own are "site"."""
+
+    SITE = "site"
+    BOT = "bot"
+    SUPPORT_BOT = "support_bot"
+
+
+MESSAGE_SOURCE_LABELS = {
+    MessageSource.SITE: "Sayt",
+    MessageSource.BOT: "Asosiy bot",
+    MessageSource.SUPPORT_BOT: "Yordam boti",
+}
+# A support-bot relay: the reply's words, or one of its files.
+RELAY_PART_TEXT: Final = "text"
+RELAY_PART_FILE: Final = "file"
 
 
 class MessageKind(Choices):

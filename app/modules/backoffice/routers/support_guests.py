@@ -27,6 +27,7 @@ from app.modules.backoffice.schemas import (
     GuestThreadOut,
     MessageOut,
 )
+from app.modules.notifications.selectors import support_bot_usernames
 from app.modules.supportchat import selectors, services
 from app.modules.supportchat.constants import EVERYONE, MAX_BODY_CHARS, OFFICE, WAITING
 from app.modules.supportchat.models import SupportGuestChat
@@ -49,12 +50,14 @@ def _chat(db: Session, chat_id: uuid.UUID) -> SupportGuestChat:
     return chat
 
 
-def _guest(chat: SupportGuestChat) -> dict[str, Any]:
+def _guest(chat: SupportGuestChat, telegram: str = "") -> dict[str, Any]:
     return {
         "id": str(chat.id),
         "name": chat.name,
         "phone": chat.phone,
         "email": chat.email,
+        "channel": chat.channel,
+        "telegram_username": telegram,
         "created_at": chat.created_at,
         "moved": chat.claimed_at is not None,
         "claimed_by": person_out(chat.claimed_by),
@@ -83,13 +86,14 @@ def guest_queue(
     """The guests who wrote; the waiting ones by default, oldest first."""
     asked = EVERYONE if state == EVERYONE else WAITING
     rows = selectors.guest_queue(db, state=asked)
+    handles = support_bot_usernames(db, guest_chat_ids=[row.chat.id for row in rows])
     return jsonable_encoder(
         {
             "state": asked,
             "states": choices(STATES),
             "rows": [
                 {
-                    **_guest(row.chat),
+                    **_guest(row.chat, handles.get(row.chat.id, "")),
                     "waiting": row.waiting,
                     "last_message_at": row.chat.last_message_at,
                     "preview": row.last.body[:160] if row.last else "",
@@ -112,9 +116,10 @@ def guest_thread(chat_id: uuid.UUID, db: Db, user: Answer) -> dict[str, Any]:
     now = utcnow()
     if services.mark_guest_read(db, chat=chat, by_guest=False, now=now):
         set_committed_value(chat, "office_read_at", now)
+    handles = support_bot_usernames(db, guest_chat_ids=[chat.id])
     return jsonable_encoder(
         {
-            **_guest(chat),
+            **_guest(chat, handles.get(chat.id, "")),
             "waiting": selectors.is_guest_waiting(chat=chat),
             "account": _account(db, chat),
             "messages": [

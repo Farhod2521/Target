@@ -34,6 +34,12 @@ REPLY_POSTED: Final = "supportchat.reply_posted"
 # The office replied: mark the Telegram copies it answers
 # (``mark_support_answered_task``). Takes ``reply_id``.
 REPLY_ANSWERS_RELAYS: Final = "supportchat.reply_answers_relays"
+# The office replied: put the reply itself in the client's support bot.
+# Takes ``reply_id``.
+OFFICE_REPLIED: Final = "supportchat.office_replied"
+# An office message was edited or taken back: change its copy in the
+# support bot. Takes ``message_id``.
+OFFICE_CHANGED: Final = "supportchat.office_changed"
 
 
 def store_message(
@@ -78,6 +84,7 @@ def store_message(
     if sender.id != conversation.owner_id:
         _tell_client(db, conversation=conversation, read_before=read_before)
         on_commit(db, lambda: fire(REPLY_ANSWERS_RELAYS, reply_id=message.id))
+        on_commit(db, lambda: fire(OFFICE_REPLIED, reply_id=message.id))
     else:
         on_commit(db, lambda: fire(QUESTION_POSTED, message_id=message.id))
     return message

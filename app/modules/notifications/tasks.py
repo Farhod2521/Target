@@ -1,5 +1,8 @@
 from typing import Any
 
+from celery import Task
+from telegramkit import TelegramTemporaryError
+
 from app.common.db import utcnow
 from app.modules.notifications.services import (
     announce_block_suggestion,
@@ -9,14 +12,21 @@ from app.modules.notifications.services import (
     announce_support_answered,
     announce_support_reply,
     announce_withdrawal,
+    deliver_bot_guest_answer,
+    deliver_bot_reply,
     forward_guest_question,
     forward_support_question,
     handle_staff_update,
+    handle_support_update,
     handle_update,
+    mirror_bot_change,
     report_launch_failure,
 )
 from app.modules.notifications.services.notices import user_of
 from app.worker import celery_app, task_session
+
+SUPPORT_BOT_RETRIES = 4
+SUPPORT_BOT_RETRY_SECONDS = 15
 
 
 @celery_app.task(queue="webhooks", ignore_result=True)
@@ -113,6 +123,55 @@ def handle_staff_telegram_update(payload: dict[str, Any]) -> str:
     """One delivery to the staff bot, acted on."""
     with task_session() as db:
         return handle_staff_update(db, payload=payload, now=utcnow())
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def handle_support_bot_update(payload: dict[str, Any]) -> str:
+    """One delivery to the support bot, acted on."""
+    with task_session() as db:
+        return handle_support_update(db, payload=payload, now=utcnow())
+
+
+@celery_app.task(
+    bind=True, queue="webhooks", ignore_result=True, max_retries=SUPPORT_BOT_RETRIES
+)
+def deliver_support_bot_reply_task(self: Task, reply_id: str) -> int:
+    """One office reply, into the owner's support bot. A 429 or a timeout
+    is tried again; what already went is not sent twice."""
+    try:
+        with task_session() as db:
+            sent = deliver_bot_reply(db, reply_id=reply_id, now=utcnow())
+            db.commit()
+            return sent
+    except TelegramTemporaryError as exc:
+        raise self.retry(exc=exc, countdown=_wait(exc, self.request.retries)) from exc
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def mirror_support_bot_change_task(message_id: str) -> str:
+    """An office message edited or taken back, the same in the support bot."""
+    with task_session() as db:
+        return mirror_bot_change(db, message_id=message_id)
+
+
+@celery_app.task(
+    bind=True, queue="webhooks", ignore_result=True, max_retries=SUPPORT_BOT_RETRIES
+)
+def deliver_support_bot_guest_answer_task(self: Task, message_id: str) -> bool:
+    """The office's words to a guest who wrote from the support bot."""
+    try:
+        with task_session() as db:
+            sent = deliver_bot_guest_answer(db, message_id=message_id, now=utcnow())
+            db.commit()
+            return sent
+    except TelegramTemporaryError as exc:
+        raise self.retry(exc=exc, countdown=_wait(exc, self.request.retries)) from exc
+
+
+def _wait(exc: TelegramTemporaryError, tries: int) -> int:
+    """Telegram's own wait after a 429, else longer each time."""
+    told = getattr(exc, "retry_after", None)
+    return int(told) if told else SUPPORT_BOT_RETRY_SECONDS * (tries + 1)
 
 
 @celery_app.task(queue="webhooks", ignore_result=True)

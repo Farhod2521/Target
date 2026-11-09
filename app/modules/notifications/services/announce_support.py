@@ -15,9 +15,9 @@ from sqlalchemy.orm import Session
 from app.common.hooks import on
 from app.common.i18n import override
 from app.modules.accounts.models import User
-from app.modules.notifications.bot import bot, is_configured
+from app.modules.notifications.bot import bot, is_configured, support_bot_configured
 from app.modules.notifications.constants import NoticeKind
-from app.modules.notifications.selectors import chat_for
+from app.modules.notifications.selectors import chat_for, support_bot_chat_for
 from app.modules.notifications.services.compose import support_reply_message
 from app.modules.notifications.services.journal import claim, stamp
 from app.modules.notifications.services.send import send_to
@@ -45,6 +45,10 @@ def announce_support_reply(
     than a duplicate."""
     chat = chat_for(db, owner=owner)
     if chat is None or not is_configured():
+        return False
+    # The reply itself goes to the support bot; a second phone message
+    # pointing at the site would only repeat it.
+    if support_bot_configured() and support_bot_chat_for(db, owner=owner):
         return False
     with override(owner.language):
         notice = claim(db, chat=chat, kind=NoticeKind.SUPPORT_REPLY, subject=subject)

@@ -39,6 +39,7 @@ from app.modules.backoffice.routers._out import choices, person_out
 from app.modules.backoffice.schemas import MessageOut, SupportQueueOut, SupportThreadOut
 from app.modules.backoffice.selectors.card import person
 from app.modules.backoffice.services import seen
+from app.modules.notifications.selectors import last_support_bot_chat_for
 from app.modules.supportchat import selectors, services
 from app.modules.supportchat.constants import EVERYONE, OFFICE, WAITING
 from app.modules.supportchat.drafts import Draft, Voice
@@ -111,6 +112,7 @@ def _screen(
     return jsonable_encoder(
         {
             "customer": person_out(client),
+            "support_bot": _support_bot(db, client),
             "conversation_id": str(chat.id) if chat is not None else None,
             "waiting": chat is not None and selectors.is_waiting(conversation=chat),
             "messages": (
@@ -130,6 +132,17 @@ def _screen(
             "composer": composer(),
         }
     )
+
+
+def _support_bot(db: Session, client: User) -> dict[str, Any] | None:
+    row = last_support_bot_chat_for(db, owner=client)
+    if row is None:
+        return None
+    return {
+        "linked": row.is_active,
+        "username": row.username,
+        "last_error": row.last_error,
+    }
 
 
 def _drawn_one(db: Session, message: SupportMessage) -> dict[str, Any]:

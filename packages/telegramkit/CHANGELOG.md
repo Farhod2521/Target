@@ -4,6 +4,20 @@ Semantik versiyalash. Telegram Bot API'ning versiyasi yo'q — u
 o'zgarganda eski metodlar ishlashda davom etadi, shuning uchun
 `client.py` da qadab qo'yiladigan versiya konstantasi ham yo'q.
 
+## 0.12.0 — 2026-11-08
+
+### Qo'shildi
+- `read_media()` va `MediaMessage` — xabardagi fayl: turi (Telegram'ning
+  o'z so'zi: photo, document, video, voice, audio, video_note,
+  animation, sticker), `file_id`, nomi, mime, hajmi, davomiyligi,
+  stikerning emojisi, izoh (caption) va qaysi xabarga javobligi.
+  `read_update()` o'zgarmadi: fayl saqlay olmaydigan bot avvalgidek
+  `OtherMessage` ko'radi.
+- `Sender.name` — ism va familiya, faqat o'qish uchun yorliq.
+- `get_file()` (`TelegramFile`), `download_file()` — faylni olish;
+  `DOWNLOAD_MAX_BYTES` (20 MB) dan kattasini Telegram bermaydi.
+- `delete_message()`, `set_my_commands()`.
+
 ## 0.11.0 — 2026-11-06
 
 ### Qo'shildi

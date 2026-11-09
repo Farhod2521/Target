@@ -8,13 +8,19 @@ from pydantic import BaseModel
 from app.api.deps import CurrentUser, Db
 from app.common.db import utcnow
 from app.modules.notifications import selectors, services
-from app.modules.notifications.bot import bot_home, deep_link, is_configured
+from app.modules.notifications.bot import (
+    bot_home,
+    deep_link,
+    is_configured,
+    support_bot_configured,
+)
 from app.modules.notifications.models import TelegramChat
 from app.modules.notifications.schemas import (
     ConnectOut,
     MessageOut,
     PreferencesOut,
     SettingsOut,
+    SupportBotOut,
 )
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -58,6 +64,19 @@ def settings_screen(db: Db, user: CurrentUser) -> dict[str, Any]:
 def connect(user: CurrentUser) -> dict[str, str]:
     token = services.issue_link_token(owner=user)
     return {"url": deep_link(payload=token)}
+
+
+@router.get("/support-bot", responses={200: {"model": SupportBotOut}})
+def support_bot_link(db: Db, user: CurrentUser) -> dict[str, Any]:
+    """The help window's «Telegramda yozish»: a fresh link each time, so
+    the Telegram that opens it writes into this account's support chat."""
+    if not support_bot_configured() or not services.may_use_support_bot(user):
+        return {"available": False, "linked": False, "url": ""}
+    return {
+        "available": True,
+        "linked": selectors.support_bot_chat_for(db, owner=user) is not None,
+        "url": services.support_link_url(owner=user),
+    }
 
 
 @router.post("/disconnect", responses={200: {"model": MessageOut}})

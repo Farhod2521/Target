@@ -50,7 +50,7 @@ from app.modules.notifications.services.compose import (
     support_question_message,
 )
 from app.modules.notifications.services.support_confirm import hold_second_reply
-from app.modules.supportchat.constants import MessageKind
+from app.modules.supportchat.constants import MessageKind, MessageSource
 from app.modules.supportchat.models import (
     SupportAttachment,
     SupportGuestMessage,
@@ -106,8 +106,9 @@ def question_for(db: Session, *, message: SupportMessage) -> Message:
     rows = _attachments(db, message)
     names = [item.name for item in _files_of(message, rows)]
     voice = message.kind == MessageKind.VOICE
+    via = " · Yordam boti" if message.source == MessageSource.SUPPORT_BOT else ""
     return support_question_message(
-        client=f"{owner.full_name or owner.email} · {owner.email}",
+        client=f"{owner.full_name or owner.email} · {owner.email}{via}",
         # A sticker's emoji and a voice's length stand where words would.
         body=message.body
         or (preview_text(message, rows) if not names or voice else ""),
@@ -130,11 +131,7 @@ def forward_support_question(db: Session, *, message_id: str, now: datetime) -> 
     chats = [chat for chat in office_chats(db) if chat.chat_id not in already]
     if not chats:
         return 0
-    files = [
-        (item, content)
-        for item in _files_of(message, _attachments(db, message))
-        if (content := attachment_bytes(item=item)) is not None
-    ]
+    files = message_files(db, message=message)
     text = question_for(db, message=message).text
     copies = 0
     with staff_bot() as client:
@@ -186,10 +183,16 @@ def forward_guest_question(db: Session, *, message_id: str) -> int:
     if not chats:
         return 0
     guest = message.chat
+    from_bot = guest.channel == MessageSource.SUPPORT_BOT
     text = support_guest_message(
-        guest=f"{guest.name} · {guest.phone} · {guest.email}",
+        guest=(
+            f"{guest.name} · Telegram"
+            if from_bot
+            else f"{guest.name} · {guest.phone} · {guest.email}"
+        ),
         body=message.body,
         office_path=reverse("backoffice:support_guest", [guest.id]),
+        from_bot=from_bot,
     ).text
     with staff_bot() as client:
         copies = sum(
@@ -202,6 +205,17 @@ def forward_guest_question(db: Session, *, message_id: str) -> int:
         extra={"message_id": str(message.id), "copies": copies},
     )
     return copies
+
+
+def message_files(
+    db: Session, *, message: SupportMessage
+) -> list[tuple[RelayedFile, bytes]]:
+    """Every file of the message Telegram will carry, read once."""
+    return [
+        (item, content)
+        for item in _files_of(message, _attachments(db, message))
+        if (content := attachment_bytes(item=item)) is not None
+    ]
 
 
 def _attachments(db: Session, message: SupportMessage) -> list[SupportAttachment]:
@@ -355,6 +369,7 @@ __all__ = [
     "answer_support_reply",
     "attachment_bytes",
     "forward_support_question",
+    "message_files",
     "office_chats",
     "question_for",
     "queue_support_question",

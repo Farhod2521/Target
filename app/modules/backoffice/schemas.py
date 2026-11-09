@@ -1104,6 +1104,13 @@ class GuestOut(BaseModel):
     name: str
     phone: str
     email: str
+    channel: str = Field(
+        "site",
+        description="`site` (the sign-in page) or `support_bot`: no phone or email then, the answer goes to Telegram.",
+    )
+    telegram_username: str = Field(
+        "", description="The support bot guest's Telegram handle, without @."
+    )
     created_at: datetime
     moved: bool = Field(
         description="Signing in moved it into the account's chat: read-only."
@@ -1134,8 +1141,21 @@ class GuestThreadOut(GuestOut):
     max_body_chars: int
 
 
+class SupportBotLinkOut(BaseModel):
+    linked: bool = Field(
+        description="The client's support bot is live: every reply goes there too."
+    )
+    username: str = Field(description="Their Telegram handle, without @.")
+    last_error: str = Field(
+        description="`blocked` or `unreachable`: why replies stopped going."
+    )
+
+
 class SupportThreadOut(BaseModel):
     customer: PersonOut
+    support_bot: SupportBotLinkOut | None = Field(
+        None, description="The client's support-bot chat; empty when they never wrote there."
+    )
     conversation_id: str | None = Field(
         description="Empty: no chat yet; the first message writes it."
     )

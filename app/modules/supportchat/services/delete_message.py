@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session
 
 from app.common import storage
 from app.common.db import on_commit
+from app.common.hooks import fire
 from app.modules.accounts.models import User
 from app.modules.audit.constants import ActionType, EventName
 from app.modules.supportchat.models import SupportAttachment, SupportMessage
 from app.modules.supportchat.services._journal import journal
 from app.modules.supportchat.services._own import own_message
+from app.modules.supportchat.services._store import OFFICE_CHANGED
 from app.modules.supportchat.services._tx import atomic
 
 
@@ -67,6 +69,9 @@ def delete_message(
             now=now,
         )
         on_commit(db, lambda: _remove(files))
+        if message.sender_id != message.owner_id:
+            changed = message.id
+            on_commit(db, lambda: fire(OFFICE_CHANGED, message_id=changed))
         return message
 
     return atomic(db, run)

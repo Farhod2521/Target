@@ -34,12 +34,12 @@ def staff_message_for_relay(
 
 
 def relay_for(
-    db: Session, *, chat_id: str, telegram_message_id: int
+    db: Session, *, chat_id: str, telegram_message_id: int, bot: str = RelayBot.STAFF
 ) -> SupportRelay | None:
     """The copy a Telegram message is, or ``None`` when it is not one."""
     return db.scalar(
         select(R).where(
-            R.bot == RelayBot.STAFF,
+            R.bot == bot,
             R.chat_id == chat_id,
             R.telegram_message_id == telegram_message_id,
         )
@@ -89,14 +89,32 @@ def unanswered_relays(db: Session, *, reply: SupportMessage) -> list[SupportRela
     )
 
 
-def relayed_chat_ids(db: Session, *, message: SupportMessage) -> set[str]:
+def relayed_chat_ids(
+    db: Session, *, message: SupportMessage, bot: str = RelayBot.STAFF
+) -> set[str]:
     """The Telegram chats this message already reached."""
     return set(
         db.scalars(
             select(R.chat_id).where(
                 R.owner_id == message.owner_id,
                 R.message_id == message.id,
-                R.bot == RelayBot.STAFF,
+                R.bot == bot,
             )
+        )
+    )
+
+
+def bot_copies(db: Session, *, message: SupportMessage) -> list[SupportRelay]:
+    """Every Telegram message the support bot carries this one in, oldest
+    first: an office reply's files and words, or a client's own message."""
+    return list(
+        db.scalars(
+            select(R)
+            .where(
+                R.owner_id == message.owner_id,
+                R.message_id == message.id,
+                R.bot == RelayBot.SUPPORT,
+            )
+            .order_by(R.telegram_message_id)
         )
     )

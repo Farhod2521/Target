@@ -13,7 +13,13 @@ from telegramkit.errors import (
     scrubbed,
     translate,
 )
-from telegramkit.models import BotIdentity, Button, SentMessage, WebhookInfo
+from telegramkit.models import (
+    BotIdentity,
+    Button,
+    SentMessage,
+    TelegramFile,
+    WebhookInfo,
+)
 
 API_BASE_URL: Final = "https://api.telegram.org"
 
@@ -28,6 +34,8 @@ ELLIPSIS: Final = "…"
 
 PHOTO_MAX_BYTES: Final = 10 * 1024 * 1024
 DOCUMENT_MAX_BYTES: Final = 50 * 1024 * 1024
+# What ``getFile`` hands a bot: anything bigger it refuses to give a path to.
+DOWNLOAD_MAX_BYTES: Final = 20 * 1024 * 1024
 
 UPLOAD_TIMEOUT_SECONDS: Final = 60.0
 
@@ -197,6 +205,51 @@ class BotClient:
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "reply_markup": _keyboard(buttons),
+            },
+        )
+
+    def delete_message(self, *, chat_id: str, message_id: int) -> None:
+        """Take a message of this bot's back off the screen. Telegram allows
+        it for 48 hours; after that it answers with an error to catch."""
+        self._call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+
+    def get_file(self, *, file_id: str) -> TelegramFile:
+        """Where a file somebody sent can be fetched from, for about an hour.
+        Refused for anything over ``DOWNLOAD_MAX_BYTES``."""
+        answer = self._call("getFile", {"file_id": file_id})
+        return TelegramFile(
+            path=str(answer.get("file_path") or ""),
+            size=int(answer.get("file_size") or 0),
+        )
+
+    def download_file(self, *, path: str) -> bytes:
+        """The bytes behind a ``get_file`` path."""
+        url = f"{self._base_url}/file/bot{self._token}/{path}"
+        try:
+            response = self._client.get(url, timeout=UPLOAD_TIMEOUT_SECONDS)
+        except httpx.TimeoutException as exc:
+            raise TelegramTemporaryError(
+                f"Telegram did not answer in time: {exc}"
+            ) from exc
+        except httpx.TransportError as exc:
+            raise TelegramTemporaryError(f"could not reach Telegram: {exc}") from exc
+        if response.status_code >= 500:
+            raise TelegramTemporaryError(
+                f"file download failed ({response.status_code})"
+            )
+        if response.status_code >= 400:
+            raise TelegramAPIError(f"file download refused ({response.status_code})")
+        return response.content
+
+    def set_my_commands(self, *, commands: tuple[tuple[str, str], ...]) -> None:
+        """The "/" menu: each command without its slash, and what it does."""
+        self._call(
+            "setMyCommands",
+            {
+                "commands": [
+                    {"command": name, "description": description}
+                    for name, description in commands
+                ]
             },
         )
 
@@ -423,10 +476,12 @@ def _prefix(text: str, units: int) -> str:
 __all__ = [
     "API_BASE_URL",
     "CAPTION_MAX_CHARS",
+    "DOWNLOAD_MAX_BYTES",
     "MESSAGE_MAX_CHARS",
     "BotClient",
     "BotIdentity",
     "Button",
     "SentMessage",
+    "TelegramFile",
     "WebhookInfo",
 ]

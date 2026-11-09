@@ -52,6 +52,10 @@ class MessageOut(BaseModel):
     repliable: bool
     read: bool = Field(description="Own message the other side has read: two ticks.")
     preview: str = Field(description="The message in one line.")
+    source: str = Field(
+        "site",
+        description="Where the client wrote it: `site`, `bot` (the main bot's /yordam) or `support_bot`.",
+    )
 
 
 class StickerOut(BaseModel):

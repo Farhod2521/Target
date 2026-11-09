@@ -19,12 +19,15 @@ from telegramkit import (
     ButtonPress,
     ChatUnreachable,
     Command,
+    MediaMessage,
     OtherMessage,
     TelegramAPIError,
     TelegramError,
+    TelegramFile,
     TelegramRateLimited,
     TelegramTemporaryError,
     TextMessage,
+    read_media,
     read_update,
     scrubbed,
     secret_matches,
@@ -866,3 +869,124 @@ def test_a_shared_row_longer_than_telegram_draws_is_wrapped() -> None:
 
     rows = json.loads(seen[0].content)["reply_markup"]["inline_keyboard"]
     assert [len(row) for row in rows] == [8, 3]
+
+
+# --- Files somebody sent ----------------------------------------------------
+
+
+def _posted(**body: Any) -> dict[str, Any]:
+    return {
+        "update_id": 1,
+        "message": {
+            "message_id": 5,
+            "chat": {"id": 9, "type": "private"},
+            "from": {
+                "id": 9,
+                "username": "ali",
+                "first_name": "Ali",
+                "last_name": "Valiyev",
+            },
+            **body,
+        },
+    }
+
+
+def test_a_photo_is_read_at_its_largest_size_with_its_caption() -> None:
+    media = read_media(
+        _posted(
+            photo=[{"file_id": "s", "file_size": 1}, {"file_id": "l", "file_size": 9}],
+            caption="  xato  ",
+            reply_to_message={"message_id": 3},
+        )
+    )
+    assert isinstance(media, MediaMessage)
+    assert (media.kind, media.file_id, media.size) == ("photo", "l", 9)
+    assert media.caption == "xato" and media.reply_to_message_id == 3
+    assert media.sender.name == "Ali Valiyev"
+
+
+def test_a_document_voice_and_sticker_carry_what_each_has() -> None:
+    document = read_media(
+        _posted(
+            document={
+                "file_id": "d",
+                "file_name": "a.pdf",
+                "mime_type": "application/pdf",
+                "file_size": 4,
+            }
+        )
+    )
+    assert document is not None and (document.file_name, document.mime) == (
+        "a.pdf",
+        "application/pdf",
+    )
+    voice = read_media(
+        _posted(voice={"file_id": "v", "duration": 12, "mime_type": "audio/ogg"})
+    )
+    assert voice is not None and (voice.kind, voice.seconds) == ("voice", 12)
+    sticker = read_media(_posted(sticker={"file_id": "st", "emoji": "👍"}))
+    assert sticker is not None and (sticker.kind, sticker.emoji) == ("sticker", "👍")
+
+
+def test_an_animation_is_not_mistaken_for_its_document_twin() -> None:
+    media = read_media(
+        _posted(
+            animation={"file_id": "a"}, document={"file_id": "a", "file_name": "x.mp4"}
+        )
+    )
+    assert media is not None and media.kind == "animation"
+
+
+def test_words_and_unknown_messages_are_not_media() -> None:
+    assert read_media(_posted(text="salom")) is None
+    assert read_media(_posted(location={"latitude": 1, "longitude": 2})) is None
+    # The bots that keep no files still see a word-less message as before.
+    assert isinstance(read_update(_posted(photo=[{"file_id": "p"}])), OtherMessage)
+
+
+def test_a_file_is_found_then_fetched_from_the_file_address() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith("/getFile"):
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "result": {"file_path": "photos/f.jpg", "file_size": 3},
+                },
+            )
+        return httpx.Response(200, content=b"abc")
+
+    with BotClient(
+        token=TOKEN, client=httpx.Client(transport=httpx.MockTransport(handler))
+    ) as bot:
+        found = bot.get_file(file_id="x")
+        content = bot.download_file(path=found.path)
+
+    assert found == TelegramFile(path="photos/f.jpg", size=3)
+    assert content == b"abc"
+    assert seen[1].url.path == f"/file/bot{TOKEN}/photos/f.jpg"
+
+
+def test_a_refused_download_is_an_error_to_catch() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, content=b"no")
+
+    with BotClient(
+        token=TOKEN, client=httpx.Client(transport=httpx.MockTransport(handler))
+    ) as bot, pytest.raises(TelegramAPIError):
+        bot.download_file(path="gone")
+
+
+def test_delete_and_the_command_menu_post_what_telegram_expects() -> None:
+    seen: list[httpx.Request] = []
+    with client_answering({"ok": True, "result": True}, seen=seen) as bot:
+        bot.delete_message(chat_id="7", message_id=42)
+        bot.set_my_commands(commands=(("start", "Boshlash"),))
+    assert seen[0].url.path.endswith("/deleteMessage")
+    assert json.loads(seen[0].content) == {"chat_id": "7", "message_id": 42}
+    assert json.loads(seen[1].content) == {
+        "commands": [{"command": "start", "description": "Boshlash"}]
+    }

@@ -29,6 +29,8 @@ class SupportGuestChat(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     phone: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     email: Mapped[str] = mapped_column(String(254), nullable=False, default="", index=True)
+    # "site" for the sign-in page, "support_bot" for a stranger in the bot.
+    channel: Mapped[str] = mapped_column(String(16), nullable=False, default="site", server_default="site")
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_guest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_office_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

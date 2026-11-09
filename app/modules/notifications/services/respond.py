@@ -1,8 +1,9 @@
 """What the customer bot does when somebody writes to it.
 
 ``/start`` with a code links an account, ``/start parol`` sends a linked
-one its new-password link, ``/stop`` unlinks it, ``/yordam`` makes the next
-typed words a message to Support, ``/hisobot``, ``/bugun`` and ``/hafta`` send
+one its new-password link, ``/stop`` unlinks it, ``/yordam`` points at the
+support bot (or, while there is none, makes the next typed words a message
+to Support), ``/hisobot``, ``/bugun`` and ``/hafta`` send
 a report, and the buttons under it open a pair's figures. A stranger and an
 unlinked chat get the one sentence about connecting.
 
@@ -22,6 +23,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 from telegramkit import (
     BotClient,
+    Button,
     ButtonPress,
     Command,
     OtherMessage,
@@ -33,7 +35,7 @@ from telegramkit import (
 from app.common.cache import cache
 from app.common.exceptions import DomainError
 from app.common.i18n import DEFAULT, override
-from app.modules.notifications.bot import bot
+from app.modules.notifications.bot import bot, support_bot_configured, support_bot_home
 from app.modules.notifications.constants import (
     COMMAND_HELP,
     COMMAND_REPORT,
@@ -74,6 +76,8 @@ from app.modules.notifications.services.survey_press import (
     handle_survey_press,
     is_survey_press,
 )
+from app.modules.supportchat.constants import MessageSource
+from app.modules.supportchat.drafts import Draft
 from app.modules.supportchat.services import write_from_telegram
 
 logger = logging.getLogger(__name__)
@@ -196,7 +200,22 @@ def _start(
 def _start_support(
     db: Session, *, client: BotClient, chat: TelegramChat, now: datetime
 ) -> str:
-    """``/yordam``: the next words typed go to Support."""
+    """``/yordam``: the support bot, where Support answers in the chat
+    itself; without one, the next words typed here go to Support."""
+    if support_bot_configured():
+        send_to(
+            db,
+            client=client,
+            chat=chat,
+            text=escaped(
+                "Yordam xizmati alohida botda: savolingizni o'sha yerga yozing - "
+                "rasm, fayl va ovozli xabar ham bo'ladi, javob ham o'sha yerga keladi."
+            ),
+            buttons=(Button(text="Yordam botini ochish", url=support_bot_home()),),
+            now=now,
+        )
+        db.commit()
+        return "support_bot_link"
     cache.set(
         SUPPORT_WAIT_KEY.format(chat_id=chat.chat_id), 1, SUPPORT_WAIT_TTL_SECONDS
     )
@@ -263,7 +282,12 @@ def _pass_to_support(
         return ""
     cache.delete(key)
     try:
-        write_from_telegram(db, owner=chat.owner, body=message.text, now=now)
+        write_from_telegram(
+            db,
+            owner=chat.owner,
+            draft=Draft(body=message.text, source=MessageSource.BOT),
+            now=now,
+        )
     except DomainError as exc:
         send_to(db, client=client, chat=chat, text=escaped(exc.message), now=now)
         db.commit()

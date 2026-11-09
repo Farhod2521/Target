@@ -2,6 +2,10 @@
 
 The guest gives a name, a phone and an email, and gets a token - the only
 proof the chat is theirs, kept by their browser. Words only, both ways.
+
+A stranger writing to the support bot gets a guest chat too
+(``channel="support_bot"``): named by Telegram, with no phone or email,
+and moved into an account's chat when that Telegram links one.
 Signing in moves the words into the account's own chat, but only into the
 account the guest named: its email or its phone, so a shared computer does
 not hand one person's words to the next one signing in.
@@ -34,6 +38,7 @@ from app.modules.supportchat.constants import (
     MESSAGE_BUCKET,
     MESSAGES_PER_MINUTE,
     MessageKind,
+    MessageSource,
 )
 from app.modules.supportchat.exceptions import (
     EmptyMessage,
@@ -56,6 +61,9 @@ logger = logging.getLogger(__name__)
 # The guest wrote: tell every member of Support in the staff bot. Takes
 # ``message_id``.
 GUEST_POSTED: Final = "supportchat.guest_posted"
+# The office answered a guest: a support-bot guest gets it in Telegram.
+# Takes ``message_id``.
+GUEST_ANSWERED: Final = "supportchat.guest_answered"
 
 _EMAIL = TypeAdapter(EmailStr)
 
@@ -108,6 +116,36 @@ def start_guest_chat(
     chat = atomic(db, run)
     logger.info("support guest chat started", extra={"chat_id": str(chat.id)})
     return Started(chat=chat, token=token)
+
+
+def start_bot_guest_chat(
+    db: Session, *, name: str, body: str, now: datetime
+) -> SupportGuestChat:
+    """A stranger's first words in the support bot, with the chat they open.
+
+    Telegram vouches for nobody's phone or email, so neither is asked; the
+    name is the one Telegram shows. No token leaves: the bot's own row is
+    what ties the Telegram chat to this one. The rate limit is the
+    message one, keyed by the Telegram chat, like every message after.
+    """
+    text = _checked_body(body)
+    token = secrets.token_urlsafe(32)
+
+    def run() -> SupportGuestChat:
+        chat = SupportGuestChat(
+            id=uuid.uuid4(),
+            token_hash=token_hash(token),
+            name=(" ".join(name.split()) or "Telegram")[:120],
+            channel=MessageSource.SUPPORT_BOT,
+        )
+        db.add(chat)
+        db.flush()
+        _append(db, chat=chat, sender=None, text=text, now=now)
+        return chat
+
+    chat = atomic(db, run)
+    logger.info("support bot guest chat started", extra={"chat_id": str(chat.id)})
+    return chat
 
 
 def guest_writes(
@@ -187,11 +225,25 @@ def claim_guest_chat(db: Session, *, token: str, user: User, now: datetime) -> i
     )
     if chat is None or chat.claimed_at is not None or not names_account(chat, user):
         return 0
+    return move_guest_chat(db, chat=chat, user=user, now=now)
+
+
+def move_guest_chat(
+    db: Session, *, chat: SupportGuestChat, user: User, now: datetime
+) -> int:
+    """Move every word of this guest chat into the account's chat. The
+    caller has proved the two are the same person. Returns how many moved;
+    0 when the chat had moved already."""
 
     def run() -> int:
         locked = _locked(db, chat.id)
         if locked.claimed_at is not None:
             return 0
+        source = (
+            MessageSource.SUPPORT_BOT
+            if locked.channel == MessageSource.SUPPORT_BOT
+            else MessageSource.SITE
+        )
         conversation = chat_of_client(db, owner=user, now=now)
         words = list(
             db.scalars(
@@ -213,6 +265,7 @@ def claim_guest_chat(db: Session, *, token: str, user: User, now: datetime) -> i
                     sender_id=user.id if word.from_guest else word.sender_id,
                     kind=MessageKind.TEXT,
                     body=word.body,
+                    source=source if word.from_guest else MessageSource.SITE,
                 )
             )
         _merge_moments(conversation, locked)
@@ -317,6 +370,7 @@ def _append(
     else:
         chat.last_office_at = now
         chat.office_read_at = now
+        on_commit(db, lambda: fire(GUEST_ANSWERED, message_id=message.id))
     db.flush()
     return message
 

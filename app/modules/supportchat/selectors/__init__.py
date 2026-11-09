@@ -40,6 +40,7 @@ from app.modules.supportchat.selectors.messages import (
     staff_messages_in,
 )
 from app.modules.supportchat.selectors.relays import (
+    bot_copies,
     office_answer_after,
     relay_for,
     relayed_chat_ids,
@@ -57,6 +58,7 @@ __all__ = [
     "QueueRow",
     "attachment_for_download",
     "awaiting_reply_count",
+    "bot_copies",
     "changed_since",
     "chat_of",
     "conversation_for_owner",

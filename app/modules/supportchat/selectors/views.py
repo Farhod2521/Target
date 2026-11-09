@@ -88,6 +88,7 @@ def message_view(
         "repliable": not gone,
         "read": own and _read_by_other(message, conversation, side),
         "preview": preview_text(message, rows)[:160],
+        "source": message.source,
     }
 
 

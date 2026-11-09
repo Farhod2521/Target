@@ -23,3 +23,5 @@ class Draft:
     sticker: str = ""
     # The id of the message this one answers, as the composer sent it.
     reply_to: str = ""
+    # Where the client wrote it (``MessageSource``).
+    source: str = "site"

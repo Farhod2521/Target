@@ -1455,7 +1455,7 @@ dev = [
 
 [[package]]
 name = "telegramkit"
-version = "0.11.0"
+version = "0.12.0"
 source = { editable = "packages/telegramkit" }
 dependencies = [
     { name = "httpx" },

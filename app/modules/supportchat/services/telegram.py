@@ -38,25 +38,31 @@ def reply_from_telegram(
 
 
 def write_from_telegram(
-    db: Session, *, owner: User, body: str, now: datetime
+    db: Session, *, owner: User, draft: Draft, now: datetime
 ) -> SupportMessage:
-    """A client writing to Support from the customer bot, through the
-    cabinet's own service, then put on the office's screens."""
-    message = send_to_support(db, owner=owner, draft=Draft(body=body), now=now)
+    """A client writing to Support from a bot, through the cabinet's own
+    service, then put on the office's screens. ``draft.source`` says which."""
+    message = send_to_support(db, owner=owner, draft=draft, now=now)
     broadcast_message(message=message)
     return message
 
 
 def record_relay(
-    db: Session, *, message: SupportMessage, chat_id: str, telegram_message_id: int
+    db: Session,
+    *,
+    message: SupportMessage,
+    chat_id: str,
+    telegram_message_id: int,
+    bot: str = RelayBot.STAFF,
+    part: str = "",
 ) -> SupportRelay:
-    """Tie one Telegram copy to the client message it carries. Bookkeeping,
-    no journal; idempotent on the Telegram pair."""
+    """Tie one Telegram message to the support message it carries, in one
+    bot. Bookkeeping, no journal; idempotent on the Telegram pair."""
 
     def found() -> SupportRelay | None:
         return db.scalar(
             select(SupportRelay).where(
-                SupportRelay.bot == RelayBot.STAFF,
+                SupportRelay.bot == bot,
                 SupportRelay.chat_id == chat_id,
                 SupportRelay.telegram_message_id == telegram_message_id,
             )
@@ -69,9 +75,10 @@ def record_relay(
                 relay = SupportRelay(
                     owner_id=message.owner_id,
                     message_id=message.id,
-                    bot=RelayBot.STAFF,
+                    bot=bot,
                     chat_id=chat_id,
                     telegram_message_id=telegram_message_id,
+                    part=part,
                 )
                 db.add(relay)
         except IntegrityError:

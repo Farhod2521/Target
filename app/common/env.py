@@ -221,6 +221,13 @@ class Env(BaseSettings):
     staff_bot_token: str = Field(default="", alias="STAFF_BOT_TOKEN")
     staff_bot_webhook_secret: str = Field(default="", alias="STAFF_BOT_WEBHOOK_SECRET")
     staff_bot_username: str = Field(default="", alias="STAFF_BOT_USERNAME")
+    # The clients' support bot: what is written to it lands in the cabinet's
+    # support chat, and the office's replies come back to it.
+    support_bot_token: str = Field(default="", alias="SUPPORT_BOT_TOKEN")
+    support_bot_webhook_secret: str = Field(
+        default="", alias="SUPPORT_BOT_WEBHOOK_SECRET"
+    )
+    support_bot_username: str = Field(default="", alias="SUPPORT_BOT_USERNAME")
     billing_currency: str = Field(default="USD", alias="BILLING_CURRENCY")
     payme_merchant_id: str = Field(default="", alias="PAYME_MERCHANT_ID")
     payme_key: str = Field(default="", alias="PAYME_KEY")

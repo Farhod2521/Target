@@ -23,6 +23,9 @@ class Sender(BaseModel):
 
     id: str
     username: str = ""
+    # First and last name as the person set them: a label for whoever reads
+    # the chat on the other side, never something to decide on.
+    name: str = ""
 
 
 class Command(BaseModel):
@@ -114,7 +117,49 @@ class ButtonPress(BaseModel):
     data: str
 
 
+class MediaMessage(BaseModel):
+    """A message that carried a file: what it is and how to fetch it.
+
+    Read by :func:`read_media`, not by :func:`read_update` - a bot that
+    cannot keep a file goes on seeing an :class:`OtherMessage`, and only a
+    caller that asks for the file gets the promise that it can have it.
+
+    ``file_id`` is what ``getFile`` takes. ``kind`` is Telegram's own word:
+    "photo", "document", "video", "voice", "audio", "video_note",
+    "animation" or "sticker". A photo is its largest size. ``emoji`` is a
+    sticker's own picture as a character; a sticker's file is not wanted.
+    ``caption`` is the words under it, trimmed.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    kind: str
+    chat_id: str
+    chat_type: str
+    sender: Sender
+    message_id: int
+    file_id: str = ""
+    file_name: str = ""
+    mime: str = ""
+    size: int = 0
+    seconds: int = 0
+    emoji: str = ""
+    caption: str = ""
+    reply_to_message_id: int = 0
+
+
 Update = Command | ButtonPress | TextMessage | OtherMessage
+
+MEDIA_KINDS: Final = (
+    "photo",
+    "document",
+    "video",
+    "voice",
+    "audio",
+    "video_note",
+    "animation",
+    "sticker",
+)
 
 
 def secret_matches(*, header: str, expected: str) -> bool:
@@ -131,6 +176,52 @@ def read_update(payload: dict[str, Any]) -> Update | None:
         return press
     message = payload.get("message")
     return _command(message) or _text(message) or _other(message)
+
+
+def read_media(payload: dict[str, Any]) -> MediaMessage | None:
+    """The file one posted message carried, or nothing - a text, a command,
+    a press, or a kind of message this does not know."""
+    message = payload.get("message")
+    if not isinstance(message, dict):
+        return None
+    chat = message.get("chat")
+    chat_id = _chat_id(chat)
+    sender = _sender(message.get("from"))
+    message_id = message.get("message_id")
+    if not chat_id or sender is None or not isinstance(message_id, int):
+        return None
+    for kind in MEDIA_KINDS:
+        found = message.get(kind)
+        # "animation" also arrives as "document"; its own key comes first.
+        if kind == "document" and isinstance(message.get("animation"), dict):
+            continue
+        body = (
+            found[-1]
+            if kind == "photo" and isinstance(found, list) and found
+            else found
+        )
+        if not isinstance(body, dict) or not body.get("file_id"):
+            continue
+        return MediaMessage(
+            kind=kind,
+            chat_id=chat_id,
+            chat_type=_chat_type(chat),
+            sender=sender,
+            message_id=message_id,
+            file_id=str(body.get("file_id") or ""),
+            file_name=str(body.get("file_name") or ""),
+            mime=str(body.get("mime_type") or ""),
+            size=_int(body.get("file_size")),
+            seconds=_int(body.get("duration")),
+            emoji=str(body.get("emoji") or "") if kind == "sticker" else "",
+            caption=str(message.get("caption") or "").strip(),
+            reply_to_message_id=_replied_id(message.get("reply_to_message")),
+        )
+    return None
+
+
+def _int(value: Any) -> int:
+    return value if isinstance(value, int) and value > 0 else 0
 
 
 def _command(message: Any) -> Command | None:
@@ -256,16 +347,29 @@ def _sender(user: Any) -> Sender | None:
     value = user.get("id")
     if not isinstance(value, int):
         return None
-    return Sender(id=str(value), username=str(user.get("username") or ""))
+    name = " ".join(
+        part
+        for part in (
+            str(user.get("first_name") or ""),
+            str(user.get("last_name") or ""),
+        )
+        if part.strip()
+    )
+    return Sender(
+        id=str(value), username=str(user.get("username") or ""), name=name.strip()
+    )
 
 
 __all__ = [
     "CALLBACK_DATA_MAX_BYTES",
+    "MEDIA_KINDS",
     "ButtonPress",
     "Command",
+    "MediaMessage",
     "Sender",
     "TextMessage",
     "Update",
+    "read_media",
     "read_update",
     "secret_matches",
 ]

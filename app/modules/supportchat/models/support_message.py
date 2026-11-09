@@ -31,6 +31,8 @@ class SupportMessage(Base):
     original_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     mime: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    # Where the client wrote it: the site, the main bot's /yordam, the support bot.
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="site", server_default="site")
     # -- django extras --
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
     conversation: Mapped["SupportConversation"] = relationship(foreign_keys=[conversation_id], lazy="select")  # noqa: F821

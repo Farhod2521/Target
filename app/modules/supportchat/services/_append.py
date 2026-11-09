@@ -59,6 +59,7 @@ def append_message(
         sticker=draft.sticker,
         reply_to_id=reply_to.id if reply_to is not None else None,
         kind=_kind(draft=draft, files=files),
+        source=draft.source,
         # What the lists show without reading the files: the first name,
         # and how much the send weighed.
         original_name=files[0].name if files else "",

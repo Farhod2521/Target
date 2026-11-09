@@ -1,6 +1,8 @@
 """Public write API of the support chat. Each service commits its own write."""
 
 from app.modules.supportchat.services._store import (
+    OFFICE_CHANGED,
+    OFFICE_REPLIED,
     QUESTION_POSTED,
     REPLY_ANSWERS_RELAYS,
     REPLY_POSTED,
@@ -8,15 +10,18 @@ from app.modules.supportchat.services._store import (
 from app.modules.supportchat.services.delete_message import delete_message
 from app.modules.supportchat.services.edit_message import edit_message
 from app.modules.supportchat.services.guests import (
+    GUEST_ANSWERED,
     GUEST_POSTED,
     Started,
     account_for_guest,
     claim_guest_chat,
     guest_writes,
     mark_guest_read,
+    move_guest_chat,
     names_account,
     office_answers_guest,
     settle_guest,
+    start_bot_guest_chat,
     start_guest_chat,
 )
 from app.modules.supportchat.services.mark_read import mark_read
@@ -35,7 +40,10 @@ from app.modules.supportchat.services.telegram import (
 from app.modules.supportchat.services.write_to_client import write_to_client
 
 __all__ = [
+    "GUEST_ANSWERED",
     "GUEST_POSTED",
+    "OFFICE_CHANGED",
+    "OFFICE_REPLIED",
     "QUESTION_POSTED",
     "REPLY_ANSWERS_RELAYS",
     "REPLY_POSTED",
@@ -49,6 +57,7 @@ __all__ = [
     "mark_guest_read",
     "mark_read",
     "mark_relays_answered",
+    "move_guest_chat",
     "names_account",
     "office_answers_guest",
     "post_message",
@@ -57,6 +66,7 @@ __all__ = [
     "send_to_support",
     "settle_conversation",
     "settle_guest",
+    "start_bot_guest_chat",
     "start_guest_chat",
     "write_from_telegram",
     "write_to_client",

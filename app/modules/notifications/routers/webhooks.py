@@ -24,6 +24,8 @@ from app.modules.notifications.bot import (
     is_configured,
     staff_bot_configured,
     staff_webhook_secret,
+    support_bot_configured,
+    support_webhook_secret,
     webhook_secret,
 )
 
@@ -62,6 +64,23 @@ async def staff_telegram_webhook(request: Request) -> Response:
     payload = _payload(await request.body())
     if payload:
         handle_staff_telegram_update.delay(payload)
+    return JSONResponse({"ok": True})
+
+
+@webhooks.post("/webhooks/telegram/support/", include_in_schema=False)
+async def support_telegram_webhook(request: Request) -> Response:
+    """The support bot's: the same checks, its own secret and worker."""
+    from app.modules.notifications.tasks import handle_support_bot_update
+
+    if not support_bot_configured() or not secret_matches(
+        header=request.headers.get(SECRET_HEADER, ""),
+        expected=support_webhook_secret(),
+    ):
+        logger.warning("support telegram webhook refused: secret did not match")
+        return Response(status_code=status.HTTP_403_FORBIDDEN)
+    payload = _payload(await request.body())
+    if payload:
+        handle_support_bot_update.delay(payload)
     return JSONResponse({"ok": True})
 
 

@@ -191,5 +191,19 @@ COMMAND_WEEK: Final = "hafta"
 COMMAND_HELP: Final = "yordam"
 SUPPORT_WAIT_KEY: Final = "notifications:support-wait:{chat_id}"
 SUPPORT_WAIT_TTL_SECONDS: Final = 15 * 60
+# The support bot: a cabinet's «Telegramda yozish» link, a Telegram message
+# already stored (a delivery seen twice), an office answer to a guest
+# already sent.
+SUPPORT_BOT_LINK_KEY: Final = "notifications:support-bot-link:{token}"
+SUPPORT_BOT_SEEN_KEY: Final = "notifications:support-bot-seen:{chat_id}:{message_id}"
+SUPPORT_BOT_SEEN_TTL_SECONDS: Final = 24 * 60 * 60
+SUPPORT_BOT_GUEST_SENT_KEY: Final = "notifications:support-bot-guest-sent:{message_id}"
+# A client's first words after a quiet stretch are answered «qabul qilindi».
+SUPPORT_BOT_ACK_AFTER_SECONDS: Final = 30 * 60
+SUPPORT_BOT_COMMANDS: Final = (
+    ("start", "Boshlash"),
+    ("yordam", "Bot qanday ishlaydi"),
+    ("stop", "Javoblarni botga yubormaslik"),
+)
 # "Parolni unutdingizmi?" opens the bot with this instead of a link code.
 RESET_PAYLOAD: Final = "parol"

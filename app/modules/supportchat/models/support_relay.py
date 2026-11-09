@@ -23,6 +23,9 @@ class SupportRelay(Base):
     bot: Mapped[str] = mapped_column(String(16), nullable=False, default='customer')
     chat_id: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     telegram_message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # The support bot's copies of an office reply: "text" is the one an edit
+    # rewrites, "file" the ones only a delete touches. Empty elsewhere.
+    part: Mapped[str] = mapped_column(String(8), nullable=False, default="", server_default="")
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     answered_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     # -- django extras --

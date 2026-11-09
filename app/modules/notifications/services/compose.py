@@ -351,15 +351,21 @@ def support_question_message(
     return Message(text="\n".join(lines))
 
 
-def support_guest_message(*, guest: str, body: str, office_path: str) -> Message:
-    lines = [_bold("Kirish sahifasidan yangi xabar"), escaped(guest), ""]
+def support_guest_message(
+    *, guest: str, body: str, office_path: str, from_bot: bool = False
+) -> Message:
+    title = (
+        "Yordam botidan yangi xabar" if from_bot else "Kirish sahifasidan yangi xabar"
+    )
+    note = (
+        "Telegram hisobga ulanmagan: javobni ofisdan yozing, botga boradi."
+        if from_bot
+        else "Bu odam kabinetga kirmagan: javobni ofisdan yozing."
+    )
+    lines = [_bold(title), escaped(guest), ""]
     if body:
         lines.append(_quote(body))
-    lines += [
-        "",
-        _italic("Bu odam kabinetga kirmagan: javobni ofisdan yozing."),
-        _link(path=office_path, label="Ofisda ochish"),
-    ]
+    lines += ["", _italic(note), _link(path=office_path, label="Ofisda ochish")]
     return Message(text="\n".join(lines))
 
 

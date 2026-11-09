@@ -73,6 +73,15 @@ class SentMessage(BaseModel):
     photo_id: str = ""
 
 
+class TelegramFile(BaseModel):
+    """Where ``getFile`` says a file lies: the path ``download_file`` takes."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    path: str = ""
+    size: int = 0
+
+
 class BotIdentity(BaseModel):
     """Who the token belongs to. Read once, by the webhook command."""
 

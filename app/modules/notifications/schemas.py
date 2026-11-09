@@ -38,6 +38,16 @@ class ConnectOut(BaseModel):
     url: str = Field(description="Open this Telegram link to finish linking.")
 
 
+class SupportBotOut(BaseModel):
+    available: bool = Field(
+        description="The support bot is set up and this account may use it (owners only)."
+    )
+    linked: bool = Field(description="This account already writes to it.")
+    url: str = Field(
+        description="Open in Telegram: ties that Telegram to this account for 15 minutes."
+    )
+
+
 class MessageOut(BaseModel):
     message: str
 
