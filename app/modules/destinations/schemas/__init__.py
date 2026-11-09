@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.common.contract import Camel
 from app.modules.destinations.constants import SheetMode
 
 
@@ -94,3 +95,36 @@ class PickerOut(BaseModel):
     key: str
     app_id: str
     locale: str
+
+
+class LeadChatOut(Camel):
+    pk: str
+    title: str
+    kind: Literal["group", "channel"]
+    kind_label: str
+    status: Literal["active", "broken"]
+    reason: str = Field(description="A `LeadChatBroken` value when `status` is broken.")
+    reason_label: str
+    linked_at: datetime
+    pairs: list[str] = Field(description="Keys of the pairs posting here.")
+
+
+class LeadChatPairOut(Camel):
+    key: str = Field(description="`page_ext:act_ext`, as the CRM's `?pair=`.")
+    page_name: str
+    account_name: str
+    chat: str = Field(description="`pk` of the chat in `chats`, or empty.")
+
+
+class LeadChatPanelOut(Camel):
+    enabled: bool = Field(description="False when this deployment has no customer bot.")
+    pairs: list[LeadChatPairOut]
+    chats: list[LeadChatOut]
+
+
+class LeadChatLinkIn(Camel):
+    pair: str = Field(max_length=200, description="The pair's key.")
+
+
+class LeadChatLinkOut(Camel):
+    url: str = Field(description="The bot, on the step that asks group or channel.")

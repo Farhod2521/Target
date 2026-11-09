@@ -72,9 +72,10 @@ PICKER_TOKEN_MARGIN_SECONDS: Final = 600
 
 class Channel(Choices):
     SHEETS = "sheets"
+    TELEGRAM = "telegram"
 
 
-CHANNEL_LABELS = {Channel.SHEETS: "Google jadval"}
+CHANNEL_LABELS = {Channel.SHEETS: "Google jadval", Channel.TELEGRAM: "Telegram"}
 
 
 class DeliveryStatus(Choices):
@@ -109,3 +110,62 @@ FILE_ACTIONS: Final = (
 )
 REVOKE_ACTIONS: Final = (ActionType.SHEET_DISCONNECT,)
 SUPERSEDED: Final = "superseded"
+
+
+class LeadChatKind(Choices):
+    GROUP = "group"
+    CHANNEL = "channel"
+
+
+LEAD_CHAT_KIND_LABELS = {LeadChatKind.GROUP: "Guruh", LeadChatKind.CHANNEL: "Kanal"}
+
+
+class LeadChatStatus(Choices):
+    ACTIVE = "active"
+    BROKEN = "broken"
+
+
+LEAD_CHAT_STATUS_LABELS = {
+    LeadChatStatus.ACTIVE: "Ishlayapti",
+    LeadChatStatus.BROKEN: "To'xtagan",
+}
+
+
+class LeadChatBroken(Choices):
+    REMOVED = "removed"
+    RIGHTS = "rights"
+    PUBLIC = "public"
+    GONE = "gone"
+    REFUSED = "refused"
+
+
+LEAD_CHAT_BROKEN_LABELS = {
+    LeadChatBroken.REMOVED: "Bot guruh yoki kanaldan chiqarilgan",
+    LeadChatBroken.RIGHTS: "Botda xabar yozish huquqi yo'q",
+    LeadChatBroken.PUBLIC: "Guruh yoki kanal ochiq bo'lib qolgan",
+    LeadChatBroken.GONE: "Guruh yoki kanal o'chirilgan",
+    LeadChatBroken.REFUSED: "Telegram xabarni qabul qilmadi",
+}
+# Telegram's words for where the bot was added.
+GROUP_CHAT_TYPES: Final = frozenset({"group", "supergroup"})
+CHANNEL_CHAT_TYPE: Final = "channel"
+# The site's button -> /start lc_<token> in the bot -> a group or a channel.
+LEAD_CHAT_PAYLOAD: Final = "lc_"
+LEAD_CHAT_PRESS: Final = "lc:"
+LEAD_CHAT_TOKEN_BYTES: Final = 16
+LEAD_CHAT_TOKEN_TTL_SECONDS: Final = 30 * 60
+LEAD_CHAT_TOKEN_KEY: Final = "destinations:leadchat:token:{token}"
+# The token the person last opened, by their Telegram id: adding the bot to
+# a channel carries no payload, only who did it.
+LEAD_CHAT_WAITING_KEY: Final = "destinations:leadchat:waiting:{user}"
+# What a send that Telegram put off waits before trying again.
+LEAD_POST_RETRIES: Final = 6
+LEAD_POST_BACKOFF_SECONDS: Final = 30
+# The sweep posts what a lost task left behind, never older than this.
+LEAD_POST_SWEEP_HOURS: Final = 24
+LEAD_POST_SWEEP_LIMIT: Final = 200
+LEAD_POST_ANSWER_CHARS: Final = 300
+# Every linked chat is looked at hourly (public now? bot still there?),
+# a few per sweep so the sweep never holds a worker for long.
+LEAD_CHAT_CHECK_SECONDS: Final = 60 * 60
+LEAD_CHAT_CHECKS_PER_RUN: Final = 20

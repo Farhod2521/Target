@@ -4,6 +4,19 @@ Semantik versiyalash. Telegram Bot API'ning versiyasi yo'q — u
 o'zgarganda eski metodlar ishlashda davom etadi, shuning uchun
 `client.py` da qadab qo'yiladigan versiya konstantasi ham yo'q.
 
+## 0.13.0 — 2026-11-09
+
+### Qo'shildi
+- `ChatMembership` — botning o'zi guruh yoki kanalga qo'shilgani,
+  huquqi o'zgargani yoki chiqarilgani (`my_chat_member`): kim qildi,
+  holat, kanalga yozish huquqi, chat ochiq (public)mi. `read_update()`
+  uni qaytaradi.
+- `Command.chat_type` — buyruq qayerda yozilgani.
+- `get_chat()` (`ChatInfo`, `public`), `leave_chat()`.
+- `ChatMigrated` — guruh supergroup'ga aylangan, yangi id
+  `migrate_to_chat_id` da.
+- `set_webhook(updates=..., drop_pending=...)` — berilmasa avvalgidek.
+
 ## 0.12.0 — 2026-11-08
 
 ### Qo'shildi

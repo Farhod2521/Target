@@ -84,3 +84,17 @@ class SheetModeLocked(DomainError):
         super().__init__(
             "Yozish usulini hozir o'zgartirib bo'lmaydi. Sahifani yangilab, qaytadan urinib ko'ring."
         )
+
+
+class LeadChatPairUnknown(DomainError):
+    status_code = 404
+
+    def __init__(self) -> None:
+        super().__init__("Bunday sahifa va reklama akkaunti juftligi topilmadi.")
+
+
+class NoLeadChat(DomainError):
+    status_code = 404
+
+    def __init__(self) -> None:
+        super().__init__("Bu guruh yoki kanal ulanmagan.")
