@@ -773,6 +773,10 @@ META_SIDE_FAILURES: tuple[str, ...] = (
     "payment_missing",
 )
 ACCOUNT_FAILURES: tuple[str, ...] = ("account_action", "account_disabled")
+# Failures whose leftovers stay at the provider, paused: Meta's identity hold
+# (31/3858385) refuses the deletes too, and the owner keeps what was made.
+# Only the clean-up button removes them.
+KEPT_FAILURES: tuple[str, ...] = ("account_action",)
 PAYMENT_FAILURES: tuple[str, ...] = ("payment_due", "payment_missing")
 UNCHANGED_REFUSALS: tuple[str, ...] = (
     "refused",
