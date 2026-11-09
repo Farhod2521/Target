@@ -7,6 +7,7 @@ from metaads import PROVIDER
 from sqlalchemy import or_, select
 
 from app.common.db import utcnow
+from app.common.task_routes import GOOGLE_SYNC_QUEUE
 from app.modules.accounts.models import User
 from app.modules.integrations.constants import (
     REFRESH_WINDOW_DAYS,
@@ -136,7 +137,7 @@ def sync_ad_accounts_task(connection_id: str) -> str:
         return sync_ad_accounts(db, connection_id=connection_id)
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue=GOOGLE_SYNC_QUEUE, ignore_result=True)
 def sync_google_accounts_task(connection_id: str) -> str:
     with task_session() as db:
         return sync_google_accounts(db, connection_id=connection_id)

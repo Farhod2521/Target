@@ -48,7 +48,9 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.common import timezone
+from app.common.cache import cache
 from app.common.config import settings
+from app.common.crypto import fingerprint
 from app.common.db import on_commit, utcnow
 from app.common.llm import ASKED, claude, model_for, prompts
 from app.common.money import format_minor
@@ -117,6 +119,8 @@ REFUSED_POLICY: Final = "policy"
 REFUSED_BUSY: Final = "busy"
 REFUSED_CONNECTION: Final = "connection"
 REFUSED_GOOGLE: Final = "google"
+# A day: places on Google's map are added and renamed, rarely and slowly.
+PLACES_KEPT_SECONDS: Final = 24 * 60 * 60
 GOAL_RULES: Final[dict[str, str]] = {
     GoogleGoal.VISITS: (
         "The advert sends people to the website. End descriptions with what to do "
@@ -758,6 +762,12 @@ def find_places(db: Session, *, user: User, query: str) -> list[dict[str, str]]:
     account = current_google_account(db, owner=user)
     if account is None:
         raise NoAdAccount
+    # Google's map is the same for every account and barely moves, while a
+    # search box asks again with every letter typed.
+    key = f"google-places:{fingerprint(' '.join(query.casefold().split()))}"
+    kept = cache.get(key)
+    if isinstance(kept, list):
+        return kept
     try:
         found = registry.get(GOOGLE).audiences.find_locations(
             query=query, country_code="", token=token_for(ad_account=account)
@@ -765,10 +775,12 @@ def find_places(db: Session, *, user: User, query: str) -> list[dict[str, str]]:
     except ProviderError as exc:
         logger.info("places for %r not found: %s", query, exc)
         raise GooglePlacesUnread from exc
-    return [
+    answer = [
         {"id": row.ref.id, "name": row.name, "context": row.context, "kind": row.kind}
         for row in found
     ]
+    cache.set(key, answer, timeout=PLACES_KEPT_SECONDS)
+    return answer
 
 
 def create_google_campaign(db: Session, *, launch_id: UUID | str, run: str) -> str:

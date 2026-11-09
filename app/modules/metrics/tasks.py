@@ -59,7 +59,8 @@ def _again(ad_account_id: str, *, attempt: int, word: str) -> str:
     return f"{word} again_in:{countdown}s"
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+# Its queue is the account's: see app.common.task_routes.
+@celery_app.task(ignore_result=True)
 def sync_insights_task(ad_account_id: str, attempt: int = 0) -> str:
     with task_session() as db:
         account = _account(db, ad_account_id)
@@ -89,7 +90,8 @@ def sync_insights_task(ad_account_id: str, attempt: int = 0) -> str:
         return _note(FIGURES_SWEEP, ad_account_id, word)
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+# Its queue is the account's: see app.common.task_routes.
+@celery_app.task(ignore_result=True)
 def sync_today_task(ad_account_id: str, people_after_seconds: int = 0) -> str:
     _note(TODAY_SWEEP, ad_account_id, SYNC_STARTED)
     with task_session() as db:
@@ -124,7 +126,8 @@ def _read_today(db: object, ad_account_id: str, *, people_after_seconds: int) ->
     return f"rows:{summary.rows} stopped:{summary.stopped_at} by:{summary.stopped_by}{tail}"
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+# Its queue is the account's: see app.common.task_routes.
+@celery_app.task(ignore_result=True)
 def refill_history_task(ad_account_id: str) -> str:
     """Every level's whole history read again, for a column added after it.
 
@@ -172,7 +175,8 @@ def sync_all_metrics() -> str:
     return f"queued:{len(accounts)}:observed:{observed}"
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+# Its queue is the account's: see app.common.task_routes.
+@celery_app.task(ignore_result=True)
 def sync_observed_task(ad_account_id: str) -> str:
     from app.modules.ads.services import sync_watched_account
 

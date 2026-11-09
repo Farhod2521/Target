@@ -52,4 +52,9 @@ SCHEDULE: Final = [
         f"{TASKS}.sweep_lead_signals_task",
         "40",
     ),
+    Periodic(
+        "Google lid formalaridan lidlarni o'qish",
+        f"{TASKS}.sync_all_google_leads_task",
+        "15,45",
+    ),
 ]

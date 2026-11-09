@@ -71,6 +71,18 @@ services:
     <<: *app
     command: celery -A app.worker worker -Q agent --concurrency 3 --hostname agent@%h --loglevel INFO
 
+  # Google Ads apart from Meta (see app/common/task_routes.py): Google answers
+  # slower, and on the shared slots a large Google account held Meta's syncs
+  # and presses up. A press and the wizard on one worker, the background
+  # reads of accounts on the other, so neither waits behind the other.
+  worker-google:
+    <<: *app
+    command: celery -A app.worker worker -Q google --concurrency 2 --hostname google@%h --loglevel INFO
+
+  worker-google-sync:
+    <<: *app
+    command: celery -A app.worker worker -Q google_sync --concurrency 2 --hostname google-sync@%h --loglevel INFO
+
   # Office broadcasts to the bot's chats: one slot, so one broadcast at a
   # time at Telegram's pace, and never in the way of a press or a sync.
   worker-broadcast:

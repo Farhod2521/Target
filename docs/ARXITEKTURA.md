@@ -106,6 +106,39 @@ Django'da `django-celery-beat` (Postgres) edi — vaqtlar uning
   kunlik/haftalik hisobot, chastota xabari, obuna tugashi, nosozlik, so'rovnoma),
   montaj 1, leads `sweep_lead_signals_task` 1
 
+### Google Ads alohida navbatlarda
+
+Google sekinroq javob beradi, katta akkauntni o'qish bir daqiqa olishi
+mumkin. Umumiy navbatda ikkita shunday o'qish `sync` worker'ining ikkala
+slotini egallab, Meta akkauntlarini kutdirardi. Endi Google ishi o'z
+navbatlarida (`app/common/task_routes.py`):
+
+| Navbat | Nima | Worker |
+|---|---|---|
+| `google` | Kimdir kutayotgan ish: usta (tayyorlash, yaratish), bosishlar (to'xtatish, byudjet, joylar, o'chirish) | `worker-google` |
+| `google_sync` | Fondagi o'qish: akkaunt, ko'rsatkichlar, kalit so'z hajmi, lid formalar | `worker-google-sync` |
+
+Akkaunt va o'zgarish vazifalari (`sync_ad_account_task`, `sync_insights_task`,
+`apply_change_task` va boshqalar) dekoratorda navbat ko'rsatmaydi: navbatni
+router akkaunt provayderiga qarab tanlaydi, Meta'niki avvalgidek `sync`/`agent`da
+qoladi. Dekoratorga `queue=` qaytarilsa router ishlamay qoladi — buni
+`tests/app/test_task_routes.py` ushlaydi.
+
+**Deploy:** ikkala yangi worker ishga tushirilmasa, Google vazifalari navbatda
+turib qoladi: `docker compose up -d worker-google worker-google-sync`.
+
+Tezlik uchun yana: Google access token 45 daqiqa Redis'da shifrlangan
+saqlanadi (har chaqiruvdan oldin OAuth'ga borilmaydi), Google'ga ulanishlar
+jarayon bo'yicha bitta pulda qayta ishlatiladi, ekran kutadigan o'qishlar
+(`/google/places`, joy qidirish, «Yaratish»dagi to'lov tekshiruvi) 15 soniyada
+uziladi, joy qidiruvi natijasi bir kun keshlanadi.
+
+**Google lidlari:** har 30 daqiqada (`:15`, `:45`) yoqilgan kampaniyasi bor
+Google akkauntlarining lid forma arizalari o'qiladi va Meta lidi kabi
+`store_lead` orqali saqlanadi — CRM, xabarlar, Sheets o'zgarishsiz oladi.
+Har o'qish oxirgi 2 kunni qaytadan o'qiydi (birinchisi 30 kun), takror
+`(provider, leadgen_id)` cheklovi bilan to'xtaydi.
+
 Beat `compose.yaml`da `beat` profili ortida: eski Django o'chirilgandan keyin
 `docker compose --profile beat up -d beat` bilan yoqiladi. Ikkala beat bir
 vaqtda ishlasa, bir xil reklama akkauntlari ikki marta sinxronlanadi va

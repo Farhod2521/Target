@@ -1,6 +1,6 @@
 """The Celery app: same queues and limits as the Django project.
 
-uv run celery -A app.worker worker -Q sync,webhooks,chat,agent,upload,refresh,broadcast
+uv run celery -A app.worker worker -Q sync,webhooks,chat,agent,upload,refresh,broadcast,google,google_sync
 uv run celery -A app.worker beat
 
 Beat is RedBeat: the schedule is each module's ``schedule.SCHEDULE``, kept in
@@ -22,6 +22,7 @@ from kombu import Queue
 from sqlalchemy.orm import Session
 
 from app.common.config import settings
+from app.common.task_routes import GOOGLE_QUEUE, GOOGLE_SYNC_QUEUE, route_task
 
 # httpx writes every request URL at INFO, and Graph API and Bot API URLs carry
 # the access token or the bot token in them.
@@ -41,7 +42,10 @@ celery_app.conf.update(
         Queue("refresh", routing_key="refresh"),
         Queue("sync", routing_key="sync"),
         Queue("broadcast", routing_key="broadcast"),
+        Queue(GOOGLE_QUEUE, routing_key=GOOGLE_QUEUE),
+        Queue(GOOGLE_SYNC_QUEUE, routing_key=GOOGLE_SYNC_QUEUE),
     ),
+    task_routes=(route_task,),
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,

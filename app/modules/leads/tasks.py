@@ -1,5 +1,6 @@
 from app.common.dates import localtime
 from app.common.db import utcnow
+from app.common.task_routes import GOOGLE_SYNC_QUEUE
 from app.modules.leads import services
 from app.modules.leads.services import signals
 from app.worker import celery_app, task_session
@@ -85,3 +86,24 @@ def sweep_unimported_deliveries_task() -> int:
 def report_unimported_deliveries_task() -> int:
     with task_session() as db:
         return services.report_unimported_deliveries(db, now=utcnow())
+
+
+@celery_app.task(queue=GOOGLE_SYNC_QUEUE, ignore_result=True)
+def sync_google_leads_task(ad_account_id: str) -> int:
+    from app.modules.leads.services.google import sync_google_leads
+
+    with task_session() as db:
+        return sync_google_leads(db, ad_account_id=ad_account_id, now=utcnow())
+
+
+@celery_app.task(queue=GOOGLE_SYNC_QUEUE, ignore_result=True)
+def sync_all_google_leads_task() -> int:
+    """One read per Google account, each its own task so one slow account
+    holds up nobody else's leads."""
+    from app.modules.leads.services.google import accounts_to_read
+
+    with task_session() as db:
+        found = accounts_to_read(db, now=utcnow())
+    for account_id in found:
+        sync_google_leads_task.delay(str(account_id))
+    return len(found)

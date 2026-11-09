@@ -290,7 +290,10 @@ class GoogleCampaigns:
         read billing at all: that is not knowing, so it stays ``None``.
         """
         query = "SELECT customer.status, customer.test_account FROM customer LIMIT 1"
-        with google_calls(), AdsClient(token=token, http=self._http) as client:
+        with (
+            google_calls(),
+            AdsClient(token=token, http=self._http, quick=True) as client,
+        ):
             rows = list(client.search(account.id, query))
             customer = rows[0].get("customer", {}) if rows else {}
             payable = (
