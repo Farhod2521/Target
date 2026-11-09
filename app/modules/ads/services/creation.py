@@ -25,7 +25,6 @@ from app.modules.ads import geo as geo_field
 from app.modules.ads.constants import (
     AUTO_START_RESYNC_TRY,
     AUTO_START_WAIT_SECONDS,
-    KEPT_FAILURES,
     LAUNCH_PROGRESS,
     LAUNCH_RELATED_TYPE,
     MAX_AUTO_START_TRIES,
@@ -556,9 +555,6 @@ def _undo(
     _fail(db, launch, code=code, message=message, detail=detail)
     if not launch.created_refs:
         watch.note("Provayderda hech narsa yaratilmagan - o'chiradigan narsa yo'q.")
-        return code
-    if code in KEPT_FAILURES:
-        watch.note("Meta tasdiq so'ramoqda - yaratilganlar pauzada qoldirildi.")
         return code
     before = dict(launch.created_refs)
     removed = rollback_launch(

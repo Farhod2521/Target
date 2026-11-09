@@ -16,7 +16,6 @@ from app.modules.ads import geo as geo_field
 from app.modules.ads.constants import (
     ACCOUNT_FAILURES,
     CREATION_STEPS,
-    KEPT_FAILURES,
     META_SIDE_FAILURES,
     NARROW_AUDIENCE,
     PAYMENT_FAILURES,
@@ -51,14 +50,6 @@ CARD_STATUSES = (LaunchStatus.READY, LaunchStatus.ROLLED_BACK)
 MAX_DRAFT_POLLS = 40
 MAX_CREATE_POLLS = 90
 CLEANUP_KEY = "cleanup"
-
-
-def _kept(launch: CampaignLaunch) -> bool:
-    """Leftovers that stay put: nothing changes until the owner cleans up."""
-    return (
-        launch.error_code in KEPT_FAILURES
-        and (launch.error_detail or {}).get(CLEANUP_KEY) != "pending"
-    )
 
 
 def shows_proposal(launch: CampaignLaunch) -> bool:
@@ -122,7 +113,7 @@ def review_state(
         status in (LaunchStatus.BUILDING, LaunchStatus.CREATING)
         or explanation["explaining"]
         or bool(created.get("delivery_pending"))
-        or (failed_creating and stranded and not _kept(launch))
+        or (failed_creating and stranded)
         or (blocker == "places_missing" and bool(geo_waiting))
     )
     limit = (
