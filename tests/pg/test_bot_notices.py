@@ -193,10 +193,14 @@ def test_the_cabinet_s_troubles_are_said_in_the_morning_and_skip_the_rest(
     proposal = InboxItem(
         key="suggestion:1", kind="suggestion", level="info", title="Taklif", body=""
     )
+    # Told in the morning message with its answers; a second, bare copy is noise.
+    rise = InboxItem(
+        key="price:1:1", kind="price", level="urgent", title="Narx oshdi", body=""
+    )
     monkeypatch.setattr(
         announce_account,
         "_lines",
-        lambda db, *, owner, now: [(proposal, ""), (unfinished, "")],
+        lambda db, *, owner, now: [(rise, ""), (proposal, ""), (unfinished, "")],
     )
     ten_in_tashkent = AFTERNOON.replace(hour=5)
 

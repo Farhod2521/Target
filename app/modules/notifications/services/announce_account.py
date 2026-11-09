@@ -70,6 +70,8 @@ SPOKEN_FOR: frozenset[str] = frozenset(
         "wait",
         "watch",
         "frequency",
+        # The morning message carries each rise with its three answers.
+        "price",
         "meta_hold",
         "support",
         "feedback",
