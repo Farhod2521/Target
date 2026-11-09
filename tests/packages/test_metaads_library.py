@@ -175,3 +175,26 @@ def test_a_row_for_another_hash_is_not_this_image() -> None:
         image_creatives(account_id="act_1", image_hash="9f8e", token="t", client=graph)
         == ()
     )
+
+
+@pytest.mark.parametrize(
+    ("length", "seconds"),
+    [(31.4, 31.4), ("12.5", 12.5), (None, None), ("", None), (0, None)],
+)
+def test_a_library_video_carries_its_length(length: Any, seconds: Any) -> None:
+    from metaads.creatives import list_media
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/advideos"):
+            row = {"id": "v1", "title": "Reklama", "picture": "p", "source": "s"}
+            if length is not None:
+                row["length"] = length
+            return httpx.Response(200, json={"data": [row]})
+        return httpx.Response(200, json={"data": []})
+
+    graph = GraphClient(
+        token="t", client=httpx.Client(transport=httpx.MockTransport(answer))
+    )
+    rows = list_media(account_id="act_1", token="t", client=graph)
+
+    assert [(row.external_id, row.duration) for row in rows] == [("v1", seconds)]

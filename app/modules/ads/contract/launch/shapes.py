@@ -602,6 +602,12 @@ class MediaAsset(Camel):
     )
     post: bool | None = None
     blocked: bool | None = Field(None, description="Instagram refuses to advertise it.")
+    blocked_reason: Literal["music", "tappable", "too_long", "other"] | None = Field(
+        None,
+        description="Why: licensed audio, tappable elements, longer than 15 minutes.",
+    )
+    carousel: bool | None = Field(None, description="An Instagram album.")
+    reel: bool | None = Field(None, description="An Instagram reel.")
     small: bool | None = None
     permalink: str | None = None
     state: (

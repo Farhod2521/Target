@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.common.db import Base, utcnow
@@ -36,6 +36,10 @@ class MediaAsset(Base):
     ineligible_reason: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     created_at_provider: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # A library video's length; Instagram's media edge gives none.
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # An Instagram post's ``media_product_type``: FEED or REELS; empty for the rest.
+    product: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     # -- django extras --
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
     ad_account: Mapped["AdAccount | None"] = relationship(foreign_keys=[ad_account_id], lazy="select")  # noqa: F821

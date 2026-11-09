@@ -39,6 +39,11 @@ def asset(tile: dict[str, Any]) -> dict[str, Any]:
         out["post"] = True
     if tile.get("is_eligible") is False:
         out["blocked"] = True
+        out["blocked_reason"] = tile.get("blocked_reason") or "other"
+    if tile.get("is_carousel"):
+        out["carousel"] = True
+    if tile.get("is_reel"):
+        out["reel"] = True
     if width and height and min(width, height) < SMALL_SIDE:
         out["small"] = True
     if tile.get("permalink_url"):

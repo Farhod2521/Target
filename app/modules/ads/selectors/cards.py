@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Final
 
 from app.modules.ads.constants import ALLOWED_VIDEO_TYPES, IG_KINDS, LibraryUpload
 from app.modules.ads.models import LaunchCreative, MediaAsset
@@ -11,6 +11,15 @@ from app.modules.ads.selectors.library import LIBRARY_FILE_KINDS
 from app.modules.ads.selectors.variants import is_uploading, words_touched
 
 FILE_URL = "/api/v1/launch/{launch}/media/{position}/file"
+
+# Why Meta will not advertise a post, read from its own English sentence.
+# Measured on the production copy 2026-11-09: these three are every reason
+# Meta gave (118 tappable, 55 audio, 41 too long); anything else is "other".
+BLOCKED_REASONS: Final = (
+    ("music", "audio"),
+    ("tappable", "tappable"),
+    ("too_long", "15 minutes"),
+)
 
 
 def is_video(name: str) -> bool:
@@ -62,6 +71,29 @@ def variant_card(variant: LaunchCreative, *, now: datetime) -> dict[str, Any]:
     }
 
 
+def blocked_reason(asset: MediaAsset) -> str:
+    """Which of the known refusals this is; empty for a post Meta allows."""
+    if asset.is_eligible is not False:
+        return ""
+    said = asset.ineligible_reason.lower()
+    return next((kind for kind, word in BLOCKED_REASONS if word in said), "other")
+
+
+def grid_facts(asset: MediaAsset) -> dict[str, Any]:
+    """What a grid square says about the file beyond its picture."""
+    posted = asset.created_at_provider
+    return {
+        "is_eligible": asset.is_eligible,
+        "blocked_reason": blocked_reason(asset),
+        "width": asset.width,
+        "height": asset.height,
+        "created_at": posted.isoformat() if posted else None,
+        "duration": asset.duration_seconds,
+        "is_carousel": asset.is_carousel,
+        "is_reel": asset.product == "REELS",
+    }
+
+
 def library_tile(
     asset: MediaAsset,
     *,
@@ -73,8 +105,9 @@ def library_tile(
 ) -> dict[str, Any]:
     """One square of the picker's grid, and what the owner may do to it."""
     is_file = asset.kind in LIBRARY_FILE_KINDS and bool(asset.ad_account_id)
+    card = asset_card(asset)
     return {
-        "asset": asset_card(asset),
+        "asset": {**card, **grid_facts(asset)} if card else card,
         "used_in": used_in,
         "deleting": deleting,
         "delete_failed": delete_failed,
@@ -85,4 +118,12 @@ def library_tile(
     }
 
 
-__all__ = ["asset_card", "is_video", "library_tile", "variant_card"]
+__all__ = [
+    "BLOCKED_REASONS",
+    "asset_card",
+    "blocked_reason",
+    "grid_facts",
+    "is_video",
+    "library_tile",
+    "variant_card",
+]

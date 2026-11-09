@@ -240,3 +240,10 @@ class MediaDTO(MetaDTO):
     # its own words.
     is_eligible: bool | None = None
     ineligible_reason: str = ""
+
+    # A library video's ``length`` in seconds; ``None`` when Meta gave none,
+    # which is every Instagram post - that edge carries no duration.
+    duration: float | None = None
+
+    # Where an Instagram post was published: ``FEED`` or ``REELS``.
+    product: str = ""

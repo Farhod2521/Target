@@ -372,6 +372,8 @@ def _write(
         "is_carousel": asset.is_carousel,
         "is_eligible": asset.is_eligible,
         "ineligible_reason": asset.ineligible_reason,
+        "duration_seconds": asset.duration,
+        "product": asset.product[:16],
         "synced_at": now,
     }
     if instagram_user_id:

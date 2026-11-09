@@ -543,3 +543,32 @@ def test_the_caption_becomes_the_name_it_is_recognised_by() -> None:
     assert got[0].name == "Yangi menyu"
     assert got[0].external_id == MEDIA["id"]
     assert got[0].permalink_url == MEDIA["permalink"]
+
+
+def test_a_post_says_whether_it_is_a_reel() -> None:
+    from metaads.creatives import list_instagram_media as parsed_media
+
+    graph = client_returning(
+        httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        **MEDIA,
+                        "id": "r1",
+                        "media_type": "VIDEO",
+                        "media_product_type": "REELS",
+                    },
+                    {**MEDIA, "id": "f1"},
+                ]
+            },
+        )
+    )
+
+    rows = parsed_media(ig_user_id="ig-1", token="t", client=graph)
+
+    assert [(row.external_id, row.product) for row in rows] == [
+        ("r1", "REELS"),
+        ("f1", "FEED"),
+    ]
+    assert all(row.duration is None for row in rows)

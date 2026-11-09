@@ -293,6 +293,7 @@ def _instagram(row: dict[str, Any]) -> MediaDTO | None:
         is_carousel=row.get("media_type") == _CAROUSEL,
         is_eligible=eligible,
         ineligible_reason=reason,
+        product=str(row.get("media_product_type", "")),
     )
 
 
@@ -341,7 +342,17 @@ def _video(row: dict[str, Any]) -> MediaDTO:
         thumbnail_url=str(row.get("picture", "")),
         permalink_url=str(row.get("source", "")),
         created_time=row.get("created_time"),
+        duration=_seconds(row.get("length")),
     )
+
+
+def _seconds(value: object) -> float | None:
+    """A video's length as Meta sends it - a number, or a numeric string."""
+    try:
+        seconds = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds > 0 else None
 
 
 def _post(row: dict[str, Any]) -> MediaDTO:

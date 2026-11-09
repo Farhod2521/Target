@@ -223,3 +223,80 @@ def test_someone_elses_tile_is_not_found(
     db.commit()
     got = client.get(f"{path}/media/tiles/{stranger.id}", headers=auth)
     assert got.status_code == 404
+
+
+def test_a_tile_says_why_meta_refuses_it_and_what_it_is(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, path, launch = _at_media(client, db)
+    page = launch_page(db, launch=launch)
+    assert page is not None
+    page.instagram_user_id, page.instagram_username = "ig_1", "bahor"
+    now = utcnow()
+    said = {
+        "audio": "Remove or choose different audio.",
+        "tappable": "Reels containing tappable elements can't be used for ads. "
+        "Choose a different post to create an ad.",
+        "long": "Reels must be 15 minutes or shorter to be boosted as ads.",
+        "odd": "Something Meta has not said before.",
+    }
+    for index, (name, reason) in enumerate(said.items()):
+        db.add(
+            MediaAsset(
+                owner_id=launch.owner_id,
+                page_id=page.id,
+                instagram_user_id="ig_1",
+                provider=launch.provider,
+                kind=MediaKind.IG_VIDEO,
+                external_id=name,
+                name=name,
+                product="REELS",
+                is_eligible=False,
+                ineligible_reason=reason,
+                created_at_provider=now - timedelta(minutes=index),
+            )
+        )
+    db.add(
+        MediaAsset(
+            owner_id=launch.owner_id,
+            page_id=page.id,
+            instagram_user_id="ig_1",
+            provider=launch.provider,
+            kind=MediaKind.IG_IMAGE,
+            external_id="album",
+            name="album",
+            product="FEED",
+            is_carousel=True,
+            is_eligible=True,
+            created_at_provider=now - timedelta(days=1),
+        )
+    )
+    db.add(
+        MediaAsset(
+            owner_id=launch.owner_id,
+            ad_account_id=launch.ad_account_id,
+            provider=launch.provider,
+            kind=MediaKind.VIDEO,
+            external_id="v1",
+            name="kino.mp4",
+            width=320,
+            height=320,
+            duration_seconds=31.4,
+        )
+    )
+    db.commit()
+
+    shown = client.get(f"{path}/media", headers=auth).json()
+    posts = {tile["caption"]: tile for tile in shown["posts"]}
+    assert {name: posts[name]["blockedReason"] for name in said} == {
+        "audio": "music",
+        "tappable": "tappable",
+        "long": "too_long",
+        "odd": "other",
+    }
+    assert all(posts[name]["blocked"] and posts[name]["reel"] for name in said)
+    album = posts["album"]
+    assert album["carousel"] and not album.get("reel") and not album.get("blocked")
+    assert album["date"].startswith((now - timedelta(days=1)).date().isoformat())
+    video = shown["library"][0]
+    assert video["video"] == "0:31" and video["small"]
