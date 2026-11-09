@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.common.db import utcnow
 from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.selectors.launches import stranded_launches
+from app.modules.ads.selectors.review import review_state
 from app.modules.ads.services import creation
 from tests.pg.test_ads_manage import _owner_with_account
 
@@ -93,3 +94,26 @@ def test_the_hourly_sweep_leaves_only_a_held_launch_alone(
     db.commit()
 
     assert (launch in stranded_launches(db, now=utcnow())) is swept
+
+
+@pytest.mark.parametrize(
+    ("code", "cleanup", "polled"),
+    [
+        ("account_action", "", False),
+        ("account_action", "pending", True),
+        ("refused", "", True),
+    ],
+)
+def test_the_screen_stops_asking_while_held_leftovers_wait(
+    db: Session, code: str, cleanup: str, polled: bool
+) -> None:
+    launch = _launch(
+        db,
+        error_code=code,
+        step="ad",
+        error_detail={"cleanup": cleanup} if cleanup else {},
+    )
+    launch.status = "failed"
+    db.commit()
+
+    assert review_state(db, launch=launch, now=utcnow())["keep_polling"] is polled
