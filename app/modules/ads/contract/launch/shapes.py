@@ -646,6 +646,26 @@ class MediaLibrary(Camel):
     max_image_mb: int | None = None
     max_video_mb: int | None = None
     accept: str | None = None
+    chosen: list[MediaAsset] = Field(
+        default_factory=list,
+        description="Every picked tile, held or ticked, wherever it sits in the grid.",
+    )
+    posts_after: str = Field(
+        "", description="Read the next page of posts with this; empty: no more."
+    )
+    posts_total: int = 0
+    library_after: str = Field(
+        "", description="Read the next page of the library with this; empty: no more."
+    )
+    library_total: int = 0
+
+
+class MediaPage(Camel):
+    """One more page of a grid."""
+
+    items: list[MediaAsset]
+    after: str = Field("", description="The next page; empty: this was the last.")
+    total: int = Field(description="How many tiles the grid holds under this filter.")
 
 
 class UploadDone(Camel):
@@ -669,6 +689,7 @@ __all__ = [
     "LeadFormSave",
     "MediaAsset",
     "MediaLibrary",
+    "MediaPage",
     "NameIn",
     "ProposalEdit",
     "UploadDone",

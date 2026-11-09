@@ -455,6 +455,19 @@ MEDIA_KIND_LABELS = {
     MediaKind.IG_VIDEO: "Instagram videosi",
 }
 IG_KINDS: Final[tuple[str, ...]] = (MediaKind.IG_IMAGE, MediaKind.IG_VIDEO)
+
+
+class MediaShow(Choices):
+    """Which tiles a grid page holds: all, the ones Meta lets be advertised, or the refused."""
+
+    ALL = "all"
+    USABLE = "usable"
+    BLOCKED = "blocked"
+
+
+# Tiles a grid page holds. A phone draws four rows of three on one screen.
+MEDIA_PAGE_SIZE: Final = 48
+MEDIA_PAGE_MAX: Final = 96
 POSTS_NOT_PROMOTED: Final = "posts_not_promoted"
 
 

@@ -1,15 +1,29 @@
 """Reads of the creative library: what an advert could be made of, and where it came from."""
 
+import base64
+import binascii
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Final
 
 from metaads.accounts import ASSET_LIBRARY_URL, media_library_url
-from sqlalchemy import ColumnElement, Select, and_, case, false, literal, or_, select
+from sqlalchemy import (
+    ColumnElement,
+    Select,
+    and_,
+    case,
+    false,
+    func,
+    literal,
+    or_,
+    select,
+    tuple_,
+)
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
-from app.modules.ads.constants import IG_KINDS, MediaKind
+from app.modules.ads.constants import IG_KINDS, MediaKind, MediaShow
 from app.modules.ads.models import MediaAsset
 from app.modules.integrations.models import AdAccount, PageAccount
 
@@ -86,6 +100,113 @@ def media_library(
     if limit is not None:
         query = query.limit(limit)
     return list(db.scalars(query))
+
+
+# A post Meta gave no date sorts after every dated one, as ``nulls_last`` does.
+_UNDATED: Final = datetime(1970, 1, 1, tzinfo=UTC)
+_POSTED = func.coalesce(MediaAsset.created_at_provider, _UNDATED)
+
+
+@dataclass(frozen=True, slots=True)
+class MediaSlice:
+    """One page of a grid: its rows, where the next page starts, and how many there are."""
+
+    rows: list[MediaAsset]
+    after: str
+    total: int
+
+
+def media_slice(
+    db: Session,
+    query: Select[tuple[MediaAsset]],
+    *,
+    after: str,
+    limit: int,
+    show: str = "",
+) -> MediaSlice:
+    """One source's grid a page at a time, newest first.
+
+    Keyset rather than an offset: a post published while somebody scrolls
+    would otherwise push the page they have not reached yet down by one and
+    show a tile twice. ``query`` is one source's, so Instagram-first ordering
+    has nothing to sort and the date alone decides.
+    """
+    query = shown_only(query, show=show)
+    total = media_count(db, query)
+    key = (_POSTED, MediaAsset.created_at, MediaAsset.id)
+    cursor = _cursor(after)
+    if cursor is not None:
+        query = query.where(tuple_(*key) < tuple_(*cursor))
+    query = query.order_by(None).order_by(*(part.desc() for part in key))
+    rows = list(db.scalars(query.limit(limit + 1)))
+    more = len(rows) > limit
+    rows = rows[:limit]
+    return MediaSlice(
+        rows=rows, after=_cursor_of(rows[-1]) if more else "", total=total
+    )
+
+
+def shown_only(
+    query: Select[tuple[MediaAsset]], *, show: str
+) -> Select[tuple[MediaAsset]]:
+    """The grid narrowed to what Meta lets be advertised, or to what it refuses."""
+    if show == MediaShow.USABLE:
+        return query.where(MediaAsset.is_eligible.is_not(False))
+    if show == MediaShow.BLOCKED:
+        return query.where(MediaAsset.is_eligible.is_(False))
+    return query
+
+
+def media_count(db: Session, query: Select[tuple[MediaAsset]]) -> int:
+    """How many rows a grid holds, without reading them."""
+    counted = select(func.count()).select_from(query.order_by(None).subquery())
+    return int(db.scalar(counted) or 0)
+
+
+def _cursor_of(row: MediaAsset) -> str:
+    posted = row.created_at_provider or _UNDATED
+    raw = f"{posted.isoformat()}|{row.created_at.isoformat()}|{row.id}"
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+
+def _cursor(after: str) -> tuple[datetime, datetime, uuid.UUID] | None:
+    """Where a page starts; a cursor that does not read is the first page."""
+    if not after:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(after + "=" * (-len(after) % 4)).decode()
+        posted, created, row_id = raw.split("|")
+        return (
+            datetime.fromisoformat(posted),
+            datetime.fromisoformat(created),
+            uuid.UUID(row_id),
+        )
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+
+
+def listed_assets(
+    db: Session,
+    *,
+    owner: User,
+    provider: str,
+    ad_account: AdAccount | None,
+    page: PageAccount | None,
+    ids: list[str],
+) -> list[MediaAsset]:
+    """The rows among these ids the grid could show, whatever page they are on."""
+    wanted = []
+    for value in ids:
+        try:
+            wanted.append(uuid.UUID(value))
+        except ValueError:
+            continue
+    if not wanted:
+        return []
+    query = media_library_query(
+        db, owner=owner, provider=provider, ad_account=ad_account, page=page
+    )
+    return list(db.scalars(query.where(MediaAsset.id.in_(wanted))))
 
 
 def _reachable_from(
@@ -284,6 +405,7 @@ def asset_row(asset: MediaAsset) -> dict[str, Any]:
 __all__ = [
     "ACCOUNT_SOURCE",
     "PROMOTABLE_KINDS",
+    "MediaSlice",
     "MediaSource",
     "UploadTarget",
     "asset_of_kind",
@@ -292,9 +414,13 @@ __all__ = [
     "instagram_source",
     "instagram_source_page",
     "library_asset",
+    "listed_assets",
+    "media_count",
     "media_library",
     "media_library_query",
+    "media_slice",
     "media_sources",
     "post_account",
+    "shown_only",
     "upload_target",
 ]

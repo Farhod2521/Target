@@ -80,6 +80,11 @@ def _squares(page: dict[str, Any] | None) -> list[dict[str, Any]]:
     return [tile for tile in map(_square, (page or {}).get("tiles") or []) if tile]
 
 
+def tiles(squares: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Library squares as the grid draws them."""
+    return [asset(tile) for tile in _squares({"tiles": squares})]
+
+
 def _initials(name: str) -> str:
     words = [
         word
@@ -89,8 +94,17 @@ def _initials(name: str) -> str:
     return "".join(word[0].upper() for word in words[:2]) or "IG"
 
 
-def library(ig: dict[str, Any] | None, lib: dict[str, Any] | None) -> dict[str, Any]:
-    """The Instagram grid and the library grid, and what the launch already holds."""
+def library(
+    ig: dict[str, Any] | None,
+    lib: dict[str, Any] | None,
+    *,
+    chosen: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """The Instagram grid and the library grid, and what the launch already holds.
+
+    Each grid is its first page; ``*_after`` reads the next one. ``chosen``
+    is every picked tile, so the picked row draws one that is pages down.
+    """
     shown = ig or lib or {}
     profile = (ig or {}).get("instagram_profile") or (ig or {}).get("instagram")
     variants = (lib or ig or {}).get("variants") or []
@@ -123,7 +137,8 @@ def library(ig: dict[str, Any] | None, lib: dict[str, Any] | None) -> dict[str, 
         or (profile or {}).get("synced_at")
     )
     posts = [*((ig or {}).get("posts") or [])]
-    if ig and not ig.get("is_library"):
+    has_posts = bool(ig and not ig.get("is_library"))
+    if has_posts:
         posts += _squares(ig)
     grid = [*((lib or ig or {}).get("library") or []), *_squares(lib)]
     out: dict[str, Any] = {
@@ -145,6 +160,11 @@ def library(ig: dict[str, Any] | None, lib: dict[str, Any] | None) -> dict[str, 
         "synced_at": synced,
         "held": held,
         "uploads": uploads,
+        "chosen": tiles(chosen or []),
+        "posts_after": ((ig or {}).get("tiles_after") or "") if has_posts else "",
+        "posts_total": (ig or {}).get("tiles_total", len(posts)) if has_posts else 0,
+        "library_after": (lib or {}).get("tiles_after") or "",
+        "library_total": (lib or {}).get("tiles_total", len(grid)),
     }
     for key, name in (
         ("max_image_mb", "max_image_mb"),
@@ -156,4 +176,4 @@ def library(ig: dict[str, Any] | None, lib: dict[str, Any] | None) -> dict[str, 
     return out
 
 
-__all__ = ["UPLOAD_TILE", "asset", "library"]
+__all__ = ["UPLOAD_TILE", "asset", "library", "tiles"]

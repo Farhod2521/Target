@@ -59,6 +59,7 @@ from app.modules.ads.routers.drafts_google import (
 )
 from app.modules.ads.routers.launch_forms import AutoIn
 from app.modules.ads.routers.launch_review import CreateIn
+from app.modules.ads.selectors.media_step import chosen_assets
 from app.modules.ads.selectors.review_proposal import launch_country
 from app.modules.ads.selectors.variants import launch_variants
 from app.modules.ads.services.locations import place_query, search_places
@@ -94,7 +95,9 @@ def build(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> LaunchDraft:
     """«Davom etish» on the pictures: the tiles ticked and the offer typed, then the AI, once.
 
     A tile the launch already holds is not sent again (it would be added
-    twice), nor one the last library read did not list (a deleted file).
+    twice), nor one the grid can no longer show (a deleted file). The grid
+    is read a page at a time, so that is asked of the database and not of
+    what the last read listed.
     """
     launch = launch_of(db, user=user, draft_id=draft_id)
     taps = kept.read(launch.id)
@@ -103,14 +106,12 @@ def build(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> LaunchDraft:
         for variant in launch_variants(db, launch=launch)
         if variant.media_asset_id
     }
-    known = set(taps["known"]) if taps.get("known") is not None else None
-    fresh = [
-        tile
+    ticked = [
+        str(tile)
         for tile in taps.get("media") or []
-        if tile not in held
-        and not tile.startswith(UPLOAD_TILE)
-        and (known is None or tile in known)
+        if str(tile) not in held and not str(tile).startswith(UPLOAD_TILE)
     ]
+    fresh = [str(row.id) for row in chosen_assets(db, launch=launch, ids=ticked)]
     media_routes.media_continue(
         launch.id,
         MediaContinueIn(asset_ids=fresh, text=text_in(text_taps(launch, taps))),

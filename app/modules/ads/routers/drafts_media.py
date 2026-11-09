@@ -8,31 +8,61 @@ the tile the file now has on the grid.
 """
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, File, Header, Request, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    File,
+    Header,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 
 from app.api.deps import CurrentUser, Db
-from app.common.exceptions import DomainError
+from app.common.db import utcnow
+from app.common.exceptions import DomainError, NotFound
+from app.modules.ads.constants import MEDIA_PAGE_MAX, MEDIA_PAGE_SIZE, MediaShow
 from app.modules.ads.contract.launch import taps as kept
-from app.modules.ads.contract.launch.media import UPLOAD_TILE, asset, library
-from app.modules.ads.contract.launch.shapes import MediaAsset, MediaLibrary, UploadDone
+from app.modules.ads.contract.launch.media import UPLOAD_TILE, asset, library, tiles
+from app.modules.ads.contract.launch.shapes import (
+    MediaAsset,
+    MediaLibrary,
+    MediaPage,
+    UploadDone,
+)
 from app.modules.ads.exceptions import (
     FileInUse,
     MediaAskedRecently,
     MediaInUse,
     SyncAlreadyRunning,
 )
+from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.routers import launch_media as media_routes
 from app.modules.ads.routers.drafts import launch_of
 from app.modules.ads.routers.launch_media import FinishIn
+from app.modules.ads.selectors.launch_page import launch_page
+from app.modules.ads.selectors.media import library_asset, media_sources
+from app.modules.ads.selectors.media_step import (
+    chosen_assets,
+    grid_tiles,
+    source_slice,
+)
 
 router = APIRouter(prefix="/launch/drafts", tags=["launch: media"])
 
 
 def read_media(db: Db, user: CurrentUser, draft_id: uuid.UUID) -> MediaLibrary:
-    """Both grids: the step serves one source per read."""
-    first = media_routes.media_page(draft_id, db, user, source="")
+    """Both grids, each its first page: the step serves one source per read."""
+
+    def read(source: str) -> dict[str, Any]:
+        return media_routes.media_view(
+            db, user, draft_id, source=source, limit=MEDIA_PAGE_SIZE
+        )
+
+    first = read("")
     sources = first.get("sources")
     if sources:
         instagram = next(
@@ -40,22 +70,83 @@ def read_media(db: Db, user: CurrentUser, draft_id: uuid.UUID) -> MediaLibrary:
         )
         own = first.get("library_source") or ""
 
-        def read(source: str) -> dict[str, Any]:
-            if source == first.get("source"):
-                return first
-            return media_routes.media_page(draft_id, db, user, source=source)
+        def grid(source: str) -> dict[str, Any]:
+            return first if source == first.get("source") else read(source)
 
-        grids = library(
-            read(instagram) if instagram else None, read(own) if own else None
-        )
+        ig, lib = grid(instagram) if instagram else None, grid(own) if own else None
     else:
-        grids = library(first, None)
-    shown = MediaLibrary.model_validate(grids)
-    # What the launch holds and what was listed: a tick on anything else is stale.
-    taps = kept.read(draft_id)
-    taps["known"] = [tile.id for tile in [*shown.posts, *shown.library]]
-    kept.write(draft_id, taps)
-    return shown
+        ig, lib = first, None
+    launch = launch_of(db, user=user, draft_id=draft_id)
+    return MediaLibrary.model_validate(
+        library(ig, lib, chosen=_chosen(db, launch=launch, step=first))
+    )
+
+
+def _chosen(
+    db: Db, *, launch: CampaignLaunch, step: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Held tiles first, then the ticks: the picked row draws them whatever page they are on."""
+    held = [
+        str(card["asset"]["id"])
+        for card in step.get("variants") or []
+        if card.get("asset")
+    ]
+    ticked = [str(value) for value in kept.read(launch.id).get("media") or []]
+    found = chosen_assets(db, launch=launch, ids=[*held, *ticked])
+    return grid_tiles(db, launch=launch, assets=found, now=utcnow())
+
+
+@router.get("/{draft_id}/media/items", response_model=MediaPage)
+def media_items(
+    draft_id: uuid.UUID,
+    db: Db,
+    user: CurrentUser,
+    source: Literal["ig", "lib"] = Query(description="Instagram posts or the library."),
+    after: str = Query("", description="The last page's `after`; empty: the first."),
+    limit: int = Query(MEDIA_PAGE_SIZE, ge=1, le=MEDIA_PAGE_MAX),
+    show: MediaShow = Query(MediaShow.ALL, description="All, usable or blocked."),
+) -> MediaPage:
+    """One more page of a grid, newest first. Reads nothing from the network."""
+    launch = launch_of(db, user=user, draft_id=draft_id)
+    sources = media_sources(
+        db,
+        owner=user,
+        account=launch.ad_account,
+        page=launch_page(db, launch=launch),
+    )
+    wanted = source == "ig"
+    found = next((row.value for row in sources if row.is_instagram == wanted), None)
+    if found is None:
+        return MediaPage(items=[], after="", total=0)
+    sliced = source_slice(
+        db, launch=launch, source=found, after=after, limit=limit, show=show
+    )
+    squares = grid_tiles(db, launch=launch, assets=sliced.rows, now=utcnow())
+    return MediaPage(
+        items=[MediaAsset.model_validate(tile) for tile in tiles(squares)],
+        after=sliced.after,
+        total=sliced.total,
+    )
+
+
+@router.get("/{draft_id}/media/tiles/{asset_id}", response_model=MediaAsset)
+def media_tile(
+    draft_id: uuid.UUID, asset_id: uuid.UUID, db: Db, user: CurrentUser
+) -> MediaAsset:
+    """One tile, for a preview opened on a page the grid has not reached."""
+    launch = launch_of(db, user=user, draft_id=draft_id)
+    row = library_asset(
+        db,
+        owner=user,
+        provider=launch.provider,
+        ad_account=launch.ad_account,
+        page=launch_page(db, launch=launch),
+        asset_id=asset_id,
+    )
+    if row is None:
+        raise NotFound("Fayl topilmadi.")
+    squares = grid_tiles(db, launch=launch, assets=[row], now=utcnow())
+    return MediaAsset.model_validate(tiles(squares)[0])
 
 
 @router.get("/{draft_id}/media", response_model=MediaLibrary)

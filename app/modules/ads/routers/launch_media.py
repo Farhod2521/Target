@@ -115,13 +115,27 @@ def media_page(
     user: CurrentUser,
     source: str = Query("", description="Which profile the grid shows."),
 ) -> dict[str, Any]:
+    return media_view(db, user, launch_id, source=source)
+
+
+def media_view(
+    db: Session,
+    user: Any,
+    launch_id: uuid.UUID,
+    *,
+    source: str,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """The step as ``GET /media`` draws it; with ``limit``, the grid's first page only."""
     launch = owned_launch(db, user=user, launch_id=launch_id)
     page = launch_page(db, launch=launch)
     sources = media_sources(db, owner=user, account=launch.ad_account, page=page)
     shown = chosen_source(sources, source)
     syncing = _open_refreshes(db, launch=launch, source=shown)
     now = utcnow()
-    step = media_step(db, launch=launch, sources=sources, source=shown, now=now)
+    step = media_step(
+        db, launch=launch, sources=sources, source=shown, now=now, limit=limit
+    )
     showing = next((item for item in sources if item.value == shown), None)
     is_own = (
         showing is not None

@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Any
 
+from sqlalchemy import Select
 from sqlalchemy.orm import Session
 
 from app.modules.ads.constants import (
@@ -31,9 +32,14 @@ from app.modules.ads.selectors.library import (
 )
 from app.modules.ads.selectors.media import (
     ACCOUNT_SOURCE,
+    MediaSlice,
     MediaSource,
     instagram_source_page,
+    listed_assets,
+    media_count,
     media_library,
+    media_library_query,
+    media_slice,
 )
 from app.modules.ads.selectors.schedule import max_creatives
 from app.modules.ads.selectors.variants import launch_variants, uploads_in_flight
@@ -64,6 +70,80 @@ def library_assets(
     )
 
 
+def _source_query(
+    db: Session, *, launch: CampaignLaunch, source: str
+) -> Select[tuple[MediaAsset]]:
+    return media_library_query(
+        db,
+        owner=launch.owner,
+        provider=launch.provider,
+        ad_account=launch.ad_account,
+        page=launch_page(db, launch=launch),
+        source=source,
+    )
+
+
+def source_slice(
+    db: Session,
+    *,
+    launch: CampaignLaunch,
+    source: str,
+    after: str = "",
+    limit: int,
+    show: str = "",
+) -> MediaSlice:
+    """One page of one source's grid."""
+    return media_slice(
+        db,
+        _source_query(db, launch=launch, source=source),
+        after=after,
+        limit=limit,
+        show=show,
+    )
+
+
+def chosen_assets(
+    db: Session, *, launch: CampaignLaunch, ids: list[str]
+) -> list[MediaAsset]:
+    """The library rows behind these ids, in their order, wherever they sit in the grid."""
+    found = {
+        str(row.id): row
+        for row in listed_assets(
+            db,
+            owner=launch.owner,
+            provider=launch.provider,
+            ad_account=launch.ad_account,
+            page=launch_page(db, launch=launch),
+            ids=ids,
+        )
+    }
+    return [found[value] for value in dict.fromkeys(ids) if value in found]
+
+
+def grid_tiles(
+    db: Session, *, launch: CampaignLaunch, assets: list[MediaAsset], now: datetime
+) -> list[dict[str, Any]]:
+    """Library squares with what the owner may do to each."""
+    owner = launch.owner
+    usage = media_usage(db, owner=owner, assets=assets)
+    deleting = deleting_files(db, owner=owner, now=now)
+    refused = failed_deletes(db, owner=owner, now=now)
+    stills = stills_pending(
+        db, owner=owner, ad_account_id=launch.ad_account_id, now=now
+    )
+    return [
+        library_tile(
+            asset,
+            used_in=usage.get(asset.id, 0),
+            deleting=asset.external_id in deleting,
+            delete_failed=asset.external_id in refused,
+            delete_refusal=refused.get(asset.external_id),
+            still_pending=asset.id in stills,
+        )
+        for asset in assets
+    ]
+
+
 def media_status(
     db: Session, *, launch: CampaignLaunch, source: str, seen: int | None
 ) -> dict[str, Any]:
@@ -75,7 +155,7 @@ def media_status(
     )
     if shown is not None and shown.instagram_media_synced_at:
         synced = max(filter(None, (synced, shown.instagram_media_synced_at)))
-    count = len(library_assets(db, launch=launch, source=source))
+    count = media_count(db, _source_query(db, launch=launch, source=source))
     return {
         "media_synced_at": synced,
         "media_seen": count if seen is None else seen,
@@ -180,33 +260,29 @@ def media_step(
     sources: list[MediaSource],
     source: str,
     now: datetime,
+    limit: int | None = None,
 ) -> dict[str, Any]:
-    """Everything the pictures step draws."""
-    owner = launch.owner
-    assets = library_assets(db, launch=launch, source=source)
+    """Everything the pictures step draws.
+
+    With ``limit`` the grid is its first page, and ``tiles_after`` and
+    ``tiles_total`` say how to read the rest; without, it is all of it.
+    """
+    if limit is None:
+        assets = library_assets(db, launch=launch, source=source)
+        after, total = "", len(assets)
+    else:
+        first = source_slice(db, launch=launch, source=source, limit=limit)
+        assets, after, total = first.rows, first.after, first.total
     variants = launch_variants(db, launch=launch)
     cards = [variant_card(variant, now=now) for variant in variants]
-    usage = media_usage(db, owner=owner, assets=assets)
-    deleting = deleting_files(db, owner=owner, now=now)
-    refused = failed_deletes(db, owner=owner, now=now)
-    stills = stills_pending(
-        db, owner=owner, ad_account_id=launch.ad_account_id, now=now
-    )
+    synced = media_status(db, launch=launch, source=source, seen=None)
     return {
         "sources": sources,
         "source": source,
         "is_library": source == ACCOUNT_SOURCE,
-        "tiles": [
-            library_tile(
-                asset,
-                used_in=usage.get(asset.id, 0),
-                deleting=asset.external_id in deleting,
-                delete_failed=asset.external_id in refused,
-                delete_refusal=refused.get(asset.external_id),
-                still_pending=asset.id in stills,
-            )
-            for asset in assets
-        ],
+        "tiles": grid_tiles(db, launch=launch, assets=assets, now=now),
+        "tiles_after": after,
+        "tiles_total": total,
         "variants": cards,
         "chosen_asset_ids": [
             str(variant.media_asset_id)
@@ -221,7 +297,7 @@ def media_step(
         "accept_types": ACCEPT_TYPES,
         "upload_chunk_bytes": UPLOAD_CHUNK_BYTES,
         **busy_counts(db, launch=launch, now=now),
-        **media_status(db, launch=launch, source=source, seen=None),
+        **synced,
     }
 
 
@@ -230,10 +306,13 @@ __all__ = [
     "ASSET_BRIEF",
     "VARIANT_BRIEF",
     "busy_counts",
+    "chosen_assets",
     "chosen_source",
+    "grid_tiles",
     "library_assets",
     "media_status",
     "media_step",
+    "source_slice",
     "status_poll",
     "text_panel",
 ]

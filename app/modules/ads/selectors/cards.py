@@ -6,8 +6,8 @@ from typing import Any
 
 from app.modules.ads.constants import ALLOWED_VIDEO_TYPES, IG_KINDS, LibraryUpload
 from app.modules.ads.models import LaunchCreative, MediaAsset
-from app.modules.ads.selectors.library import LIBRARY_FILE_KINDS
 from app.modules.ads.selectors.launch_settings import post_address
+from app.modules.ads.selectors.library import LIBRARY_FILE_KINDS
 from app.modules.ads.selectors.variants import is_uploading, words_touched
 
 FILE_URL = "/api/v1/launch/{launch}/media/{position}/file"
