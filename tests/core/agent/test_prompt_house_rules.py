@@ -21,7 +21,7 @@ VERSION = re.compile(r"^v(\d+)$")
 # The two prompts whose answers a customer reads as prose. The section
 # prompts fill fields on a screen and the night's one writes a note under a
 # card, and neither quotes money back.
-SURFACES = ("chat_answer", "weekly_report")
+SURFACES = ("chat_answer",)
 
 
 def latest(name: str) -> str:

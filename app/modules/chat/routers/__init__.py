@@ -31,7 +31,6 @@ from app.modules.chat.constants import (
     HISTORY_TURNS,
     MAX_QUESTION_CHARS,
     POLL_SECONDS,
-    REPORT_POLL_TRIES,
     STREAM_TIMEOUT_SECONDS,
 )
 from app.modules.chat.models import ChatMessage, ChatSession
@@ -327,41 +326,25 @@ def _event(state: dict[str, Any]) -> str:
 
 
 @router.get("/report", responses={200: {"model": ReportOut}})
-def report(
-    db: Db,
-    user: CurrentUser,
-    attempt: int = Query(
-        default=0, alias="try", ge=0, description="The last answer's `next_try`."
-    ),
-) -> dict[str, Any]:
-    """One completed week, and the one sentence under it once a worker has written it."""
+def report(db: Db, user: CurrentUser) -> dict[str, Any]:
+    """One completed week's figures. No model reads the week."""
     from app.modules.chat.copy import HEADLINE_COPY, SILENCE_COPY
     from app.modules.chat.selectors import weekly_report
-    from app.modules.chat.services import request_comment
-    from app.modules.chat.tasks import explain_week_task
 
     if not _entitled(db, user):
         return {"report": None, "entitled": False}
     found = weekly_report(db, owner=user, now=utcnow())
     if found is None:
         return {"report": None, "entitled": True}
-    comment, queue = request_comment(owner=user, report=found)
-    db.commit()
-    if queue:
-        explain_week_task.delay(str(user.id))
     return jsonable_encoder(
         {
             "entitled": True,
             "report": asdict(found)
             | {"silence": found.silence, "wants_sentence": found.wants_sentence},
-            "comment": asdict(comment),
             "silence": ""
             if found.wants_sentence
             else SILENCE_COPY.get(found.silence, ""),
             "headline_label": HEADLINE_COPY.get(found.headline, ""),
-            "next_try": attempt + 1
-            if comment.is_pending and attempt < REPORT_POLL_TRIES
-            else 0,
         }
     )
 

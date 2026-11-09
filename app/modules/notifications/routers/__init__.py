@@ -27,7 +27,7 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 PREFERENCE_LABELS = {
     "notify_suggestions": "Agent taklif qilganda",
     "notify_spend_guard": "Bugun pul natijasiz ketayotganda",
-    "notify_daily_report": "Har kuni - kechagi kun xulosasi va AI bahosi",
+    "notify_daily_report": "Har kuni - kechagi kun xulosasi",
     "notify_report": "Har dushanba - o'tgan hafta xulosasi",
     "notify_rejections": "Reklama rad etilganda yoki Meta profil tasdig'ini so'raganda",
     "notify_news": "Yangiliklar va e'lonlar",

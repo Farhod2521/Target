@@ -1,9 +1,7 @@
 """Chat's workers: read the prepared turn, ask Claude, publish the answer; and the sweeps."""
 
-import uuid
 
 from app.common.db import utcnow
-from app.modules.accounts.models import User
 from app.worker import celery_app, task_session
 
 
@@ -94,23 +92,6 @@ def sweep_stuck_answers_task() -> int:
     return closed
 
 
-@celery_app.task(queue="chat", ignore_result=True)
-def explain_week_task(owner_id: str, pair: str = "") -> None:
-    """Write the one sentence under this account's weekly report."""
-    from app.modules.chat.services import explain_week
-
-    try:
-        key = uuid.UUID(str(owner_id))
-    except ValueError:
-        return
-    with task_session() as db:
-        owner = db.get(User, key)
-        if owner is None:
-            return
-        explain_week(db, owner=owner, now=utcnow(), pair=pair)
-        db.commit()
-
-
 __all__ = [
     "answer_chat_turn",
     "answer_refusal_turn",
@@ -118,7 +99,6 @@ __all__ = [
     "explain_action_refusal",
     "explain_change_refusal",
     "explain_launch_refusal",
-    "explain_week_task",
     "sweep_chat_sessions",
     "sweep_stuck_answers_task",
 ]
