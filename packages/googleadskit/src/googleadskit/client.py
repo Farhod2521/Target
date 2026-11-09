@@ -14,6 +14,7 @@ absent.
 safe is the caller's knowledge, not this module's.
 """
 
+import os
 from collections.abc import Iterator, Mapping
 from types import TracebackType
 from typing import Any, Final, Self
@@ -35,6 +36,12 @@ BASE_URL: Final = f"https://googleads.googleapis.com/{API_VERSION}"
 CONNECT_TIMEOUT_SECONDS: Final = 5.0
 # A search over a large account is the slowest read this package makes.
 READ_TIMEOUT_SECONDS: Final = 60.0
+# A read somebody's screen is waiting on. Past this the answer is "not now",
+# which the screen can say, rather than a request slot held for a minute.
+QUICK_READ_TIMEOUT_SECONDS: Final = 15.0
+# Connections kept open to Google per process: a call that finds one ready
+# skips the TLS handshake that otherwise comes before every request.
+_POOL: Final = httpx.Limits(max_connections=50, max_keepalive_connections=20)
 
 # Failures that happen before a byte of the request reaches Google.
 _NOT_SENT: Final = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
@@ -58,12 +65,43 @@ class ManagerToken(str):
         return made
 
 
+_shared: tuple[int, httpx.Client] | None = None
+
+
+def _pool() -> httpx.Client:
+    """This process's connections to Google, opened on first use.
+
+    Keyed by process id: a worker forked from a parent that had opened one
+    must not share its sockets, so a child opens its own.
+    """
+    global _shared
+    pid = os.getpid()
+    if _shared is None or _shared[0] != pid:
+        _shared = (
+            pid,
+            httpx.Client(
+                timeout=_timeout(READ_TIMEOUT_SECONDS),
+                limits=_POOL,
+            ),
+        )
+    return _shared[1]
+
+
+def _timeout(read: float) -> httpx.Timeout:
+    return httpx.Timeout(
+        connect=CONNECT_TIMEOUT_SECONDS,
+        read=read,
+        write=read,
+        pool=CONNECT_TIMEOUT_SECONDS,
+    )
+
+
 class AdsClient:
     """One person's access to Google Ads for the length of a ``with`` block.
 
     ``token`` is a live access token, not the refresh token. ``http`` is for
-    tests and for a caller that wants to share one connection pool; when it
-    is lent, this class does not close it.
+    tests; without it the process's shared connections are used, and neither
+    is closed here. ``quick`` is for a read a screen waits on.
     """
 
     def __init__(
@@ -72,20 +110,14 @@ class AdsClient:
         token: str,
         login_customer_id: str = "",
         http: httpx.Client | None = None,
+        quick: bool = False,
     ) -> None:
         self._token = token
         self._login_customer_id = login_customer_id or getattr(
             token, "login_customer_id", ""
         )
-        self._owned = http is None
-        self._http = http or httpx.Client(
-            timeout=httpx.Timeout(
-                connect=CONNECT_TIMEOUT_SECONDS,
-                read=READ_TIMEOUT_SECONDS,
-                write=READ_TIMEOUT_SECONDS,
-                pool=CONNECT_TIMEOUT_SECONDS,
-            )
-        )
+        self._http = http or _pool()
+        self._quick = quick
 
     def __enter__(self) -> Self:
         return self
@@ -99,8 +131,7 @@ class AdsClient:
         self.close()
 
     def close(self) -> None:
-        if self._owned:
-            self._http.close()
+        """Nothing to let go of: the connections outlive one person's block."""
 
     def __repr__(self) -> str:
         # The token stays out of every repr, as it stays out of every log.
@@ -112,6 +143,7 @@ class AdsClient:
             token=self._token,
             login_customer_id=login_customer_id,
             http=self._http,
+            quick=self._quick,
         )
 
     def get(self, path: str) -> dict[str, Any]:
@@ -146,8 +178,11 @@ class AdsClient:
         if self._login_customer_id:
             headers["login-customer-id"] = self._login_customer_id
         try:
+            extra: dict[str, Any] = (
+                {"timeout": _timeout(QUICK_READ_TIMEOUT_SECONDS)} if self._quick else {}
+            )
             response = self._http.request(
-                method, f"{BASE_URL}/{path}", json=body, headers=headers
+                method, f"{BASE_URL}/{path}", json=body, headers=headers, **extra
             )
         except _NOT_SENT as exc:
             raise GoogleAdsUnreachable(

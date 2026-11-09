@@ -1,13 +1,15 @@
 """The account, page and token a provider call is made with."""
 
 import logging
-from typing import Any
+from typing import Any, Final
 
 from adskit import registry
+from googleadskit import PROVIDER as GOOGLE
 from googleadskit import ManagerToken
 from sqlalchemy.orm import Session
 
-from app.common.crypto import decrypt
+from app.common.cache import cache
+from app.common.crypto import decrypt, encrypt, fingerprint
 from app.common.exceptions import DecryptionFailed
 from app.modules.accounts.models import User
 from app.modules.ads.exceptions import (
@@ -23,6 +25,9 @@ from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
 from app.modules.integrations.models import AdAccount, PageAccount
 
 logger = logging.getLogger(__name__)
+
+# Google's access tokens live an hour; a quarter of it is the margin.
+ACCESS_TOKEN_SECONDS: Final = 45 * 60
 
 
 def account_for(db: Session, *, owner: User) -> AdAccount:
@@ -43,9 +48,33 @@ def token_for(*, ad_account: AdAccount) -> str:
     except DecryptionFailed as exc:
         logger.exception("connection %s could not be decrypted", connection.id)
         raise ConnectionUnusable from exc
-    token = registry.get(ad_account.provider).connect.access_token(stored=stored)
+    token = _access_token(provider=ad_account.provider, stored=stored)
     if ad_account.login_customer_id:
         return ManagerToken(token, login_customer_id=ad_account.login_customer_id)
+    return token
+
+
+def _access_token(*, provider: str, stored: str) -> str:
+    """Google's hour-long access token, traded for once and then kept.
+
+    Trading the refresh token before every call put a round trip to Google's
+    sign-in in front of each read a screen waits on. The token is kept
+    encrypted, under a fingerprint of the refresh token - a reconnect brings
+    a new one and so a new key - and for less than its hour, so a kept one
+    never reaches Google already dead of age.
+    """
+    connect = registry.get(provider).connect
+    if provider != GOOGLE:
+        return connect.access_token(stored=stored)
+    key = f"access-token:{provider}:{fingerprint(stored)}"
+    kept = cache.get(key)
+    if isinstance(kept, str):
+        try:
+            return decrypt(kept.encode())
+        except DecryptionFailed:
+            cache.delete(key)
+    token = connect.access_token(stored=stored)
+    cache.set(key, encrypt(token).decode(), timeout=ACCESS_TOKEN_SECONDS)
     return token
 
 

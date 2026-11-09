@@ -96,11 +96,41 @@ def test_every_call_on_such_an_account_goes_through_the_manager(
         "app.modules.ads.services.access.registry.get", lambda _n: bundle
     )
     monkeypatch.setattr("app.modules.ads.services.access.decrypt", lambda _t: "stored")
+    monkeypatch.setattr("app.modules.ads.services.access.encrypt", str.encode)
 
     token = token_for(ad_account=account)
 
     assert isinstance(token, ManagerToken)
     assert (str(token), token.login_customer_id) == ("tok", "900")
+
+
+def test_google_is_asked_for_an_access_token_once_an_hour_not_once_a_call(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _auth, user = _ready(client, db)
+    account, _launch = _google(db, monkeypatch, user)
+    traded: list[str] = []
+
+    def access_token(_self: Any, *, stored: str) -> str:
+        traded.append(stored)
+        return f"tok-{len(traded)}"
+
+    connect = type("Connect", (), {"access_token": access_token})()
+    bundle = type("Bundle", (), {"connect": connect})()
+    monkeypatch.setattr(
+        "app.modules.ads.services.access.registry.get", lambda _n: bundle
+    )
+    # Reversible stand-ins: the test settings carry no encryption key.
+    monkeypatch.setattr("app.modules.ads.services.access.encrypt", str.encode)
+    monkeypatch.setattr(
+        "app.modules.ads.services.access.decrypt",
+        lambda raw: bytes(raw).decode() if bytes(raw).startswith(b"tok") else "refresh",
+    )
+
+    first, second = token_for(ad_account=account), token_for(ad_account=account)
+
+    assert (first, second) == ("tok-1", "tok-1")
+    assert traded == ["refresh"]
 
 
 def test_a_campaign_gets_its_last_day(

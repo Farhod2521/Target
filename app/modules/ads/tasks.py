@@ -5,6 +5,7 @@ from adskit.errors import RateLimited, TemporaryFailure
 from celery import Task
 
 from app.common.db import utcnow
+from app.common.task_routes import GOOGLE_QUEUE, GOOGLE_SYNC_QUEUE
 from app.modules.accounts.models import User
 from app.modules.ads.constants import (
     MIRROR_SWEEP,
@@ -66,7 +67,8 @@ def _counted(summary: SyncSummary) -> str:
 # -- the mirror -----------------------------------------------------------------------
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+# Its queue is the account's: see app.common.task_routes.
+@celery_app.task(ignore_result=True)
 def sync_ad_account_task(ad_account_id: str) -> str:
     with task_session() as db:
         pk = _uuid(ad_account_id)
@@ -144,19 +146,22 @@ def sync_all_media() -> int:
 # -- changes on live adverts ----------------------------------------------------------
 
 
-@celery_app.task(queue="agent")
+# Its queue is the change's: see app.common.task_routes.
+@celery_app.task
 def apply_change_task(log_id: str) -> str:
     with task_session() as db:
         return apply_change(db, log_id=log_id)
 
 
-@celery_app.task(queue="agent")
+# Its queue is the change's: see app.common.task_routes.
+@celery_app.task
 def apply_delete_task(log_id: str) -> str:
     with task_session() as db:
         return apply_delete(db, log_id=log_id)
 
 
-@celery_app.task(queue="agent")
+# Its queue is the change's: see app.common.task_routes.
+@celery_app.task
 def apply_swap_task(log_id: str) -> str:
     """Build the advert's next version and switch this one off. Never retried: every call creates."""
     from app.modules.ads.services.swap import apply_swap
@@ -551,7 +556,7 @@ def sweep_abandoned_uploads_task() -> int:
 # -- Google ----------------------------------------------------------------------------
 
 
-@celery_app.task(queue="agent")
+@celery_app.task(queue=GOOGLE_QUEUE)
 def prepare_google_launch_task(launch_id: str, run: str) -> str:
     from app.modules.ads.services.google import prepare_google_launch
 
@@ -559,7 +564,7 @@ def prepare_google_launch_task(launch_id: str, run: str) -> str:
         return prepare_google_launch(db, launch_id=launch_id, run=run)
 
 
-@celery_app.task(queue="sync", ignore_result=True)
+@celery_app.task(queue=GOOGLE_SYNC_QUEUE, ignore_result=True)
 def refresh_google_volumes_task(launch_id: str) -> str:
     from app.modules.ads.services.google import refresh_google_volumes
 
@@ -567,7 +572,7 @@ def refresh_google_volumes_task(launch_id: str) -> str:
         return refresh_google_volumes(db, launch_id=launch_id)
 
 
-@celery_app.task(queue="agent")
+@celery_app.task(queue=GOOGLE_QUEUE)
 def create_google_campaign_task(launch_id: str, run: str) -> str:
     from app.modules.ads.services.google import create_google_campaign
 

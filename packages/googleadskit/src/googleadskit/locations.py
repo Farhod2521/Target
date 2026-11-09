@@ -65,7 +65,10 @@ class GoogleAudiences:
         }
         if country_code:
             body["countryCode"] = country_code.upper()
-        with google_calls(), AdsClient(token=token, http=self._http) as client:
+        with (
+            google_calls(),
+            AdsClient(token=token, http=self._http, quick=True) as client,
+        ):
             answer = client.post("geoTargetConstants:suggest", body)
         return [
             _location(row.get("geoTargetConstant") or {})
@@ -122,7 +125,10 @@ class GoogleAudiences:
         )
 
     def read_targeting(self, *, ref: ExternalRef, token: str) -> dict[str, Any]:
-        with google_calls(), AdsClient(token=token, http=self._http) as client:
+        with (
+            google_calls(),
+            AdsClient(token=token, http=self._http, quick=True) as client,
+        ):
             places = sorted(campaign_places(client, ref))
             names = _place_names(client, customer_of(ref.id), places)
         return {"places": places, "names": names}

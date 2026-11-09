@@ -1,6 +1,6 @@
 """Google Ads as a provider bundle for ``adskit.registry``.
 
-Connect, campaigns, metrics and places are real. The rest stand in with
+Connect, campaigns, metrics, places and lead form submissions are real. The rest stand in with
 :class:`adskit.Unavailable`, which refuses by name at the call site: a
 screen that reaches for Google's leads before they are built fails saying
 "leads", not somewhere unrelated. Each one is replaced as the part of the
@@ -12,6 +12,7 @@ from adskit.registry import ProviderBundle
 
 from googleadskit.campaigns import GoogleCampaigns
 from googleadskit.connect import GoogleConnect
+from googleadskit.leads import GoogleLeads
 from googleadskit.locations import GoogleAudiences
 from googleadskit.metrics import GoogleMetrics
 
@@ -32,7 +33,7 @@ def bundle(
     return ProviderBundle(
         campaigns=GoogleCampaigns(rehearse_writes=rehearse_writes),
         metrics=GoogleMetrics(),
-        leads=Unavailable(provider=_PROVIDER, port="leads"),
+        leads=GoogleLeads(),
         audiences=GoogleAudiences(rehearse_writes=rehearse_writes),
         audience_sources=Unavailable(provider=_PROVIDER, port="audience sources"),
         conversions=Unavailable(provider=_PROVIDER, port="conversions"),
