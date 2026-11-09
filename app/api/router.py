@@ -26,6 +26,7 @@ from app.modules.chat.routers import router as chat
 from app.modules.chatgpt.routers import router as chatgpt_ads
 from app.modules.crm.routers import router as crm
 from app.modules.destinations.routers import router as destinations
+from app.modules.destinations.routers.lead_chats import router as lead_chats
 from app.modules.integrations.routers import router as integrations
 from app.modules.leads.routers import router as leads
 from app.modules.leads.routers import webhooks as leads_webhooks
@@ -60,6 +61,7 @@ api_router.include_router(referrals)
 api_router.include_router(leads)
 api_router.include_router(crm)
 api_router.include_router(destinations)
+api_router.include_router(lead_chats)
 api_router.include_router(public)
 api_router.include_router(office)
 api_router.include_router(sales)

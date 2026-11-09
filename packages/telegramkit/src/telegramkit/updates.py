@@ -43,6 +43,8 @@ class Command(BaseModel):
     sender: Sender
     name: str
     argument: str = ""
+    # As on :class:`TextMessage`: "private", "group", "supergroup".
+    chat_type: str = ""
 
 
 class TextMessage(BaseModel):
@@ -148,7 +150,40 @@ class MediaMessage(BaseModel):
     reply_to_message_id: int = 0
 
 
-Update = Command | ButtonPress | TextMessage | OtherMessage
+class ChatMembership(BaseModel):
+    """The bot itself was added to, changed in or removed from a chat.
+
+    Telegram's ``my_chat_member``. ``sender`` is the person who did it -
+    the one way to tell whose group or channel this is, since adding a
+    bot to a channel carries no deep-link payload. ``status`` is
+    Telegram's word for the bot's new place: "member", "administrator",
+    "left", "kicked", "restricted". ``can_post`` is whether, as an
+    administrator, it may post in a channel. ``restricted_may_send`` is a
+    "restricted" bot that is still a member and may still send messages.
+    ``public`` is a chat anybody can read by its handle.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    kind: Literal["membership"] = "membership"
+    chat_id: str
+    chat_type: str
+    title: str = ""
+    public: bool = False
+    sender: Sender
+    status: str
+    can_post: bool = False
+    restricted_may_send: bool = False
+
+    @property
+    def present(self) -> bool:
+        """In the chat and able to send there."""
+        if self.status == "restricted":
+            return self.restricted_may_send
+        return self.status in ("member", "administrator", "creator")
+
+
+Update = Command | ButtonPress | TextMessage | OtherMessage | ChatMembership
 
 MEDIA_KINDS: Final = (
     "photo",
@@ -174,6 +209,9 @@ def read_update(payload: dict[str, Any]) -> Update | None:
     press = _press(payload.get("callback_query"))
     if press is not None:
         return press
+    membership = _membership(payload.get("my_chat_member"))
+    if membership is not None:
+        return membership
     message = payload.get("message")
     return _command(message) or _text(message) or _other(message)
 
@@ -241,7 +279,38 @@ def _command(message: Any) -> Command | None:
         return None
 
     return Command(
-        chat_id=chat_id, sender=sender, name=name.lower(), argument=argument.strip()
+        chat_id=chat_id,
+        sender=sender,
+        name=name.lower(),
+        argument=argument.strip(),
+        chat_type=_chat_type(message.get("chat")),
+    )
+
+
+def _membership(change: Any) -> ChatMembership | None:
+    """The bot's own place in a chat, as it is now, or nothing."""
+    if not isinstance(change, dict):
+        return None
+    chat = change.get("chat")
+    chat_id = _chat_id(chat)
+    sender = _sender(change.get("from"))
+    member = change.get("new_chat_member")
+    if not chat_id or sender is None or not isinstance(member, dict):
+        return None
+    status = str(member.get("status") or "")
+    if not status:
+        return None
+    return ChatMembership(
+        chat_id=chat_id,
+        chat_type=_chat_type(chat),
+        title=str(chat.get("title") or "") if isinstance(chat, dict) else "",
+        public=bool(chat.get("username")) if isinstance(chat, dict) else False,
+        sender=sender,
+        status=status,
+        can_post=status == "creator" or bool(member.get("can_post_messages")),
+        restricted_may_send=status == "restricted"
+        and bool(member.get("is_member"))
+        and bool(member.get("can_send_messages")),
     )
 
 
@@ -364,6 +433,7 @@ __all__ = [
     "CALLBACK_DATA_MAX_BYTES",
     "MEDIA_KINDS",
     "ButtonPress",
+    "ChatMembership",
     "Command",
     "MediaMessage",
     "Sender",

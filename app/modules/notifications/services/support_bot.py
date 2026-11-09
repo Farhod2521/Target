@@ -28,6 +28,7 @@ from telegramkit import (
     DOWNLOAD_MAX_BYTES,
     BotClient,
     ButtonPress,
+    ChatMembership,
     Command,
     MediaMessage,
     OtherMessage,
@@ -128,7 +129,7 @@ def handle_support_update(
 ) -> str:
     """One delivery from Telegram, acted on. Returns a word for the task log."""
     update_ = read_update(payload)
-    if update_ is None:
+    if update_ is None or isinstance(update_, ChatMembership):
         return "ignored"
     # A private chat's id is the person's own; anything else is a group.
     if update_.chat_id != update_.sender.id:

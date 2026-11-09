@@ -7,6 +7,11 @@ to Support), ``/hisobot``, ``/bugun`` and ``/hafta`` send
 a report, and the buttons under it open a pair's figures. A stranger and an
 unlinked chat get the one sentence about connecting.
 
+``/start lc_<token>`` is the cabinet's «Telegramga uzatish»: it asks where
+a pair's leads go, and the bot added to a group or a channel - or removed
+from one - is read here too (``destinations.services.lead_chats``). In a
+group or a channel nothing else is answered: the bot sits in lead chats.
+
 Anything else typed in a linked chat is a question for the assistant, or the
 answer to the survey question waiting there; the survey's buttons answer it,
 and so does «Reklama yaxshi ishlayapti» under a frequency message (TZ 6.3),
@@ -25,6 +30,7 @@ from telegramkit import (
     BotClient,
     Button,
     ButtonPress,
+    ChatMembership,
     Command,
     OtherMessage,
     TelegramError,
@@ -35,6 +41,14 @@ from telegramkit import (
 from app.common.cache import cache
 from app.common.exceptions import DomainError
 from app.common.i18n import DEFAULT, override
+from app.modules.destinations.services.lead_chats import (
+    handle_lead_chat_press,
+    handle_membership,
+    is_lead_chat_press,
+    is_lead_chat_start,
+    lead_chat_group_start,
+    offer_lead_chat,
+)
 from app.modules.notifications.bot import bot, support_bot_configured, support_bot_home
 from app.modules.notifications.constants import (
     COMMAND_HELP,
@@ -92,7 +106,11 @@ def handle_update(db: Session, *, payload: dict[str, Any], now: datetime) -> str
         return "ignored"
     known = chat_by_id(db, chat_id=update.chat_id)
     with bot() as client, override(_language(known)):
+        if isinstance(update, ChatMembership):
+            return handle_membership(db, client=client, change=update, now=now)
         if isinstance(update, ButtonPress):
+            if is_lead_chat_press(update.data):
+                return handle_lead_chat_press(db, client=client, press=update, now=now)
             if is_daily_press(update.data):
                 return handle_daily_press(db, client=client, press=update, now=now)
             if is_survey_press(update.data):
@@ -130,6 +148,10 @@ def _command(
     command: Command,
     now: datetime,
 ) -> str:
+    if command.chat_type not in ("", PRIVATE_CHAT):
+        if command.name == COMMAND_START and is_lead_chat_start(command.argument):
+            return lead_chat_group_start(db, client=client, command=command, now=now)
+        return "ignored"
     if command.name == COMMAND_START:
         return _start(db, client=client, known=known, command=command, now=now)
     if command.name == COMMAND_STOP:
@@ -172,6 +194,8 @@ def _start(
         return "no_code"
     if command.argument == RESET_PAYLOAD:
         return answer_reset_request(client=client, chat_id=command.chat_id, known=known)
+    if is_lead_chat_start(command.argument):
+        return offer_lead_chat(db, client=client, command=command)
     try:
         chat = link_chat(
             db,

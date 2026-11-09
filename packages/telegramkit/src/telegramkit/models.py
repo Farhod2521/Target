@@ -91,6 +91,25 @@ class BotIdentity(BaseModel):
     username: str
 
 
+class ChatInfo(BaseModel):
+    """What ``getChat`` says about a group or a channel.
+
+    ``username`` is set only on a public one: anybody can read a public
+    chat by its handle, which is the one thing a caller decides on here.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    id: str
+    type: str = ""
+    title: str = ""
+    username: str = ""
+
+    @property
+    def public(self) -> bool:
+        return bool(self.username)
+
+
 class WebhookInfo(BaseModel):
     """Telegram's own account of the webhook, for when nothing is arriving.
 
@@ -120,4 +139,4 @@ class WebhookInfo(BaseModel):
     allowed_updates: tuple[str, ...] = ()
 
 
-__all__ = ["BotIdentity", "Button", "SentMessage", "WebhookInfo"]
+__all__ = ["BotIdentity", "Button", "ChatInfo", "SentMessage", "WebhookInfo"]

@@ -16,6 +16,11 @@ SCHEDULE: Final = [
         "*",
     ),
     Periodic(
+        "Lidlarni Telegram guruh/kanalga yuborish",
+        f"{TASKS}.sweep_lead_posts_task",
+        "*/5",
+    ),
+    Periodic(
         "Google jadvallarni tekshirish",
         f"{TASKS}.check_sheet_links_task",
         "35",
