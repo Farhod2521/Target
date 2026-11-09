@@ -774,8 +774,11 @@ META_SIDE_FAILURES: tuple[str, ...] = (
 )
 ACCOUNT_FAILURES: tuple[str, ...] = ("account_action", "account_disabled")
 PAYMENT_FAILURES: tuple[str, ...] = ("payment_due", "payment_missing")
+# Refusals of something the launch itself holds, so sending it unchanged is
+# refused again. Not "refused": an unrecognised refusal is as often the
+# account's (a certification, a check) as the ad's, and changing the ad cannot
+# help it.
 UNCHANGED_REFUSALS: tuple[str, ...] = (
-    "refused",
     "bid_refused",
     "location_invalid",
     "location_overlap",

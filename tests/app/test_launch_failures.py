@@ -1,11 +1,13 @@
 """A refused launch says what happened and what to press, never a guess at waiting."""
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from app.modules.ads.contract.launch.failures import failure
 from app.modules.ads.contract.launch.media import library
+from app.modules.ads.selectors.attempts import SENT_KEY, repeats_refusal
 from app.modules.ads.services.creation import FAILURE_CODES
 from core.chat.preparations import TROUBLE_WORDS
 
@@ -121,3 +123,15 @@ def test_a_refused_file_carries_its_refusal_to_the_grid() -> None:
     assert grid["library"][0]["state"] == "delete_failed"
     assert grid["library"][0]["refusal"] == refusal
     assert [tile["refusal"] for tile in grid["uploads"]] == [refusal]
+
+
+def test_an_unrecognised_refusal_does_not_lock_the_button() -> None:
+    """A certification or a check is the account's: changing the ad cannot help it."""
+    launch = SimpleNamespace(error_code="refused", error_detail={SENT_KEY: "same"})
+
+    assert not repeats_refusal(
+        None,  # type: ignore[arg-type]
+        launch=launch,  # type: ignore[arg-type]
+        business=SimpleNamespace(),  # type: ignore[arg-type]
+        preset_version="",
+    )

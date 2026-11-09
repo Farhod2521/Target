@@ -152,15 +152,17 @@ def _extras(db: Session, *, launch: CampaignLaunch) -> dict[str, Any]:
             CampaignLaunch.created_at < launch.created_at,
         )
     )
+    variants = launch_variants(db, launch=launch)
     briefs = {
         str(variant.media_asset_id): variant.brief
-        for variant in launch_variants(db, launch=launch)
+        for variant in variants
         if variant.media_asset_id and variant.brief
     }
     return {
         "id": str(launch.id),
         "campaign_id": str(campaign_id) if campaign_id else None,
         "first_launch": first,
+        "ads": len(variants),
         "text": {
             "mode": answers.get("text_mode") or "",
             "shared": str(

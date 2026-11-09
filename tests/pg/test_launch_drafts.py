@@ -17,7 +17,13 @@ from app.modules.ads.constants import (
     DraftSection,
     MediaKind,
 )
-from app.modules.ads.models import Campaign, CampaignLaunch, GoogleLaunch, MediaAsset
+from app.modules.ads.models import (
+    Campaign,
+    CampaignLaunch,
+    GoogleLaunch,
+    LaunchCreative,
+    MediaAsset,
+)
 from app.modules.ads.routers import drafts
 from app.modules.ads.selectors.variants import launch_variants
 from app.modules.integrations.models import AdAccount
@@ -547,3 +553,75 @@ def test_made_but_not_on_says_why_meta_buys_clicks(
         "reason": "Hisobda to'lov usuli yo'q.",
         "note": LAUNCH_NOTES[NO_PIXEL_CLICKS],
     }
+
+
+def _refused_then_rolled_back(
+    client: TestClient, db: Session, *, error_code: str
+) -> tuple[dict[str, str], str]:
+    """Meta refused the ad set and the rollback took the campaign away again."""
+    auth, draft_id = _opened(client, db)
+    launch = db.get(CampaignLaunch, uuid.UUID(draft_id))
+    assert launch is not None
+    launch.status = "rolled_back"
+    launch.step = "adset"
+    launch.created_refs = {}
+    launch.error_code = error_code
+    launch.error_detail = {
+        "title": "Certification Required",
+        "message": "You must certify compliance with our non-discrimination policy.",
+        "key": "meta:100/1885183",
+    }
+    db.commit()
+    return auth, draft_id
+
+
+def test_a_refusal_stays_on_the_screen_after_the_rollback(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, draft_id = _refused_then_rolled_back(client, db, error_code="refused")
+
+    shown = client.get(f"/api/v1/launch/drafts/{draft_id}", headers=auth)
+
+    assert shown.status_code == 200, shown.text
+    body = shown.json()
+    assert body["status"] == "failed"
+    assert "non-discrimination" in body["failure"]["raw"]
+    assert body["failure"]["made"]["campaign"] is False
+
+
+def test_a_rollback_with_no_refusal_shows_the_proposal_again(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, draft_id = _refused_then_rolled_back(client, db, error_code="")
+
+    shown = client.get(f"/api/v1/launch/drafts/{draft_id}", headers=auth)
+
+    assert shown.status_code == 200, shown.text
+    assert shown.json()["status"] == "ready"
+    assert shown.json()["failure"] is None
+
+
+def test_the_creation_counts_the_launchs_own_ads(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, draft_id = _opened(client, db)
+    launch = db.get(CampaignLaunch, uuid.UUID(draft_id))
+    assert launch is not None
+    launch.status = "creating"
+    launch.step = "campaign"
+    db.add_all(
+        LaunchCreative(
+            owner_id=launch.owner_id,
+            launch_id=launch.id,
+            position=position,
+            media_upload=f"launch/{position}.jpg",
+        )
+        for position in range(2)
+    )
+    db.commit()
+
+    shown = client.get(f"/api/v1/launch/drafts/{draft_id}", headers=auth)
+
+    assert shown.status_code == 200, shown.text
+    assert shown.json()["status"] == "creating"
+    assert shown.json()["creation"]["adsTotal"] == 2

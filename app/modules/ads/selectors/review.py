@@ -59,6 +59,19 @@ def shows_proposal(launch: CampaignLaunch) -> bool:
     )
 
 
+def refused_creation(launch: CampaignLaunch) -> bool:
+    """Whether the network refused this launch's creation and nothing was pressed since.
+
+    A rollback only clears what was left at the network: the refusal stays
+    the owner's news until the next creation clears ``error_code``.
+    """
+    if launch.step not in CREATION_STEPS:
+        return False
+    return launch.status == LaunchStatus.FAILED or bool(
+        launch.status == LaunchStatus.ROLLED_BACK and launch.error_code
+    )
+
+
 def reach(launch: CampaignLaunch) -> dict[str, Any] | None:
     """The reach figure, or nothing at all."""
     if launch.audience_lower is None:
@@ -107,7 +120,7 @@ def review_state(
     created = created_state(db, launch=launch, now=now)
     status = launch.status
     creating = status == LaunchStatus.CREATING
-    failed_creating = status == LaunchStatus.FAILED and launch.step in CREATION_STEPS
+    failed_creating = refused_creation(launch)
     explanation = _explanation(db, launch=launch)
     keep_polling = (
         status in (LaunchStatus.BUILDING, LaunchStatus.CREATING)
@@ -209,6 +222,7 @@ __all__ = [
     "MAX_DRAFT_POLLS",
     "created_state",
     "reach",
+    "refused_creation",
     "review_state",
     "shows_proposal",
 ]
