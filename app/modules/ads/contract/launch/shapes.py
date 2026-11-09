@@ -674,6 +674,12 @@ class MediaPage(Camel):
     total: int = Field(description="How many tiles the grid holds under this filter.")
 
 
+class MediaPlay(Camel):
+    """Where a video plays from: Meta's signed address, which expires."""
+
+    url: str
+
+
 class UploadDone(Camel):
     upload_id: str
     total: int
@@ -696,6 +702,7 @@ __all__ = [
     "MediaAsset",
     "MediaLibrary",
     "MediaPage",
+    "MediaPlay",
     "NameIn",
     "ProposalEdit",
     "UploadDone",

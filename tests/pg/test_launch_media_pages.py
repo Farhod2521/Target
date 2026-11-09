@@ -4,7 +4,9 @@ must not arrive in one answer, and a tick pages down must still count."""
 import uuid
 from datetime import timedelta
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
@@ -12,6 +14,7 @@ from app.modules.ads.constants import MEDIA_PAGE_SIZE, MediaKind
 from app.modules.ads.models import CampaignLaunch, MediaAsset
 from app.modules.ads.selectors.launch_page import launch_page
 from app.modules.ads.selectors.variants import launch_variants
+from app.modules.ads.services import playback
 from tests.pg.test_launch_drafts import _opened, quick_reading  # noqa: F401
 
 
@@ -300,3 +303,150 @@ def test_a_tile_says_why_meta_refuses_it_and_what_it_is(
     assert album["date"].startswith((now - timedelta(days=1)).date().isoformat())
     video = shown["library"][0]
     assert video["video"] == "0:31" and video["small"]
+
+
+class _Meta:
+    """Stands in for Meta's video reads and counts them."""
+
+    def __init__(self, answer: str = "https://video.example/fresh.mp4") -> None:
+        self.answer = answer
+        self.asked: list[str] = []
+        self.fails = False
+
+    def video_source(self, *, video_id: str, token: str) -> str:
+        return self._read(f"video:{video_id}")
+
+    def instagram_source(self, *, media_id: str, token: str) -> str:
+        return self._read(f"ig:{media_id}")
+
+    def _read(self, what: str) -> str:
+        from adskit.errors import TemporaryFailure
+
+        self.asked.append(what)
+        if self.fails:
+            raise TemporaryFailure("Meta is down")
+        return self.answer
+
+
+def _meta(monkeypatch: pytest.MonkeyPatch, meta: _Meta) -> None:
+    monkeypatch.setattr(playback, "MetaAssets", lambda: meta)
+    monkeypatch.setattr(playback, "token_for", lambda **_: "user-token")
+    monkeypatch.setattr(playback, "profile_token", lambda _asset: "page-token")
+
+
+def _signed(hours: float) -> str:
+    ends = int((utcnow() + timedelta(hours=hours)).timestamp())
+    return f"https://video.xx.fbcdn.net/v/clip.mp4?_nc_cat=1&oe={ends:X}&_nc_sid=2"
+
+
+def _video(
+    db: Session, launch: CampaignLaunch, *, stored: str, name: str
+) -> MediaAsset:
+    row = MediaAsset(
+        owner_id=launch.owner_id,
+        ad_account_id=launch.ad_account_id,
+        provider=launch.provider,
+        kind=MediaKind.VIDEO,
+        external_id=name,
+        name=f"{name}.mp4",
+        permalink_url=stored,
+    )
+    db.add(row)
+    db.commit()
+    return row
+
+
+def test_a_library_video_plays_from_its_stored_address_while_it_lasts(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, path, launch = _at_media(client, db)
+    meta = _Meta()
+    _meta(monkeypatch, meta)
+    stored = _signed(hours=48)
+    video = _video(db, launch, stored=stored, name="v_lasts")
+
+    got = client.get(f"{path}/media/tiles/{video.id}/play", headers=auth)
+
+    assert got.status_code == 200, got.text
+    assert got.json() == {"url": stored} and meta.asked == []
+
+
+def test_an_expiring_address_is_asked_for_again_and_kept_a_while(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, path, launch = _at_media(client, db)
+    meta = _Meta()
+    _meta(monkeypatch, meta)
+    video = _video(db, launch, stored=_signed(hours=0.5), name="v_old")
+
+    first = client.get(f"{path}/media/tiles/{video.id}/play", headers=auth)
+    again = client.get(f"{path}/media/tiles/{video.id}/play", headers=auth)
+
+    assert first.json() == again.json() == {"url": meta.answer}
+    assert meta.asked == ["video:v_old"]
+
+
+def test_an_instagram_reel_is_always_asked_for(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, path, launch = _at_media(client, db)
+    meta = _Meta()
+    _meta(monkeypatch, meta)
+    reel = next(
+        row for row in _instagram(db, launch, 3) if row.kind == MediaKind.IG_VIDEO
+    )
+
+    got = client.get(f"{path}/media/tiles/{reel.id}/play", headers=auth)
+
+    assert got.status_code == 200, got.text
+    assert meta.asked == [f"ig:{reel.external_id}"]
+
+
+def test_a_video_meta_withholds_or_cannot_read_says_so(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, path, launch = _at_media(client, db)
+    withheld = _Meta(answer="")
+    _meta(monkeypatch, withheld)
+    quiet = _video(db, launch, stored="", name="v_quiet")
+    got = client.get(f"{path}/media/tiles/{quiet.id}/play", headers=auth)
+    assert got.status_code == 404 and "ko'rsatmadi" in got.text
+
+    down = _Meta()
+    down.fails = True
+    _meta(monkeypatch, down)
+    broken = _video(db, launch, stored="", name="v_down")
+    got = client.get(f"{path}/media/tiles/{broken.id}/play", headers=auth)
+    assert got.status_code == 503 and "qayta urining" in got.text
+
+    picture = _library(db, launch, 1)[0]
+    got = client.get(f"{path}/media/tiles/{picture.id}/play", headers=auth)
+    assert got.status_code == 400 and "video emas" in got.text
+
+
+def test_a_library_sync_no_longer_reads_the_page_s_facebook_posts(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from metaads import creatives
+
+    from app.modules.ads.services import media
+
+    _auth, _path, launch = _at_media(client, db)
+    visited: list[str] = []
+
+    def refused(**_: object) -> list[object]:
+        raise AssertionError("the page's Facebook posts were read")
+
+    def instagram(_db: Session, *, page: object, **_: object) -> int:
+        visited.append(str(getattr(page, "external_id", "")))
+        return 0
+
+    monkeypatch.setattr(creatives, "list_page_posts", refused)
+    monkeypatch.setattr(media, "decrypt", lambda _stored: "page-token")
+    monkeypatch.setattr(media, "_instagram_library", instagram)
+
+    assert media.sync_owner_media(db, owner_id=launch.owner_id) == "0"
+    assert visited == ["page_1"]
+    assert not db.scalars(
+        select(MediaAsset).where(MediaAsset.kind == MediaKind.POST)
+    ).all()

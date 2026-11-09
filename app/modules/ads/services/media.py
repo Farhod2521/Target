@@ -12,7 +12,6 @@ from metaads import PROVIDER
 from metaads.creatives import (
     list_instagram_media,
     list_media,
-    list_promotable_posts,
     list_recent_instagram_media,
 )
 from metaads.dto import MediaDTO
@@ -143,30 +142,11 @@ def _page_library(db: Session, owner: User) -> int:
         except DecryptionFailed:
             logger.exception("page %s could not be decrypted", page.id)
             continue
-        counted += _page_posts(db, owner=owner, page=page, token=token)
+        # The page's own Facebook posts are not read: no grid offers them and a
+        # launch refuses one, so reading them was a request and a write per page
+        # on every sync for nothing.
         counted += _instagram_library(db, owner=owner, page=page, token=token)
     return counted
-
-
-def _page_posts(db: Session, *, owner: User, page: PageAccount, token: str) -> int:
-    read_at = utcnow()
-    posts = _read(
-        lambda: list_promotable_posts(page_id=page.external_id, token=token),
-        what="post list",
-        subject=page.external_id,
-    )
-    if posts is None:
-        return 0
-    _store(
-        db,
-        owner=owner,
-        ad_account=None,
-        page=page,
-        kinds=(MediaKind.POST,),
-        assets=posts,
-        read_at=read_at,
-    )
-    return len(posts)
 
 
 def _instagram_library(

@@ -159,6 +159,27 @@ class MediaInUse(DomainError):
         self.count = count
 
 
+class NotAVideo(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu fayl video emas.")
+
+
+class VideoWithheld(DomainError):
+    status_code = 404
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Meta bu videoni ko'rsatmadi. Uni Instagram yoki Meta'ning o'zida oching."
+        )
+
+
+class VideoUnreadable(DomainError):
+    status_code = 503
+
+    def __init__(self) -> None:
+        super().__init__("Videoni hozir ochib bo'lmadi. Birozdan keyin qayta urining.")
+
+
 class MediaDeleteRunning(DomainError):
     def __init__(self) -> None:
         super().__init__("Bu fayl allaqachon o'chirilmoqda.")

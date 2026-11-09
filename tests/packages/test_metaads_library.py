@@ -198,3 +198,15 @@ def test_a_library_video_carries_its_length(length: Any, seconds: Any) -> None:
     rows = list_media(account_id="act_1", token="t", client=graph)
 
     assert [(row.external_id, row.duration) for row in rows] == [("v1", seconds)]
+
+
+def test_a_video_s_address_is_read_fresh_by_its_id() -> None:
+    from metaads.uploads import video_source
+
+    graph, seen = recording({"id": "v1", "source": "https://video.example/v1.mp4"})
+
+    assert video_source(video_id="v1", token="t", client=graph) == (
+        "https://video.example/v1.mp4"
+    )
+    assert seen[0].url.path.endswith("/v1")
+    assert seen[0].url.params["fields"] == "source"

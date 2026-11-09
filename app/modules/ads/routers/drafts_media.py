@@ -31,6 +31,7 @@ from app.modules.ads.contract.launch.shapes import (
     MediaAsset,
     MediaLibrary,
     MediaPage,
+    MediaPlay,
     UploadDone,
 )
 from app.modules.ads.exceptions import (
@@ -50,6 +51,7 @@ from app.modules.ads.selectors.media_step import (
     grid_tiles,
     source_slice,
 )
+from app.modules.ads.services.playback import play_address
 
 router = APIRouter(prefix="/launch/drafts", tags=["launch: media"])
 
@@ -147,6 +149,25 @@ def media_tile(
         raise NotFound("Fayl topilmadi.")
     squares = grid_tiles(db, launch=launch, assets=[row], now=utcnow())
     return MediaAsset.model_validate(tiles(squares)[0])
+
+
+@router.get("/{draft_id}/media/tiles/{asset_id}/play", response_model=MediaPlay)
+def media_play(
+    draft_id: uuid.UUID, asset_id: uuid.UUID, db: Db, user: CurrentUser
+) -> MediaPlay:
+    """Where a video plays from now: Meta's own signed address, good for a while."""
+    launch = launch_of(db, user=user, draft_id=draft_id)
+    row = library_asset(
+        db,
+        owner=user,
+        provider=launch.provider,
+        ad_account=launch.ad_account,
+        page=launch_page(db, launch=launch),
+        asset_id=asset_id,
+    )
+    if row is None:
+        raise NotFound("Fayl topilmadi.")
+    return MediaPlay(url=play_address(row))
 
 
 @router.get("/{draft_id}/media", response_model=MediaLibrary)

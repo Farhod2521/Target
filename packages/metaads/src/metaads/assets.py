@@ -51,6 +51,7 @@ from metaads.uploads import (
     upload_image,
     upload_video,
     upload_video_from_url,
+    video_source,
     video_status,
     video_thumbnail,
 )
@@ -337,6 +338,11 @@ class MetaAssets:
         if status == VIDEO_ERROR:
             raise InvalidRequest(_VIDEO_REFUSED, code=VIDEO_ERROR)
         return status == VIDEO_READY
+
+    def video_source(self, *, video_id: str, token: str) -> str:
+        """Where a library video plays from now. Empty: Meta gave none."""
+        with session(token) as graph:
+            return video_source(video_id=video_id, token=token, client=graph)
 
     def video_thumbnail(self, *, video_id: str, token: str) -> str:
         """A frame to put in the creative. Meta refuses one without it."""

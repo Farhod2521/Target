@@ -205,6 +205,20 @@ def video_status(
     return str(status or "").lower()
 
 
+def video_source(
+    *, video_id: str, token: str, client: GraphClient | None = None
+) -> str:
+    """Where the video's file is **right now**: a signed address that expires.
+
+    Read for somebody about to watch it, never stored as the truth - the
+    copy a library read wrote down stops working after a few days. Empty
+    means Meta did not give one.
+    """
+    with graph_client(client, token) as graph:
+        payload = graph.get(video_id, fields="source")
+    return str(payload.get("source", ""))
+
+
 def video_thumbnail(
     *, video_id: str, token: str, client: GraphClient | None = None
 ) -> str:
