@@ -57,6 +57,7 @@ def test_the_sheet_tasks_keep_django_s_minutes() -> None:
     assert times == {
         "Mijozlarni Google jadvalga yozish": ("*", "*"),
         "Google jadvallarni tekshirish": ("35", "4"),
+        "Lidlarni Telegram guruh/kanalga yuborish": ("*/5", "*"),
     }
 
 
