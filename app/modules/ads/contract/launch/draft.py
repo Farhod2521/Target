@@ -203,7 +203,12 @@ def draft(
         if shows and drawn is not None
         else None
     )
-    adverts = len(proposal["ads"]) if proposal else len(taps.get("media") or [])
+    # The poll while creating carries no proposal: the launch's own ads count then.
+    adverts = (
+        len(proposal["ads"])
+        if proposal
+        else extras.get("ads") or len(taps.get("media") or [])
+    )
     texts = extras.get("text") or {}
     page = plan.get("page") or {}
     pixel = plan.get("pixel") or {}

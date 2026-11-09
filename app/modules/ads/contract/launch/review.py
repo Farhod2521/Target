@@ -42,10 +42,13 @@ def art(name: str) -> str:
 
 def review_status(state: dict[str, Any]) -> LaunchStatus:
     """A failed build is not a failed creation; a rolled-back launch shows
-    its proposal again; a created one is sent once the network delivers."""
+    its proposal again, unless the refusal it was rolled back for is still
+    unanswered; a created one is sent once the network delivers."""
     status = state.get("status")
     if status == "building":
         return "building"
+    if status == "rolled_back" and state.get("failed_creating"):
+        return "failed"
     if status in ("ready", "rolled_back"):
         return "ready"
     if status == "creating":
