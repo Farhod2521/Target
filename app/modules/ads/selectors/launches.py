@@ -19,6 +19,7 @@ from app.modules.ads import geo as geo_field
 from app.modules.ads import refs as ref_field
 from app.modules.ads.constants import (
     HARMLESS_STEPS,
+    KEPT_FAILURES,
     ROLLBACK_ORDER,
     STRANDED_SWEEP_BATCH,
     STRANDED_SWEEP_COOLDOWN_MINUTES,
@@ -365,6 +366,7 @@ def stranded_launches(db: Session, *, now: datetime) -> list[CampaignLaunch]:
             select(CampaignLaunch)
             .where(
                 CampaignLaunch.status == str(LaunchStatus.FAILED),
+                CampaignLaunch.error_code.not_in(KEPT_FAILURES),
                 or_(*(_has_ref(step) for step in ROLLBACK_ORDER)),
                 CampaignLaunch.finished_at >= now - timedelta(days=STRANDED_SWEEP_DAYS),
                 CampaignLaunch.updated_at
