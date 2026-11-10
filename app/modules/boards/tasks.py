@@ -1,5 +1,5 @@
 from app.common.db import utcnow
-from app.modules.boards.triggers import sweep_sales
+from app.modules.boards.triggers import sweep_sales, sweep_support
 from app.worker import celery_app, task_session
 
 
@@ -12,3 +12,11 @@ def sweep_sales_board_task() -> int:
     with task_session() as db:
         opened, sold = sweep_sales(db, now=utcnow())
         return opened + sold
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def sweep_support_board_task() -> int:
+    """Every minute: setup undone an hour after paying, Sales' «Support
+    kerak» on payment, and Meta's refusals become the client's ticket."""
+    with task_session() as db:
+        return sweep_support(db, now=utcnow())

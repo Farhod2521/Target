@@ -45,4 +45,11 @@ class NotOnBoard(DomainError):
     status_code = 422
 
     def __init__(self) -> None:
-        super().__init__("Bu xodim Sotuv bo'limida ishlamaydi.")
+        super().__init__("Bu xodim shu bo'limda ishlamaydi.")
+
+
+class TicketHeld(DomainError):
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__("Bu mijoz bilan boshqa xodim ishlayapti.")

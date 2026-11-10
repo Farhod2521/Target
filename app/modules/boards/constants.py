@@ -128,6 +128,8 @@ class CardAction(Choices):
     NO_CONTACT = "no_contact"
     NEEDS_SUPPORT = "needs_support"
     CLOSE = "close"
+    START = "start"
+    RESOLVE = "resolve"
 
 
 CARD_ACTION_LABELS = {
@@ -135,6 +137,8 @@ CARD_ACTION_LABELS = {
     CardAction.NO_CONTACT: "Bog'lanilmadi",
     CardAction.NEEDS_SUPPORT: "Support kerak",
     CardAction.CLOSE: "Yopildi",
+    CardAction.START: "Ishlayapman",
+    CardAction.RESOLVE: "Hal qilindi",
 }
 
 # The buttons each Sales column shows. "Support kerak" comes after a talk:
@@ -148,6 +152,36 @@ SALES_ACTIONS: Final[dict[str, tuple[CardAction, ...]]] = {
     str(SalesColumn.NO_CONTACT): (CardAction.CONTACTED, CardAction.CLOSE),
     str(SalesColumn.CONTACTED): (CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
 }
+
+
+# The buttons each Support column shows. A solved ticket has none: a new
+# reason reopens it on its own.
+SUPPORT_ACTIONS: Final[dict[str, tuple[CardAction, ...]]] = {
+    str(SupportColumn.NEW): (CardAction.START,),
+    str(SupportColumn.IN_PROGRESS): (CardAction.RESOLVE,),
+}
+
+
+class TicketReason(Choices):
+    SETUP = "setup"
+    FROM_SALES = "from_sales"
+    META_ERROR = "meta_error"
+    SURVEY = "survey"
+    IDLE = "idle"
+
+
+TICKET_REASON_LABELS = {
+    TicketReason.SETUP: "Sozlash tugamadi",
+    TicketReason.FROM_SALES: "Sotuvdan: yordam kerak",
+    TicketReason.META_ERROR: "Meta xatosi",
+    TicketReason.SURVEY: "So'rovnoma: yordam kerak",
+    TicketReason.IDLE: "Ishlamayapti",
+}
+
+# Paid this long ago and still not set up: Support calls.
+SETUP_GRACE_MINUTES: Final = 60
+# A failed press that is not Meta's refusal: nothing for Support to fix.
+NOT_META_ERRORS: Final = frozenset({"already", "finished", "temporary", "in_use"})
 
 
 class CloseReason(Choices):
@@ -179,13 +213,18 @@ class EventKind(Choices):
     NOTE = "note"
     CLOSED = "closed"
     SOLD = "sold"
+    TICKET = "ticket"
+    REASON = "reason"
+    REOPENED = "reopened"
+    STARTED = "started"
+    RESOLVED = "resolved"
 
 
 EVENT_KIND_LABELS = {
     EventKind.OPENED: "Lid ochildi",
     EventKind.TAKEN: "Lid olindi",
     EventKind.ASSIGNED: "Menejerga berildi",
-    EventKind.RETURNED: "Ishlanmaganga qaytarildi",
+    EventKind.RETURNED: "Qaytarib olindi",
     EventKind.CONTACTED: "Bog'lanildi",
     EventKind.NO_CONTACT: "Bog'lanilmadi",
     EventKind.SUPPORT_ON: "Support kerak deb belgilandi",
@@ -193,6 +232,11 @@ EVENT_KIND_LABELS = {
     EventKind.NOTE: "Izoh",
     EventKind.CLOSED: "Yopildi",
     EventKind.SOLD: "Sotildi",
+    EventKind.TICKET: "Zayavka ochildi",
+    EventKind.REASON: "Yangi sabab",
+    EventKind.REOPENED: "Zayavka qayta ochildi",
+    EventKind.STARTED: "Ishga olindi",
+    EventKind.RESOLVED: "Hal qilindi",
 }
 
 NOTE_MAX: Final = 2000

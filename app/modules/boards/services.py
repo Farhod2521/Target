@@ -12,11 +12,13 @@ from app.modules.boards.access import Access, works_on
 from app.modules.boards.constants import (
     NOTE_MAX,
     SALES_ACTIONS,
+    SUPPORT_ACTIONS,
     Board,
     CardAction,
     CloseReason,
     EventKind,
     SalesColumn,
+    SupportColumn,
 )
 from app.modules.boards.exceptions import (
     ActionNotHere,
@@ -26,6 +28,7 @@ from app.modules.boards.exceptions import (
     NothingToTake,
     NotOnBoard,
     ReasonRequired,
+    TicketHeld,
 )
 from app.modules.boards.models import BoardCard, BoardCardEvent
 
@@ -101,7 +104,7 @@ def card_for(
 ) -> BoardCard:
     query = select(BoardCard).where(BoardCard.id == card_id)
     if lock:
-        query = query.with_for_update()
+        query = query.with_for_update().execution_options(populate_existing=True)
     card = db.scalar(query)
     if card is None or not may_see(card, user=user, access=access):
         raise CardNotFound
@@ -121,6 +124,7 @@ def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
         .order_by(BoardCard.opened_at, BoardCard.id)
         .limit(1)
         .with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)
     )
     if card is None:
         raise NothingToTake
@@ -149,10 +153,14 @@ def act(
     reason: str = "",
     note: str = "",
 ) -> BoardCard:
-    """One button of a Sales card, if that column has it."""
+    """One button of a card, if its column has it."""
     card = card_for(db, card_id=card_id, user=user, access=access, lock=True)
-    if card.board != str(Board.SALES) or card.closed_at is not None:
-        raise CardClosed if card.closed_at is not None else ActionNotHere
+    if card.board == str(Board.SUPPORT):
+        return _support_act(
+            db, card=card, user=user, access=access, action=action, note=note, now=now
+        )
+    if card.closed_at is not None:
+        raise CardClosed
     if action not in SALES_ACTIONS.get(card.column_code, ()):
         raise ActionNotHere
     text = note.strip()[:NOTE_MAX]
@@ -210,6 +218,51 @@ def act(
     return card
 
 
+def _support_act(
+    db: Session,
+    *,
+    card: BoardCard,
+    user: User,
+    access: Access,
+    action: CardAction,
+    note: str,
+    now: datetime,
+) -> BoardCard:
+    """«Ishlayapman» makes the first Support member who presses it the
+    client's person for good; «Hal qilindi» is theirs to press. The
+    superuser and the Owner may press either."""
+    if action not in SUPPORT_ACTIONS.get(card.column_code, ()):
+        raise ActionNotHere
+    if card.manager_id not in (None, user.id) and not access.full:
+        raise TicketHeld
+    text = note.strip()[:NOTE_MAX]
+    if action == CardAction.START:
+        if card.manager_id is None:
+            card.manager_id = user.id
+        move(
+            db,
+            card=card,
+            to=str(SupportColumn.IN_PROGRESS),
+            kind=EventKind.STARTED,
+            now=now,
+            actor=user,
+            body=text,
+        )
+    else:
+        card.closed_at = now
+        move(
+            db,
+            card=card,
+            to=str(SupportColumn.RESOLVED),
+            kind=EventKind.RESOLVED,
+            now=now,
+            actor=user,
+            body=text,
+        )
+    db.commit()
+    return card
+
+
 def assign(
     db: Session,
     *,
@@ -219,38 +272,37 @@ def assign(
     to_id: uuid.UUID | None,
     now: datetime,
 ) -> BoardCard:
-    """The lead gives a Sales card to a manager, or takes it back to
-    Ishlanmagan when ``to_id`` is empty."""
+    """The board's lead gives a card to somebody on that board, or takes it
+    back when ``to_id`` is empty: a lead to Ishlanmagan, a ticket to Yangi.
+    Support's lead is the superuser or the Owner."""
     card = card_for(db, card_id=card_id, user=user, access=access, lock=True)
-    if card.board != str(Board.SALES) or not access.leads_board(Board.SALES):
+    board = Board(card.board)
+    if not access.leads_board(board):
         raise CardNotFound
-    if card.closed_at is not None:
+    if board == Board.SALES and card.closed_at is not None:
         raise CardClosed
     if to_id is None:
         if card.manager_id is None:
             return card
         card.manager_id = None
-        move(
-            db,
-            card=card,
-            to=str(SalesColumn.UNWORKED),
-            kind=EventKind.RETURNED,
-            now=now,
-            actor=user,
-        )
+        if board == Board.SALES:
+            back = str(SalesColumn.UNWORKED)
+        elif card.column_code == SupportColumn.RESOLVED:
+            back = card.column_code
+        else:
+            back = str(SupportColumn.NEW)
+        move(db, card=card, to=back, kind=EventKind.RETURNED, now=now, actor=user)
         db.commit()
         return card
     manager = db.get(User, to_id)
-    if manager is None or not works_on(db, manager, Board.SALES):
+    if manager is None or not works_on(db, manager, board):
         raise NotOnBoard
     if card.manager_id == manager.id:
         return card
     card.manager_id = manager.id
-    to = (
-        str(SalesColumn.NEW_LEAD)
-        if card.column_code == SalesColumn.UNWORKED
-        else card.column_code
-    )
+    to = card.column_code
+    if board == Board.SALES and card.column_code == SalesColumn.UNWORKED:
+        to = str(SalesColumn.NEW_LEAD)
     move(
         db,
         card=card,

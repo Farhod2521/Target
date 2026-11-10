@@ -73,6 +73,9 @@ class CardOut(BaseModel):
     needs_support: bool = Field(
         description="«Support kerak»: a ticket opens when the client pays."
     )
+    reasons: list[str] = Field(
+        description="Support: why the ticket is open, as codes, for chips."
+    )
     opened_at: datetime
     column_since: datetime
     closed_at: datetime | None
@@ -119,8 +122,21 @@ class HistoryOut(BaseModel):
     at: datetime
 
 
+class TicketReasonOut(BaseModel):
+    code: str = Field(
+        description="`setup`, `from_sales`, `meta_error`, `survey` or `idle`."
+    )
+    label: str
+    detail: str
+    at: datetime
+
+
 class CardDetailOut(CardOut):
     client: ClientDetailOut
+    ticket_reasons: list[TicketReasonOut] = Field(description="Support: newest first.")
+    support_chat_id: str | None = Field(
+        description="The client's Yordam chat, to open it from the ticket."
+    )
     close_reason: str
     close_reason_label: str
     close_note: str
@@ -130,7 +146,8 @@ class CardDetailOut(CardOut):
 
 class ActionIn(BaseModel):
     action: str = Field(
-        description="`contacted`, `no_contact`, `needs_support` or `close`."
+        description="Sales: `contacted`, `no_contact`, `needs_support`, `close`. "
+        "Support: `start`, `resolve`."
     )
     on: bool = Field(
         True, description="`needs_support` only: false takes the mark off."

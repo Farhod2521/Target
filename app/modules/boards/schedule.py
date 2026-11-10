@@ -12,4 +12,9 @@ SCHEDULE: Final = [
         f"{TASKS}.sweep_sales_board_task",
         "*",
     ),
+    Periodic(
+        "Support kanbani: yangi zayavkalar",
+        f"{TASKS}.sweep_support_board_task",
+        "*",
+    ),
 ]

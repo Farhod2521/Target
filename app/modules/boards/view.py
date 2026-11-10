@@ -16,10 +16,14 @@ from app.modules.boards.constants import (
     EVENT_KIND_LABELS,
     SALES_ACTIONS,
     SEARCH_MAX,
+    SUPPORT_ACTIONS,
+    TICKET_REASON_LABELS,
     Board,
     CloseReason,
     EventKind,
     SalesColumn,
+    SupportColumn,
+    TicketReason,
 )
 from app.modules.boards.models import BoardCard, BoardCardEvent
 from app.modules.boards.selectors import ColumnView, columns_for
@@ -56,10 +60,18 @@ def _scoped(
 
 
 def _order(code: str) -> Any:
-    # The queue is worked oldest first; elsewhere the latest move is on top.
+    # A queue is worked oldest first; elsewhere the latest move is on top.
     if code == SalesColumn.UNWORKED:
         return (BoardCard.opened_at, BoardCard.id)
+    if code == SupportColumn.NEW:
+        return (BoardCard.column_since, BoardCard.id)
     return (BoardCard.column_since.desc(), BoardCard.id)
+
+
+def _reason_label(code: str) -> str:
+    if code in TicketReason.values:
+        return str(TICKET_REASON_LABELS[TicketReason(code)])
+    return code
 
 
 def card_brief(card: BoardCard) -> dict[str, Any]:
@@ -78,6 +90,9 @@ def card_brief(card: BoardCard) -> dict[str, Any]:
         "manager": _person(card.manager),
         "contact_mark": card.contact_mark,
         "needs_support": card.needs_support,
+        "reasons": sorted(
+            {str(item.get("code", "")) for item in card.reasons or []} - {""}
+        ),
         "opened_at": card.opened_at,
         "column_since": card.column_since,
         "closed_at": card.closed_at,
@@ -132,12 +147,25 @@ def board_view(
 
 
 def _actions(card: BoardCard) -> list[dict[str, str]]:
-    if card.board != str(Board.SALES) or card.closed_at is not None:
-        return []
+    if card.board == str(Board.SUPPORT):
+        offered = SUPPORT_ACTIONS.get(card.column_code, ())
+    elif card.closed_at is not None:
+        offered = ()
+    else:
+        offered = SALES_ACTIONS.get(card.column_code, ())
     return [
         {"value": str(action), "label": str(CARD_ACTION_LABELS[action])}
-        for action in SALES_ACTIONS.get(card.column_code, ())
+        for action in offered
     ]
+
+
+def _support_chat(db: Session, owner: User) -> str | None:
+    from app.modules.supportchat.models import SupportConversation
+
+    found = db.scalar(
+        select(SupportConversation.id).where(SupportConversation.owner_id == owner.id)
+    )
+    return str(found) if found else None
 
 
 def _plan(db: Session, owner: User) -> dict[str, Any] | None:
@@ -189,6 +217,16 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
             "last_login": owner.last_login,
             "plan": _plan(db, owner),
         },
+        "ticket_reasons": [
+            {
+                "code": str(item.get("code", "")),
+                "label": _reason_label(str(item.get("code", ""))),
+                "detail": str(item.get("detail", "")),
+                "at": item.get("at"),
+            }
+            for item in reversed(card.reasons or [])
+        ],
+        "support_chat_id": _support_chat(db, owner),
         "close_reason": card.close_reason,
         "close_reason_label": reason,
         "close_note": card.close_note,
