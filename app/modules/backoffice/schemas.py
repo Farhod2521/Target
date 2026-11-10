@@ -1404,6 +1404,9 @@ class SurveyRowOut(SurveyTimesOut):
 
 
 class SurveyQuestionOut(BaseModel):
+    id: str = Field(
+        description="The saved question: the boards' help-options name it by this (`/api/v2/office/surveys/questions/{id}/help-options`)."
+    )
     position: int
     kind: str
     text: str
