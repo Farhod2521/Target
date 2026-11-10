@@ -249,4 +249,14 @@ It also lets a refused budget change be prepared on the object the refusal
 names (`changes.py` says where the budget lives), and drops the "1000 people"
 example: for an owner the figure gate reads any count of people as the
 account's and masks it.
+`v28` adds "Handing over to a person in Support". An answer that cannot help
+- money, a blocked account, something broken, a product question nothing
+answers, or a request for a person - ends with `%%SUPPORT%%`. The line is
+split off like the choice line (`core/chat/choices.py`) and
+`app/modules/chat/services/handoff.py` writes the question into the owner's
+support chat, whose own hook copies it to Support on the staff bot; a
+visitor is asked for a name and a phone (`POST /chat/handoff`) and a guest
+chat opens with it. The prompt never lets the model say it sent anything:
+the product shows what happened under the answer.
+
 Earlier versions were deleted from the folder on 2026-11-08 and live in git.

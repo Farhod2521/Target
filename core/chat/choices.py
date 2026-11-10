@@ -20,9 +20,12 @@ MAX_REPLIES: Final = 5
 
 REPLY_MAX_CHARS: Final = 48
 
+HANDOFF_MARK: Final = "%%SUPPORT%%"
+"""The answer could not help: the question goes on to a person in Support."""
+
 _QUOTES: Final = "\"'«»“”„`"
 
-_MARKS: Final = (MARK, REPLY_MARK)
+_MARKS: Final = (MARK, REPLY_MARK, HANDOFF_MARK)
 
 
 def _held(text: str) -> str:
@@ -46,6 +49,7 @@ class ChoiceGate:
 
     keys: tuple[str, ...] = ()
     replies: tuple[str, ...] = ()
+    handoff: bool = False
     _tail: str = field(default="", repr=False)
     _marked: str = field(default="", repr=False)
 
@@ -90,7 +94,9 @@ class ChoiceGate:
         return held
 
     def _take(self, line: str) -> None:
-        if self._marked == REPLY_MARK:
+        if self._marked == HANDOFF_MARK:
+            self.handoff = True
+        elif self._marked == REPLY_MARK:
             self._take_replies(line)
         else:
             self._take_keys(line)
@@ -133,6 +139,7 @@ def vetted_replies(
 
 
 __all__ = [
+    "HANDOFF_MARK",
     "MARK",
     "MAX_CHOICES",
     "MAX_REPLIES",

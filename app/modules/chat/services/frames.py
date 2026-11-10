@@ -42,6 +42,9 @@ class Frame:
     choices: list[dict[str, str]]
     replies: list[str]
     status: str
+    # ``sent``, ``ask_phone`` or ``not_sent`` once the answer handed the
+    # question to Support (``services/handoff.py``); empty otherwise.
+    handoff: str
 
 
 def publish(
@@ -56,6 +59,7 @@ def publish(
     replies: list[str] | None = None,
     status: str = "",
     linked: Callable[[str], str] | None = None,
+    handoff: str = "",
 ) -> None:
     html = render(text)
     cache.set(
@@ -70,6 +74,7 @@ def publish(
             "choices": choices or [],
             "replies": replies or [],
             "status": status,
+            "handoff": handoff,
         },
         TURN_TTL_SECONDS,
     )

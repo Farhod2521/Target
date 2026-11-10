@@ -24,12 +24,15 @@ class MessageSource(Choices):
     SITE = "site"
     BOT = "bot"
     SUPPORT_BOT = "support_bot"
+    # Handed over by the AI chat when its answer could not help.
+    AI_CHAT = "ai_chat"
 
 
 MESSAGE_SOURCE_LABELS = {
     MessageSource.SITE: "Sayt",
     MessageSource.BOT: "Asosiy bot",
     MessageSource.SUPPORT_BOT: "Yordam boti",
+    MessageSource.AI_CHAT: "AI chat",
 }
 # A support-bot relay: the reply's words, or one of its files.
 RELAY_PART_TEXT: Final = "text"

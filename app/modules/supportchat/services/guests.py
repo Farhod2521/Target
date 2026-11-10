@@ -87,10 +87,16 @@ def start_guest_chat(
     body: str,
     address: str,
     now: datetime,
+    email_required: bool = True,
 ) -> Started:
     """The chat and its first message, together, and the token to come back
-    with. Refused field by field before anything is written."""
-    fields = _checked_guest(name=name, phone=phone, email=email)
+    with. Refused field by field before anything is written.
+
+    ``email_required=False`` is the AI chat handing a visitor over: it asks
+    only a name and a phone, and an email given there is still checked."""
+    fields = _checked_guest(
+        name=name, phone=phone, email=email, email_required=email_required
+    )
     text = _checked_body(body or GUEST_FIRST_WORDS)
     if not hit(
         bucket=GUEST_START_BUCKET,
@@ -298,7 +304,9 @@ def account_for_guest(db: Session, *, chat: SupportGuestChat) -> User | None:
     )
 
 
-def _checked_guest(*, name: str, phone: str, email: str) -> dict[str, str]:
+def _checked_guest(
+    *, name: str, phone: str, email: str, email_required: bool = True
+) -> dict[str, str]:
     problems: dict[str, str] = {}
     clean_name = " ".join(name.split())
     if len(clean_name) < 2:
@@ -312,7 +320,8 @@ def _checked_guest(*, name: str, phone: str, email: str) -> dict[str, str]:
         problems["phone"] = exc.message
     address = normalize_email(email)
     try:
-        _EMAIL.validate_python(address)
+        if address or email_required:
+            _EMAIL.validate_python(address)
     except ValidationError:
         problems["email"] = (
             "Email manzilingizni yozing." if not address else "Email noto'g'ri."

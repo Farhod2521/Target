@@ -50,6 +50,12 @@ class MessageOut(BaseModel):
         description="Changes the assistant prepared; confirm with "
         "`POST /chat/changes/{message_id}/{key}`."
     )
+    handoff: str = Field(
+        default="",
+        description="`sent`: the question went to Support (their chat and "
+        "Telegram); `ask_phone`: a visitor, show the name-and-phone form for "
+        "`POST /chat/handoff`; `not_sent`: point at Support; empty: none.",
+    )
     replies: list[dict[str, str]] = Field(
         description="Ready follow-up questions to tap."
     )

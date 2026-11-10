@@ -106,7 +106,10 @@ def question_for(db: Session, *, message: SupportMessage) -> Message:
     rows = _attachments(db, message)
     names = [item.name for item in _files_of(message, rows)]
     voice = message.kind == MessageKind.VOICE
-    via = " · Yordam boti" if message.source == MessageSource.SUPPORT_BOT else ""
+    via = {
+        MessageSource.SUPPORT_BOT: " · Yordam boti",
+        MessageSource.AI_CHAT: " · AI chatdan",
+    }.get(message.source, "")
     return support_question_message(
         client=f"{owner.full_name or owner.email} · {owner.email}{via}",
         # A sticker's emoji and a voice's length stand where words would.

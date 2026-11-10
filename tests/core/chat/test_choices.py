@@ -189,3 +189,39 @@ def test_a_reply_with_an_invented_figure_loses_its_button() -> None:
     )
 
     assert kept == ("Narx yo'q", "15 soniya", "150 000 so'm")
+
+
+def test_the_support_marker_is_kept_off_the_screen_and_raises_the_handoff() -> None:
+    from core.chat.choices import HANDOFF_MARK
+
+    gate = ChoiceGate()
+    out = [
+        gate.feed("Buni mutaxassisga yubordim, tez orada bog'lanishadi.\n%%SUP"),
+        gate.feed("PORT%%\n"),
+    ]
+    out.append(gate.flush())
+
+    assert HANDOFF_MARK not in "".join(out)
+    assert (
+        "".join(out).strip() == "Buni mutaxassisga yubordim, tez orada bog'lanishadi."
+    )
+    assert gate.handoff
+    assert gate.keys == () and gate.replies == ()
+
+
+def test_the_support_marker_at_the_very_end_with_no_newline_still_counts() -> None:
+    from core.chat.choices import HANDOFF_MARK
+
+    gate = ChoiceGate()
+    text = gate.feed(f"Mutaxassisga yubordim.\n{HANDOFF_MARK}") + gate.flush()
+
+    assert text.strip() == "Mutaxassisga yubordim."
+    assert gate.handoff
+
+
+def test_an_answer_without_the_marker_hands_nothing_over() -> None:
+    gate = ChoiceGate()
+    gate.feed(f"Byudjetni oshiring.\n{MARK} A1\n")
+    gate.flush()
+
+    assert not gate.handoff

@@ -30,6 +30,7 @@ from app.modules.chat.models import ChatMessage, ChatSession
 from app.modules.chat.selectors.choices import picked
 from app.modules.chat.selectors.sessions import reply_items
 from app.modules.chat.services.frames import announcer, drain, publish
+from app.modules.chat.services.handoff import hand_over, handoff_item
 from app.modules.chat.services.quota import public_chat_owner
 from core.chat.choices import ChoiceGate, vetted_replies
 from core.chat.lookups import CHANGE_TOOL, MAX_CHANGES, MAX_LOOKUPS, MAX_ROUNDS, TOOLS
@@ -192,6 +193,16 @@ def _finish(
     )
     if result.truncated:
         text, replies = _cut_short(text, owner=owner, payload=payload)
+    handoff = ""
+    if choices.handoff:
+        handoff = hand_over(
+            db,
+            turn_id=turn_id,
+            owner=owner if payload.get("owner_id") else None,
+            payload=payload,
+            answer=text,
+            now=now,
+        )
     publish(
         turn_id,
         text,
@@ -200,6 +211,7 @@ def _finish(
         done=True,
         choices=offered,
         replies=replies,
+        handoff=handoff,
     )
     record_llm_result(
         db,
@@ -215,7 +227,11 @@ def _finish(
         payload=payload,
         text=text,
         gate=gate,
-        choices=[*offered, *reply_items(replies)],
+        choices=[
+            *offered,
+            *reply_items(replies),
+            *([handoff_item(handoff)] if handoff else []),
+        ],
         now=now,
     )
 

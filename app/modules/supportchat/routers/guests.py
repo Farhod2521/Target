@@ -55,6 +55,12 @@ def _chat(db: Session, token: str) -> SupportGuestChat:
     return chat
 
 
+def guest_screen(db: Session, chat: SupportGuestChat) -> dict[str, Any]:
+    """The guest's chat as the page draws it. The AI chat's handover answers
+    with it too."""
+    return _screen(db, chat)
+
+
 def _screen(db: Session, chat: SupportGuestChat) -> dict[str, Any]:
     return jsonable_encoder(
         {

@@ -35,6 +35,8 @@ from app.modules.chat.constants import (
 )
 from app.modules.chat.models import ChatMessage, ChatSession
 from app.modules.chat.schemas import ChatScreenOut, ReportOut
+from app.modules.chat.services.handoff import handoff_in
+from app.modules.supportchat.schemas import GuestStartedOut
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 refusals = APIRouter(prefix="/refusals", tags=["refusals"])
@@ -72,6 +74,7 @@ def _message_row(row: ChatMessage) -> dict[str, Any]:
         "offers": list(getattr(row, "offers", [])),
         "changes": list(getattr(row, "changes", [])),
         "replies": list(getattr(row, "replies", [])),
+        "handoff": handoff_in(row.choices),
         "created_at": row.created_at,
     }
 
@@ -261,6 +264,47 @@ def ask(body: AskIn, request: Request, db: Db, user: OptionalUser) -> TurnOut:
     db.commit()
     answer_chat_turn.delay(turn.turn_id)
     return TurnOut(turn_id=turn.turn_id, session_id=turn.session_id, left=turn.left)
+
+
+class HandoffIn(BaseModel):
+    turn_id: str = Field(max_length=64, description="The answer that said `ask_phone`.")
+    name: str = Field("", max_length=200)
+    phone: str = Field("", max_length=40)
+    email: str = Field("", max_length=254, description="Optional.")
+
+
+@router.post(
+    "/handoff",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": GuestStartedOut}},
+)
+def handoff(body: HandoffIn, request: Request, db: Db) -> dict[str, Any]:
+    """A visitor leaves a name and a phone for the question the assistant
+    could not answer: a guest support chat opens with it, Support hears of
+    it in Telegram, and the page follows it as ``/support/guest`` with the
+    token."""
+    from app.modules.chat.services.handoff import forget, handoff_text, waiting_for
+    from app.modules.supportchat.routers.guests import guest_screen
+    from app.modules.supportchat.services import start_guest_chat
+
+    waiting = waiting_for(body.turn_id)
+    if waiting is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail="Savol topilmadi yoki allaqachon yuborilgan.",
+        )
+    started = start_guest_chat(
+        db,
+        name=body.name,
+        phone=body.phone,
+        email=body.email,
+        body=handoff_text(question=waiting.question, answer=waiting.answer),
+        address=client_address(request),
+        now=utcnow(),
+        email_required=False,
+    )
+    forget(body.turn_id)
+    return {"token": started.token, "chat": guest_screen(db, started.chat)}
 
 
 def _session(
