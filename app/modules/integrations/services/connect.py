@@ -313,6 +313,15 @@ def _connection_refused(
     from app.modules.chat.services.refused import refused
 
     found = translate_error(exc) if isinstance(exc, MetaError) else exc
+    logger.warning(
+        "meta connect failed for %s: %s code=%s subcode=%s retryable=%s: %s",
+        user.id,
+        type(exc).__name__,
+        getattr(exc, "code", ""),
+        getattr(exc, "subcode", ""),
+        found.retryable,
+        exc,
+    )
     if found.retryable:
         return ConnectionFailed()
     return refused(db, owner=user, exc=found, operation="connect")
