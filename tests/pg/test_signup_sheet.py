@@ -1,19 +1,15 @@
-"""Sign-ups who did not pay in five minutes, written to the sales team's sheet.
+"""Sign-ups who did not pay in five minutes, sent to the sheet's Apps Script.
 
-Google is an httpx.MockTransport: the token endpoint, the sheet's tabs, and
-appendCells. The key is a real RSA key, so the signed request is real.
+The script is an httpx.MockTransport that answers the way a deployed web
+app does: a redirect to the script's output, then that output.
 """
 
 import json
 from datetime import datetime, timedelta
 from typing import Any
 
-import googlekit.sheets
-import googlekit.transport
 import httpx
 import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,6 +19,7 @@ from app.modules.accounts.models import User
 from app.modules.billing.constants import InvoiceStatus, SubscriptionStatus
 from app.modules.billing.models import Invoice, Plan, Subscription
 from app.modules.sales.models import SignupSheetRow
+from app.modules.sales.services import signup_sheet
 from app.modules.sales.services.signup_sheet import (
     HEADINGS,
     LOCK_KEY,
@@ -31,64 +28,45 @@ from app.modules.sales.services.signup_sheet import (
     sweep_signup_sheet,
 )
 
-SHEET = "sheet-1"
-TOKEN = "https://oauth2.googleapis.com/token"
-SHEETS = "https://sheets.googleapis.com/v4/spreadsheets"
+URL = "https://script.google.com/macros/s/abc/exec?token=sir"
+ECHO = "https://script.googleusercontent.com/macros/echo?user_content_key=k"
 NOW = datetime(2026, 11, 10, 12, 0, tzinfo=ZONE)
 
-_PEM = (
-    rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    .private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    )
-    .decode()
-)
 
-
-class FakeGoogle:
+class FakeScript:
     def __init__(self) -> None:
-        self.rows: list[list[Any]] = []
-        self.down = False
-        self.tokens = 0
+        self.bodies: list[dict[str, Any]] = []
+        self.answer = "ok"
+        self.status = 200
+        self.calls = 0
 
     def handle(self, request: httpx.Request) -> httpx.Response:
-        url = str(request.url).split("?")[0]
-        if url == TOKEN:
-            self.tokens += 1
-            return httpx.Response(200, json={"access_token": "at", "expires_in": 3599})
-        assert request.headers["Authorization"] == "Bearer at"
-        if self.down:
-            return httpx.Response(503, json={"error": {"message": "later"}})
-        if url == f"{SHEETS}/{SHEET}":
-            tabs = [{"properties": {"sheetId": 777, "title": "Varaq1"}}]
-            return httpx.Response(200, json={"spreadsheetId": SHEET, "sheets": tabs})
-        assert url == f"{SHEETS}/{SHEET}:batchUpdate"
-        (only,) = json.loads(request.content)["requests"]
-        assert only["appendCells"]["sheetId"] == 777
-        for row in only["appendCells"]["rows"]:
-            self.rows.append(
-                [
-                    next(iter(value.get("userEnteredValue", {"": ""}).values()))
-                    for value in row["values"]
-                ]
-            )
-        return httpx.Response(200, json={"spreadsheetId": SHEET})
+        self.calls += 1
+        if request.method == "POST":
+            assert str(request.url) == URL
+            if self.status != 200:
+                return httpx.Response(self.status, text="later")
+            if self.answer == "ok":
+                self.bodies.append(json.loads(request.content))
+            return httpx.Response(302, headers={"Location": ECHO})
+        assert str(request.url) == ECHO
+        return httpx.Response(200, text=self.answer)
+
+    @property
+    def rows(self) -> list[list[str]]:
+        return [row for body in self.bodies for row in body["rows"]]
 
 
 @pytest.fixture
-def google(monkeypatch: pytest.MonkeyPatch) -> FakeGoogle:
-    fake = FakeGoogle()
+def script(monkeypatch: pytest.MonkeyPatch) -> FakeScript:
+    fake = FakeScript()
+    real = httpx.Client
 
-    def client() -> httpx.Client:
-        return httpx.Client(transport=httpx.MockTransport(fake.handle))
+    def client(**options: Any) -> httpx.Client:
+        return real(transport=httpx.MockTransport(fake.handle), **options)
 
-    monkeypatch.setattr(googlekit.transport, "new_client", client)
-    monkeypatch.setattr(googlekit.sheets, "new_client", client)
-    key = {"client_email": "sa@p.iam.gserviceaccount.com", "private_key": _PEM}
-    monkeypatch.setattr(settings, "google_service_account", json.dumps(key))
-    monkeypatch.setattr(settings, "signup_sheet_id", SHEET)
+    monkeypatch.setattr(signup_sheet.httpx, "Client", client)
+    monkeypatch.setattr(settings, "signup_sheet_url", URL)
     cache.delete(LOCK_KEY)
     return fake
 
@@ -132,12 +110,12 @@ def _paid(
     )
 
 
-def _emails(google: FakeGoogle) -> list[str]:
-    return [row[3] for row in google.rows if row[3] != "Email"]
+def _emails(script: FakeScript) -> list[str]:
+    return [row[3] for row in script.rows]
 
 
-def test_unpaid_owners_from_the_start_date_are_written_once_with_a_heading(
-    db: Session, google: FakeGoogle
+def test_unpaid_owners_from_the_start_date_are_sent_once(
+    db: Session, script: FakeScript
 ) -> None:
     plan = _plan(db)
     owner = _user(
@@ -172,21 +150,23 @@ def test_unpaid_owners_from_the_start_date_are_written_once_with_a_heading(
 
     assert sweep_signup_sheet(db, now=NOW) == 3
 
-    assert google.rows[0] == list(HEADINGS)
-    assert _emails(google) == ["early@shop.test", "ali@shop.test", "held@shop.test"]
-    ali = google.rows[2]
-    assert ali[1:] == ["Ali Valiyev", "+998901112233", "ali@shop.test", "Biznes egasi"]
-    # 11:30 in Tashkent, as Sheets counts days: the zone is the office's.
-    assert ali[0] == pytest.approx(46_336 + 11.5 / 24)
+    assert script.bodies[0]["headings"] == list(HEADINGS)
+    assert _emails(script) == ["early@shop.test", "ali@shop.test", "held@shop.test"]
+    assert script.rows[1] == [
+        "10.11.2026 11:30",
+        "Ali Valiyev",
+        "+998901112233",
+        "ali@shop.test",
+        "Biznes egasi",
+    ]
 
     assert sweep_signup_sheet(db, now=NOW + timedelta(minutes=1)) == 0
     assert sweep_signup_sheet(db, now=NOW + timedelta(minutes=2)) == 1
-    assert _emails(google)[-1] == "fresh@shop.test"
-    assert google.rows.count(list(HEADINGS)) == 1
+    assert _emails(script)[-1] == "fresh@shop.test"
 
 
 def test_paying_later_changes_nothing_in_the_sheet(
-    db: Session, google: FakeGoogle
+    db: Session, script: FakeScript
 ) -> None:
     plan = _plan(db)
     late = _user(db, "late@shop.test", NOW - timedelta(minutes=10))
@@ -197,45 +177,53 @@ def test_paying_later_changes_nothing_in_the_sheet(
     db.commit()
     assert sweep_signup_sheet(db, now=NOW + timedelta(minutes=1)) == 0
 
-    assert _emails(google) == ["late@shop.test"]
+    assert _emails(script) == ["late@shop.test"]
     assert db.scalar(select(SignupSheetRow.owner_id)) == late.id
 
 
-def test_google_down_writes_nothing_and_the_next_minute_does(
-    db: Session, google: FakeGoogle
+@pytest.mark.parametrize("failure", ["status", "denied"])
+def test_a_refusal_writes_nothing_and_the_next_minute_does(
+    db: Session,
+    script: FakeScript,
+    failure: str,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     _user(db, "wait@shop.test", NOW - timedelta(minutes=10))
     db.commit()
-    google.down = True
+    if failure == "status":
+        script.status = 503
+    else:
+        script.answer = "denied"
 
     assert sweep_signup_sheet(db, now=NOW) == 0
     assert db.scalars(select(SignupSheetRow)).all() == []
+    assert "token=" not in caplog.text
 
-    google.down = False
+    script.status, script.answer = 200, "ok"
     assert sweep_signup_sheet(db, now=NOW + timedelta(minutes=1)) == 1
-    assert _emails(google) == ["wait@shop.test"]
+    assert _emails(script) == ["wait@shop.test"]
 
 
-def test_off_without_a_key_or_a_sheet_and_while_another_run_holds_it(
-    db: Session, google: FakeGoogle, monkeypatch: pytest.MonkeyPatch
+def test_off_without_a_url_and_while_another_run_holds_it(
+    db: Session, script: FakeScript, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _user(db, "x@shop.test", NOW - timedelta(minutes=10))
     db.commit()
 
-    monkeypatch.setattr(settings, "signup_sheet_id", "")
+    monkeypatch.setattr(settings, "signup_sheet_url", "")
     assert sweep_signup_sheet(db, now=NOW) == 0
-    monkeypatch.setattr(settings, "signup_sheet_id", SHEET)
+    monkeypatch.setattr(settings, "signup_sheet_url", URL)
 
     cache.add(LOCK_KEY, "1", 60)
     assert sweep_signup_sheet(db, now=NOW) == 0
     cache.delete(LOCK_KEY)
 
-    assert google.tokens == 0
+    assert script.calls == 0
     assert sweep_signup_sheet(db, now=NOW) == 1
 
 
 def test_a_written_account_can_still_be_deleted(
-    db: Session, google: FakeGoogle
+    db: Session, script: FakeScript
 ) -> None:
     from app.common.deletion import delete_rows
 
