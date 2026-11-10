@@ -131,3 +131,47 @@ def test_a_visitor_leaves_a_phone_and_a_guest_chat_opens_with_the_question(
         json={"turn_id": turn["turn_id"], "name": "Ali", "phone": "+998901234567"},
     )
     assert again.status_code == 404
+
+
+def test_a_second_form_while_the_first_opens_the_chat_opens_none(
+    client: TestClient, db: Session, queued: list, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    from app.modules.chat.services.handoff import claim
+
+    monkeypatch.setattr("app.modules.chat.services.answer.claude", _claude)
+    turn = client.post(
+        "/api/v1/chat/ask", json={"question": "Yordam kerak", "guest_id": "g"}
+    ).json()
+    _answer(db, turn["turn_id"])
+
+    assert claim(turn["turn_id"])  # the first click, still opening the chat
+    busy = client.post(
+        "/api/v1/chat/handoff",
+        json={"turn_id": turn["turn_id"], "name": "Ali", "phone": "+998901234567"},
+    )
+    assert busy.status_code == 409
+    assert db.scalar(select(SupportGuestChat)) is None
+
+
+def test_a_handover_that_breaks_keeps_the_answer(
+    client: TestClient, db: Session, queued: list, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    headers = sign_up(client)
+    owner, account, page = _account(db)
+    _mirror(db, owner, account, page)
+    monkeypatch.setattr("app.modules.chat.services.answer.claude", _claude)
+
+    def broken(*_: Any, **__: Any) -> None:
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr("app.modules.supportchat.services.send_to_support", broken)
+    turn = client.post(
+        "/api/v1/chat/ask", json={"question": "Kartam yechildi"}, headers=headers
+    ).json()
+    _answer(db, turn["turn_id"])
+
+    answer = db.scalar(select(ChatMessage).where(ChatMessage.role == "assistant"))
+    assert answer is not None and SORRY in answer.text
+    thread = client.get(f"/api/v1/chat/threads/{turn['session_id']}", headers=headers)
+    assert thread.json()["messages"][-1]["handoff"] == "not_sent"
+    assert db.scalar(select(SupportMessage)) is None

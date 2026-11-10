@@ -156,6 +156,31 @@ def test_a_campaign_waiting_on_billing_is_not_running(
     assert row["is_running"] is False
 
 
+def test_a_campaign_on_with_no_advert_on_says_what_the_adverts_say(
+    client: TestClient, db: Session
+) -> None:
+    """Meta keeps a campaign ACTIVE after its ad sets ended: never «Ishlayapti»."""
+    owner, launch, headers = _launched(client, db)
+    _fresh(db, launch)
+    ads = list(db.scalars(select(Ad).where(Ad.owner_id == owner.id)))
+    assert ads
+    for ad in ads:
+        ad.delivery = "finished"
+    db.commit()
+
+    [row] = _list(client, owner, headers)["rows"]
+    assert (row["delivery"], row["delivery_label"], row["is_running"]) == (
+        "finished",
+        "Tugagan",
+        False,
+    )
+
+    ads[0].delivery = "billing"
+    db.commit()
+    [row] = _list(client, owner, headers)["rows"]
+    assert (row["delivery"], row["is_running"]) == ("billing", False)
+
+
 def test_the_running_count_is_the_lists(client: TestClient, db: Session) -> None:
     owner, launch, _headers = _launched(client, db)
     _fresh(db, launch)

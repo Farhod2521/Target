@@ -40,6 +40,8 @@ HANDOFF_KIND: Final = "handoff"
 WAITING_KEY: Final = "chat:handoff:{turn_id}"
 # Long enough to read the answer, go and find the phone, and come back.
 WAITING_SECONDS: Final = 24 * 3600
+CLAIM_KEY: Final = "chat:handoff:{turn_id}:claim"
+CLAIM_SECONDS: Final = 120
 BUCKET: Final = "chat-handoff"
 PER_HOUR: Final = 3
 ANSWER_CHARS: Final = 600
@@ -70,11 +72,15 @@ def hand_over(
     if not question:
         return ""
     if not payload.get("owner_id") or owner is None:
-        cache.set(
-            WAITING_KEY.format(turn_id=turn_id),
-            {"question": question, "answer": answer},
-            WAITING_SECONDS,
-        )
+        try:
+            cache.set(
+                WAITING_KEY.format(turn_id=turn_id),
+                {"question": question, "answer": answer},
+                WAITING_SECONDS,
+            )
+        except Exception:
+            logger.exception("chat_handoff_not_kept")
+            return HandoffState.NOT_SENT
         return HandoffState.ASK_PHONE
     if not hit(bucket=BUCKET, key=str(owner.id), limit=PER_HOUR, window_seconds=3600):
         logger.info("chat_handoff_throttled", extra={"owner_id": str(owner.id)})
@@ -106,6 +112,11 @@ def _send(db: Session, *, owner: User, body: str, key: str, now: datetime) -> st
     except DomainError:
         logger.warning("chat_handoff_refused", exc_info=True)
         return HandoffState.NOT_SENT
+    except Exception:
+        # The answer is still to be published and stored after this.
+        logger.exception("chat_handoff_failed")
+        db.rollback()
+        return HandoffState.NOT_SENT
     logger.info("chat_handoff_sent", extra={"owner_id": str(owner.id)})
     return HandoffState.SENT
 
@@ -127,6 +138,17 @@ def waiting_for(turn_id: str) -> Waiting | None:
     if not isinstance(value, dict) or not value.get("question"):
         return None
     return Waiting(question=str(value["question"]), answer=str(value.get("answer", "")))
+
+
+def claim(turn_id: str) -> bool:
+    """Only one ``POST /chat/handoff`` at a time opens a chat for a kept
+    question: a double click or a retry gets False."""
+    return cache.add(CLAIM_KEY.format(turn_id=turn_id), "1", CLAIM_SECONDS)
+
+
+def release(turn_id: str) -> None:
+    """The guest chat did not open: the visitor may send the form again."""
+    cache.delete(CLAIM_KEY.format(turn_id=turn_id))
 
 
 def forget(turn_id: str) -> None:
@@ -151,10 +173,12 @@ __all__ = [
     "HANDOFF_KIND",
     "HandoffState",
     "Waiting",
+    "claim",
     "forget",
     "hand_over",
     "handoff_in",
     "handoff_item",
     "handoff_text",
+    "release",
     "waiting_for",
 ]

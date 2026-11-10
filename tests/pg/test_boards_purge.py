@@ -6,8 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
-from app.modules.accounts.models import User
 from app.common.deletion import delete_rows
+from app.modules.accounts.models import User
 from app.modules.accounts.services.members import purge_owned_rows
 from app.modules.boards.models import BoardCard, BoardCardEvent
 

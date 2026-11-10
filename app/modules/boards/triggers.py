@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import Date, cast, exists, func, select, tuple_
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
@@ -104,7 +104,12 @@ def open_leads(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
 
 def mark_sold(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """A Sales card whose client paid a plan goes to Sotildi from any
-    column, Yopildi too: the payment is what happened."""
+    column, Yopildi too: the payment is what happened. Once: a card the
+    Owner moved out of Sotildi by hand stays where they put it, and its
+    second ``sold`` line would break the one-fact-once index and the batch."""
+    sold_before = exists().where(
+        BoardCardEvent.card_id == BoardCard.id, BoardCardEvent.ref == "sold"
+    )
     first_paid = (
         select(Invoice.owner_id, func.min(Invoice.paid_at).label("paid_at"))
         .where(
@@ -121,6 +126,7 @@ def mark_sold(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             .where(
                 BoardCard.board == str(Board.SALES),
                 BoardCard.column_code != str(SalesColumn.SOLD),
+                ~sold_before,
             )
             .order_by(BoardCard.opened_at)
             .limit(limit)
@@ -336,23 +342,45 @@ def survey_help(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     surveys = select(SurveyQuestion.survey_id).where(
         SurveyQuestion.id.in_([uuid.UUID(q) for q in marked])
     )
-    responses = list(
-        db.execute(
-            select(SurveyResponse.id, SurveyResponse.owner_id, SurveyResponse.answers)
-            .where(
-                SurveyResponse.created_at
-                >= max(since, now - timedelta(hours=SURVEY_LOOKBACK_HOURS)),
-                SurveyResponse.survey_id.in_(surveys),
-                ~_has_ref(
-                    SurveyResponse.owner_id, func.concat("survey:", SurveyResponse.id)
-                ),
-            )
-            .order_by(SurveyResponse.created_at)
-            .limit(limit)
+    # Read page after page to the end of the window: an answer without a
+    # marked option gets no line, so a single oldest-first batch would read
+    # the same plain answers every minute and never reach a newer request.
+    query = (
+        select(
+            SurveyResponse.id,
+            SurveyResponse.owner_id,
+            SurveyResponse.answers,
+            SurveyResponse.created_at,
         )
+        .where(
+            SurveyResponse.created_at
+            >= max(since, now - timedelta(hours=SURVEY_LOOKBACK_HOURS)),
+            SurveyResponse.survey_id.in_(surveys),
+            ~_has_ref(
+                SurveyResponse.owner_id, func.concat("survey:", SurveyResponse.id)
+            ),
+        )
+        .order_by(SurveyResponse.created_at, SurveyResponse.id)
+        .limit(limit)
     )
+    responses: list[Any] = []
+    after: tuple[datetime, uuid.UUID] | None = None
+    while True:
+        page = list(
+            db.execute(
+                query
+                if after is None
+                else query.where(
+                    tuple_(SurveyResponse.created_at, SurveyResponse.id) > after
+                )
+            )
+        )
+        responses += page
+        if len(page) < limit:
+            break
+        after = (page[-1].created_at, page[-1].id)
     written = 0
-    for response_id, owner_id, answers in responses:
+    for response_id, owner_id, answers, _ in responses:
         if not any(
             isinstance(answer, dict)
             and set(answer.get("choices") or ())
@@ -425,24 +453,41 @@ def idle_no_launch(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> i
 def idle_no_spend(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """A campaign of ours switched on a day ago or more, still running by a
     fresh read, and not a sum spent since. Days without delivery have no
-    figures at all, so no figure is read as nothing spent."""
+    figures at all, so no figure is read as nothing spent.
+
+    Every condition is in the query: a launch that is spending gets no
+    ticket and no line, and read here and skipped it would come back every
+    hour, oldest first, until the batch held nothing else."""
     since = _since(db)
     if since is None:
         return 0
     switched_on = CampaignLaunch.delivery_started_at
+    external = CampaignLaunch.created_refs["campaign"].as_string()
+    running = exists().where(
+        Campaign.owner_id == CampaignLaunch.owner_id,
+        Campaign.external_id == external,
+        Campaign.delivery == str(Delivery.ACTIVE),
+        Campaign.synced_at >= now - timedelta(hours=CAMPAIGN_FRESH_HOURS),
+    )
+    spent = exists().where(
+        MetricsDaily.owner_id == CampaignLaunch.owner_id,
+        MetricsDaily.level == str(MetricLevel.CAMPAIGN),
+        MetricsDaily.external_id == external,
+        MetricsDaily.date
+        >= cast(func.timezone("UTC", switched_on - timedelta(days=1)), Date),
+        MetricsDaily.spend_minor > 0,
+    )
     launches = list(
         db.execute(
-            select(
-                CampaignLaunch.id,
-                CampaignLaunch.owner_id,
-                CampaignLaunch.created_refs,
-                switched_on,
-            )
+            select(CampaignLaunch.id, CampaignLaunch.owner_id)
             .where(
                 CampaignLaunch.status == str(LaunchStatus.CREATED),
                 switched_on.is_not(None),
                 switched_on >= max(since, now - timedelta(days=NO_SPEND_LOOKBACK_DAYS)),
                 switched_on <= now - timedelta(hours=NO_SPEND_HOURS),
+                func.coalesce(external, "") != "",
+                running,
+                ~spent,
                 ~_has_ref(
                     CampaignLaunch.owner_id, func.concat("nospend:", CampaignLaunch.id)
                 ),
@@ -451,32 +496,8 @@ def idle_no_spend(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> in
             .limit(limit)
         )
     )
-    written = 0
-    for launch_id, owner_id, refs, started in launches:
-        external = str((refs or {}).get("campaign") or "")
-        if not external:
-            continue
-        running = db.scalar(
-            select(Campaign.id).where(
-                Campaign.owner_id == owner_id,
-                Campaign.external_id == external,
-                Campaign.delivery == str(Delivery.ACTIVE),
-                Campaign.synced_at >= now - timedelta(hours=CAMPAIGN_FRESH_HOURS),
-            )
-        )
-        if running is None:
-            continue
-        spent = db.scalar(
-            select(func.coalesce(func.sum(MetricsDaily.spend_minor), 0)).where(
-                MetricsDaily.owner_id == owner_id,
-                MetricsDaily.level == str(MetricLevel.CAMPAIGN),
-                MetricsDaily.external_id == external,
-                MetricsDaily.date >= (started - timedelta(days=1)).date(),
-            )
-        )
-        if spent:
-            continue
-        written += raise_ticket(
+    written = sum(
+        raise_ticket(
             db,
             owner_id=owner_id,
             reason=TicketReason.IDLE,
@@ -484,6 +505,8 @@ def idle_no_spend(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> in
             now=now,
             detail=f"Reklama yoqilganiga {NO_SPEND_HOURS} soatdan oshdi, sarf 0.",
         )
+        for launch_id, owner_id in launches
+    )
     db.commit()
     return written
 

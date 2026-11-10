@@ -269,6 +269,37 @@ def test_a_running_campaign_that_spent_nothing_in_a_day_is_a_ticket(
     assert triggers.sweep_idle(db, now=utcnow()) == 0
 
 
+def test_spending_launches_do_not_crowd_out_a_newer_idle_one(db: Session) -> None:
+    """A launch that spends gets no ticket; it must not take a place in the
+    batch the next hour, or older spenders hide every newer idle campaign."""
+    _live(db, hours_ago=24 * 3)
+    old = _client(db, "old@shop.test")
+    idle = _client(db, "idle@shop.test")
+    _switched_on(db, old, hours_ago=40, spent=500)
+    _switched_on(db, idle, hours_ago=26, spent=0)
+
+    assert triggers.idle_no_spend(db, now=utcnow(), limit=1) == 1
+    assert _ticket(db, idle) is not None
+    assert _ticket(db, old) is None
+
+
+def test_plain_answers_do_not_crowd_out_a_newer_request(
+    client: TestClient, db: Session
+) -> None:
+    _live(db)
+    question = _question(db)
+    boss = _staff(db, "boss@office.test", superuser=True)
+    client.put(f"{URL}/{question.id}/help-options", json={"options": [0]}, headers=boss)
+    fine = [_client(db, f"fine{n}@shop.test") for n in range(3)]
+    for person in fine:
+        _answer(db, person, question, 1)
+    asks = _client(db, "asks@shop.test")
+    _answer(db, asks, question, 0)
+
+    assert triggers.survey_help(db, now=utcnow(), limit=2) == 1
+    assert _ticket(db, asks) is not None
+
+
 def test_the_idle_sweep_runs_every_hour() -> None:
     entries = {e["task"]: e for e in beat_schedule().values()}
     entry = entries["app.modules.boards.tasks.sweep_idle_board_task"]
