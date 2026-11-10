@@ -17,4 +17,9 @@ SCHEDULE: Final = [
         f"{TASKS}.sweep_support_board_task",
         "*",
     ),
+    Periodic(
+        "Support kanbani: reklamasi ishlamayotganlar",
+        f"{TASKS}.sweep_idle_board_task",
+        "15",
+    ),
 ]

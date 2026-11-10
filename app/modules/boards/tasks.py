@@ -1,5 +1,5 @@
 from app.common.db import utcnow
-from app.modules.boards.triggers import sweep_sales, sweep_support
+from app.modules.boards.triggers import sweep_idle, sweep_sales, sweep_support
 from app.worker import celery_app, task_session
 
 
@@ -20,3 +20,11 @@ def sweep_support_board_task() -> int:
     kerak» on payment, and Meta's refusals become the client's ticket."""
     with task_session() as db:
         return sweep_support(db, now=utcnow())
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def sweep_idle_board_task() -> int:
+    """Every hour: paid clients with no ad switched on in three days, and
+    running campaigns that spent nothing in a day, become tickets."""
+    with task_session() as db:
+        return sweep_idle(db, now=utcnow())

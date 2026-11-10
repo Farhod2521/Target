@@ -2,6 +2,7 @@
 board went live and writes each fact once, so running it again changes
 nothing."""
 
+import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -9,8 +10,8 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
-from app.modules.ads.constants import LaunchStatus
-from app.modules.ads.models import CampaignLaunch
+from app.modules.ads.constants import Delivery, LaunchStatus
+from app.modules.ads.models import Campaign, CampaignLaunch, GoogleLaunch
 from app.modules.audit.constants import ActionStatus, ActorType
 from app.modules.audit.models import ActionLog
 from app.modules.billing.constants import (
@@ -21,18 +22,26 @@ from app.modules.billing.constants import (
 )
 from app.modules.billing.models import Invoice, Subscription
 from app.modules.boards.constants import (
+    CAMPAIGN_FRESH_HOURS,
+    IDLE_NO_LAUNCH_DAYS,
+    NO_SPEND_HOURS,
+    NO_SPEND_LOOKBACK_DAYS,
     NOT_META_ERRORS,
     SETUP_GRACE_MINUTES,
+    SURVEY_LOOKBACK_HOURS,
     SWEEP_BATCH,
     Board,
     EventKind,
     SalesColumn,
     TicketReason,
 )
-from app.modules.boards.models import BoardCard, BoardCardEvent
+from app.modules.boards.models import BoardCard, BoardCardEvent, SurveyHelpOption
 from app.modules.boards.selectors import ensure_board, live_since
 from app.modules.boards.services import move, record
 from app.modules.boards.tickets import raise_ticket
+from app.modules.metrics.constants import MetricLevel
+from app.modules.metrics.models import MetricsDaily
+from app.modules.surveys.models import SurveyQuestion, SurveyResponse
 
 # Paid once already: such a client is not a first-time sign-up.
 _PAID_BEFORE = (str(InvoiceStatus.PAID), str(InvoiceStatus.REFUNDED))
@@ -304,4 +313,182 @@ def _has_ref(owner: Any, ref: Any) -> Any:
 def sweep_support(db: Session, *, now: datetime) -> int:
     ensure_board(db, board=Board.SUPPORT, now=now)
     db.commit()
-    return setup_late(db, now=now) + from_sales(db, now=now) + meta_errors(db, now=now)
+    return (
+        setup_late(db, now=now)
+        + from_sales(db, now=now)
+        + meta_errors(db, now=now)
+        + survey_help(db, now=now)
+    )
+
+
+def survey_help(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """An answer the office marked «yordam kerak» was chosen."""
+    since = _since(db)
+    if since is None:
+        return 0
+    marked: dict[str, set[int]] = {}
+    for question_id, index in db.execute(
+        select(SurveyHelpOption.question_id, SurveyHelpOption.option_index)
+    ):
+        marked.setdefault(str(question_id), set()).add(int(index))
+    if not marked:
+        return 0
+    surveys = select(SurveyQuestion.survey_id).where(
+        SurveyQuestion.id.in_([uuid.UUID(q) for q in marked])
+    )
+    responses = list(
+        db.execute(
+            select(SurveyResponse.id, SurveyResponse.owner_id, SurveyResponse.answers)
+            .where(
+                SurveyResponse.created_at
+                >= max(since, now - timedelta(hours=SURVEY_LOOKBACK_HOURS)),
+                SurveyResponse.survey_id.in_(surveys),
+                ~_has_ref(
+                    SurveyResponse.owner_id, func.concat("survey:", SurveyResponse.id)
+                ),
+            )
+            .order_by(SurveyResponse.created_at)
+            .limit(limit)
+        )
+    )
+    written = 0
+    for response_id, owner_id, answers in responses:
+        if not any(
+            isinstance(answer, dict)
+            and set(answer.get("choices") or ())
+            & marked.get(str(answer.get("question")), set())
+            for answer in answers or []
+        ):
+            continue
+        written += raise_ticket(
+            db,
+            owner_id=owner_id,
+            reason=TicketReason.SURVEY,
+            ref=f"survey:{response_id}",
+            now=now,
+            detail="So'rovnomada mutaxassis yordamini so'radi.",
+        )
+    db.commit()
+    return written
+
+
+def idle_no_launch(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """Paid three days ago or more and no ad switched on since, with the
+    plan still running."""
+    since = _since(db)
+    if since is None:
+        return 0
+    meta = exists().where(
+        CampaignLaunch.owner_id == Invoice.owner_id,
+        CampaignLaunch.status == str(LaunchStatus.CREATED),
+        CampaignLaunch.created_at >= Invoice.paid_at,
+    )
+    google = exists().where(
+        GoogleLaunch.owner_id == Invoice.owner_id,
+        GoogleLaunch.status == str(LaunchStatus.CREATED),
+        GoogleLaunch.created_at >= Invoice.paid_at,
+    )
+    rows = list(
+        db.execute(
+            select(Invoice.id, Invoice.owner_id)
+            .join(Subscription, Subscription.owner_id == Invoice.owner_id)
+            .where(
+                Invoice.status == str(InvoiceStatus.PAID),
+                Invoice.kind == str(InvoiceKind.PLAN),
+                Invoice.paid_at >= since,
+                Invoice.paid_at <= now - timedelta(days=IDLE_NO_LAUNCH_DAYS),
+                Subscription.status.in_([str(s) for s in LIVE_SUBSCRIPTION_STATUSES]),
+                ~meta,
+                ~google,
+                ~_has_ref(Invoice.owner_id, func.concat("idle:", Invoice.id)),
+            )
+            .order_by(Invoice.paid_at)
+            .limit(limit)
+        )
+    )
+    written = sum(
+        raise_ticket(
+            db,
+            owner_id=owner_id,
+            reason=TicketReason.IDLE,
+            ref=f"idle:{invoice_id}",
+            now=now,
+            detail=f"To'lovdan {IDLE_NO_LAUNCH_DAYS} kun o'tdi, birorta reklama yoqilmagan.",
+        )
+        for invoice_id, owner_id in rows
+        if owner_id is not None
+    )
+    db.commit()
+    return written
+
+
+def idle_no_spend(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """A campaign of ours switched on a day ago or more, still running by a
+    fresh read, and not a sum spent since. Days without delivery have no
+    figures at all, so no figure is read as nothing spent."""
+    since = _since(db)
+    if since is None:
+        return 0
+    switched_on = CampaignLaunch.delivery_started_at
+    launches = list(
+        db.execute(
+            select(
+                CampaignLaunch.id,
+                CampaignLaunch.owner_id,
+                CampaignLaunch.created_refs,
+                switched_on,
+            )
+            .where(
+                CampaignLaunch.status == str(LaunchStatus.CREATED),
+                switched_on.is_not(None),
+                switched_on >= max(since, now - timedelta(days=NO_SPEND_LOOKBACK_DAYS)),
+                switched_on <= now - timedelta(hours=NO_SPEND_HOURS),
+                ~_has_ref(
+                    CampaignLaunch.owner_id, func.concat("nospend:", CampaignLaunch.id)
+                ),
+            )
+            .order_by(switched_on)
+            .limit(limit)
+        )
+    )
+    written = 0
+    for launch_id, owner_id, refs, started in launches:
+        external = str((refs or {}).get("campaign") or "")
+        if not external:
+            continue
+        running = db.scalar(
+            select(Campaign.id).where(
+                Campaign.owner_id == owner_id,
+                Campaign.external_id == external,
+                Campaign.delivery == str(Delivery.ACTIVE),
+                Campaign.synced_at >= now - timedelta(hours=CAMPAIGN_FRESH_HOURS),
+            )
+        )
+        if running is None:
+            continue
+        spent = db.scalar(
+            select(func.coalesce(func.sum(MetricsDaily.spend_minor), 0)).where(
+                MetricsDaily.owner_id == owner_id,
+                MetricsDaily.level == str(MetricLevel.CAMPAIGN),
+                MetricsDaily.external_id == external,
+                MetricsDaily.date >= (started - timedelta(days=1)).date(),
+            )
+        )
+        if spent:
+            continue
+        written += raise_ticket(
+            db,
+            owner_id=owner_id,
+            reason=TicketReason.IDLE,
+            ref=f"nospend:{launch_id}",
+            now=now,
+            detail=f"Reklama yoqilganiga {NO_SPEND_HOURS} soatdan oshdi, sarf 0.",
+        )
+    db.commit()
+    return written
+
+
+def sweep_idle(db: Session, *, now: datetime) -> int:
+    ensure_board(db, board=Board.SUPPORT, now=now)
+    db.commit()
+    return idle_no_launch(db, now=now) + idle_no_spend(db, now=now)

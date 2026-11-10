@@ -180,6 +180,16 @@ TICKET_REASON_LABELS = {
 
 # Paid this long ago and still not set up: Support calls.
 SETUP_GRACE_MINUTES: Final = 60
+# Paid this many days ago and no ad switched on since: Support calls.
+IDLE_NO_LAUNCH_DAYS: Final = 3
+# Switched on this long ago, running, and not a sum spent: Support calls.
+NO_SPEND_HOURS: Final = 24
+# Only campaigns switched on this recently are looked at for spend.
+NO_SPEND_LOOKBACK_DAYS: Final = 30
+# A campaign's state older than this is not trusted to say it is running.
+CAMPAIGN_FRESH_HOURS: Final = 6
+# Survey answers are read this far back each run.
+SURVEY_LOOKBACK_HOURS: Final = 24
 # A failed press that is not Meta's refusal: nothing for Support to fix.
 NOT_META_ERRORS: Final = frozenset({"already", "finished", "temporary", "in_use"})
 

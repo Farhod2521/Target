@@ -177,3 +177,23 @@ class ReasonOut(BaseModel):
 
 class StaffListOut(BaseModel):
     staff: list[PersonOut]
+
+
+class HelpOptionOut(BaseModel):
+    index: int
+    text: str
+    help: bool = Field(description="Choosing it opens a Support ticket.")
+
+
+class HelpOptionsOut(BaseModel):
+    question_id: str
+    survey_id: str
+    kind: str = Field(description="Only `choice` questions take marks.")
+    options: list[HelpOptionOut]
+
+
+class HelpOptionsIn(BaseModel):
+    options: list[int] = Field(
+        max_length=10,
+        description="Every option that asks for a specialist; the rest lose the mark.",
+    )

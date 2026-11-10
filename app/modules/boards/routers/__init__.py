@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from app.api.deps import Db
 from app.common.db import utcnow
 from app.modules.backoffice.constants import ROLE_LABELS, Role
-from app.modules.boards import selectors, services, view
+from app.modules.boards import help_options, selectors, services, view
 from app.modules.boards.access import BoardStaff, Staff, access_for, works_on
 from app.modules.boards.constants import (
     BOARD_LABELS,
@@ -26,6 +26,8 @@ from app.modules.boards.schemas import (
     BoardViewOut,
     CardDetailOut,
     ColumnsOut,
+    HelpOptionsIn,
+    HelpOptionsOut,
     MeOut,
     NoteIn,
     ReasonOut,
@@ -220,3 +222,33 @@ def give(db: Db, user: Staff, card_id: str, body: AssignIn) -> dict[str, Any]:
         now=now,
     )
     return view.card_detail(db, card=found, now=now)
+
+
+def _full(db: Db, user: Staff) -> None:
+    if not access_for(db, user).full:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+
+
+@router.get(
+    "/surveys/questions/{question_id}/help-options",
+    responses={200: {"model": HelpOptionsOut}},
+)
+def survey_help(db: Db, user: Staff, question_id: str) -> dict[str, Any]:
+    """The question's options, with the ones that ask for a specialist.
+    For the superuser and the Owner."""
+    _full(db, user)
+    return help_options.help_options(db, question_id=_card_id(question_id))
+
+
+@router.put(
+    "/surveys/questions/{question_id}/help-options",
+    responses={200: {"model": HelpOptionsOut}},
+)
+def set_survey_help(
+    db: Db, user: Staff, question_id: str, body: HelpOptionsIn
+) -> dict[str, Any]:
+    """Mark the options that open a Support ticket when chosen."""
+    _full(db, user)
+    return help_options.set_help_options(
+        db, question_id=_card_id(question_id), indexes=body.options, user=user
+    )
