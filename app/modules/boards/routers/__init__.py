@@ -10,6 +10,7 @@ from app.api.deps import Db
 from app.common.db import utcnow
 from app.modules.backoffice.constants import ROLE_LABELS, Role
 from app.modules.boards import help_options, selectors, services, view
+from app.modules.boards import staff as staff_service
 from app.modules.boards.access import BoardStaff, Staff, access_for, works_on
 from app.modules.boards.constants import (
     BOARD_LABELS,
@@ -25,13 +26,19 @@ from app.modules.boards.schemas import (
     AssignIn,
     BoardViewOut,
     CardDetailOut,
+    ColumnsIn,
     ColumnsOut,
     HelpOptionsIn,
     HelpOptionsOut,
     MeOut,
+    MoveIn,
     NoteIn,
     ReasonOut,
+    StaffAddIn,
     StaffListOut,
+    StaffPeopleOut,
+    StaffPersonOut,
+    StaffRolesIn,
 )
 
 router = APIRouter(prefix="/office", tags=["office boards v2"])
@@ -252,3 +259,85 @@ def set_survey_help(
     return help_options.set_help_options(
         db, question_id=_card_id(question_id), indexes=body.options, user=user
     )
+
+
+@router.patch("/boards/{board}/columns", responses={200: {"model": ColumnsOut}})
+def edit_columns(db: Db, staff: BoardStaff, body: ColumnsIn) -> dict[str, Any]:
+    """Rename and reorder the board's columns. For the superuser and the
+    Owner. Send every visible column, in the order wanted."""
+    if not staff.access.full:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    now = utcnow()
+    selectors.ensure_board(db, board=staff.board, now=now)
+    selectors.rename_and_order(
+        db,
+        board=staff.board,
+        columns=[(item.code, item.name) for item in body.columns],
+        actor_id=staff.user.id,
+        now=now,
+    )
+    return columns(db, staff)
+
+
+@router.post("/cards/{card_id}/move", responses={200: {"model": CardDetailOut}})
+def move_card(db: Db, user: Staff, card_id: str, body: MoveIn) -> dict[str, Any]:
+    """Put a card in any visible column of its board, with the reason. For
+    the superuser and the Owner."""
+    now = utcnow()
+    found = services.move_by_hand(
+        db,
+        card_id=_card_id(card_id),
+        user=user,
+        access=access_for(db, user),
+        to=body.column,
+        reason=body.reason,
+        now=now,
+    )
+    return view.card_detail(db, card=found, now=now)
+
+
+@router.get("/staff", responses={200: {"model": StaffPeopleOut}})
+def staff_people(db: Db, user: Staff) -> dict[str, Any]:
+    """Everybody on the staff with their roles. For the superuser and the Owner."""
+    _full(db, user)
+    return {"people": staff_service.staff_list(db)}
+
+
+@router.get("/staff/search", responses={200: {"model": StaffPeopleOut}})
+def staff_search(
+    db: Db, user: Staff, q: Annotated[str, Query(min_length=3, max_length=100)]
+) -> dict[str, Any]:
+    """Signed-up accounts not on the staff yet, by email, phone or name."""
+    _full(db, user)
+    return {"people": staff_service.search_accounts(db, q=q)}
+
+
+@router.post(
+    "/staff",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": StaffPersonOut}},
+)
+def staff_add(db: Db, user: Staff, body: StaffAddIn) -> dict[str, Any]:
+    """Make a signed-up account staff with these roles."""
+    _full(db, user)
+    return staff_service.add_staff(
+        db, user_id=_card_id(body.user_id), roles=body.roles, actor=user
+    )
+
+
+@router.patch("/staff/{member_id}", responses={200: {"model": StaffPersonOut}})
+def staff_roles(
+    db: Db, user: Staff, member_id: str, body: StaffRolesIn
+) -> dict[str, Any]:
+    """The member's whole set of roles."""
+    _full(db, user)
+    return staff_service.change_roles(
+        db, member_id=_card_id(member_id), roles=body.roles, actor=user
+    )
+
+
+@router.delete("/staff/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
+def staff_remove(db: Db, user: Staff, member_id: str) -> None:
+    """Off the staff: the roles go and the account is a customer again."""
+    _full(db, user)
+    staff_service.remove_staff(db, member_id=_card_id(member_id), actor=user)

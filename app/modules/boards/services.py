@@ -332,3 +332,52 @@ def add_note(
     record(db, card=card, kind=EventKind.NOTE, now=now, actor=user, body=text)
     db.commit()
     return card
+
+
+def move_by_hand(
+    db: Session,
+    *,
+    card_id: uuid.UUID,
+    user: User,
+    access: Access,
+    to: str,
+    reason: str,
+    now: datetime,
+) -> BoardCard:
+    """The superuser or the Owner puts a card in any visible column of its
+    board, saying why. A final column closes the card; leaving one opens it.
+    Ishlanmagan has nobody on the card."""
+    from app.modules.boards.exceptions import MoveReasonRequired, NoSuchColumn
+    from app.modules.boards.models import BoardColumn
+
+    if not access.full:
+        raise CardNotFound
+    card = card_for(db, card_id=card_id, user=user, access=access, lock=True)
+    why = reason.strip()[:NOTE_MAX]
+    if not why:
+        raise MoveReasonRequired
+    column = db.scalar(
+        select(BoardColumn).where(
+            BoardColumn.board == card.board,
+            BoardColumn.code == to,
+            BoardColumn.is_visible.is_(True),
+        )
+    )
+    if column is None:
+        raise NoSuchColumn
+    if column.code == card.column_code:
+        return card
+    card.closed_at = now if column.is_final else None
+    if column.code == SalesColumn.UNWORKED:
+        card.manager_id = None
+    move(
+        db,
+        card=card,
+        to=column.code,
+        kind=EventKind.MOVED,
+        now=now,
+        actor=user,
+        body=why,
+    )
+    db.commit()
+    return card

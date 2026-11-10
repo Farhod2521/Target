@@ -53,3 +53,31 @@ class TicketHeld(DomainError):
 
     def __init__(self) -> None:
         super().__init__("Bu mijoz bilan boshqa xodim ishlayapti.")
+
+
+class ColumnsMismatch(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Ustunlar ro'yxati to'liq emas. Sahifani yangilang.")
+
+
+class ColumnNameRequired(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Ustun nomini yozing.")
+
+
+class NoSuchColumn(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bunday ustun yo'q.")
+
+
+class MoveReasonRequired(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Nega ko'chirilayotganini yozing.")

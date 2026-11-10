@@ -197,3 +197,54 @@ class HelpOptionsIn(BaseModel):
         max_length=10,
         description="Every option that asks for a specialist; the rest lose the mark.",
     )
+
+
+class ColumnEditIn(BaseModel):
+    code: str = Field(max_length=24)
+    name: str = Field(min_length=1, max_length=40)
+
+
+class ColumnsIn(BaseModel):
+    columns: list[ColumnEditIn] = Field(
+        max_length=20,
+        description="Every visible column of the board, in the new order, with its name.",
+    )
+
+
+class MoveIn(BaseModel):
+    column: str = Field(
+        max_length=24, description="A visible column's code on the card's board."
+    )
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class StaffRoleOut(BaseModel):
+    value: str
+    label: str
+
+
+class StaffPersonOut(BaseModel):
+    id: str
+    name: str
+    email: str
+    phone: str
+    is_staff: bool
+    is_superuser: bool
+    roles: list[StaffRoleOut]
+
+
+class StaffPeopleOut(BaseModel):
+    people: list[StaffPersonOut]
+
+
+class StaffAddIn(BaseModel):
+    user_id: str
+    roles: list[str] = Field(
+        max_length=6, description="Role values, e.g. `Sales`, `SalesLead`, `Support`."
+    )
+
+
+class StaffRolesIn(BaseModel):
+    roles: list[str] = Field(
+        max_length=6, description="The whole set; what is left out is taken away."
+    )

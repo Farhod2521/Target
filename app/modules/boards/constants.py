@@ -228,6 +228,7 @@ class EventKind(Choices):
     REOPENED = "reopened"
     STARTED = "started"
     RESOLVED = "resolved"
+    MOVED = "moved"
 
 
 EVENT_KIND_LABELS = {
@@ -247,6 +248,7 @@ EVENT_KIND_LABELS = {
     EventKind.REOPENED: "Zayavka qayta ochildi",
     EventKind.STARTED: "Ishga olindi",
     EventKind.RESOLVED: "Hal qilindi",
+    EventKind.MOVED: "Qo'lda ko'chirildi",
 }
 
 NOTE_MAX: Final = 2000
