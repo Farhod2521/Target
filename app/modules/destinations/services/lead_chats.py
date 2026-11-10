@@ -23,6 +23,7 @@ import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from html import escape
 
 from sqlalchemy import ColumnElement, and_, delete, exists, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -80,9 +81,16 @@ from app.modules.integrations.selectors import Pair, page_pairs
 from app.modules.leads.models import Lead
 from app.modules.notifications.bot import bot, deep_link, is_configured
 from app.modules.notifications.exceptions import BotNotConfigured
-from app.modules.notifications.services.compose import escaped
 
 logger = logging.getLogger(__name__)
+
+
+def escaped(value: str) -> str:
+    """Telegram HTML-safe text. Not imported from notifications.services: that
+    package imports respond, which imports this module, and a worker that
+    loads destinations first would stop on the cycle."""
+    return escape(value, quote=False)
+
 
 START_GROUP = "https://t.me/{username}?startgroup={payload}"
 START_CHANNEL = "https://t.me/{username}?startchannel&admin=post_messages"
