@@ -98,6 +98,9 @@ class Env(BaseSettings):
     google_cloud_project_number: str = Field(
         default="", alias="GOOGLE_CLOUD_PROJECT_NUMBER"
     )
+    # The team's sheet of sign-ups who did not pay (sales): the web app URL
+    # of the Apps Script in that sheet, with its ?token=. Blank: not written.
+    signup_sheet_url: str = Field(default="", alias="SIGNUP_SHEET_URL")
     map_tile_url: str = Field(
         default="https://tile.openstreetmap.org/{z}/{x}/{y}.png", alias="MAP_TILE_URL"
     )

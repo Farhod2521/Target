@@ -16,4 +16,9 @@ SCHEDULE: Final = [
         "7,22,37,52",
     ),
     Periodic("Sotuv oyini yopish", f"{TASKS}.close_sales_months_task", "25"),
+    Periodic(
+        "To'lov qilmagan ro'yxatdan o'tganlarni Google jadvalga yozish",
+        f"{TASKS}.sweep_signup_sheet_task",
+        "*",
+    ),
 ]

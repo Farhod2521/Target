@@ -7,5 +7,6 @@ from app.modules.sales.models.sales_commission import SalesCommission
 from app.modules.sales.models.sales_month import SalesMonth
 from app.modules.sales.models.sales_rule import SalesRule
 from app.modules.sales.models.sales_segment import SalesSegment
+from app.modules.sales.models.signup_sheet_row import SignupSheetRow
 
-__all__ = ["ContactHold", "LostReason", "SaleSource", "SalesActivity", "SalesClaim", "SalesCommission", "SalesMonth", "SalesRule", "SalesSegment"]
+__all__ = ["ContactHold", "LostReason", "SaleSource", "SalesActivity", "SalesClaim", "SalesCommission", "SalesMonth", "SalesRule", "SalesSegment", "SignupSheetRow"]

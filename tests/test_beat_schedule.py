@@ -135,3 +135,15 @@ def test_a_deployment_that_spends_is_silent(caplog: pytest.LogCaptureFixture) ->
         warn_if_rehearsing(live)
 
     assert caplog.text == ""
+
+
+def test_the_signup_sheet_is_written_every_minute_off_the_sync_queue() -> None:
+    from app.modules.sales.tasks import sweep_signup_sheet_task
+
+    entry = beat_schedule()[
+        "To'lov qilmagan ro'yxatdan o'tganlarni Google jadvalga yozish"
+    ]
+
+    assert entry["task"] == "app.modules.sales.tasks.sweep_signup_sheet_task"
+    assert entry["schedule"]._orig_minute == "*"
+    assert sweep_signup_sheet_task.queue == "webhooks"
