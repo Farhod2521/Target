@@ -261,6 +261,7 @@ def _row_times(survey: Survey, *, now: datetime) -> dict[str, Any]:
 
 def _question_out(row: SurveyQuestion, lang: str) -> dict[str, Any]:
     return {
+        "id": str(row.id),
         "position": row.position,
         "kind": row.kind,
         "text": row.text.get(lang, ""),

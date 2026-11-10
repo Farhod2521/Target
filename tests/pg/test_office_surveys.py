@@ -1,5 +1,6 @@
 """So'rovnomalar in the office: writing, languages, life, results and filters."""
 
+import uuid
 from datetime import timedelta
 from typing import Any
 from unittest.mock import patch
@@ -170,6 +171,8 @@ def test_saving_writes_the_questions_and_asks_for_a_translation(
     assert one["state"] == "translating" and one["phase"] == "draft"
     assert one["ask_after_days"] == 14
     assert [q["position"] for q in one["questions"]] == [1, 2, 3]
+    # The boards mark a question's options by its id (help-options).
+    assert all(uuid.UUID(q["id"]) for q in one["questions"])
     assert one["questions"][2]["show_if"] == 1
     assert one["questions"][2]["show_options"] == [1]
     assert one["questions"][2]["is_required"] is False
