@@ -30,6 +30,7 @@ from googlekit.oauth import (
     refresh,
     revoke,
 )
+from googlekit.service_account import SCOPE_SPREADSHEETS, read_key, service_token
 from googlekit.sheets import SheetsClient
 
 __all__ = [
@@ -39,6 +40,7 @@ __all__ = [
     "LOGIN_SCOPES",
     "SCOPE_ADWORDS",
     "SCOPE_DRIVE_FILE",
+    "SCOPE_SPREADSHEETS",
     "AccessRevoked",
     "CellValue",
     "GoogleAPIError",
@@ -58,7 +60,9 @@ __all__ = [
     "exchange_code",
     "login_profile",
     "login_url",
+    "read_key",
     "refresh",
     "revoke",
     "serial",
+    "service_token",
 ]

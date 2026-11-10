@@ -98,6 +98,12 @@ class Env(BaseSettings):
     google_cloud_project_number: str = Field(
         default="", alias="GOOGLE_CLOUD_PROJECT_NUMBER"
     )
+    # The team's list of sign-ups who did not pay (sales). The key is the
+    # service account's JSON, or that JSON in base64; the sheet is the id
+    # from its link, shared with the key's client_email as Editor. Either
+    # blank leaves the list unwritten.
+    google_service_account: str = Field(default="", alias="GOOGLE_SERVICE_ACCOUNT")
+    signup_sheet_id: str = Field(default="", alias="SIGNUP_SHEET_ID")
     map_tile_url: str = Field(
         default="https://tile.openstreetmap.org/{z}/{x}/{y}.png", alias="MAP_TILE_URL"
     )
