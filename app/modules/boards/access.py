@@ -49,6 +49,15 @@ def access_for(db: Session, user: User) -> Access:
     return access_of(roles=roles_of(db, user), is_superuser=bool(user.is_superuser))
 
 
+def works_on(db: Session, user: User, board: Board) -> bool:
+    """Holds the board's own role: somebody cards can be given to. The
+    superuser and the Owner see every board but are not on its team."""
+    if not user.is_active or not user.is_staff or user.is_superuser:
+        return False
+    roles = roles_of(db, user)
+    return any(str(role) in roles for role in BOARD_ROLES[board])
+
+
 Staff = Annotated[User, Depends(staff_required(*Role))]
 
 

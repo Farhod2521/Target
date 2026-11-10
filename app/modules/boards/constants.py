@@ -121,3 +121,82 @@ FULL_ROLES: Final = (Role.OWNER,)
 
 COLUMN_NAME_MAX: Final = 40
 CODE_MAX: Final = 24
+
+
+class CardAction(Choices):
+    CONTACTED = "contacted"
+    NO_CONTACT = "no_contact"
+    NEEDS_SUPPORT = "needs_support"
+    CLOSE = "close"
+
+
+CARD_ACTION_LABELS = {
+    CardAction.CONTACTED: "Bog'lanildi",
+    CardAction.NO_CONTACT: "Bog'lanilmadi",
+    CardAction.NEEDS_SUPPORT: "Support kerak",
+    CardAction.CLOSE: "Yopildi",
+}
+
+# The buttons each Sales column shows. "Support kerak" comes after a talk:
+# the client asked for help while the manager was on the phone with them.
+SALES_ACTIONS: Final[dict[str, tuple[CardAction, ...]]] = {
+    str(SalesColumn.NEW_LEAD): (
+        CardAction.CONTACTED,
+        CardAction.NO_CONTACT,
+        CardAction.CLOSE,
+    ),
+    str(SalesColumn.NO_CONTACT): (CardAction.CONTACTED, CardAction.CLOSE),
+    str(SalesColumn.CONTACTED): (CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
+}
+
+
+class CloseReason(Choices):
+    EXPENSIVE = "expensive"
+    NOT_NEEDED = "not_needed"
+    NO_ANSWER = "no_answer"
+    WRONG_NUMBER = "wrong_number"
+    OTHER = "other"
+
+
+CLOSE_REASON_LABELS = {
+    CloseReason.EXPENSIVE: "Qimmat",
+    CloseReason.NOT_NEEDED: "Kerak emas",
+    CloseReason.NO_ANSWER: "Javob bermaydi",
+    CloseReason.WRONG_NUMBER: "Raqam noto'g'ri",
+    CloseReason.OTHER: "Boshqa",
+}
+
+
+class EventKind(Choices):
+    OPENED = "opened"
+    TAKEN = "taken"
+    ASSIGNED = "assigned"
+    RETURNED = "returned"
+    CONTACTED = "contacted"
+    NO_CONTACT = "no_contact"
+    SUPPORT_ON = "support_on"
+    SUPPORT_OFF = "support_off"
+    NOTE = "note"
+    CLOSED = "closed"
+    SOLD = "sold"
+
+
+EVENT_KIND_LABELS = {
+    EventKind.OPENED: "Lid ochildi",
+    EventKind.TAKEN: "Lid olindi",
+    EventKind.ASSIGNED: "Menejerga berildi",
+    EventKind.RETURNED: "Ishlanmaganga qaytarildi",
+    EventKind.CONTACTED: "Bog'lanildi",
+    EventKind.NO_CONTACT: "Bog'lanilmadi",
+    EventKind.SUPPORT_ON: "Support kerak deb belgilandi",
+    EventKind.SUPPORT_OFF: "Support kerak belgisi olib tashlandi",
+    EventKind.NOTE: "Izoh",
+    EventKind.CLOSED: "Yopildi",
+    EventKind.SOLD: "Sotildi",
+}
+
+NOTE_MAX: Final = 2000
+COLUMN_CARDS: Final = 50
+COLUMN_CARDS_MAX: Final = 200
+SWEEP_BATCH: Final = 500
+SEARCH_MAX: Final = 100
