@@ -8,7 +8,7 @@ from adskit.dto import AccountStateDTO
 from adskit.refs import ExternalRef, ProviderName
 
 from app.modules.ads.exceptions import AdAccountNoPaymentMethod
-from app.modules.ads.services import preflight, stops
+from app.modules.ads.services import preflight
 
 REF = ExternalRef(provider=ProviderName("meta"), level="account", id="act_1")
 
@@ -19,7 +19,7 @@ def _account() -> SimpleNamespace:
 
 def _read(monkeypatch: pytest.MonkeyPatch, **state: object) -> None:
     dto = AccountStateDTO(ref=REF, standing="active", raw_status="1", **state)
-    monkeypatch.setattr(stops, "read_account_state", lambda account: dto)
+    monkeypatch.setattr(preflight, "_read_state", lambda db, account: dto)
 
 
 def test_no_payment_method_stops_the_launch(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -46,6 +46,6 @@ def test_a_card_an_unread_field_or_a_prepaid_account_carries_on(
 
 
 def test_an_unreadable_account_carries_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(stops, "read_account_state", lambda account: None)
+    monkeypatch.setattr(preflight, "_read_state", lambda db, account: None)
 
     preflight._check_payment_method(MagicMock(), account=_account())  # type: ignore[arg-type]

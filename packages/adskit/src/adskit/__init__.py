@@ -48,6 +48,7 @@ from adskit.dto import (
 from adskit.errors import (
     AccountActionRequired,
     AccountNotWritable,
+    AdAccountUnreachable,
     AdsError,
     AdvertiserRoleMissing,
     AuthFailed,
@@ -120,6 +121,7 @@ __all__ = [
     "AccountStanding",
     "AccountStateDTO",
     "ActionResult",
+    "AdAccountUnreachable",
     "AdDTO",
     "AdPreviewDTO",
     "AdSetDTO",

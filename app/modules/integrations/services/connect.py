@@ -125,6 +125,7 @@ def _store_everything(
     store_ad_accounts(db, connection=connection, accounts=ad_accounts)
     store_pages(db, connection=connection, pages=pages)
     adopt_only_page(db, connection=connection)
+    _check_reach(db, connection=connection)
     _reread_pixels(db, connection=connection)
     _reread_pages(db, connection=connection)
     emit(
@@ -140,6 +141,15 @@ def _store_everything(
         },
     )
     return connection
+
+
+def _check_reach(db: Session, *, connection: ProviderConnection) -> None:
+    """A reconnect with another profile can leave chosen accounts it cannot
+    reach; asked after the commit, not while the person waits."""
+    from app.modules.integrations.tasks import check_reach_task
+
+    key = str(connection.id)
+    on_commit(db, lambda: check_reach_task.delay(key))
 
 
 def _reread_pixels(db: Session, *, connection: ProviderConnection) -> None:

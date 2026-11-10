@@ -15,6 +15,7 @@ Two translations happen here and neither is optional:
   hard-coded a provider into a screen.
 """
 
+import re
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -58,6 +59,7 @@ from adskit.dto import (
 from adskit.errors import (
     AccountActionRequired,
     AccountNotWritable,
+    AdAccountUnreachable,
     AdvertiserRoleMissing,
     AuthFailed,
     BidStrategyRefused,
@@ -259,6 +261,15 @@ _PAGE_ACCESS_SUBCODES = frozenset({1487202})
 # which is a refused value - a malformed spec, a place nobody recognises -
 # and never a missing object.
 _NOT_FOUND_CODES = frozenset({803})
+
+# The login cannot reach the ad account it was sent to. Two shapes: a 200
+# naming the account's owner, who never let this app in for this person, and
+# 100/33 ("does not exist, cannot be loaded due to missing permissions")
+# about an ``act_`` object - an account id read from our own list, so it
+# exists, and what is missing is the reach.
+_UNREACHABLE_WORDS = "ad account owner has not grant"
+_UNSUPPORTED_SUBCODE = 33
+_ACCOUNT_OBJECT = re.compile(r"object with id 'act_\d+'", re.IGNORECASE)
 
 # Lead form terms of service, unaccepted. A *subcode*, because the code
 # beside it is 100 - "Invalid parameter" - which is also what a malformed
@@ -501,6 +512,8 @@ def _translated(exc: MetaError) -> ProviderError:
             return AccountNotWritable(str(exc), code=str(exc.code or ""), **words)
         if exc.subcode in _ROLE_SUBCODES:
             return AdvertiserRoleMissing(str(exc), code=str(exc.code or ""), **words)
+        if _UNREACHABLE_WORDS in str(exc).lower():
+            return AdAccountUnreachable(str(exc), code=str(exc.code or ""), **words)
         if exc.code in _PERMISSION_CODES:
             return PermissionDenied(str(exc), code=str(exc.code or ""), **words)
         return AuthFailed(str(exc), code=str(exc.code or ""), **words)
@@ -538,6 +551,8 @@ def _translated(exc: MetaError) -> ProviderError:
             )
         if exc.subcode in _PAGE_ACCESS_SUBCODES:
             return PageAccessDenied(str(exc), code=str(exc.code or ""), **words)
+        if exc.subcode == _UNSUPPORTED_SUBCODE and _ACCOUNT_OBJECT.search(str(exc)):
+            return AdAccountUnreachable(str(exc), code=str(exc.subcode), **words)
         if exc.code in _NOT_FOUND_CODES:
             return NotFound(str(exc), code=str(exc.code or ""), **words)
         return InvalidRequest(str(exc), code=str(exc.code or ""), **words)

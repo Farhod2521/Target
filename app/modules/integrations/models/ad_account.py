@@ -46,6 +46,8 @@ class AdAccount(Base):
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     leads_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     media_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When Meta said the connected login cannot reach this account; None while it can.
+    reach_lost_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # -- django extras --
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
     connection: Mapped["ProviderConnection"] = relationship(foreign_keys=[connection_id], lazy="select")  # noqa: F821
@@ -55,6 +57,10 @@ class AdAccount(Base):
             return ZoneInfo(self.timezone)
         except (ZoneInfoNotFoundError, ValueError):
             return ZoneInfo("UTC")
+
+    @property
+    def is_reachable(self) -> bool:
+        return self.reach_lost_at is None
 
     @property
     def cap_reached(self) -> bool:

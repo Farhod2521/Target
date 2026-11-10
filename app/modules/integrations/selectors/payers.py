@@ -105,7 +105,8 @@ def _payer(
         PayerOption(
             account=account,
             recommended=account.id in paid,
-            unusable=account.may_advertise is False and not account.payment_due,
+            unusable=(account.may_advertise is False and not account.payment_due)
+            or not account.is_reachable,
         )
         for account in accounts
     ]

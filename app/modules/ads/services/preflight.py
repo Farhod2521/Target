@@ -8,6 +8,8 @@ from datetime import datetime
 from time import monotonic
 from typing import Any
 
+from adskit import AdAccountUnreachable
+from adskit.dto import AccountStateDTO
 from sitekit import SiteProbe, probe
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -23,6 +25,7 @@ from app.modules.ads.constants import (
 )
 from app.modules.ads.exceptions import (
     AdAccountNoPaymentMethod,
+    AdAccountOutOfReach,
     AdAccountPaymentDue,
     AdAccountUnavailable,
     ChatChannelUnavailable,
@@ -119,9 +122,9 @@ def _check_account(*, account: AdAccount) -> None:
 def _check_payment_method(db: Session, *, account: AdAccount) -> None:
     """Meta takes three objects from an account without a card and refuses the
     fourth. Asked here so the owner hears it before anything is made."""
-    from app.modules.ads.services.stops import read_account_state, store_account_state
+    from app.modules.ads.services.stops import store_account_state
 
-    state = read_account_state(account)
+    state = _read_state(db, account=account)
     if state is None:
         return
     store_account_state(db, ad_account=account, state=state)
@@ -131,6 +134,33 @@ def _check_payment_method(db: Session, *, account: AdAccount) -> None:
             "launch refused, ad account %s has no payment method", account.external_id
         )
         raise AdAccountNoPaymentMethod
+
+
+def _read_state(db: Session, *, account: AdAccount) -> AccountStateDTO | None:
+    """The account's money, or nothing - except when the login cannot reach it.
+
+    That one refusal used to be swallowed with every other failed read, and
+    the launch went on to be refused at its first write with Meta's
+    developer sentence. Now it stops here, and the account is marked.
+    """
+    from app.modules.ads.services.access import token_for
+    from app.modules.integrations.services.reach import read_reachable
+
+    try:
+        token = token_for(ad_account=account)
+    except ConnectionUnusable:
+        return None
+    try:
+        state = read_reachable(account, token=token)
+    except AdAccountUnreachable as exc:
+        db.commit()
+        logger.warning(
+            "launch refused, ad account %s out of reach of the login",
+            account.external_id,
+        )
+        raise AdAccountOutOfReach from exc
+    db.commit()
+    return state
 
 
 def _makes_a_form(db: Session, launch: CampaignLaunch) -> bool:
