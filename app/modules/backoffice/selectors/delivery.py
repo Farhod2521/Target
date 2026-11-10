@@ -54,6 +54,8 @@ class Mirrored:
     synced_at: datetime | None
     ads: int
     live_ads: int
+    billing_ads: int = 0
+    finished_ads: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +99,12 @@ def mirrored(db: Session, *, owner_id: Any, ids: frozenset[str]) -> dict[str, Mi
             func.count(Ad.id)
             .filter(Ad.delivery == str(Delivery.ACTIVE))
             .label("live_ads"),
+            func.count(Ad.id)
+            .filter(Ad.delivery == str(Delivery.BILLING))
+            .label("billing_ads"),
+            func.count(Ad.id)
+            .filter(Ad.delivery == str(Delivery.FINISHED))
+            .label("finished_ads"),
         )
         .join(Ad, Ad.adset_id == AdSet.id)
         .where(AdSet.owner_id == owner_id)
@@ -110,13 +118,17 @@ def mirrored(db: Session, *, owner_id: Any, ids: frozenset[str]) -> dict[str, Mi
             Campaign.synced_at,
             func.coalesce(ads.c.ads, 0),
             func.coalesce(ads.c.live_ads, 0),
+            func.coalesce(ads.c.billing_ads, 0),
+            func.coalesce(ads.c.finished_ads, 0),
         )
         .outerjoin(ads, ads.c.campaign_id == Campaign.id)
         .where(Campaign.owner_id == owner_id, Campaign.external_id.in_(list(ids)))
     )
     return {
-        external_id: Mirrored(delivery or "unknown", synced_at, int(n), int(live))
-        for external_id, delivery, synced_at, n, live in rows
+        external_id: Mirrored(
+            delivery or "unknown", synced_at, int(n), int(live), int(billing), int(done)
+        )
+        for external_id, delivery, synced_at, n, live, billing, done in rows
     }
 
 
@@ -146,6 +158,8 @@ def campaign_state(
         key = STALE
     elif key == Delivery.ACTIVE and copy.ads == 0:
         key = NO_ADS
+    elif key == Delivery.ACTIVE and copy.live_ads == 0:
+        key = _adverts_say(copy)
     running = key == Delivery.ACTIVE and copy.live_ads > 0
     return CampaignState(
         key=str(key),
@@ -154,6 +168,17 @@ def campaign_state(
         is_stale=stale,
         synced_at=copy.synced_at,
     )
+
+
+def _adverts_say(copy: Mirrored) -> str:
+    """The campaign is on but no advert of it is: say what the adverts are.
+    Meta keeps a campaign ACTIVE after its ad sets' end dates have passed,
+    and the customer's screen then still draws it on."""
+    if copy.billing_ads:
+        return str(Delivery.BILLING)
+    if copy.finished_ads == copy.ads:
+        return str(Delivery.FINISHED)
+    return str(Delivery.UNKNOWN)
 
 
 def accounts_to_refresh(accounts: list[AdAccount], *, now: datetime) -> list[AdAccount]:

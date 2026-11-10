@@ -371,6 +371,33 @@ def test_a_payment_moves_the_card_to_sotildi_even_from_yopildi(
     assert seen.history[0].kind == "sold" and seen.actions == []
 
 
+def test_a_sold_card_moved_out_by_hand_does_not_stop_the_sweep(
+    client: TestClient, db: Session
+) -> None:
+    """The second ``sold`` line would break the one-fact-once index and roll
+    back every other card's move with it."""
+    _live(db)
+    moved = _client(db, "moved@shop.test", minutes_ago=30)
+    later = _client(db, "later@shop.test", minutes_ago=10)
+    _sweep(db)
+    _paid(db, moved)
+    assert _sweep(db) == (0, 1)
+    card = _cards(db)["moved@shop.test"]
+    boss = _staff(db, "boss@office.test", superuser=True)
+    answer = client.post(
+        f"{URL}/cards/{card.id}/move",
+        json={"column": "closed", "reason": "Qaytarildi"},
+        headers=boss,
+    )
+    assert answer.status_code == 200, answer.text
+    _paid(db, later)
+
+    assert _sweep(db) == (0, 1)
+    cards = _cards(db)
+    assert cards["later@shop.test"].column_code == "sold"
+    assert cards["moved@shop.test"].column_code == "closed"
+
+
 def test_the_sweep_is_on_the_beat_every_minute() -> None:
     entries = {e["task"]: e for e in beat_schedule().values()}
     entry = entries["app.modules.boards.tasks.sweep_sales_board_task"]

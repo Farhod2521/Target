@@ -574,7 +574,10 @@ class AdRowOut(BaseModel):
         description=(
             "State key: active, paused, pending, billing, rejected, finished, "
             "unknown, stale (the copy says on but is old), no_ads (on, but "
-            "every advert is gone), not_read (not mirrored yet). "
+            "every advert is gone), not_read (not mirrored yet), deleted "
+            "(one campaign's detail only; the list leaves it out). A campaign "
+            "on with no advert on reads as its adverts: billing, finished or "
+            "unknown, so active always means is_running. "
             "`delivery_label` is its words."
         )
     )

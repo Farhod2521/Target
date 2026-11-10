@@ -71,7 +71,12 @@ Javobning o'zida (`CustomerAdsOut`):
 | `no_ads` | Reklamasi qolmagan | false | **yangi**: `no_ads` (neutral) |
 | `not_read` | Hali o'qilmagan | false | **yangi**: `not_read` (neutral) |
 
-`deleted` qatorda kelmaydi.
+`deleted` ro'yxat qatorida kelmaydi (faqat bitta kampaniya detalida).
+
+Kampaniya Meta'da yoqilgan, lekin birorta reklamasi ishlamayotgan bo'lsa
+(masalan, ad set'ning tugash sanasi o'tgan), `active` emas, reklamalarning
+holati keladi: `billing`, hammasi tugagan bo'lsa `finished`, aks holda
+`unknown`. Shuning uchun `active` har doim `is_running: true`.
 
 ## Frontendda nima qilish kerak
 

@@ -283,26 +283,41 @@ def handoff(body: HandoffIn, request: Request, db: Db) -> dict[str, Any]:
     could not answer: a guest support chat opens with it, Support hears of
     it in Telegram, and the page follows it as ``/support/guest`` with the
     token."""
-    from app.modules.chat.services.handoff import forget, handoff_text, waiting_for
+    from app.modules.chat.services.handoff import (
+        claim,
+        forget,
+        handoff_text,
+        release,
+        waiting_for,
+    )
     from app.modules.supportchat.routers.guests import guest_screen
     from app.modules.supportchat.services import start_guest_chat
 
+    gone = HTTPException(
+        status.HTTP_404_NOT_FOUND,
+        detail="Savol topilmadi yoki allaqachon yuborilgan.",
+    )
     waiting = waiting_for(body.turn_id)
     if waiting is None:
+        raise gone
+    if not claim(body.turn_id):
         raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            detail="Savol topilmadi yoki allaqachon yuborilgan.",
+            status.HTTP_409_CONFLICT, detail="Savol hozir yuborilmoqda."
         )
-    started = start_guest_chat(
-        db,
-        name=body.name,
-        phone=body.phone,
-        email=body.email,
-        body=handoff_text(question=waiting.question, answer=waiting.answer),
-        address=client_address(request),
-        now=utcnow(),
-        email_required=False,
-    )
+    try:
+        started = start_guest_chat(
+            db,
+            name=body.name,
+            phone=body.phone,
+            email=body.email,
+            body=handoff_text(question=waiting.question, answer=waiting.answer),
+            address=client_address(request),
+            now=utcnow(),
+            email_required=False,
+        )
+    except BaseException:
+        release(body.turn_id)
+        raise
     forget(body.turn_id)
     return {"token": started.token, "chat": guest_screen(db, started.chat)}
 
