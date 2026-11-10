@@ -100,6 +100,8 @@ PURGE_ORDER: tuple[str, ...] = (
     "notifications.TelegramNotice",
     "notifications.TelegramChat",
     "notifications.StaffChat",
+    "boards.BoardCardEvent",
+    "boards.BoardCard",
     "sales.SalesActivity",
     "sales.ContactHold",
     "sales.SaleSource",
