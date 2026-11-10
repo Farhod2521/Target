@@ -438,6 +438,17 @@ class AdAccountNoPaymentMethod(AdAccountUnavailable):
         )
 
 
+class AdAccountOutOfReach(DomainError):
+    """The connected Facebook profile cannot reach the chosen ad account."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Ulangan Facebook profilingiz bu reklama akkauntiga kira olmaydi. "
+            "Akkauntga ruxsati bor profil bilan Meta'ni qayta ulang yoki "
+            "Business Manager'da shu profilga akkaunt ustidan rol bering."
+        )
+
+
 class PageRoleMissing(DomainError):
     def __init__(self, tasks: tuple[str, ...] = ()) -> None:
         self.tasks = tasks

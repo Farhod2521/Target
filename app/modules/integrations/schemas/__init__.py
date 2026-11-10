@@ -34,6 +34,12 @@ class AdAccountOut(_Row):
     is_current: bool
     cap_reached: bool
     synced_at: datetime | None
+    is_reachable: bool = Field(
+        default=True,
+        description="False when the connected Facebook profile cannot reach this "
+        "account (another profile was connected, or its role was removed).",
+    )
+    reach_lost_at: datetime | None = None
 
 
 class PageOut(_Row):

@@ -85,6 +85,7 @@ from app.modules.integrations.selectors import (
     missing_scopes,
 )
 from app.modules.integrations.services.access import account_ref, port_for, token_for
+from app.modules.integrations.services.reach import check_chosen
 
 logger = logging.getLogger(__name__)
 MOST_PIXELS: Final = 5
@@ -133,6 +134,8 @@ def sync_ad_accounts(db: Session, *, connection_id: object) -> str:
         logger.info("account list failed for connection %s: %s", connection.id, exc)
         return "failed"
     store_ad_accounts(db, connection=connection, accounts=found)
+    db.flush()
+    check_chosen(db, connection=connection, token=token)
     db.commit()
     return str(len(found))
 

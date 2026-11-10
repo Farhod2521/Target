@@ -32,6 +32,12 @@ SENTENCES: Final[dict[str, tuple[str, str]]] = {
         "Meta'ni qayta ulang.",
         RECONNECT,
     ),
+    "account_access": (
+        "Ulangan Facebook profili bu reklama akkauntiga kira olmaydi. Akkauntga "
+        "ruxsati bor profil bilan Meta'ni qayta ulang yoki Business Manager'da "
+        "hozirgi profilga akkaunt ustidan rol bering.",
+        RECONNECT,
+    ),
     "account_role": (
         "Ulangan Facebook profilida bu reklama akkauntida reklama berish roli yo'q. "
         "Akkaunt administratori sizga kamida «Advertiser» rolini bersin, keyin "
@@ -126,6 +132,14 @@ GUIDES: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
         (
             "Business Manager'da shu profilga akkaunt ustidan to'liq huquq bering.",
             "Meta'ni qayta ulang.",
+            AGAIN,
+        ),
+    ),
+    "account_access": (
+        "Ulangan Facebook profili bu reklama akkauntiga kira olmaydi.",
+        (
+            "Akkauntga ruxsati bor Facebook profil bilan Meta'ni qayta ulang.",
+            "Yoki Business Manager'da hozirgi profilga akkaunt ustidan rol bering.",
             AGAIN,
         ),
     ),

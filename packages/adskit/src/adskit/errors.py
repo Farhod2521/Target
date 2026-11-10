@@ -110,6 +110,17 @@ class AdvertiserRoleMissing(PermissionDenied):
     """
 
 
+class AdAccountUnreachable(PermissionDenied):
+    """The connected login cannot reach this ad account at all.
+
+    Most often the owner reconnected with another Facebook profile, one that
+    holds no role on the account the cabinet still has chosen. Reconnecting
+    with the profile that has it, or giving this profile a role, cures it.
+    Still a ``PermissionDenied``: the login itself is fine for its other
+    accounts, so nothing may take the connection down over it.
+    """
+
+
 class InvalidRequest(ProviderError):
     """The provider rejected the payload.
 

@@ -780,6 +780,7 @@ META_SIDE_FAILURES: tuple[str, ...] = (
     "page_terms",
     "page_role",
     "account_role",
+    "account_access",
     "account_action",
     "account_disabled",
     "payment_due",

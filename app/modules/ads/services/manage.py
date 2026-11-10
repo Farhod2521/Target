@@ -15,7 +15,7 @@ from typing import Any, Final
 
 from adskit import ExternalRef, ProviderName, registry
 from adskit.dto import ActionResult, StatusDTO
-from adskit.errors import PermissionDenied, ProviderError
+from adskit.errors import AdAccountUnreachable, PermissionDenied, ProviderError
 from metaads import PROVIDER as META
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -219,6 +219,7 @@ PROVIDER_FAILURES: Final[dict[str, str]] = {
     "PermissionDenied": "permission",
     "AccountNotWritable": "account_blocked",
     "AdvertiserRoleMissing": "account_role",
+    "AdAccountUnreachable": "account_access",
     "PageAccessDenied": "page_role",
     "AccountActionRequired": "account_action",
     "PaymentMethodMissing": "payment_missing",
@@ -299,7 +300,11 @@ def refused_by_provider(
 ) -> None:
     """Record the refusal; a permission refusal reads the account's money first,
     so a blocked account is told apart from a missing role."""
-    if isinstance(exc, PermissionDenied):
+    if isinstance(exc, AdAccountUnreachable):
+        from app.modules.integrations.services.reach import lose_reach
+
+        lose_reach(account)
+    elif isinstance(exc, PermissionDenied):
         from app.modules.ads.services.stops import refresh_account_state
 
         refresh_account_state(db, ad_account=account, campaigns=port, token=token)

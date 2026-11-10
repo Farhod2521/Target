@@ -100,6 +100,19 @@ READY: Final[dict[LaunchErrorCode, Ready]] = {
         to="connections",
         href="account_quality",
     ),
+    "account_access": Ready(
+        title="Ulangan Facebook profili bu reklama akkauntiga kira olmaydi",
+        hint="Akkauntga ruxsati bor profil bilan qayta ulang",
+        cause="Meta'ga hozir ulangan Facebook profilida bu reklama akkauntiga ruxsat yo'q. Ko'pincha sababi: Meta boshqa Facebook profil bilan qayta ulangan yoki profildan akkaunt roli olib qo'yilgan.",
+        steps=(
+            "Agar ilgari boshqa Facebook profil bilan ishlagan bo'lsangiz, «Ulanishlar» sahifasida Meta'ni o'sha profil bilan qayta ulang.",
+            "Yoki akkaunt administratori business.facebook.com da «Settings» → «Accounts» → «Ad accounts» ga kirib, hozirgi profilingizga kamida «Advertiser» rolini bersin, keyin Meta'ni qayta ulang va oynada shu akkauntni belgilang.",
+            "Yoki «Ulanishlar» sahifasida shu profil kira oladigan boshqa reklama akkauntini tanlang.",
+            RETRY,
+        ),
+        fix="Ulanishlarni ochish",
+        to="connections",
+    ),
     "account_role": Ready(
         title="Reklama akkauntida rolingiz yetarli emas",
         hint="Akkaunt administratoridan rol so'rang",

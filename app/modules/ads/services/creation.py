@@ -7,7 +7,12 @@ from typing import Any, Final
 from uuid import UUID
 
 from adskit import registry
-from adskit.errors import AccountActionRequired, ProviderError, TargetingOptionRetired
+from adskit.errors import (
+    AccountActionRequired,
+    AdAccountUnreachable,
+    ProviderError,
+    TargetingOptionRetired,
+)
 from adskit.refs import ExternalRef, Level, ProviderName
 from metaads.specs import is_external
 from sqlalchemy import update
@@ -38,6 +43,7 @@ from app.modules.ads.constants import (
 )
 from app.modules.ads.exceptions import (
     AdAccountNoPaymentMethod,
+    AdAccountOutOfReach,
     AdAccountPaymentDue,
     AdAccountUnavailable,
     AudienceEmpty,
@@ -137,6 +143,7 @@ FAILURE_CODES: Final[dict[str, str]] = {
     "PermissionDenied": "reconnect",
     "AccountNotWritable": "account_disabled",
     "AdvertiserRoleMissing": "account_role",
+    "AdAccountUnreachable": "account_access",
     "PageAccessDenied": "page_role",
     "RateLimited": "rate_limited",
     "TemporaryFailure": "temporary",
@@ -332,6 +339,13 @@ def _create(db: Session, *, launch_id: UUID | str) -> str:
             code="payment_missing",
             message="ad account has no payment method",
         )
+    except AdAccountOutOfReach:
+        return _fail(
+            db,
+            launch,
+            code="account_access",
+            message="ad account out of reach of the connected profile",
+        )
     except AdAccountUnavailable:
         return _fail(
             db, launch, code="account_disabled", message="ad account not usable"
@@ -451,6 +465,7 @@ def _run(
         db.rollback()
         _repair(db, launch=launch, business=business, exc=exc)
         _note_hold(db, account=account, exc=exc)
+        _note_reach(db, account=account, exc=exc)
         return _undo(
             db,
             launch=launch,
@@ -599,6 +614,19 @@ def _note_hold(db: Session, *, account: AdAccount, exc: Exception) -> None:
     except SQLAlchemyError:
         db.rollback()
         logger.exception("could not note the hold on %s", account.id)
+
+
+def _note_reach(db: Session, *, account: AdAccount, exc: Exception) -> None:
+    from app.modules.integrations.services.reach import lose_reach
+
+    if not isinstance(exc, AdAccountUnreachable):
+        return
+    try:
+        lose_reach(account)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("could not note the lost reach on %s", account.id)
 
 
 def _detail_for(exc: Exception) -> dict[str, Any]:

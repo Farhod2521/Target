@@ -137,6 +137,15 @@ def sync_ad_accounts_task(connection_id: str) -> str:
         return sync_ad_accounts(db, connection_id=connection_id)
 
 
+@celery_app.task(queue="sync", ignore_result=True)
+def check_reach_task(connection_id: str) -> int:
+    """After a (re)connect: which chosen accounts this login cannot reach."""
+    from app.modules.integrations.services.reach import check_connection_reach
+
+    with task_session() as db:
+        return check_connection_reach(db, connection_id=connection_id)
+
+
 @celery_app.task(queue=GOOGLE_SYNC_QUEUE, ignore_result=True)
 def sync_google_accounts_task(connection_id: str) -> str:
     with task_session() as db:
