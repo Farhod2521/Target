@@ -4,9 +4,10 @@ Every minute, each account opened since the start date that has had five
 minutes to pay and has not is added at the bottom of the sheet, once. An
 account that pays afterwards stays in the sheet as it was.
 
-The app writes as a service account (``GOOGLE_SERVICE_ACCOUNT``), so the
-sheet only has to be shared with that account's email as Editor. A failed
-write leaves the accounts unrecorded and the next minute tries again.
+The rows go to an Apps Script inside the sheet (deploy/signup_sheet.gs),
+whose web app URL with its token is ``SIGNUP_SHEET_URL``: no Google Cloud
+project and no key. Anything but "ok" back leaves the accounts unrecorded,
+and the next minute sends them again.
 """
 
 import logging
@@ -15,7 +16,7 @@ from datetime import datetime, timedelta
 from typing import Final
 from zoneinfo import ZoneInfo
 
-from googlekit import CellValue, GoogleError, SheetsClient, read_key, service_token
+import httpx
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
@@ -37,10 +38,19 @@ BATCH: Final = 500
 LOCK_KEY: Final = "sales:signup-sheet"
 LOCK_SECONDS: Final = 300
 HEADINGS: Final = ("Ro'yxatdan o'tgan vaqti", "Ism", "Telefon", "Email", "Kim")
+TIME_FORMAT: Final = "%d.%m.%Y %H:%M"
+_ROLES: Final[dict[str, str]] = {
+    str(role): label for role, label in ROLE_LABELS.items()
+}
+TIMEOUT_SECONDS: Final = 60.0
+
+
+class NotWritten(Exception):
+    """The script did not answer "ok"."""
 
 
 def is_configured() -> bool:
-    return bool(settings.google_service_account and settings.signup_sheet_id)
+    return bool(settings.signup_sheet_url)
 
 
 def due_signups(db: Session, *, now: datetime, limit: int = BATCH) -> list[User]:
@@ -74,14 +84,14 @@ def due_signups(db: Session, *, now: datetime, limit: int = BATCH) -> list[User]
     )
 
 
-def sheet_row(user: User) -> tuple[CellValue, ...]:
-    return (
-        user.date_joined.astimezone(ZONE),
+def sheet_row(user: User) -> list[str]:
+    return [
+        user.date_joined.astimezone(ZONE).strftime(TIME_FORMAT),
         user.full_name,
         user.phone,
         user.email,
-        ROLE_LABELS.get(user.role, user.role),
-    )
+        _ROLES.get(user.role, user.role),
+    ]
 
 
 def sweep_signup_sheet(db: Session, *, now: datetime) -> int:
@@ -100,27 +110,36 @@ def _write_due(db: Session, *, now: datetime) -> int:
     users = due_signups(db, now=now)
     if not users:
         return 0
-    first = db.scalar(select(exists().where(SignupSheetRow.owner_id.is_not(None))))
-    rows: list[Sequence[CellValue]] = [] if first else [HEADINGS]
-    rows.extend(sheet_row(user) for user in users)
     try:
-        _append(rows)
-    except (GoogleError, ValueError) as exc:
-        logger.warning("signup sheet: %d rows not written: %s", len(users), exc)
+        send([sheet_row(user) for user in users])
+    except (httpx.HTTPError, NotWritten) as exc:
+        # The exception's own text can carry the URL, and the URL the token.
+        logger.warning(
+            "signup sheet: %d rows not written: %s %s",
+            len(users),
+            type(exc).__name__,
+            exc if isinstance(exc, NotWritten) else _status(exc),
+        )
         return 0
     db.add_all(SignupSheetRow(owner_id=user.id, written_at=now) for user in users)
     db.commit()
     return len(users)
 
 
-def _append(rows: Sequence[Sequence[CellValue]]) -> None:
-    key = read_key(settings.google_service_account)
-    with SheetsClient(access_token=service_token(key=key)) as client:
-        found = client.describe(spreadsheet_id=settings.signup_sheet_id)
-        if not found.tabs:
-            raise GoogleError("the signup sheet has no tab")
-        client.append(
-            spreadsheet_id=settings.signup_sheet_id,
-            sheet_id=found.tabs[0].sheet_id,
-            rows=rows,
+def send(rows: Sequence[Sequence[str]]) -> None:
+    """One POST to the sheet's script. Google answers a web app with a
+    redirect to the script's output, which is followed."""
+    with httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True) as client:
+        answer = client.post(
+            settings.signup_sheet_url,
+            json={"headings": list(HEADINGS), "rows": [list(row) for row in rows]},
         )
+    answer.raise_for_status()
+    if answer.text.strip() != "ok":
+        raise NotWritten(answer.text.strip()[:200])
+
+
+def _status(exc: httpx.HTTPError) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return str(exc.response.status_code)
+    return ""
