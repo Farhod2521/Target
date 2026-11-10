@@ -675,6 +675,11 @@ def _queue(db: Session, account: AdAccount) -> None:
     )
 
 
+def queue_sync(db: Session, account: AdAccount) -> None:
+    """One mirror sync of this account on the refresh queue, after commit."""
+    _queue(db, account)
+
+
 def resync_account(db: Session, *, ad_account: AdAccount, actor_id: str = "") -> None:
     from app.modules.ads.tasks import sync_ad_account_task, sync_media_task
 

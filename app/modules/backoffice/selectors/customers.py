@@ -19,10 +19,11 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.modules.accounts.models import AccountBlock, User
 from app.modules.ads import refs as ref_field
-from app.modules.ads.constants import NOT_RUNNING, LaunchStep
+from app.modules.ads.constants import LaunchStep
 from app.modules.ads.models import Campaign, CampaignLaunch
 from app.modules.backoffice.constants import EXPIRING_DAYS, PAGE_SIZE
 from app.modules.backoffice.selectors.days import days_left
+from app.modules.backoffice.selectors.delivery import running_clause
 from app.modules.backoffice.selectors.problems import Problem, worst_by_owner
 from app.modules.billing.constants import (
     LIVE_SUBSCRIPTION_STATUSES,
@@ -390,7 +391,7 @@ def _activity(
             .where(
                 Campaign.owner_id.in_(ids),
                 Campaign.external_id.in_(every),
-                Campaign.delivery.not_in(NOT_RUNNING),
+                running_clause(now=now),
             )
             .group_by(Campaign.owner_id)
         ).all()

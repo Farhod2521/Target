@@ -16,11 +16,20 @@ from metaads.writing import is_dry_run_id
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.common.db import utcnow
 from app.common.presets import goal_labels
 from app.modules.accounts.models import User
 from app.modules.ads import refs as ref_field
 from app.modules.ads.constants import NOT_RUNNING, LaunchStep
 from app.modules.ads.models import CampaignLaunch
+from app.modules.backoffice.selectors.delivery import (
+    DELETED,
+    STALE,
+    CampaignState,
+    campaign_state,
+    mirrored,
+)
+from app.modules.integrations.models import AdAccount
 from app.modules.integrations.selectors import active_ad_account
 from app.modules.leads.models import Lead
 from app.modules.leads.selectors import counts_by_campaign
@@ -77,6 +86,9 @@ class AdRow:
     ctr_percent: str = ""
     cpm_minor: int | None = None
     cpc_minor: int | None = None
+    delivery: str = ""
+    is_stale: bool = False
+    synced_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +126,10 @@ class Advertising:
     totals: tuple[tuple[str, int], ...]
     summary: tuple[CurrencySummary, ...]
     hidden: int
+    deleted: int = 0
+    deleted_totals: tuple[tuple[str, int], ...] = ()
+    stale: int = 0
+    refreshing: bool = False
 
 
 def asked_period(value: str) -> str:
@@ -190,6 +206,7 @@ def _row(
     leads: int,
     labels: dict[str, str],
     reach: int | None = None,
+    state: CampaignState | None = None,
 ) -> AdRow:
     kind = result_kind(meta)
     text = words_for(kind)
@@ -218,9 +235,15 @@ def _row(
         goal=labels.get(goal, "") or UNKNOWN_GOAL,
         page=launch.page.name if launch.page is not None else "",
         delivery_label=str(
-            meta.delivery_label if meta is not None else DELIVERY_LABELS["unknown"]
+            state.label
+            if state is not None
+            else meta.delivery_label
+            if meta is not None
+            else DELIVERY_LABELS["unknown"]
         ),
-        is_running=meta is not None and str(delivery) not in NOT_RUNNING,
+        is_running=state.is_running
+        if state is not None
+        else meta is not None and str(delivery) not in NOT_RUNNING,
         spend_minor=spend,
         currency=launch.currency,
         results=count,
@@ -237,15 +260,23 @@ def _row(
         ctr_percent=figures.ctr_percent,
         cpm_minor=figures.cpm_minor,
         cpc_minor=figures.cpc_minor,
+        delivery=state.key if state is not None else str(delivery),
+        is_stale=state.is_stale if state is not None else False,
+        synced_at=state.synced_at if state is not None else None,
     )
 
 
 def _within(rows: tuple[AdRow, ...], *, period: str) -> tuple[AdRow, ...]:
     """A window that does not narrow is a broken control: an advert stays when
-    it spent, produced something, or is still delivering."""
+    it spent, produced something, is still delivering, or may be - a stale
+    copy is shown, not hidden."""
     if period == "all":
         return rows
-    return tuple(r for r in rows if r.spend_minor or r.results or r.is_running)
+    return tuple(
+        r
+        for r in rows
+        if r.spend_minor or r.results or r.is_running or r.delivery == STALE
+    )
 
 
 def _totals(rows: tuple[AdRow, ...]) -> tuple[tuple[str, int], ...]:
@@ -304,10 +335,14 @@ def read_rows(
     since: date,
     until: date,
     zone: Any,
+    now: datetime | None = None,
 ) -> tuple[AdRow, ...]:
-    """One row per launch and campaign, with its figures over these days."""
+    """One row per launch and campaign, with its figures over these days, and
+    its state as far as the copy can vouch for it."""
     ids = frozenset(campaign for _launch, campaign in pairs)
     meta = campaign_meta(db, owner=owner, campaign_ids=ids)
+    copies = mirrored(db, owner_id=owner.id, ids=ids)
+    now = now or utcnow()
     facts = facts_by_campaign(
         db,
         owner=owner,
@@ -341,21 +376,55 @@ def read_rows(
             leads=leads.get(campaign, (0, 0))[0],
             labels=labels,
             reach=people[campaign].reach if campaign in people else None,
+            state=campaign_state(
+                launch=launch,
+                shown=meta[campaign].delivery if campaign in meta else None,
+                copy=copies.get(campaign),
+                account=launch.ad_account,
+                now=now,
+            ),
         )
         for launch, campaign in pairs
     )
 
 
-def advertising(db: Session, *, owner: User, window: AdWindow) -> Advertising:
-    """Every advert this product launched for one account, newest first."""
-    launches = list(
+def launch_accounts(launches: list[CampaignLaunch]) -> list[AdAccount]:
+    """The accounts these launches were made on, each once."""
+    found: dict[UUID, AdAccount] = {}
+    for launch in launches:
+        if launch.ad_account is not None:
+            found.setdefault(launch.ad_account.id, launch.ad_account)
+    return list(found.values())
+
+
+def owner_launches(db: Session, *, owner: User) -> list[CampaignLaunch]:
+    return list(
         db.scalars(
             select(CampaignLaunch)
-            .options(joinedload(CampaignLaunch.page))
+            .options(
+                joinedload(CampaignLaunch.page), joinedload(CampaignLaunch.ad_account)
+            )
             .where(CampaignLaunch.owner_id == owner.id)
         )
     )
-    every = read_rows(
+
+
+def advertising(
+    db: Session,
+    *,
+    owner: User,
+    window: AdWindow,
+    launches: list[CampaignLaunch] | None = None,
+    refreshing: bool = False,
+) -> Advertising:
+    """Every advert this product launched for one account, newest first.
+
+    A campaign deleted on Meta is not listed: it is counted in ``deleted``,
+    with what it spent in the window, so the totals still add up to the rows.
+    """
+    if launches is None:
+        launches = owner_launches(db, owner=owner)
+    found = read_rows(
         db,
         owner=owner,
         pairs=launch_pairs(launches),
@@ -363,6 +432,8 @@ def advertising(db: Session, *, owner: User, window: AdWindow) -> Advertising:
         until=window.until,
         zone=day_zone(db, owner=owner),
     )
+    gone = tuple(row for row in found if row.delivery == DELETED)
+    every = tuple(row for row in found if row.delivery != DELETED)
     rows = _within(every, period=window.period)
     return Advertising(
         rows=rows,
@@ -371,4 +442,8 @@ def advertising(db: Session, *, owner: User, window: AdWindow) -> Advertising:
         totals=_totals(rows),
         summary=_summary(rows),
         hidden=len(every) - len(rows),
+        deleted=len(gone),
+        deleted_totals=_totals(gone),
+        stale=sum(1 for row in rows if row.delivery == STALE),
+        refreshing=refreshing,
     )

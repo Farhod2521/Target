@@ -570,6 +570,18 @@ class AdRowOut(BaseModel):
     ctr_percent: str = Field(description="Empty before the first impression.")
     cpm_minor: int | None
     cpc_minor: int | None
+    delivery: str = Field(
+        description=(
+            "State key: active, paused, pending, billing, rejected, finished, "
+            "unknown, stale (the copy says on but is old), no_ads (on, but "
+            "every advert is gone), not_read (not mirrored yet). "
+            "`delivery_label` is its words."
+        )
+    )
+    is_stale: bool = Field(description="The copy is older than one sweep allows.")
+    synced_at: datetime | None = Field(
+        description="When Meta was last read for it; null when never."
+    )
 
 
 class AdWindowOut(BaseModel):
@@ -601,6 +613,14 @@ class CustomerAdsOut(BaseModel):
     totals: list[AmountOut] = Field(description="Spend per currency, never summed.")
     summary: list[AdCurrencyOut] = Field(description="All figures, one per currency.")
     hidden: int = Field(description="Adverts left out: quiet over this window.")
+    deleted: int = Field(description="Deleted on Meta; never listed.")
+    deleted_totals: list[AmountOut] = Field(
+        description="What the deleted ones spent in the window, per currency."
+    )
+    stale: int = Field(description="Listed rows whose copy is old.")
+    refreshing: bool = Field(
+        description="A read of Meta was queued now; ask again in ~20 seconds."
+    )
     rows: list[AdRowOut]
 
 
@@ -1154,7 +1174,8 @@ class SupportBotLinkOut(BaseModel):
 class SupportThreadOut(BaseModel):
     customer: PersonOut
     support_bot: SupportBotLinkOut | None = Field(
-        None, description="The client's support-bot chat; empty when they never wrote there."
+        None,
+        description="The client's support-bot chat; empty when they never wrote there.",
     )
     conversation_id: str | None = Field(
         description="Empty: no chat yet; the first message writes it."

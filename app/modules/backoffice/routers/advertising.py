@@ -12,6 +12,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import Db
+from app.common.db import utcnow
 from app.common.timezone import localtime
 from app.modules.accounts.models import User
 from app.modules.ads.constants import (
@@ -50,9 +51,12 @@ from app.modules.backoffice.selectors.advertising import (
     AdWindow,
     advertising,
     asked_window,
+    launch_accounts,
     launch_pairs,
+    owner_launches,
 )
 from app.modules.backoffice.selectors.card import person
+from app.modules.backoffice.services.ads_refresh import refresh_stale
 from app.modules.metrics.selectors.panel import FigureSums
 
 router = APIRouter(prefix="/customers/{customer_id}/ads")
@@ -109,6 +113,9 @@ def row_out(row: AdRow) -> dict[str, Any]:
         "ctr_percent": row.ctr_percent,
         "cpm_minor": row.cpm_minor,
         "cpc_minor": row.cpc_minor,
+        "delivery": row.delivery,
+        "is_stale": row.is_stale,
+        "synced_at": row.synced_at,
     }
 
 
@@ -395,11 +402,20 @@ def customer_ads(
 ) -> dict[str, Any]:
     """Every advert this product launched for the account, over one window.
 
-    Only rows that spent, produced or still deliver, except for `all`.
+    Only rows that spent, produced or still deliver, except for `all`. A
+    campaign deleted on Meta is never a row. An account whose copy is old is
+    read again in the background, and `refreshing` says so.
     """
     owner = _owner(db, customer_id)
+    launches = owner_launches(db, owner=owner)
+    refreshing = refresh_stale(db, accounts=launch_accounts(launches), now=utcnow())
+    db.commit()
     found = advertising(
-        db, owner=owner, window=_window(period=period, since=since, until=until)
+        db,
+        owner=owner,
+        window=_window(period=period, since=since, until=until),
+        launches=launches,
+        refreshing=refreshing,
     )
     return {
         "period": found.window.period,
@@ -423,6 +439,10 @@ def customer_ads(
             for row in found.summary
         ],
         "hidden": found.hidden,
+        "deleted": found.deleted,
+        "deleted_totals": amounts(found.deleted_totals),
+        "stale": found.stale,
+        "refreshing": found.refreshing,
         "rows": [row_out(row) for row in found.rows],
     }
 

@@ -21,9 +21,10 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.common.config import settings
 from app.common.dates import localtime, office_zone
+from app.common.db import utcnow
 from app.modules.accounts.models import BlockSuggestion, User
 from app.modules.ads import refs as ref_field
-from app.modules.ads.constants import NOT_RUNNING, LaunchStatus, LaunchStep
+from app.modules.ads.constants import LaunchStatus, LaunchStep
 from app.modules.ads.models import Campaign, CampaignLaunch
 from app.modules.audit.models import LLMCall
 from app.modules.audit.selectors import exact_cost
@@ -33,6 +34,7 @@ from app.modules.backoffice.constants import (
     STUCK_HOLD_HOURS,
 )
 from app.modules.backoffice.models import StaffAction
+from app.modules.backoffice.selectors.delivery import running_clause
 from app.modules.billing.constants import (
     INVOICE_KIND_LABELS,
     LIVE_SUBSCRIPTION_STATUSES,
@@ -601,7 +603,7 @@ def activity(db: Session, *, window: Window) -> Activity:
             db.scalar(
                 select(func.count(Campaign.id)).where(
                     Campaign.external_id.in_(campaigns),
-                    Campaign.delivery.not_in(NOT_RUNNING),
+                    running_clause(now=utcnow()),
                     Campaign.owner_id.not_in(staff),
                 )
             )
