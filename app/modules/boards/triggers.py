@@ -27,6 +27,8 @@ from app.modules.boards.constants import (
     NO_SPEND_HOURS,
     NO_SPEND_LOOKBACK_DAYS,
     NOT_META_ERRORS,
+    OFFER_COLUMNS,
+    OFFER_STEPS,
     SETUP_GRACE_MINUTES,
     SURVEY_LOOKBACK_HOURS,
     SWEEP_BATCH,
@@ -149,10 +151,68 @@ def mark_sold(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     return len(rows)
 
 
+def step_offers(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """An offer card follows its clock: 20% → 10% a day after the press,
+    → Chegirmasiz when the third day ends. Each step once: a card the Owner
+    moved back by hand stays where they put it. Runs after ``mark_sold``,
+    so a client who paid is in Sotildi, not here."""
+    from app.modules.boards.offer import OFFERED_REF, step_at
+
+    started = (
+        select(BoardCardEvent.card_id, BoardCardEvent.created_at.label("at"))
+        .where(BoardCardEvent.ref == OFFERED_REF)
+        .subquery()
+    )
+    first_step = OFFER_STEPS[0][1]
+    rows = list(
+        db.execute(
+            select(BoardCard, started.c.at)
+            .join(started, started.c.card_id == BoardCard.id)
+            .where(
+                BoardCard.board == str(Board.SALES),
+                BoardCard.closed_at.is_(None),
+                BoardCard.column_code.in_(OFFER_COLUMNS),
+                started.c.at <= now - timedelta(hours=first_step),
+            )
+            .order_by(started.c.at)
+            .limit(limit)
+            .with_for_update(of=BoardCard, skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+    )
+    moved = 0
+    for card, at in rows:
+        step = step_at(at, now)
+        if step is None:
+            to, kind = str(SalesColumn.NO_DISCOUNT), EventKind.OFFER_ENDED
+        else:
+            to = next(str(c) for p, _h, c in OFFER_STEPS if p == step.percent)
+            kind = EventKind.OFFER_STEP
+        if to == card.column_code or _has_step(db, card=card, ref=to):
+            continue
+        move(db, card=card, to=to, kind=kind, now=now, ref=to)
+        moved += 1
+    db.commit()
+    return moved
+
+
+def _has_step(db: Session, *, card: BoardCard, ref: str) -> bool:
+    return bool(
+        db.scalar(
+            select(
+                exists().where(
+                    BoardCardEvent.card_id == card.id, BoardCardEvent.ref == ref
+                )
+            )
+        )
+    )
+
+
 def sweep_sales(db: Session, *, now: datetime) -> tuple[int, int]:
     ensure_board(db, board=Board.SALES, now=now)
     db.commit()
-    return open_leads(db, now=now), mark_sold(db, now=now)
+    opened, sold = open_leads(db, now=now), mark_sold(db, now=now)
+    return opened, sold + step_offers(db, now=now)
 
 
 def _since(db: Session) -> datetime | None:

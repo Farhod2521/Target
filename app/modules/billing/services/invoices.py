@@ -432,14 +432,30 @@ def price_invoice(
     owner = payer(locked)
     lift_wallet(db, owner=owner, now=now)
     db.refresh(locked, ["amount_minor", "wallet_minor"])
-    locked.amount_minor += locked.credit_minor - locked.pages_minor - locked.seats_minor
+    locked.amount_minor += (
+        locked.credit_minor
+        + locked.offer_minor
+        - locked.pages_minor
+        - locked.seats_minor
+    )
     locked.credit_minor = locked.pages = locked.pages_minor = 0
-    locked.seats = locked.seats_minor = 0
+    locked.seats = locked.seats_minor = locked.offer_minor = 0
     db.flush()
-    if promo_code:
+    pay_until, offer_take = _sales_offer(db, invoice=locked, owner=owner, now=now)
+    if (
+        promo_code
+        and _promo_minor(db, invoice=locked, owner=owner, code=promo_code, now=now)
+        >= offer_take
+    ):
         apply_discount(db, invoice=locked, code=promo_code, now=now)
     else:
         drop_discount(db, invoice=locked, now=now)
+        db.refresh(locked, ["amount_minor"])
+        if pay_until is not None and 0 < offer_take < locked.amount_minor:
+            locked.amount_minor -= offer_take
+            locked.offer_minor = offer_take
+            locked.expires_at = min(locked.expires_at, pay_until)
+            db.flush()
     db.refresh(locked, ["amount_minor"])
     switch = plan_switch(db, owner=owner, plan=locked.plan, now=now)
     if switch.until is not None:
@@ -480,6 +496,7 @@ def price_invoice(
             "amount_minor": locked.amount_minor,
             "credit_minor": locked.credit_minor,
             "wallet_minor": locked.wallet_minor,
+            "offer_minor": locked.offer_minor,
             "pages": locked.pages,
             "pages_minor": locked.pages_minor,
             "seats": locked.seats,
@@ -489,6 +506,35 @@ def price_invoice(
         occurred_at=now,
     )
     return locked
+
+
+def _sales_offer(
+    db: Session, *, invoice: Invoice, owner: User, now: datetime
+) -> tuple[datetime | None, int]:
+    """The sales manager's offer on a first plan bill: until when a bill
+    priced with it may be paid, and what it takes off the plan's price.
+    Pages and seats are not discounted."""
+    from app.modules.boards.offer import live_offer, offer_minor
+
+    if invoice.kind != InvoiceKind.PLAN:
+        return None, 0
+    offer = live_offer(db, owner_id=owner.id, now=now)
+    if offer is None:
+        return None, 0
+    base = int(to_minor(amount=str(invoice.plan.price), currency=invoice.currency))
+    return offer.pay_until, offer_minor(offer=offer, base_minor=base)
+
+
+def _promo_minor(
+    db: Session, *, invoice: Invoice, owner: User, code: str, now: datetime
+) -> int:
+    """What the typed code would take off. A code that cannot be used says
+    so, as it does without an offer."""
+    current = _redemption_on(db, invoice)
+    base = invoice.amount_minor + (current.discount_minor if current else 0)
+    return discount_quote(
+        db, owner=owner, code=code, base_minor=base, currency=invoice.currency, now=now
+    ).discount_minor
 
 
 def _add_seats(*, invoice: Invoice, count: int) -> None:

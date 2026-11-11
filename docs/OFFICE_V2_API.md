@@ -88,11 +88,25 @@ Sahifa ochilganda birinchi shu chaqiriladi.
 | `new_lead` | Yangi lead | tugma | Ega menejer, rahbar |
 | `no_contact` | Bog'lanilmadi | tugma | Ega menejer, rahbar |
 | `contacted` | Bog'lanildi | tugma | Ega menejer, rahbar |
+| `discount_20` | 20% chegirma | avto | Ega menejer, rahbar |
+| `discount_10` | 10% chegirma | avto | Ega menejer, rahbar |
+| `no_discount` | Chegirmasiz | avto | Ega menejer, rahbar |
 | `sold` | Sotildi | avto, yakuniy | Ega menejer, rahbar |
 | `closed` | Yopildi | tugma, yakuniy | Rahbar |
 
-`trial`, `discount_20`, `discount_10`, `no_discount` ustunlari bazada bor, lekin hozircha
-yashirin: ular kelmaydi. Bepul sinov va chegirma qilinganda paydo bo'ladi.
+**Chegirma.** «Bog'lanildi» dagi «Chegirma berish» (`offer`) kartani «20% chegirma» ga
+o'tkazadi va soat shu bosilgan paytdan boshlanadi: 24 soat 20%, 72-soatgacha 10%,
+keyin «Chegirmasiz». Bu o'tishlarni tizim har daqiqa o'zi qiladi. Har mijozga bir marta
+beriladi. Chegirma mijozning **birinchi** tarif to'loviga tushadi (qo'shimcha sahifa va
+o'rinlarga emas). Promokod ham kiritilsa, kattasi olinadi. Shu chegirma bilan narxlangan
+to'lov bosqich tugaganidan 15 daqiqa keyingacha to'lanadi. Karta yopilsa yoki qo'lda
+chegirma ustunlaridan chiqarilsa, chegirma ham to'xtaydi.
+
+Mijoz kabinetida: `GET /api/v1/billing` va `GET /api/v1/billing/paywall` javobida
+`sales_offer: {percent, ends_at, pay_until}` (yoki `null`). Tarif kartalari va `chosen`
+narxida chegirma allaqachon ayrilgan (`discount_minor`).
+
+`trial` ustuni bazada bor, lekin hozircha yashirin: kelmaydi. Bepul sinov qilinganda chiqadi.
 
 **Support:** `new` (Yangi), `in_progress` (Ishlanmoqda), `resolved` (Hal qilindi, yakuniy).
 
@@ -112,6 +126,7 @@ Kartaning hammasi: `card` maydonlari, hamda:
              "plan": {"name": "Standart", "status": "active", "expires_at": "…", "setup_done": false}},
   "ticket_reasons": [{"code": "meta_error", "label": "Meta xatosi", "detail": "Reklama ishga tushmadi: …", "at": "…"}],
   "support_chat_id": "…",
+  "offer": {"percent": 20, "started_at": "…", "ends_at": "…"},
   "close_reason": "expensive", "close_reason_label": "Qimmat", "close_note": "",
   "actions": [{"value": "contacted", "label": "Bog'lanildi"}],
   "history": [{"kind": "taken", "label": "Lid olindi", "from_column": "unworked", "to_column": "new_lead",
@@ -123,6 +138,8 @@ Kartaning hammasi: `card` maydonlari, hamda:
 - `history`: eng yangisi birinchi. `actor: null` bo'lsa, buni tizim qilgan.
 - `ticket_reasons`: Support kartasi nega ochilgani (eng yangisi birinchi).
 - `support_chat_id`: mijozning Yordam chati bo'lsa, shu chatni ochish uchun.
+- `offer`: Sotuv kartasiga chegirma berilgan bo'lsa: hozirgi foiz va u qachon tugashi.
+  Chegirma tugagan yoki karta yopilgan bo'lsa `percent: 0`, `ends_at: null`. Berilmagan bo'lsa `null`.
 
 ### `POST /api/v2/office/sales/take`
 
@@ -140,8 +157,9 @@ Lid qolmagan bo'lsa: **409** `nothing_to_take`. Faqat Sotuv rollarida ishlaydi.
 |---|---|---|
 | `contacted` | Yangi lead, Bog'lanilmadi | → Bog'lanildi |
 | `no_contact` | Yangi lead | → Bog'lanilmadi |
-| `needs_support` | Bog'lanildi | «Support kerak» belgisi; `"on": false` olib tashlaydi |
-| `close` | Yangi lead, Bog'lanilmadi, Bog'lanildi | → Yopildi; `reason` majburiy |
+| `offer` | Bog'lanildi | → 20% chegirma; ikkinchi marta **409** `offer_given` |
+| `needs_support` | Bog'lanildi, 20%, 10%, Chegirmasiz | «Support kerak» belgisi; `"on": false` olib tashlaydi |
+| `close` | Yangi lead, Bog'lanilmadi, Bog'lanildi, 20%, 10%, Chegirmasiz | → Yopildi; `reason` majburiy |
 | `start` | Support: Yangi | → Ishlanmoqda; bosgan xodim mijozning doimiy mas'uli bo'ladi |
 | `resolve` | Support: Ishlanmoqda | → Hal qilindi |
 

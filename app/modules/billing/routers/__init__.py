@@ -215,8 +215,18 @@ def priced_choice(
         currency: selectors.wallet_minor(db, owner=user, currency=currency)
         for currency in {plan.currency for plan in plans}
     }
+    from app.modules.boards.offer import live_offer, offer_minor
+
+    sales = live_offer(db, owner_id=user.id, now=now)
+    taken = {
+        plan.code: offer_minor(
+            offer=sales,
+            base_minor=int(to_minor(amount=str(plan.price), currency=plan.currency)),
+        )
+        for plan in plans
+    }
     offers = selectors.checkout_offers(
-        db, owner=user, plans=plans, discounts={}, wallets=wallets, now=now
+        db, owner=user, plans=plans, discounts=taken, wallets=wallets, now=now
     )
     last = selectors.latest_subscription(db, owner=user)
     cards = []
@@ -239,7 +249,17 @@ def priced_choice(
         cards.append(
             {"code": code, "offer": offer_out(offer), "tag": tag, "action": action}
         )
-    page: dict[str, Any] = {"cards": cards, "promo_typed": promo}
+    page: dict[str, Any] = {
+        "cards": cards,
+        "promo_typed": promo,
+        "sales_offer": {
+            "percent": sales.percent,
+            "ends_at": sales.ends_at,
+            "pay_until": sales.pay_until,
+        }
+        if sales is not None
+        else None,
+    }
     offer = offers.get(asked)
     if offer is None or offer.switch.move == PlanMove.WAIT:
         return page
@@ -267,7 +287,11 @@ def priced_choice(
             }
         except DomainError as exc:
             discount["promo_error"] = exc.message
-    quote_minor = discount.get("promo_quote", {}).get("discount_minor")
+    # The typed code or the sales offer, whichever takes more, as the bill does.
+    quote_minor = max(
+        discount.get("promo_quote", {}).get("discount_minor") or 0,
+        taken.get(asked, 0),
+    )
     carried = selectors.renewal(
         db,
         owner=user,

@@ -27,8 +27,9 @@ class SalesColumn(Choices):
     NEW_LEAD = "new_lead"
     NO_CONTACT = "no_contact"
     CONTACTED = "contacted"
-    # Kept hidden until the free trial and the discount are built.
+    # Kept hidden until the free trial is built.
     TRIAL = "trial"
+    # The manager's offer: 20% for a day, then 10% until the third day ends.
     DISCOUNT_20 = "discount_20"
     DISCOUNT_10 = "discount_10"
     NO_DISCOUNT = "no_discount"
@@ -96,9 +97,9 @@ SEED_COLUMNS: Final[tuple[SeedColumn, ...]] = (
     _sales(SalesColumn.NO_CONTACT, ColumnKind.MANUAL),
     _sales(SalesColumn.CONTACTED, ColumnKind.MANUAL),
     _sales(SalesColumn.TRIAL, ColumnKind.AUTO, shown=False),
-    _sales(SalesColumn.DISCOUNT_20, ColumnKind.AUTO, shown=False),
-    _sales(SalesColumn.DISCOUNT_10, ColumnKind.AUTO, shown=False),
-    _sales(SalesColumn.NO_DISCOUNT, ColumnKind.AUTO, shown=False),
+    _sales(SalesColumn.DISCOUNT_20, ColumnKind.AUTO),
+    _sales(SalesColumn.DISCOUNT_10, ColumnKind.AUTO),
+    _sales(SalesColumn.NO_DISCOUNT, ColumnKind.AUTO),
     _sales(SalesColumn.SOLD, ColumnKind.AUTO, final=True),
     _sales(SalesColumn.CLOSED, ColumnKind.MANUAL, final=True),
     _support(SupportColumn.NEW, ColumnKind.AUTO),
@@ -127,6 +128,7 @@ class CardAction(Choices):
     CONTACTED = "contacted"
     NO_CONTACT = "no_contact"
     NEEDS_SUPPORT = "needs_support"
+    OFFER = "offer"
     CLOSE = "close"
     START = "start"
     RESOLVE = "resolve"
@@ -136,6 +138,7 @@ CARD_ACTION_LABELS = {
     CardAction.CONTACTED: "Bog'lanildi",
     CardAction.NO_CONTACT: "Bog'lanilmadi",
     CardAction.NEEDS_SUPPORT: "Support kerak",
+    CardAction.OFFER: "Chegirma berish",
     CardAction.CLOSE: "Yopildi",
     CardAction.START: "Ishlayapman",
     CardAction.RESOLVE: "Hal qilindi",
@@ -150,8 +153,25 @@ SALES_ACTIONS: Final[dict[str, tuple[CardAction, ...]]] = {
         CardAction.CLOSE,
     ),
     str(SalesColumn.NO_CONTACT): (CardAction.CONTACTED, CardAction.CLOSE),
-    str(SalesColumn.CONTACTED): (CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
+    str(SalesColumn.CONTACTED): (
+        CardAction.OFFER,
+        CardAction.NEEDS_SUPPORT,
+        CardAction.CLOSE,
+    ),
+    str(SalesColumn.DISCOUNT_20): (CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
+    str(SalesColumn.DISCOUNT_10): (CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
+    str(SalesColumn.NO_DISCOUNT): (CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
 }
+
+# «Chegirma berish» starts the offer. Each step: the percent, the hour after
+# the press it lasts until, and its column. Once per client; then none.
+OFFER_STEPS: Final[tuple[tuple[int, int, SalesColumn], ...]] = (
+    (20, 24, SalesColumn.DISCOUNT_20),
+    (10, 72, SalesColumn.DISCOUNT_10),
+)
+OFFER_COLUMNS: Final = frozenset(str(step[2]) for step in OFFER_STEPS)
+# A bill priced with the offer stays payable this long after its step ends.
+OFFER_INVOICE_GRACE_MINUTES: Final = 15
 
 
 # The buttons each Support column shows. A solved ticket has none: a new
@@ -218,6 +238,9 @@ class EventKind(Choices):
     RETURNED = "returned"
     CONTACTED = "contacted"
     NO_CONTACT = "no_contact"
+    OFFERED = "offered"
+    OFFER_STEP = "offer_step"
+    OFFER_ENDED = "offer_ended"
     SUPPORT_ON = "support_on"
     SUPPORT_OFF = "support_off"
     NOTE = "note"
@@ -238,6 +261,9 @@ EVENT_KIND_LABELS = {
     EventKind.RETURNED: "Qaytarib olindi",
     EventKind.CONTACTED: "Bog'lanildi",
     EventKind.NO_CONTACT: "Bog'lanilmadi",
+    EventKind.OFFERED: "20% chegirma berildi",
+    EventKind.OFFER_STEP: "Chegirma 10% ga tushdi",
+    EventKind.OFFER_ENDED: "Chegirma tugadi",
     EventKind.SUPPORT_ON: "Support kerak deb belgilandi",
     EventKind.SUPPORT_OFF: "Support kerak belgisi olib tashlandi",
     EventKind.NOTE: "Izoh",

@@ -37,6 +37,8 @@ class Invoice(Base):
     applied_days: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     credit_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     wallet_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    # The sales manager's offer taken off this bill (boards.offer).
+    offer_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     kind: Mapped[str] = mapped_column(String(8), nullable=False, default='plan')
     pages: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     pages_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)

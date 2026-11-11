@@ -233,6 +233,9 @@ def test_a_manager_sees_only_their_own_cards(client: TestClient, db: Session) ->
         "new_lead",
         "no_contact",
         "contacted",
+        "discount_20",
+        "discount_10",
+        "no_discount",
         "sold",
     ]
     assert all(c.total == 0 for c in seen.columns)
