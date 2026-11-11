@@ -188,6 +188,23 @@ def _plan(db: Session, owner: User) -> dict[str, Any] | None:
     }
 
 
+def _offer(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any] | None:
+    from app.modules.boards.offer import offered_at, step_at
+
+    if card.board != str(Board.SALES):
+        return None
+    started = offered_at(db, card_id=card.id)
+    if started is None:
+        return None
+    # Sold or closed: the offer no longer applies, as the bill sees it.
+    step = step_at(started, now) if card.closed_at is None else None
+    return {
+        "percent": step.percent if step else 0,
+        "started_at": started,
+        "ends_at": step.ends_at if step else None,
+    }
+
+
 def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any]:
     owner = card.owner
     events = list(
@@ -226,6 +243,7 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
             }
             for item in reversed(card.reasons or [])
         ],
+        "offer": _offer(db, card=card, now=now),
         "support_chat_id": _support_chat(db, owner),
         "close_reason": card.close_reason,
         "close_reason_label": reason,

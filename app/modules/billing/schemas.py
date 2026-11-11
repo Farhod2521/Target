@@ -161,9 +161,20 @@ class RenewalOut(BaseModel):
     seats: RenewalSeatsOut
 
 
+class SalesOfferOut(BaseModel):
+    percent: int = Field(description="20 for the first day, then 10.")
+    ends_at: datetime = Field(description="When this percent ends.")
+    pay_until: datetime = Field(description="A bill priced now is payable until then.")
+
+
 class PricedChoice(BaseModel):
     cards: list[PlanCard]
     promo_typed: str
+    sales_offer: SalesOfferOut | None = Field(
+        None,
+        description="The sales manager's offer on the first plan. The cards and "
+        "`chosen` already take it off; with a code, the larger one counts.",
+    )
     promo_quote: PromoQuote | None = Field(None, description="The typed code applies.")
     promo_error: str | None = Field(None, description="Why the typed code does not.")
     chosen: OfferOut | None = Field(None, description="Only when `plan` was asked.")

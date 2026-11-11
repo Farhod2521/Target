@@ -68,8 +68,14 @@ def test_the_migration_seeds_the_same_columns_as_the_code() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
+    # 0042 shows the offer columns the first seed kept hidden.
+    later = next(Path("migrations/versions").glob("*_0042_sales_offer.py"))
+    spec = importlib.util.spec_from_file_location("m0042", later)
+    assert spec is not None and spec.loader is not None
+    offer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(offer)
     seeded = [
-        (board, code, name, kind, final, shown)
+        (board, code, name, kind, final, shown or code in offer.OFFER_COLUMNS)
         for board, code, name, kind, final, shown in module.COLUMNS
     ]
     assert seeded == [

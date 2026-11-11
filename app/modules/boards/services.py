@@ -27,6 +27,7 @@ from app.modules.boards.exceptions import (
     NoteRequired,
     NothingToTake,
     NotOnBoard,
+    OfferGiven,
     ReasonRequired,
     TicketHeld,
 )
@@ -186,6 +187,8 @@ def act(
             actor=user,
             body=text,
         )
+    elif action == CardAction.OFFER:
+        _offer(db, card=card, user=user, note=text, now=now)
     elif action == CardAction.NEEDS_SUPPORT:
         if card.needs_support != on:
             card.needs_support = on
@@ -216,6 +219,27 @@ def act(
         )
     db.commit()
     return card
+
+
+def _offer(
+    db: Session, *, card: BoardCard, user: User, note: str, now: datetime
+) -> None:
+    """«Chegirma berish»: the card goes to 20%, and the offer's clock starts.
+    Once per client, even if the card is later moved back by hand."""
+    from app.modules.boards.offer import OFFERED_REF, offered_at
+
+    if offered_at(db, card_id=card.id) is not None:
+        raise OfferGiven
+    move(
+        db,
+        card=card,
+        to=str(SalesColumn.DISCOUNT_20),
+        kind=EventKind.OFFERED,
+        now=now,
+        actor=user,
+        body=note,
+        ref=OFFERED_REF,
+    )
 
 
 def _support_act(
