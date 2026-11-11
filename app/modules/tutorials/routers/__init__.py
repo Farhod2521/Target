@@ -1,7 +1,8 @@
 """Video darsliklar in the cabinet: what the office has switched on.
 
-``GET /tutorials`` is the list (``type``, ``q`` over the title and the
-description, ``offset``); each row's ``image_url`` and ``video.stream_url``
+``GET /tutorials`` is the list (``type``, ``place``, ``q`` over the title
+and the description, ``offset``); a screen other than Darsliklar asks it
+with its own ``place`` and shows what comes back; each row's ``image_url`` and ``video.stream_url``
 carry their own token and play for a few hours, so a lesson left open past
 that asks the list again. ``/video`` answers 206 one piece at a time.
 """
@@ -14,7 +15,12 @@ from fastapi import APIRouter, Header, Query, Response
 from app.api.deps import CurrentUser, Db
 from app.common.db import utcnow
 from app.modules.tutorials import playback
-from app.modules.tutorials.constants import TUTORIAL_TYPE_LABELS, TutorialType
+from app.modules.tutorials.constants import (
+    TUTORIAL_PLACE_LABELS,
+    TUTORIAL_TYPE_LABELS,
+    TutorialPlace,
+    TutorialType,
+)
 from app.modules.tutorials.exceptions import TutorialNotFound
 from app.modules.tutorials.models import Tutorial
 from app.modules.tutorials.selectors import tutorial_by_id, tutorial_page
@@ -30,6 +36,13 @@ def type_choices() -> list[dict[str, str]]:
     ]
 
 
+def place_choices() -> list[dict[str, str]]:
+    return [
+        {"value": str(place), "label": TUTORIAL_PLACE_LABELS[place]}
+        for place in TutorialPlace
+    ]
+
+
 def tutorial_out(row: Tutorial, **links: Any) -> dict[str, Any]:
     kind = TutorialType(row.type) if row.type in TutorialType.values else None
     return {
@@ -37,6 +50,11 @@ def tutorial_out(row: Tutorial, **links: Any) -> dict[str, Any]:
         "title": row.title,
         "type": row.type,
         "type_label": TUTORIAL_TYPE_LABELS[kind] if kind else row.type,
+        "places": [
+            {"value": place, "label": TUTORIAL_PLACE_LABELS[TutorialPlace(place)]}
+            for place in row.places or ()
+            if place in TutorialPlace.values
+        ],
         "description": row.description,
         **playback.links(row, base=BASE, **links),
         "created_at": row.created_at.isoformat(),
@@ -49,12 +67,20 @@ def tutorials(
     db: Db,
     user: CurrentUser,
     type: TutorialType | None = Query(None, description="One network's lessons."),
+    place: TutorialPlace | None = Query(
+        None, description="The lessons one screen shows beside its work."
+    ),
     q: str = Query("", max_length=100, description="Part of the title or description."),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
     """The lessons switched on, newest first."""
     page = tutorial_page(
-        db, type=str(type or ""), term=q.strip(), active=True, offset=offset
+        db,
+        type=str(type or ""),
+        place=str(place or ""),
+        term=q.strip(),
+        active=True,
+        offset=offset,
     )
     now = utcnow()
     return {
@@ -66,6 +92,7 @@ def tutorials(
         "next_offset": page.next_offset,
         "has_more": page.has_more,
         "types": type_choices(),
+        "places": place_choices(),
     }
 
 

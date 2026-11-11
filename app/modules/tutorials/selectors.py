@@ -35,15 +35,18 @@ def tutorial_page(
     db: Session,
     *,
     type: str = "",
+    place: str = "",
     term: str = "",
     active: bool | None = None,
     offset: int = 0,
 ) -> TutorialPage:
     """Newest first. Empty filters narrow nothing; the term is part of the
-    title or the description."""
+    title or the description; a place keeps the lessons that screen shows."""
     query = select(Tutorial)
     if type:
         query = query.where(Tutorial.type == type)
+    if place:
+        query = query.where(Tutorial.places.contains([place]))
     if active is not None:
         query = query.where(Tutorial.is_active.is_(active))
     if term:
