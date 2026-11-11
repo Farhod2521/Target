@@ -14,6 +14,8 @@ from app.modules.ads.routers.launch_review import router as launch_review
 from app.modules.ads.routers.v2 import expert_router as campaigns_expert
 from app.modules.ads.routers.v2 import router as campaigns_v2
 from app.modules.agent.routers import router as agent
+from app.modules.assistant.routers import office as assistant_office_v2
+from app.modules.assistant.routers import router as assistant_v2
 from app.modules.autopay.routers import router as autopay
 from app.modules.autopay.routers import webhooks as autopay_webhooks
 from app.modules.backoffice.routers import router as office
@@ -51,6 +53,8 @@ api_v2_router = APIRouter(prefix="/api/v2")
 api_v2_router.include_router(campaigns_expert)
 api_v2_router.include_router(campaigns_v2)
 api_v2_router.include_router(office_boards_v2)
+api_v2_router.include_router(assistant_v2)
+api_v2_router.include_router(assistant_office_v2)
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(accounts)

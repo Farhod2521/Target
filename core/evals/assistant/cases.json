@@ -1,0 +1,86 @@
+[
+  {
+    "id": "payment-not-arrived",
+    "question": "Kartamdan 290 000 so'm yechildi, lekin tarif ochilmadi",
+    "note": "The money left the card and the bill is still open: the check names it and only a person can settle it.",
+    "context": "## Business\n- Name: Osh markazi\n- Currency: USD",
+    "tools": {
+      "account_health": "## Plan and payments\n- PROBLEM: no live plan - the assistant, launches and reports are closed. Fix: choose and pay a plan on Tarif.\n- PROBLEM: bill INV-1042: 290 000 UZS, opened 2026-11-10, status pending - not paid, or the payment has not arrived. Fix: pay it on Tarif; if the money left the card and the bill is still open, it needs a person.\n\n## Account\n- OK: the account is not blocked.\n\n## Facebook connection\n- OK: Facebook is connected as Ali Valiyev.\n\n## Ad accounts\n- OK: ad account «Osh» (USD) can advertise.\n\n## Lead delivery\n- OK: Google Sheets is not connected (leads are in Mijozlar).\n\n## Waiting on the cabinet's list\n- OK: nothing is waiting."
+    },
+    "must_call": ["account_health", "create_ticket"],
+    "required": ["mutaxassis", "tugma"],
+    "forbidden": ["yubordim", "yuborildi", "provider"]
+  },
+  {
+    "id": "account-blocked",
+    "question": "Akkauntim bloklandi, nima qilay?",
+    "note": "A block is lifted by Support alone: say the reason, and prepare a ticket.",
+    "context": "## Business\n- Name: Bahor stomatologiya\n- Currency: USD",
+    "tools": {
+      "account_health": "## Plan and payments\n- OK: plan «Pro», status active, days left: 18.\n\n## Account\n- PROBLEM: the account is blocked since 2026-11-09. Reason: Shubhali to'lov tekshirilmoqda. Fix: needs a person - only Support can open it again.\n\n## Facebook connection\n- OK: Facebook is connected as Bahor.\n\n## Ad accounts\n- OK: ad account «Bahor» (USD) can advertise.\n\n## Lead delivery\n- OK: no Telegram group or channel is linked for leads.\n\n## Waiting on the cabinet's list\n- OK: nothing is waiting."
+    },
+    "must_call": ["account_health", "create_ticket"],
+    "required": ["to'lov", "tekshir"],
+    "forbidden": ["yubordim", "yuborildi"]
+  },
+  {
+    "id": "facebook-disconnected",
+    "question": "Reklamalar yangilanmayapti, kecha nima bo'ldi?",
+    "note": "A screen fixes it: numbered steps, no ticket.",
+    "context": "## Business\n- Name: Gul do'koni\n- Currency: USD",
+    "tools": {
+      "account_health": "## Plan and payments\n- OK: plan «Start», status active, days left: 9.\n\n## Account\n- OK: the account is not blocked.\n\n## Facebook connection\n- PROBLEM: the Facebook connection (Dilnoza) is expired, error 190 - nothing can be launched, changed or synced. Fix: reconnect on Ulanishlar ('Meta'ni qayta ulash') with the same profile.\n\n## Ad accounts\n- PROBLEM: ad account «Gul»: figures last synced 2026-11-09 06:00 UTC. \n\n## Lead delivery\n- OK: Google Sheets is active.\n\n## Waiting on the cabinet's list\n- [urgent] Meta ulanishi uzildi: Qayta ulang",
+      "help_search": "## Meta'ni qayta ulash (the product's fix for a Meta error)\n1. «Ulanishlar» sahifasida Meta qatoridagi «Qayta ulash» ni bosing.\n2. Avvalgi Facebook profilingiz bilan kiring.\n3. Hamma ruxsatlarni yoqilgan holda qoldiring."
+    },
+    "must_call": ["account_health"],
+    "must_not_call": ["create_ticket"],
+    "required": ["Ulanishlar", "1."],
+    "forbidden": ["provider", "token"]
+  },
+  {
+    "id": "advert-refused",
+    "question": "Reklamam rad etildi, nega?",
+    "note": "The refusal is the advert's text; the fix is the rule, not new copy written by the assistant.",
+    "context": "## Business\n- Name: Fit zal\n- Currency: USD\n\n## Adverts\n- «Ozish 30 kunda» (Kuzgi aksiya) - refused: Meta says the text speaks to the viewer about their body (personal attributes). Spend 0 USD.",
+    "tools": {
+      "account_health": "## Plan and payments\n- OK: plan «Pro», status active, days left: 22.\n\n## Account\n- OK: the account is not blocked.\n\n## Facebook connection\n- OK: Facebook is connected as Fit.\n\n## Ad accounts\n- OK: ad account «Fit» (USD) can advertise.\n\n## Lead delivery\n- OK: no Telegram group or channel is linked for leads.\n\n## Waiting on the cabinet's list\n- [urgent] Reklama rad etildi: «Ozish 30 kunda»",
+      "help_search": "## Sabab — reklama matni. (the product's fix for a refused advert)\n1. Pastda Meta yozgan qoidani o'qing.\n2. Matnni shu qoidaga moslang.\n3. Qayta yuboring."
+    },
+    "must_not_call": ["create_ticket"],
+    "required": ["matn"],
+    "forbidden": ["provider", "personal attributes", "yubordim"]
+  },
+  {
+    "id": "leads-not-arriving",
+    "question": "Lidlar telegram guruhga kelmay qoldi",
+    "note": "Delivery is broken on the bot's side: say the cause and the steps.",
+    "context": "## Business\n- Name: Avto servis\n- Currency: USD",
+    "tools": {
+      "account_health": "## Plan and payments\n- OK: plan «Pro», status active, days left: 14.\n\n## Account\n- OK: the account is not blocked.\n\n## Facebook connection\n- OK: Facebook is connected as Servis.\n\n## Ad accounts\n- OK: ad account «Servis» (USD) can advertise.\n\n## Lead delivery\n- OK: Google Sheets is not connected (leads are in Mijozlar).\n- PROBLEM: Telegram chat «Servis lidlar» stopped receiving leads (bot was removed from the group). Fix: add the bot back to that group or channel as an admin, then link it again in Mijozlar.\n- PROBLEM: 4 lead(s) could not be delivered to Telegram in the last 7 days. They are safe in Mijozlar.\n\n## Waiting on the cabinet's list\n- OK: nothing is waiting."
+    },
+    "must_call": ["account_health"],
+    "must_not_call": ["create_ticket"],
+    "required": ["admin", "Mijozlar"],
+    "forbidden": ["provider"]
+  },
+  {
+    "id": "off-topic",
+    "question": "Ertaga Toshkentda ob-havo qanday bo'ladi?",
+    "note": "Outside the four things: one sentence, no look-up.",
+    "context": "## Business\n- Name: Osh markazi\n- Currency: USD",
+    "tools": {},
+    "must_not_call": ["account_health", "create_ticket", "help_search"],
+    "required": ["reklama haqida savol bering"],
+    "forbidden": ["daraja", "yomg'ir", "quyosh"]
+  },
+  {
+    "id": "wants-an-operator",
+    "question": "Menga operator kerak, odam bilan gaplashmoqchiman",
+    "note": "Asked for a person: a ticket, and never a claim it was sent.",
+    "context": "## Business\n- Name: Osh markazi\n- Currency: USD",
+    "tools": {},
+    "must_call": ["create_ticket"],
+    "required": ["tugma"],
+    "forbidden": ["yubordim", "yuborildi", "xabar berdim"]
+  }
+]

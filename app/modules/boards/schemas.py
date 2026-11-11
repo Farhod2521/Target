@@ -124,7 +124,8 @@ class HistoryOut(BaseModel):
 
 class TicketReasonOut(BaseModel):
     code: str = Field(
-        description="`setup`, `from_sales`, `meta_error`, `survey` or `idle`."
+        description="`setup`, `from_sales`, `meta_error`, `survey`, `idle` or "
+        "`ai` (sent from the assistant's chat)."
     )
     label: str
     detail: str

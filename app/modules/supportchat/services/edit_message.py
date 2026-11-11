@@ -18,7 +18,11 @@ from app.modules.supportchat.exceptions import (
 from app.modules.supportchat.models import SupportMessage
 from app.modules.supportchat.services._journal import journal
 from app.modules.supportchat.services._own import own_message
-from app.modules.supportchat.services._store import OFFICE_CHANGED
+from app.modules.supportchat.services._store import (
+    MESSAGE_CHANGED,
+    OFFICE_CHANGED,
+    tell_inside,
+)
 from app.modules.supportchat.services._tx import atomic
 
 
@@ -64,6 +68,7 @@ def edit_message(
             key=f"support-edit:{uuid.uuid4().hex}",
             now=now,
         )
+        tell_inside(db, MESSAGE_CHANGED, message=message)
         if message.sender_id != message.owner_id:
             changed = message.id
             on_commit(db, lambda: fire(OFFICE_CHANGED, message_id=changed))

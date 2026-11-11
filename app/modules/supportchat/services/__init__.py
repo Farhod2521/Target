@@ -1,6 +1,8 @@
 """Public write API of the support chat. Each service commits its own write."""
 
 from app.modules.supportchat.services._store import (
+    MESSAGE_CHANGED,
+    MESSAGE_STORED,
     OFFICE_CHANGED,
     OFFICE_REPLIED,
     QUESTION_POSTED,
@@ -42,6 +44,8 @@ from app.modules.supportchat.services.write_to_client import write_to_client
 __all__ = [
     "GUEST_ANSWERED",
     "GUEST_POSTED",
+    "MESSAGE_CHANGED",
+    "MESSAGE_STORED",
     "OFFICE_CHANGED",
     "OFFICE_REPLIED",
     "QUESTION_POSTED",

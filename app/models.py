@@ -3,6 +3,7 @@
 from app.modules.accounts import models as accounts  # noqa: F401
 from app.modules.ads import models as ads  # noqa: F401
 from app.modules.agent import models as agent  # noqa: F401
+from app.modules.assistant import models as assistant  # noqa: F401
 from app.modules.audit import models as audit  # noqa: F401
 from app.modules.backoffice import models as backoffice  # noqa: F401
 from app.modules.billing import models as billing  # noqa: F401

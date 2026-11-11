@@ -87,6 +87,8 @@ PURGE_ORDER: tuple[str, ...] = (
     "agent.AgentPolicy",
     "chat.ChatMessage",
     "chat.ChatSession",
+    "assistant.AssistantMessage",
+    "assistant.AssistantSession",
     "supportchat.SupportRelay",
     "supportchat.SupportAttachment",
     "supportchat.SupportMessage",

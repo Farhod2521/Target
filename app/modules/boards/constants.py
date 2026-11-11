@@ -168,6 +168,8 @@ class TicketReason(Choices):
     META_ERROR = "meta_error"
     SURVEY = "survey"
     IDLE = "idle"
+    # The client pressed «Mutaxassisga yuborish» in the assistant's chat.
+    AI = "ai"
 
 
 TICKET_REASON_LABELS = {
@@ -176,6 +178,7 @@ TICKET_REASON_LABELS = {
     TicketReason.META_ERROR: "Meta xatosi",
     TicketReason.SURVEY: "So'rovnoma: yordam kerak",
     TicketReason.IDLE: "Ishlamayapti",
+    TicketReason.AI: "AI chatdan",
 }
 
 # Paid this long ago and still not set up: Support calls.

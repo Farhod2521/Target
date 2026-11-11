@@ -92,14 +92,15 @@ def claude(
     tier: Tier = ASKED,
     timeout: float | None = None,
     account: Account = "main",
+    cached: bool | None = None,
 ) -> Iterator[ClaudeClient]:
+    """``cached`` asks for the system prompt to be cached whatever
+    ``ANTHROPIC_PROMPT_CACHE`` says - for a caller built around a base that
+    never changes. Left alone, the setting decides, as before."""
     key = key_for(account)
+    wanted = settings.anthropic_prompt_cache if cached is None else cached
     caching: Literal["off", "system", "instructions"] = (
-        "instructions"
-        if account == "montage"
-        else "system"
-        if settings.anthropic_prompt_cache
-        else "off"
+        "instructions" if account == "montage" else "system" if wanted else "off"
     )
     if not key:
         raise LLMUnavailable(

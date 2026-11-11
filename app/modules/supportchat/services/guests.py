@@ -53,6 +53,7 @@ from app.modules.supportchat.models import (
     SupportGuestMessage,
     SupportMessage,
 )
+from app.modules.supportchat.services._store import MESSAGE_STORED, tell_inside
 from app.modules.supportchat.services._tx import atomic
 from app.modules.supportchat.services.send_to_support import chat_of_client
 
@@ -258,8 +259,9 @@ def move_guest_chat(
                 .order_by(SupportGuestMessage.created_at, SupportGuestMessage.id)
             )
         )
+        moved_rows: list[SupportMessage] = []
         for word in words:
-            db.add(
+            moved_rows.append(
                 SupportMessage(
                     id=uuid.uuid4(),
                     created_at=word.created_at,
@@ -274,10 +276,13 @@ def move_guest_chat(
                     source=source if word.from_guest else MessageSource.SITE,
                 )
             )
+        db.add_all(moved_rows)
         _merge_moments(conversation, locked)
         locked.claimed_by_id = user.id
         locked.claimed_at = now
         db.flush()
+        for row in moved_rows:
+            tell_inside(db, MESSAGE_STORED, message=row)
         return len(words)
 
     moved = atomic(db, run)

@@ -8,6 +8,7 @@ Telling the other end is the notifications module's: the hooks below fire
 once the write has committed.
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import Final
 
@@ -25,6 +26,8 @@ from app.modules.supportchat.models import SupportConversation, SupportMessage
 from app.modules.supportchat.services._append import append_message
 from app.modules.supportchat.services._journal import journal
 
+logger = logging.getLogger(__name__)
+
 # The client wrote: copy it to every member of Support in Telegram
 # (Django's ``deliver_support_question_task``). Takes ``message_id``.
 QUESTION_POSTED: Final = "supportchat.question_posted"
@@ -40,6 +43,26 @@ OFFICE_REPLIED: Final = "supportchat.office_replied"
 # An office message was edited or taken back: change its copy in the
 # support bot. Takes ``message_id``.
 OFFICE_CHANGED: Final = "supportchat.office_changed"
+
+
+# A message was stored and is still inside its transaction: whoever shows
+# the client's support words somewhere else (the cabinet's one chat) writes
+# its row in the same commit, so the two can never disagree. Takes ``db``
+# and ``message``.
+MESSAGE_STORED: Final = "supportchat.message_stored"
+# A message's words changed or it was taken back, still inside the
+# transaction. Takes ``db`` and ``message``.
+MESSAGE_CHANGED: Final = "supportchat.message_changed"
+
+
+def tell_inside(db: Session, name: str, *, message: SupportMessage) -> None:
+    """Fire an in-transaction hook. A listener guards its own writes with a
+    savepoint; whatever it still raises is logged, never the message's
+    problem."""
+    try:
+        fire(name, db=db, message=message)
+    except Exception:
+        logger.exception("support hook failed", extra={"hook": name})
 
 
 def store_message(
@@ -81,6 +104,7 @@ def store_message(
         key=f"support-reply:{message.id}",
         now=now,
     )
+    tell_inside(db, MESSAGE_STORED, message=message)
     if sender.id != conversation.owner_id:
         _tell_client(db, conversation=conversation, read_before=read_before)
         on_commit(db, lambda: fire(REPLY_ANSWERS_RELAYS, reply_id=message.id))
