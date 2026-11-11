@@ -7,7 +7,9 @@ piece (``X-Upload-Id`` a fresh UUID, ``X-Upload-Size``, ``X-Upload-Offset``
 headers, the piece as the body; a 409 names the offset to resend from),
 then the create or the edit names ``video_upload_id``, ``video_size`` and
 ``video_name``. Never both: switching an uploaded lesson to a link sends
-``remove_video``. ``status`` true shows it in the cabinet.
+``remove_video``. ``status`` true shows it in the cabinet. ``places`` is
+sent once per screen the lesson shows on (``places=crm&places=leads``); one
+empty ``places`` clears them, and an edit without the field keeps them.
 """
 
 import uuid
@@ -28,10 +30,14 @@ from app.modules.backoffice.constants import ADMIN_ROLES
 from app.modules.backoffice.permissions import staff_required
 from app.modules.backoffice.schemas import CreatedOut, MessageOut
 from app.modules.tutorials import services
-from app.modules.tutorials.constants import UPLOAD_CHUNK_BYTES, TutorialType
+from app.modules.tutorials.constants import (
+    UPLOAD_CHUNK_BYTES,
+    TutorialPlace,
+    TutorialType,
+)
 from app.modules.tutorials.exceptions import TutorialNotFound
 from app.modules.tutorials.models import Tutorial
-from app.modules.tutorials.routers import tutorial_out, type_choices
+from app.modules.tutorials.routers import place_choices, tutorial_out, type_choices
 from app.modules.tutorials.selectors import tutorial_by_id, tutorial_page
 
 router = APIRouter(prefix="/tutorials")
@@ -68,6 +74,11 @@ def _video(
     )
 
 
+def _places(sent: list[str] | None) -> list[str] | None:
+    """None: the field was not sent. An empty value is how a form says none."""
+    return None if sent is None else [place for place in sent if place]
+
+
 def _committed(db: Db, saved: services.Saved) -> None:
     """The new files stay only if the row does; the old ones go only then."""
     try:
@@ -86,12 +97,18 @@ def tutorials(
     db: Db,
     user: Admin,
     type: TutorialType | None = Query(None),
+    place: TutorialPlace | None = Query(None, description="Shown on this screen."),
     q: str = Query("", max_length=100, description="Part of the title or description."),
     status: bool | None = Query(None, description="Shown or hidden; empty is both."),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
     page = tutorial_page(
-        db, type=str(type or ""), term=q.strip(), active=status, offset=offset
+        db,
+        type=str(type or ""),
+        place=str(place or ""),
+        term=q.strip(),
+        active=status,
+        offset=offset,
     )
     return {
         "rows": [_out(row, user=user) for row in page.rows],
@@ -100,6 +117,7 @@ def tutorials(
         "next_offset": page.next_offset,
         "has_more": page.has_more,
         "types": type_choices(),
+        "places": place_choices(),
     }
 
 
@@ -151,6 +169,7 @@ def create_tutorial(
     actor: Admin,
     title: Annotated[str, Form()] = "",
     type: Annotated[str, Form()] = "",
+    places: Annotated[list[str] | None, Form()] = None,
     description: Annotated[str, Form()] = "",
     video_url: Annotated[str, Form()] = "",
     status: Annotated[bool, Form()] = False,
@@ -162,6 +181,7 @@ def create_tutorial(
     body = services.TutorialIn(
         title=title,
         type=type,
+        places=_places(places),
         description=description,
         video_url=video_url,
         is_active=status,
@@ -182,6 +202,7 @@ def update_tutorial(
     actor: Admin,
     title: Annotated[str, Form()] = "",
     type: Annotated[str, Form()] = "",
+    places: Annotated[list[str] | None, Form()] = None,
     description: Annotated[str, Form()] = "",
     video_url: Annotated[str, Form()] = "",
     status: Annotated[bool, Form()] = False,
@@ -197,6 +218,7 @@ def update_tutorial(
     body = services.TutorialIn(
         title=title,
         type=type,
+        places=_places(places),
         description=description,
         video_url=video_url,
         is_active=status,

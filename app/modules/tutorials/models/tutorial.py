@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, Uuid
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.db import Base, utcnow
@@ -20,6 +21,8 @@ class Tutorial(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     title: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     type: Mapped[str] = mapped_column(String(16), nullable=False, default="meta")
+    # The cabinet screens that show it beside their work (TutorialPlace).
+    places: Mapped[list[str]] = mapped_column(ARRAY(String(32)), nullable=False, default=list)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     image: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     video_url: Mapped[str] = mapped_column(String(500), nullable=False, default="")

@@ -38,6 +38,7 @@ from app.modules.tutorials.constants import (
     VIDEO_DIR,
     VIDEO_TYPES,
     VIDEO_URL_MAX,
+    TutorialPlace,
     TutorialType,
 )
 from app.modules.tutorials.models import Tutorial
@@ -185,6 +186,8 @@ class TutorialIn:
     video: VideoUpload | None = None
     remove_image: bool = False
     remove_video: bool = False
+    # None keeps the row's places (an edit from a form that has no such field).
+    places: list[str] | None = None
 
 
 @dataclass(slots=True)
@@ -205,6 +208,8 @@ def _problems(body: TutorialIn, *, row: Tutorial | None) -> dict[str, str]:
         problems["title"] = f"Sarlavha {TITLE_MAX} belgidan oshmasin."
     if body.type not in TutorialType.values:
         problems["type"] = "Turini tanlang."
+    if any(place not in TutorialPlace.values for place in body.places or ()):
+        problems["places"] = "Bunday oyna yo'q."
     if len(body.description) > DESCRIPTION_MAX:
         problems["description"] = f"Izoh {DESCRIPTION_MAX} belgidan oshmasin."
     if body.image is not None and (problem := _image_problem(body.image)):
@@ -239,6 +244,11 @@ def save_tutorial(
     saved = Saved(row=row)
     row.title = body.title.strip()
     row.type = body.type
+    if body.places is not None:
+        # In the catalogue's order, each once, whatever order the form sent.
+        row.places = [place for place in TutorialPlace.values if place in body.places]
+    elif row.places is None:
+        row.places = []
     row.description = body.description.strip()
     row.video_url = body.video_url.strip()
     row.is_active = body.is_active

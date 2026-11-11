@@ -244,3 +244,106 @@ def test_a_file_that_is_not_a_video_is_refused(client: TestClient, db: Session) 
         headers=office,
         data=_form(video_upload_id=mov, video_size=len(MP4), video_name="dars.mov"),
     ).json()["problems"] == {"video": "Faqat MP4, WEBM video yuklang."}
+
+
+def test_a_lesson_shows_on_the_screens_it_names(
+    client: TestClient, db: Session
+) -> None:
+    _, office = _staff(db, Role.SUPPORT, email="places@office.test")
+    customer = sign_up(client)
+
+    wrong = client.post(
+        OFFICE,
+        headers=office,
+        data=_form(video_url="https://youtu.be/dQw4w9WgXcQ")
+        | {"places": ["crm", "kino"]},
+    )
+    assert wrong.status_code == 422
+    assert set(wrong.json()["problems"]) == {"places"}
+
+    made = client.post(
+        OFFICE,
+        headers=office,
+        data=_form(video_url="https://youtu.be/dQw4w9WgXcQ")
+        | {"places": ["leads", "crm", "crm"]},
+    )
+    assert made.status_code == 200, made.text
+    plain = client.post(
+        OFFICE,
+        headers=office,
+        data=_form(title="Faqat bo'limda", video_url="https://vimeo.com/3"),
+    )
+    assert plain.status_code == 200, plain.text
+    lesson_id = made.json()["id"]
+
+    one = client.get(f"{CABINET}/{lesson_id}", headers=customer).json()
+    assert one["places"] == [
+        {"value": "leads", "label": "Lidlar"},
+        {"value": "crm", "label": "CRM"},
+    ], "catalogue order, each once"
+    assert (
+        client.get(f"{CABINET}/{plain.json()['id']}", headers=customer).json()["places"]
+        == []
+    )
+
+    listed = client.get(CABINET, headers=customer).json()
+    assert listed["total"] == 2, "the section shows every lesson"
+    assert {"value": "crm", "label": "CRM"} in listed["places"]
+    crm = client.get(CABINET, headers=customer, params={"place": "crm"}).json()
+    assert [row["id"] for row in crm["rows"]] == [lesson_id]
+    assert (
+        client.get(CABINET, headers=customer, params={"place": "billing"}).json()[
+            "total"
+        ]
+        == 0
+    )
+    assert (
+        client.get(CABINET, headers=customer, params={"place": "kino"}).status_code
+        == 422
+    )
+    assert (
+        client.get(OFFICE, headers=office, params={"place": "leads"}).json()["total"]
+        == 1
+    )
+
+    kept = client.put(
+        f"{OFFICE}/{lesson_id}",
+        headers=office,
+        data=_form(title="Yangi nom", video_url="https://youtu.be/dQw4w9WgXcQ"),
+    )
+    assert kept.status_code == 200, kept.text
+    assert [
+        p["value"]
+        for p in client.get(f"{OFFICE}/{lesson_id}", headers=office).json()["places"]
+    ] == ["leads", "crm"], "an edit without the field keeps the places"
+
+    moved = client.put(
+        f"{OFFICE}/{lesson_id}",
+        headers=office,
+        data=_form(video_url="https://youtu.be/dQw4w9WgXcQ") | {"places": ["billing"]},
+    )
+    assert moved.status_code == 200, moved.text
+    assert (
+        client.get(CABINET, headers=customer, params={"place": "crm"}).json()["total"]
+        == 0
+    )
+
+    cleared = client.put(
+        f"{OFFICE}/{lesson_id}",
+        headers=office,
+        data=_form(video_url="https://youtu.be/dQw4w9WgXcQ") | {"places": ""},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert client.get(f"{OFFICE}/{lesson_id}", headers=office).json()["places"] == []
+
+    client.patch(f"{OFFICE}/{lesson_id}/status", headers=office, json={"status": False})
+    client.put(
+        f"{OFFICE}/{lesson_id}",
+        headers=office,
+        data=_form(video_url="https://youtu.be/dQw4w9WgXcQ", status="false")
+        | {"places": ["crm"]},
+    )
+    assert (
+        client.get(CABINET, headers=customer, params={"place": "crm"}).json()["total"]
+        == 0
+    ), "a hidden lesson shows on no screen"

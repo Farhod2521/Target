@@ -13,6 +13,48 @@ TUTORIAL_TYPE_LABELS = {
     TutorialType.GPT: "GPT",
 }
 
+
+class TutorialPlace(Choices):
+    """A cabinet screen that shows its own lessons beside its work. A lesson
+    with none is in the Darsliklar section only."""
+
+    DASHBOARD = "dashboard"
+    LAUNCH = "launch"
+    CAMPAIGNS = "campaigns"
+    LEADS = "leads"
+    CRM = "crm"
+    CHAT = "chat"
+    AGENT = "agent"
+    GOOGLE = "google"
+    CHATGPT = "chatgpt"
+    AUDIENCES = "audiences"
+    MONTAGE = "montage"
+    SURVEYS = "surveys"
+    DESTINATIONS = "destinations"
+    CONNECTIONS = "connections"
+    BILLING = "billing"
+    REFERRALS = "referrals"
+
+
+TUTORIAL_PLACE_LABELS = {
+    TutorialPlace.DASHBOARD: "Bosh sahifa",
+    TutorialPlace.LAUNCH: "Reklama yaratish",
+    TutorialPlace.CAMPAIGNS: "Reklamalar",
+    TutorialPlace.LEADS: "Lidlar",
+    TutorialPlace.CRM: "CRM",
+    TutorialPlace.CHAT: "AI chat",
+    TutorialPlace.AGENT: "AI agent",
+    TutorialPlace.GOOGLE: "Google reklama",
+    TutorialPlace.CHATGPT: "ChatGPT reklama",
+    TutorialPlace.AUDIENCES: "Auditoriyalar",
+    TutorialPlace.MONTAGE: "Montaj",
+    TutorialPlace.SURVEYS: "So'rovnoma",
+    TutorialPlace.DESTINATIONS: "Lidlarni yuborish",
+    TutorialPlace.CONNECTIONS: "Ulanishlar",
+    TutorialPlace.BILLING: "To'lov va tariflar",
+    TutorialPlace.REFERRALS: "Referal",
+}
+
 TITLE_MAX = 200
 DESCRIPTION_MAX = 5000
 VIDEO_URL_MAX = 500
