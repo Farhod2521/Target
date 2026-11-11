@@ -138,6 +138,7 @@ def _answer(db: Session, survey: Survey, owner: User, **said: Any) -> SurveyResp
         channel=said.get("channel", "web"),
         answers=answers,
         created_at=said.get("at", utcnow()),
+        completed_at=None if said.get("partial") else said.get("at", utcnow()),
     )
     db.add(response)
     db.commit()
@@ -330,7 +331,26 @@ def test_publishing_needs_every_language_and_stopping_keeps_the_answers(
     assert client.get(f"{URL}/{survey_id}", headers=headers).json()["phase"] == "closed"
 
 
-def test_a_live_or_answered_survey_keeps_its_questions_and_is_not_deleted(
+def _questions(db: Session, survey_id: Any) -> list[SurveyQuestion]:
+    db.expire_all()
+    return list(
+        db.scalars(
+            select(SurveyQuestion)
+            .where(SurveyQuestion.survey_id == survey_id)
+            .order_by(SurveyQuestion.position)
+        )
+    )
+
+
+def _edited(db: Session, survey_id: Any, **fields: Any) -> dict[str, Any]:
+    """The detail's questions sent back with their ids, as the office edits."""
+    body = _body(**fields)
+    for item, row in zip(body["questions"], _questions(db, survey_id), strict=False):
+        item["id"] = str(row.id)
+    return body
+
+
+def test_a_live_answered_survey_is_edited_and_keeps_its_answers(
     client: TestClient, db: Session
 ) -> None:
     headers = _admin(db)
@@ -338,40 +358,70 @@ def test_a_live_or_answered_survey_keeps_its_questions_and_is_not_deleted(
     person = _customer(db, plan, "a@client.test")
     survey = _ready(client, db, headers)
     client.post(f"{URL}/{survey.id}/publish", headers=headers)
+    before = [row.id for row in _questions(db, survey.id)]
+    answer = _answer(db, survey, person, q1={"choices": [0]}, q2={"number": 9})
 
-    live = client.put(f"{URL}/{survey.id}", headers=headers, json=_body(title="Yangi"))
-    assert live.status_code == 400 and live.json()["code"] == "survey_is_live"
-    assert client.post(f"{URL}/{survey.id}/delete", headers=headers).status_code == 400
-    assert (
-        client.post(f"{URL}/{survey.id}/retranslate", headers=headers).status_code
-        == 400
-    )
+    body = _edited(db, survey.id, title="Yangi")
+    body["questions"][0]["text"] = "Sizga yoqdimi?"
+    body["questions"][1]["max_value"] = 5
+    body["questions"].pop()
+    saved = client.put(f"{URL}/{survey.id}", headers=headers, json=body)
 
-    client.post(f"{URL}/{survey.id}/stop", headers=headers)
-    _answer(db, survey, person, q2={"number": 9})
-    closed = client.put(
-        f"{URL}/{survey.id}", headers=headers, json=_body(title="Yangi")
-    )
-    assert closed.status_code == 400 and closed.json()["code"] == "survey_has_answers"
-    gone = client.post(f"{URL}/{survey.id}/delete", headers=headers)
-    assert gone.status_code == 400 and gone.json()["code"] == "survey_has_answers"
+    assert saved.status_code == 200, saved.text
+    db.expire_all()
+    after = _questions(db, survey.id)
+    assert [row.position for row in after] == [1, 2]
+    assert after[0].id == before[0]
+    assert after[0].text == {"uz": "Sizga yoqdimi?"}
+    assert after[1].id not in before
+    assert db.get(Survey, survey.id).is_active
+    assert db.get(Survey, survey.id).state == SurveyState.TRANSLATING
+    lines = client.get(f"{URL}/responses/{answer.id}", headers=headers).json()["lines"]
+    assert [(line["question"], line["answer"], line["removed"]) for line in lines] == [
+        ("S1 uz", "V0 uz", False),
+        ("S2 uz", "9 / 10", True),
+    ]
 
 
-def test_deleting_removes_the_survey_and_its_rows(
+def test_a_live_survey_may_be_retranslated(client: TestClient, db: Session) -> None:
+    headers = _admin(db)
+    survey = _ready(client, db, headers)
+    client.post(f"{URL}/{survey.id}/publish", headers=headers)
+
+    with patch("app.modules.surveys.tasks.translate_survey_task.delay"):
+        again = client.post(f"{URL}/{survey.id}/retranslate", headers=headers)
+
+    assert again.status_code == 200, again.text
+
+
+def test_deleting_closes_it_and_keeps_every_row(
     client: TestClient, db: Session
 ) -> None:
     headers = _admin(db)
-    shop, _ = _shop(db)
+    shop, plan = _shop(db)
+    person = _customer(db, plan, "a@client.test")
     survey = _ready(client, db, headers)
+    client.post(f"{URL}/{survey.id}/publish", headers=headers)
     db.add(SurveySighting(survey_id=survey.id, owner_id=shop.id))
     db.commit()
+    answer = _answer(db, survey, person, q2={"number": 9})
 
     done = client.post(f"{URL}/{survey.id}/delete", headers=headers)
 
     assert done.status_code == 200, done.text
+    db.expire_all()
+    kept = db.get(Survey, survey.id)
+    assert kept is not None and not kept.is_active and kept.deleted_at is not None
+    assert db.scalar(select(func.count(SurveyQuestion.id))) == 3
+    assert db.scalar(select(func.count(SurveySighting.id))) == 1
+    assert db.get(SurveyResponse, answer.id) is not None
     assert client.get(f"{URL}/{survey.id}", headers=headers).status_code == 404
-    assert db.scalar(select(func.count(SurveyQuestion.id))) == 0
-    assert db.scalar(select(func.count(SurveySighting.id))) == 0
+    assert survey.id not in {
+        row["id"] for row in client.get(URL, headers=headers).json()
+    }
+    assert client.get(f"{URL}/responses/{answer.id}", headers=headers).status_code == 200
+    again = client.post(f"{URL}/{survey.id}/delete", headers=headers)
+    assert again.status_code == 404
 
 
 def test_a_copy_keeps_every_language_and_is_closed(
@@ -722,7 +772,9 @@ def test_answers_filter_by_every_field(client: TestClient, db: Session) -> None:
 
     one = client.get(f"{URL}/responses/{first.id}", headers=headers).json()
     assert one["gist"] == "Salom"
-    assert one["lines"] == [{"question": "S3 uz", "kind": "text", "answer": "Salom"}]
+    assert one["lines"] == [
+        {"question": "S3 uz", "kind": "text", "answer": "Salom", "removed": False}
+    ]
     missing = "00000000-0000-0000-0000-000000000000"
     assert client.get(f"{URL}/responses/{missing}", headers=headers).status_code == 404
 

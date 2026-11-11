@@ -5,18 +5,26 @@ again: a save that changes nothing a customer reads - the name, who is asked,
 when it runs, which question hangs on which - keeps every language as it is,
 the office's own corrections included.
 
-A live or answered survey keeps its questions and conditions: answers already
-given are answers to those questions.
+A live or answered survey may be edited too: whoever finished it is not asked
+again, whoever is added or has not finished gets the edited one. A question
+keeps its id - and the answers and «yordam kerak» marks hung on it - while it
+keeps its kind, its number of options and its scale; otherwise it is a new
+question. Every answer already kept carries the question and answer as they
+were read, so a removed or reworded question still reads as it was answered.
+
+Deleting closes a survey and takes it out of the office's list; nothing is
+removed from the database.
 """
 
 import logging
 import uuid
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
 
-from app.common.db import on_commit
+from app.common.db import on_commit, utcnow
 from app.modules.accounts.models import User
 from app.modules.surveys.constants import (
     COPY_SUFFIX,
@@ -25,11 +33,9 @@ from app.modules.surveys.constants import (
     SurveyAudience,
     SurveyState,
 )
-from app.modules.surveys.drafts import LanguageWording, SurveyDraft
+from app.modules.surveys.drafts import LanguageWording, QuestionDraft, SurveyDraft
 from app.modules.surveys.exceptions import (
     SurveyEnded,
-    SurveyHasAnswers,
-    SurveyIsLive,
     SurveyIsTranslating,
     SurveyNotFound,
     SurveyNotReady,
@@ -40,17 +46,17 @@ from app.modules.surveys.models import (
     Survey,
     SurveyQuestion,
     SurveyResponse,
-    SurveySighting,
     surveys_people,
     surveys_plans,
 )
+from app.modules.surveys.selectors.office import office_language, shown
 
 logger = logging.getLogger(__name__)
 
 
 def _locked(db: Session, survey_id: uuid.UUID) -> Survey:
     survey = db.get(Survey, survey_id, with_for_update=True)
-    if survey is None:
+    if survey is None or survey.deleted_at is not None:
         raise SurveyNotFound
     return survey
 
@@ -63,11 +69,6 @@ def _questions(db: Session, survey_id: uuid.UUID) -> list[SurveyQuestion]:
             .order_by(SurveyQuestion.position)
         )
     )
-
-
-def _answered(db: Session, survey_id: uuid.UUID) -> bool:
-    found = select(SurveyResponse.id).where(SurveyResponse.survey_id == survey_id)
-    return db.scalar(found.limit(1)) is not None
 
 
 def _fill(survey: Survey, draft: SurveyDraft) -> None:
@@ -85,21 +86,27 @@ def _settings(survey: Survey, draft: SurveyDraft) -> None:
     survey.ask_after_days = draft.ask_after_days
 
 
+def _written(question: QuestionDraft, *, lang: str, position: int) -> dict[str, Any]:
+    """A question's columns as the office wrote it, in the source language."""
+    return {
+        "position": position,
+        "kind": question.kind,
+        "text": {lang: question.text.strip()},
+        "options": [{lang: option.strip()} for option in question.options],
+        "allows_many": question.allows_many,
+        "min_value": question.min_value,
+        "max_value": question.max_value,
+        "is_required": question.is_required,
+        "show_if": question.show_if or None,
+        "show_options": list(question.show_options) if question.show_if else [],
+    }
+
+
 def _new_questions(survey: Survey, draft: SurveyDraft) -> list[SurveyQuestion]:
     lang = draft.source_language
     return [
         SurveyQuestion(
-            survey_id=survey.id,
-            position=index,
-            kind=question.kind,
-            text={lang: question.text.strip()},
-            options=[{lang: option.strip()} for option in question.options],
-            allows_many=question.allows_many,
-            min_value=question.min_value,
-            max_value=question.max_value,
-            is_required=question.is_required,
-            show_if=question.show_if or None,
-            show_options=list(question.show_options) if question.show_if else [],
+            survey_id=survey.id, **_written(question, lang=lang, position=index)
         )
         for index, question in enumerate(draft.questions, start=1)
     ]
@@ -177,36 +184,16 @@ def _same_wording(
     ]
 
 
-def _same_rules(questions: list[SurveyQuestion], draft: SurveyDraft) -> bool:
-    if len(questions) != len(draft.questions):
-        return False
-    return all(
-        (row.show_if or 0, tuple(row.show_options or ()))
-        == (question.show_if, question.show_options if question.show_if else ())
-        for row, question in zip(questions, draft.questions, strict=True)
-    )
-
-
-def _check_open(db: Session, survey: Survey) -> None:
-    if survey.is_active:
-        raise SurveyIsLive(
-            "Faol so'rovnomaning savollari o'zgarmaydi. Avval uni yoping."
-        )
-    if _answered(db, survey.id):
-        raise SurveyHasAnswers
-
-
 def update_survey(
     db: Session, *, survey_id: uuid.UUID, draft: SurveyDraft, actor: User
 ) -> Survey:
+    """Save the office's edit, live or answered alike. Changed words are
+    translated again; meanwhile a reader in another language reads the source."""
     survey = _locked(db, survey_id)
     if survey.state == SurveyState.TRANSLATING:
         raise SurveyIsTranslating
     questions = _questions(db, survey.id)
     words = _same_wording(survey, questions, draft)
-    rules = words and _same_rules(questions, draft)
-    if not rules:
-        _check_open(db, survey)
     _settings(survey, draft)
     _set_audience(db, survey, draft)
     if words:
@@ -215,14 +202,89 @@ def update_survey(
             row.show_options = list(question.show_options) if question.show_if else []
         db.flush()
         return survey
+    _freeze_answers(db, survey, questions)
     _fill(survey, draft)
     survey.state = SurveyState.TRANSLATING
-    db.execute(delete(SurveyQuestion).where(SurveyQuestion.survey_id == survey.id))
-    db.add_all(_new_questions(survey, draft))
-    db.flush()
+    _rewrite_questions(db, survey, questions, draft)
     _queue_translation(db, survey, actor)
     logger.info("survey %s rewritten by %s", survey.id, actor.id)
     return survey
+
+
+def _same_question(row: SurveyQuestion, question: QuestionDraft) -> bool:
+    """Whether a kept answer still means the same: the same kind, as many
+    options, the same scale."""
+    return (
+        row.kind == question.kind
+        and len(row.options) == len(question.options)
+        and row.min_value == question.min_value
+        and row.max_value == question.max_value
+    )
+
+
+def _rewrite_questions(
+    db: Session,
+    survey: Survey,
+    questions: list[SurveyQuestion],
+    draft: SurveyDraft,
+) -> None:
+    """The draft's questions over the saved ones, each kept by its id while it
+    still means the same. Positions are unique, so the kept ones step aside
+    first."""
+    lang = draft.source_language
+    by_id = {str(row.id): row for row in questions}
+    kept: list[tuple[SurveyQuestion, QuestionDraft, int]] = []
+    fresh: list[tuple[QuestionDraft, int]] = []
+    for position, question in enumerate(draft.questions, start=1):
+        row = by_id.get(question.id) if question.id else None
+        if row is not None and _same_question(row, question):
+            del by_id[question.id]
+            kept.append((row, question, position))
+        else:
+            fresh.append((question, position))
+    gone = [row.id for row in by_id.values()]
+    if gone:
+        db.execute(delete(SurveyQuestion).where(SurveyQuestion.id.in_(gone)))
+    for index, (row, _, _) in enumerate(kept, start=1):
+        row.position = -index
+    db.flush()
+    for row, question, position in kept:
+        for column, value in _written(question, lang=lang, position=position).items():
+            setattr(row, column, value)
+    db.add_all(
+        SurveyQuestion(
+            survey_id=survey.id, **_written(question, lang=lang, position=position)
+        )
+        for question, position in fresh
+    )
+    db.flush()
+
+
+def _freeze_answers(
+    db: Session, survey: Survey, questions: list[SurveyQuestion]
+) -> None:
+    """Write the question and the answer, as read today, into every kept
+    answer that does not carry them yet: its question may change next."""
+    lang = office_language(survey)
+    by_id = {str(row.id): row for row in questions}
+    for response in db.scalars(
+        select(SurveyResponse).where(SurveyResponse.survey_id == survey.id)
+    ):
+        items = []
+        changed = False
+        for item in response.answers or []:
+            row = by_id.get(str(item.get("question")))
+            if row is not None and "q" not in item:
+                item = {
+                    **item,
+                    "q": row.text.get(lang, ""),
+                    "a": shown(row, item, lang),
+                }
+                changed = True
+            items.append(item)
+        if changed:
+            response.answers = items
+    db.flush()
 
 
 def is_complete(survey: Survey, questions: list[SurveyQuestion]) -> bool:
@@ -273,10 +335,9 @@ def retry_translation(
     db: Session, *, survey_id: uuid.UUID, actor: User, now: datetime
 ) -> Survey:
     """After a failure or a run that never came back. From a finished one it
-    replaces what was corrected by hand; a live survey keeps its words."""
+    replaces what was corrected by hand. A live survey may be retried too: an
+    edit made while it is live is translated the same way."""
     survey = _locked(db, survey_id)
-    if survey.is_active:
-        raise SurveyIsLive
     lost = now - timedelta(minutes=TRANSLATION_STALE_MINUTES)
     if survey.state == SurveyState.TRANSLATING and survey.updated_at > lost:
         raise SurveyIsTranslating
@@ -330,20 +391,17 @@ def save_translation(
     return survey
 
 
-def delete_survey(db: Session, *, survey_id: uuid.UUID, actor: User) -> None:
-    """Remove a survey nobody is asked or has answered, with its questions."""
+def delete_survey(
+    db: Session, *, survey_id: uuid.UUID, actor: User, now: datetime | None = None
+) -> Survey:
+    """Close it and take it out of the office's list. Its questions, who it
+    was for and every answer stay in the database."""
     survey = _locked(db, survey_id)
-    if survey.is_active:
-        raise SurveyIsLive
-    if _answered(db, survey.id):
-        raise SurveyHasAnswers
-    db.execute(delete(SurveySighting).where(SurveySighting.survey_id == survey.id))
-    db.execute(delete(SurveyQuestion).where(SurveyQuestion.survey_id == survey.id))
-    db.execute(delete(surveys_plans).where(surveys_plans.c.survey_id == survey.id))
-    db.execute(delete(surveys_people).where(surveys_people.c.survey_id == survey.id))
-    db.delete(survey)
+    survey.is_active = False
+    survey.deleted_at = now or utcnow()
     db.flush()
     logger.info("survey %s deleted by %s", survey_id, actor.id)
+    return survey
 
 
 def _copy_audience(db: Session, *, source_id: uuid.UUID, copy_id: uuid.UUID) -> None:
@@ -377,7 +435,7 @@ def duplicate_survey(
     A copy is made to go to someone else, so who was asked stays behind unless
     the office says otherwise. Its dates belonged to the original and never come."""
     source = db.get(Survey, survey_id)
-    if source is None:
+    if source is None or source.deleted_at is not None:
         raise SurveyNotFound
     name = name.strip() or f"{source.name[: NAME_MAX - len(COPY_SUFFIX)]}{COPY_SUFFIX}"
     copy = Survey(

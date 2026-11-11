@@ -232,10 +232,16 @@ def test_answer_checks_only_the_questions_asked(
     assert response.owner_id == user.id
     assert response.channel == "miniapp"
     assert response.language == "uz"
-    assert response.answers == [
+    assert response.completed_at is not None
+    assert [
+        {key: item[key] for key in item if key not in ("q", "a")}
+        for item in response.answers
+    ] == [
         {"question": choice, "kind": "choice", "choices": [0]},
         {"question": mark, "kind": "number", "number": 9},
     ]
+    assert all(item["q"] for item in response.answers)
+    assert response.answers[1]["a"] == "9 / 10"
     event = db.scalar(select(Event).where(Event.name == "survey.answered"))
     assert event is not None
     assert event.payload == {"response_id": str(response.id)}

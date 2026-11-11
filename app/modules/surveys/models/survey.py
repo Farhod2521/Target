@@ -30,6 +30,8 @@ class Survey(Base):
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ask_after_days: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=7, server_default="7")
+    # Deleted from the office: closed and out of its list, answers kept.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 surveys_plans = Table(

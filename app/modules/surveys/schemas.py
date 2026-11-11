@@ -30,6 +30,10 @@ class DueSurveyOut(BaseModel):
     title: str
     intro: str
     questions: list[AskedQuestionOut]
+    saved: dict[str, list[str]] = Field(
+        description="What this reader already answered, `{question id: [values]}`, "
+        "in the shape `POST /surveys/answer` takes; empty on a first look."
+    )
 
 
 class DueOut(BaseModel):
@@ -48,3 +52,7 @@ class LaterOut(BaseModel):
     ask_again_in: int = Field(
         description="Seconds until `GET /surveys/due` is worth asking again."
     )
+
+
+class ProgressOut(BaseModel):
+    saved: int = Field(description="How many questions are kept answered.")

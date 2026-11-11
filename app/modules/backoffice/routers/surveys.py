@@ -90,6 +90,12 @@ RULE_PROBLEMS = {
 
 
 class QuestionIn(BaseModel):
+    id: str = Field(
+        "",
+        description="The saved question this rewrites (`questions[].id` from the "
+        "detail); empty for a new one. Kept while its kind, option count and "
+        "scale stay; otherwise it becomes a new question.",
+    )
     kind: QuestionKind
     text: str = ""
     options: list[str] = Field(default_factory=list)
@@ -229,6 +235,7 @@ def _draft(db: Db, body: SurveyIn, *, now: datetime) -> SurveyDraft:
                 is_required=item.is_required,
                 show_if=item.show_if,
                 show_options=tuple(sorted(set(item.show_options))),
+                id=item.id.strip(),
             )
             for item in questions
         ),
@@ -285,12 +292,14 @@ def _response_row(row: SurveyResponse, done: set[uuid.UUID]) -> dict[str, Any]:
         "gist": gist(row),
         "replied": row.id in done,
         "at": row.created_at,
+        "finished": row.completed_at is not None,
+        "completed_at": row.completed_at,
     }
 
 
 @router.get("", responses={200: {"model": list[SurveyRowOut]}})
 def surveys_list(db: Db, user: Admin) -> list[dict[str, Any]]:
-    """Every survey, newest first."""
+    """Every survey not deleted, newest first."""
     now = utcnow()
     return [
         {
@@ -302,6 +311,7 @@ def surveys_list(db: Db, user: Admin) -> list[dict[str, Any]]:
             "people": row.people,
             "questions": row.questions,
             "answers": row.answers,
+            "partial": row.partial,
         }
         for row in survey_rows(db)
     ]
@@ -319,7 +329,8 @@ def create(body: SurveyIn, db: Db, actor: Admin) -> dict[str, Any]:
 
 @router.get("/roster", responses={200: {"model": SurveyRosterOut}})
 def roster(db: Db, user: Admin) -> dict[str, Any]:
-    """Everyone a survey can be sent to by name, and the plans they are on."""
+    """Everyone a survey can be sent to by name, and the plans they are on.
+    Staff come too, `staff: true` and no plan, to try a survey on themselves."""
     persons = survey_people(db, now=utcnow(), chosen=every_chosen(db))
     counted: dict[str, dict[str, Any]] = {}
     for person in persons:
@@ -343,6 +354,9 @@ def responses(
     since: date | None = Query(None),
     until: date | None = Query(None),
     unreplied: bool = Query(False, description="Nobody wrote to them since."),
+    finished: bool | None = Query(
+        None, description="true: finished only; false: half-answered only."
+    ),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
     """The answers asked for, newest first, 50 at a time."""
@@ -356,6 +370,7 @@ def responses(
             since=since,
             until=until,
             unreplied=unreplied,
+            finished=finished,
         ),
         offset=offset,
     )
@@ -400,6 +415,7 @@ def survey_detail(survey_id: uuid.UUID, db: Db, user: Admin) -> dict[str, Any]:
         "people": [str(pk) for pk in full.people],
         "plans": [str(pk) for pk in full.plans],
         "answers": full.answers,
+        "partial": full.partial,
         "lost": translation_lost(survey, now=now),
         "tabs": language_tabs(survey, full.questions),
     }
@@ -409,7 +425,9 @@ def survey_detail(survey_id: uuid.UUID, db: Db, user: Admin) -> dict[str, Any]:
 def update(
     survey_id: uuid.UUID, body: SurveyIn, db: Db, actor: Admin
 ) -> dict[str, Any]:
-    """Save it. Words a customer reads are translated again only if they changed."""
+    """Save it, live or answered alike. Whoever finished it is not asked again;
+    whoever is added, or has not finished, reads the edited one. Words a
+    customer reads are translated again only if they changed."""
     _full(db, survey_id)
     surveys.update_survey(
         db, survey_id=survey_id, draft=_draft(db, body, now=utcnow()), actor=actor
@@ -523,7 +541,8 @@ def retranslate(survey_id: uuid.UUID, db: Db, actor: Admin) -> dict[str, Any]:
 
 @router.post("/{survey_id}/delete", responses={200: {"model": MessageOut}})
 def delete(survey_id: uuid.UUID, db: Db, actor: Admin) -> dict[str, Any]:
-    """Remove a survey nobody is asked or has answered."""
+    """Close it and take it out of the list; its questions and answers stay in
+    the database, and its answers stay under «Javoblar»."""
     return _act(
         db,
         survey_id,
@@ -583,6 +602,7 @@ def customer_surveys(customer_id: uuid.UUID, db: Db, user: Admin) -> dict[str, A
                 "gist": gist(row),
                 "replied": row.id in done,
                 "at": row.created_at,
+                "finished": row.completed_at is not None,
             }
             for row in rows
         ]

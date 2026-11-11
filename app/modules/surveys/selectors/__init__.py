@@ -5,6 +5,8 @@ from app.modules.surveys.selectors.due import (
     asked_steps,
     due_survey,
     owed,
+    owed_for,
+    raw_of,
     survey_for,
 )
 
@@ -15,5 +17,7 @@ __all__ = [
     "asked_steps",
     "due_survey",
     "owed",
+    "owed_for",
+    "raw_of",
     "survey_for",
 ]

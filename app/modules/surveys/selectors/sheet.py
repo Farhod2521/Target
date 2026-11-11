@@ -1,6 +1,7 @@
 """One survey's answers as a table: a customer per row, a question per column.
 
-A question the customer was not asked is an empty cell, not a word.
+A question the customer was not asked is an empty cell, not a word. A
+half-finished answer is a row too, marked «Chala».
 """
 
 from dataclasses import dataclass
@@ -48,6 +49,7 @@ def survey_sheet(db: Session, *, survey: Survey) -> SurveySheet:
         Column("Email", 28),
         Column("Telefon", 18),
         Column("Qayerdan", 12),
+        Column("Holati", 12),
         Column("Sana", 17),
     ] + [
         Column(f"{row.position}. {row.text.get(lang, '')}", QUESTION_WIDTH)
@@ -63,7 +65,8 @@ def survey_sheet(db: Session, *, survey: Survey) -> SurveySheet:
                 owner.email,
                 owner.phone or None,
                 str(RESPONSE_CHANNEL_LABELS.get(response.channel, response.channel)),
-                f"{localtime(response.created_at):%d.%m.%Y %H:%M}",
+                "Tugatgan" if response.completed_at else "Chala",
+                f"{localtime(response.completed_at or response.created_at):%d.%m.%Y %H:%M}",
                 *[_cell(row, said.get(str(row.id)), lang) for row in questions],
             ]
         )

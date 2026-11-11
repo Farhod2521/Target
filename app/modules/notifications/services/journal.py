@@ -11,6 +11,7 @@ from app.modules.accounts.models import User
 from app.modules.notifications.constants import (
     NOTICE_TRIES,
     NOTICES_WITHOUT_SUBSCRIPTION,
+    NoticeKind,
 )
 from app.modules.notifications.models import TelegramChat, TelegramNotice
 
@@ -27,14 +28,21 @@ def _row(
     ).first()
 
 
+def _staff_trying_survey(owner: User, kind: str) -> bool:
+    """A staff member picked for a survey tries it with no plan of their own."""
+    return bool(owner.is_staff) and str(kind) == NoticeKind.SURVEY
+
+
 def claim(
     db: Session, *, chat: TelegramChat, kind: str, subject: str
 ) -> TelegramNotice | None:
     """The row to send under, or None when it was sent or tried enough."""
     from app.modules.billing.selectors import has_live_subscription
 
-    if kind not in NOTICES_WITHOUT_SUBSCRIPTION and not has_live_subscription(
-        db, owner=chat.owner
+    if (
+        kind not in NOTICES_WITHOUT_SUBSCRIPTION
+        and not _staff_trying_survey(chat.owner, kind)
+        and not has_live_subscription(db, owner=chat.owner)
     ):
         return None
     if _row(db, owner_id=chat.owner_id, kind=kind, subject=subject) is not None:

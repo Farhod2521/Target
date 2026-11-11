@@ -2,8 +2,9 @@
 
 The first question goes out with the morning's other news, inside the
 asking hours; each answer - a press, or words typed for an open question -
-rewrites the question's message with what was said and sends the next one
-the conditions leave. The last answer is saved as the website saves one.
+is kept at once, rewrites the question's message with what was said and
+sends the next one the conditions leave. The last answer finishes it as the
+website does. A survey left halfway is picked up where its kept answers end.
 """
 
 import logging
@@ -20,6 +21,7 @@ from app.modules.notifications.services.compose import escaped
 from app.modules.notifications.services.send import edit, send_to
 from app.modules.notifications.services.survey_state import (
     clear,
+    first_open,
     load,
     lock_key,
     save,
@@ -33,7 +35,7 @@ from app.modules.notifications.services.survey_words import (
 from app.modules.surveys.constants import ANSWER_TEXT_MAX, QuestionKind, ResponseChannel
 from app.modules.surveys.exceptions import SurveyAnswerInvalid
 from app.modules.surveys.selectors.due import DueSurvey
-from app.modules.surveys.services import answer_survey
+from app.modules.surveys.services import answer_survey, save_progress
 from app.modules.surveys.services.sightings import note_seen
 
 logger = logging.getLogger(__name__)
@@ -46,11 +48,12 @@ def start_survey(
     """Ask the first question, or pick up where this survey was left."""
     state = load(chat)
     if state is None or state.get("survey") != due.survey_id:
+        answers = dict(due.saved)
         state = {
             "survey": due.survey_id,
             "language": due.language,
-            "step": 0,
-            "answers": {},
+            "step": first_open(due, answers) if answers else 0,
+            "answers": answers,
             "picks": [],
         }
     state.pop("resume", None)
@@ -124,6 +127,7 @@ def advance(
     step = state["step"]
     question = due.questions[step]
     state["answers"][question.id] = values
+    _keep(db, chat=chat, state=state)
     if state.get("message"):
         edit(
             client=client,
@@ -139,6 +143,23 @@ def advance(
         sent = ask(db, client=client, chat=chat, state=state, due=due, now=now)
         return "survey_next" if sent else "failed"
     return _finish(db, client=client, chat=chat, state=state, now=now)
+
+
+def _keep(db: Session, *, chat: TelegramChat, state: dict[str, Any]) -> None:
+    """Every answer is kept as it is given, so leaving halfway loses nothing."""
+    try:
+        save_progress(
+            db,
+            owner=chat.owner,
+            survey_id=state["survey"],
+            raw=state["answers"],
+            language=state["language"],
+            channel=ResponseChannel.BOT,
+        )
+    except DomainError:
+        db.rollback()
+        return
+    db.commit()
 
 
 def ask(

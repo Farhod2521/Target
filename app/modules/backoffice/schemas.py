@@ -1400,7 +1400,10 @@ class SurveyRowOut(SurveyTimesOut):
     plans: list[str]
     people: int
     questions: int
-    answers: int
+    answers: int = Field(description="Finished answers.")
+    partial: int = Field(
+        description="Started and not finished; their answers are kept."
+    )
 
 
 class SurveyQuestionOut(BaseModel):
@@ -1434,7 +1437,8 @@ class SurveyDetailOut(SurveyTimesOut):
     questions: list[SurveyQuestionOut]
     people: list[str]
     plans: list[str]
-    answers: int
+    answers: int = Field(description="Finished answers.")
+    partial: int = Field(description="Started and not finished.")
     lost: bool = Field(description="The translation has not come back for too long.")
     tabs: list[SurveyTabOut]
 
@@ -1447,6 +1451,10 @@ class SurveyPersonOut(BaseModel):
     plan_id: str
     plan: str
     trial: bool
+    staff: bool = Field(
+        description="A staff member, to try the survey on: asked only when ticked "
+        "by name, with no plan and no wait."
+    )
 
 
 class SurveyPlanOut(BaseModel):
@@ -1497,7 +1505,9 @@ class SurveyResponseRowOut(BaseModel):
     language: str
     gist: str
     replied: bool
-    at: datetime
+    at: datetime = Field(description="When the first answer was kept.")
+    finished: bool = Field(description="False: left halfway, what was said is kept.")
+    completed_at: datetime | None
 
 
 class SurveyResponsesOut(BaseModel):
@@ -1509,9 +1519,10 @@ class SurveyResponsesOut(BaseModel):
 
 
 class SurveyAnswerLineOut(BaseModel):
-    question: str
+    question: str = Field(description="As it read when this answer was given.")
     kind: str
     answer: str | None
+    removed: bool = Field(description="The question was taken out of the survey since.")
 
 
 class SurveyResponseOut(SurveyResponseRowOut):
@@ -1522,7 +1533,8 @@ class SurveyFunnelOut(BaseModel):
     meant: int = Field(description="Live customers it is for, and who answered.")
     seen: int
     later: int = Field(description="Put it off at least once.")
-    answered: int
+    answered: int = Field(description="Finished it.")
+    partial: int = Field(description="Started and left; counted in each question.")
     rate_percent: float
 
 
@@ -1594,6 +1606,7 @@ class CustomerSurveyOut(BaseModel):
     gist: str
     replied: bool
     at: datetime
+    finished: bool
 
 
 class CustomerSurveysOut(BaseModel):
