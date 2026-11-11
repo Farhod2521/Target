@@ -13,7 +13,7 @@ import asyncio
 import json
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import (
@@ -35,17 +35,20 @@ from sqlalchemy.orm import Session
 from app.api.deps import CurrentUser, Db, OptionalUser, client_address
 from app.common import tokens
 from app.common.cache import cache
+from app.common.dates import localtime
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.assistant.constants import (
     MAX_QUESTION_CHARS,
     OUT_KEY,
+    PAGE_MESSAGES,
     POLL_SECONDS,
     STREAM_TIMEOUT_SECONDS,
 )
 from app.modules.assistant.models import AssistantMessage, AssistantSession
 from app.modules.assistant.selectors import threads
 from app.modules.assistant.services import buttons, support
+from app.modules.assistant.services import threads as thread_service
 from app.modules.backoffice.constants import ANSWER_ROLES
 from app.modules.backoffice.permissions import staff_required
 
@@ -80,7 +83,8 @@ class MessageOut(BaseModel):
     replies: list[str] = Field(description="Short answers offered as the next words.")
     meta: dict[str, Any] = Field(
         description="`author` (a person's first name) on a `staff` row; `quote` on a "
-        "question that replied to a waiting-list line."
+        "question that replied to a waiting-list line; `stopped: true` on an answer "
+        "the client stopped."
     )
     to_support: bool = Field(description="A client's words that went to a person.")
     support: dict[str, Any] | None = Field(
@@ -116,6 +120,10 @@ class SupportOut(BaseModel):
 
 class ScreenOut(BaseModel):
     entitled: bool = Field(description="False: no live plan - only a person answers.")
+    has_earlier: bool = Field(
+        description="Older rows are left: read them with `GET /threads/{id}/messages"
+        "?before=<the first row's id>`."
+    )
     mode: str = Field(
         description="`ai`: send with `POST /ask`; `support`: send with "
         "`POST /support`. The page may let the client switch."
@@ -126,6 +134,24 @@ class ScreenOut(BaseModel):
     support: SupportOut
     questions_left: int
     questions_total: int
+    questions_reset_at: datetime = Field(
+        description="When `questions_left` is full again: the next midnight, Tashkent."
+    )
+
+
+class PageOut(BaseModel):
+    messages: list[MessageOut]
+    has_earlier: bool
+
+
+class RenameIn(BaseModel):
+    title: str = Field(max_length=200)
+
+
+class StopOut(BaseModel):
+    stopped: bool = Field(
+        description="False: nothing to stop - finished already, or not yours."
+    )
 
 
 class AskIn(BaseModel):
@@ -161,6 +187,7 @@ class SentOut(BaseModel):
     already_sent: bool = False
     session_id: str
     message: MessageOut | None
+    send_key: str = Field(description="The key for the next `POST /support`.")
 
 
 class GuestTicketIn(BaseModel):
@@ -237,6 +264,38 @@ def _support_block(db: Session, *, owner: User) -> dict[str, Any]:
     }
 
 
+def _rows(
+    db: Session,
+    *,
+    owner: User,
+    rows: list[AssistantMessage],
+    now: datetime,
+    newest: bool,
+) -> list[dict[str, Any]]:
+    """Rows as the screen draws them. ``newest``: these end the thread, so
+    the last one may offer replies."""
+    views = support.views(db, owner=owner, messages=rows, now=now)
+    return [
+        _message_row(
+            db,
+            owner=owner,
+            row=row,
+            view=views.get(row.id),
+            now=now,
+            last=newest and index == len(rows) - 1,
+        )
+        for index, row in enumerate(rows)
+    ]
+
+
+def _next_midnight(now: datetime) -> datetime:
+    """When the plan's daily questions are counted from zero again."""
+    local = localtime(now)
+    return (local + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+
 def _screen(
     db: Session, *, owner: User, thread: AssistantSession | None
 ) -> dict[str, Any]:
@@ -248,12 +307,16 @@ def _screen(
         support.ensure_thread(db, owner=owner, now=now)
     else:
         support.read(db, owner=owner, thread=thread)
-    rows = threads.messages_in(db, owner=owner, session=thread) if thread else []
-    views = support.views(db, owner=owner, messages=rows, now=now)
+    rows, has_earlier = (
+        threads.messages_page(db, owner=owner, session=thread)
+        if thread
+        else ([], False)
+    )
     left, total = questions_left(db, owner=owner, entitled=entitled, now=now)
     return jsonable_encoder(
         {
             "entitled": entitled,
+            "has_earlier": has_earlier,
             "mode": support.thread_mode(
                 db,
                 owner=owner,
@@ -266,20 +329,11 @@ def _screen(
                 _thread_row(row) for row in threads.sessions_for(db, owner=owner)
             ],
             "thread": _thread_row(thread) if thread is not None else None,
-            "messages": [
-                _message_row(
-                    db,
-                    owner=owner,
-                    row=row,
-                    view=views.get(row.id),
-                    now=now,
-                    last=index == len(rows) - 1,
-                )
-                for index, row in enumerate(rows)
-            ],
+            "messages": _rows(db, owner=owner, rows=rows, now=now, newest=True),
             "support": _support_block(db, owner=owner),
             "questions_left": left,
             "questions_total": total,
+            "questions_reset_at": _next_midnight(now),
         }
     )
 
@@ -298,6 +352,57 @@ def thread(pk: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     if found is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Suhbat topilmadi.")
     return _screen(db, owner=user, thread=found)
+
+
+def _found(db: Session, *, owner: User, pk: uuid.UUID) -> AssistantSession:
+    found = threads.session_for(db, owner=owner, pk=pk)
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Suhbat topilmadi.")
+    return found
+
+
+@router.get("/threads/{pk}/messages", response_model=PageOut)
+def earlier(
+    pk: uuid.UUID,
+    db: Db,
+    user: CurrentUser,
+    before: uuid.UUID = Query(description="The oldest row the page has."),
+) -> dict[str, Any]:
+    """The rows written before ``before``, oldest first, as many as the
+    screen brings at a time."""
+    found = _found(db, owner=user, pk=pk)
+    oldest = threads.message_for(db, owner=user, pk=before)
+    if oldest is None or oldest.session_id != found.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Xabar topilmadi.")
+    rows, has_earlier = threads.messages_page(
+        db, owner=user, session=found, before=oldest, limit=PAGE_MESSAGES
+    )
+    return jsonable_encoder(
+        {
+            "messages": _rows(db, owner=user, rows=rows, now=utcnow(), newest=False),
+            "has_earlier": has_earlier,
+        }
+    )
+
+
+@router.patch("/threads/{pk}", response_model=ThreadOut)
+def rename_thread(
+    pk: uuid.UUID, body: RenameIn, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    """The client's own name for a thread."""
+    found = thread_service.rename(
+        db, thread=_found(db, owner=user, pk=pk), title=body.title
+    )
+    db.commit()
+    return jsonable_encoder(_thread_row(found))
+
+
+@router.delete("/threads/{pk}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_thread(pk: uuid.UUID, db: Db, user: CurrentUser) -> None:
+    """The thread goes, with its rows. A thread Support is part of
+    (``support: true``) stays - 409."""
+    thread_service.remove(db, thread=_found(db, owner=user, pk=pk))
+    db.commit()
 
 
 @router.post("/ask", response_model=TurnOut)
@@ -413,6 +518,7 @@ async def _frames(*, turn_id: str, viewer: str) -> Any:
                         "masked": state.get("masked", 0),
                         "buttons": state.get("buttons", []),
                         "replies": state.get("replies", []),
+                        "stopped": bool(state.get("stopped")),
                     }
                 sent, last_status = len(text), status_now
                 yield _event(frame)
@@ -424,6 +530,18 @@ async def _frames(*, turn_id: str, viewer: str) -> Any:
 
 def _event(frame: dict[str, Any]) -> str:
     return f"data: {json.dumps(frame, ensure_ascii=False)}\n\n"
+
+
+@router.post("/stop/{turn_id}", response_model=StopOut)
+def stop(
+    turn_id: str, request: Request, token: str = Query("", include_in_schema=False)
+) -> StopOut:
+    """End the answer being written where it is. The stream's next frame is
+    the last (``done: true, stopped: true``) and the row keeps what was
+    shown. A question stopped before the model began is not counted. A
+    visitor stops their own answer with no token."""
+    viewer = _viewer(request, token)
+    return StopOut(stopped=thread_service.stop(turn_id=turn_id[:64], viewer=viewer))
 
 
 @router.post("/support", status_code=status.HTTP_201_CREATED, response_model=SentOut)
@@ -490,6 +608,7 @@ def write_to_support(
             "already_sent": True,
             "session_id": str(found.id) if found else "",
             "message": None,
+            "send_key": uuid.uuid4().hex,
         }
     broadcast_message(message=written.support_message, nonce=nonce)
     views = support.views(db, owner=user, messages=[written.message], now=now)
@@ -504,6 +623,7 @@ def write_to_support(
                 view=views.get(written.message.id),
                 now=now,
             ),
+            "send_key": uuid.uuid4().hex,
         }
     )
 

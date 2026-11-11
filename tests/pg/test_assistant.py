@@ -634,3 +634,182 @@ def test_a_change_button_reports_where_the_change_has_got_to(
     assert (done.state, done.text) == ("done", "Bajarildi.")
     gone = buttons.drawn(db, owner=owner, item={**item, "log_id": "x"}, now=utcnow())
     assert gone.state == "gone"
+
+
+def test_a_thread_is_renamed_paged_and_deleted_but_not_one_with_support(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import datetime
+
+    headers, owner = _with_plan(client, db)
+    turn = _ask(
+        client, db, headers, monkeypatch, _Script(), question="Reklamam qanday?"
+    )
+    pk = turn["session_id"]
+
+    renamed = client.patch(
+        f"{URL}/threads/{pk}", json={"title": "  Kuzgi   aksiya  "}, headers=headers
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["title"] == "Kuzgi aksiya"
+    empty = client.patch(f"{URL}/threads/{pk}", json={"title": "   "}, headers=headers)
+    assert empty.status_code == 422
+
+    # Sixty older rows: the screen brings the newest fifty, the rest on asking.
+    first = db.scalar(
+        select(AssistantMessage)
+        .where(AssistantMessage.session_id == turn["session_id"])
+        .order_by(AssistantMessage.created_at)
+    )
+    assert first is not None
+    for index in range(60):
+        db.add(
+            AssistantMessage(
+                owner_id=owner.id,
+                session_id=first.session_id,
+                author="user",
+                text=f"eski {index}",
+                html="",
+                status="done",
+                buttons=[],
+                replies=["Ha"],
+                meta={},
+                created_at=first.created_at - timedelta(minutes=60 - index),
+            )
+        )
+    db.commit()
+    screen = _thread(client, headers, pk)
+    assert len(screen["messages"]) == 50 and screen["has_earlier"] is True
+    assert screen["messages"][-1]["author"] == "ai"
+    assert [m["replies"] for m in screen["messages"][:-1]] == [[]] * 49
+    earlier = client.get(
+        f"{URL}/threads/{pk}/messages",
+        params={"before": screen["messages"][0]["id"]},
+        headers=headers,
+    )
+    assert earlier.status_code == 200, earlier.text
+    texts = [m["text"] for m in earlier.json()["messages"]]
+    assert texts == [f"eski {index}" for index in range(12)]
+    assert earlier.json()["has_earlier"] is False
+    assert all(m["replies"] == [] for m in earlier.json()["messages"])
+
+    # The daily questions are full again at the next midnight in Tashkent.
+    reset = datetime.fromisoformat(screen["questions_reset_at"])
+    assert reset > utcnow() and reset.utcoffset() == timedelta(hours=5)
+    assert (reset.hour, reset.minute) == (0, 0)
+
+    other, _ = _with_plan(client, db, email="boshqa@example.com")
+    assert client.delete(f"{URL}/threads/{pk}", headers=other).status_code == 404
+    assert client.delete(f"{URL}/threads/{pk}", headers=headers).status_code == 204
+    assert client.get(f"{URL}/threads/{pk}", headers=headers).status_code == 404
+    db.expire_all()
+    assert db.scalar(select(func.count()).select_from(AssistantMessage)) == 0
+
+    sent = client.post(f"{URL}/support", data={"body": "Salom"}, headers=headers)
+    assert sent.status_code == 201, sent.text
+    key = sent.json()["send_key"]
+    assert (
+        key
+        and key
+        != _thread(client, headers, sent.json()["session_id"])["support"]["send_key"]
+    )
+    kept = client.delete(f"{URL}/threads/{sent.json()['session_id']}", headers=headers)
+    assert kept.status_code == 409
+    assert kept.json()["code"] == "assistant_thread_has_support"
+
+
+@dataclass
+class _StoppedHalfway:
+    """A model whose client presses stop after the first piece was shown."""
+
+    pieces: list[str]
+    press: Callable[[], None]
+    result: Any = None
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        yield self.pieces[0]
+        self.press()
+        yield from self.pieces[1:]
+
+
+def test_a_stopped_answer_ends_where_it_was_and_keeps_what_was_shown(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.audit.models import LLMCall
+
+    headers, _owner = _with_plan(client, db)
+    shown = "Reklamangiz kecha to'xtagan, sababi hisobda. "
+    hidden = "Bu qism hech qachon ko'rinmasligi kerak, chunki to'xtatildi. "
+    script = _Script(words=[shown, hidden, "Oxiri."])
+    turn: dict[str, Any] = {}
+
+    def press() -> None:
+        stopped = client.post(f"{URL}/stop/{turn['turn_id']}", headers=headers)
+        assert stopped.json() == {"stopped": True}
+
+    real = _claude(script)
+
+    @contextmanager
+    def halfway(**kwargs: Any):  # type: ignore[no-untyped-def]
+        with real(**kwargs) as fake:
+
+            class Wrapped:
+                def converse(self, **asked: Any) -> _StoppedHalfway:
+                    stream = fake.converse(**asked)
+                    return _StoppedHalfway(
+                        pieces=stream.pieces, press=press, result=stream.result
+                    )
+
+            yield Wrapped()
+
+    monkeypatch.setattr("app.modules.assistant.services.answer.claude", halfway)
+    turn.update(
+        client.post(f"{URL}/ask", json={"question": "Nega?"}, headers=headers).json()
+    )
+    payload = turn_payload(turn_id=turn["turn_id"])
+    assert payload is not None
+    answer_turn(db, turn_id=turn["turn_id"], payload=payload, now=utcnow())
+    db.commit()
+    db.expire_all()
+
+    token = headers["Authorization"].removeprefix("Bearer ")
+    last = _frames(client.get(f"{URL}/stream/{turn['turn_id']}?token={token}").text)[-1]
+    assert last["done"] is True and last["stopped"] is True
+    assert "hisobda" in last["html"] and "hech qachon" not in last["html"]
+    row = _thread(client, headers, turn["session_id"])["messages"][-1]
+    assert row["text"] == shown.rstrip()
+    assert row["meta"] == {"stopped": True} and row["buttons"] == []
+    # What the model wrote was still paid for: the question is counted.
+    assert db.scalar(select(func.count()).select_from(LLMCall)) == 1
+    # Finished: nothing left to stop.
+    again = client.post(f"{URL}/stop/{turn['turn_id']}", headers=headers)
+    assert again.json() == {"stopped": False}
+
+
+def test_an_answer_stopped_before_it_began_costs_nothing(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.audit.models import LLMCall
+
+    headers, _owner = _with_plan(client, db)
+    other, _ = _with_plan(client, db, email="boshqa@example.com")
+    script = _Script()
+    monkeypatch.setattr("app.modules.assistant.services.answer.claude", _claude(script))
+    turn = client.post(f"{URL}/ask", json={"question": "Nega?"}, headers=headers).json()
+
+    assert client.post(f"{URL}/stop/{turn['turn_id']}", headers=other).json() == {
+        "stopped": False
+    }
+    assert client.post(f"{URL}/stop/{turn['turn_id']}", headers=headers).json() == {
+        "stopped": True
+    }
+    payload = turn_payload(turn_id=turn["turn_id"])
+    assert payload is not None
+    answer_turn(db, turn_id=turn["turn_id"], payload=payload, now=utcnow())
+    db.commit()
+    db.expire_all()
+
+    assert script.asked == []
+    row = _thread(client, headers, turn["session_id"])["messages"][-1]
+    assert (row["status"], row["text"], row["meta"]) == ("done", "", {"stopped": True})
+    assert db.scalar(select(func.count()).select_from(LLMCall)) == 0

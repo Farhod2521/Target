@@ -75,12 +75,16 @@ ANSWER_MAX_TOKENS: Final = 1600
 HISTORY_TURNS: Final = 10
 HISTORY_CHARS: Final = 4000
 SIDEBAR_SESSIONS: Final = 20
+# A thread is drawn newest first, this many rows at a time.
+PAGE_MESSAGES: Final = 50
 SESSION_TTL_DAYS: Final = 30
 ANSWER_STUCK_AFTER_MINUTES: Final = 20
 
 TURN_KEY: Final = "assistant:turn:{turn_id}"
 OUT_KEY: Final = "assistant:out:{turn_id}"
 GUEST_TICKET_KEY: Final = "assistant:guest-ticket:{turn_id}"
+# The client pressed stop: the answer ends where it is.
+STOP_KEY: Final = "assistant:stop:{turn_id}"
 TURN_TTL_SECONDS: Final = 600
 GUEST_TICKET_TTL_SECONDS: Final = 24 * 3600
 STREAM_CHUNK_CHARS: Final = 40

@@ -67,6 +67,7 @@ CHANGE_KEY = "P"
 TICKET_KEY = "T"
 PREPARING = "O'zgarishni tayyorlayapman…"
 SPENT = "This answer has used all of its look-ups. Answer with what you already have."
+STOPPED = "The person pressed stop. Do not look anything up; write nothing more."
 NO_ACCOUNT = (
     "Not available: this person has no account here. Answer in words, and "
     "prepare a ticket if they need a person."
@@ -89,6 +90,28 @@ VISITOR_TOOLS = tuple(
 
 
 @dataclass(slots=True)
+class Halt:
+    """The client's stop. ``text`` is what they were shown when it came;
+    nothing after it is shown or kept."""
+
+    turn_id: str
+    shown: str = ""
+    text: str | None = None
+
+    @property
+    def stopped(self) -> bool:
+        return self.text is not None
+
+    def check(self) -> bool:
+        """Whether to stop here; the first time, keep what was shown."""
+        from app.modules.assistant.services.threads import stop_asked
+
+        if self.text is None and stop_asked(self.turn_id):
+            self.text = self.shown.rstrip()
+        return self.text is not None
+
+
+@dataclass(slots=True)
 class Desk:
     """One answer's look-ups: whose account, when, and the gate they widen."""
 
@@ -99,6 +122,7 @@ class Desk:
     language: str = ""
     made: int = 0
     announce: Callable[[str], None] | None = None
+    halt: Halt | None = None
     changes: list[dict[str, Any]] = field(default_factory=list)
     tickets: list[dict[str, Any]] = field(default_factory=list)
     _scope: PageScope | None = None
@@ -106,6 +130,8 @@ class Desk:
 
     def __call__(self, call: ToolCall) -> ToolOutput:
         self.made += 1
+        if self.halt is not None and self.halt.stopped:
+            return ToolOutput(text=STOPPED, is_error=True)
         if self.made > MAX_LOOKUPS:
             return ToolOutput(text=SPENT, is_error=True)
         if call.name == TICKET_TOOL:
@@ -235,11 +261,17 @@ def answer_turn(
     )
     choices = ChoiceGate()
     safe: list[str] = []
+    halt = Halt(turn_id)
+    if halt.check():
+        _stopped_early(db, turn_id, payload=payload, now=now)
+        return
 
     def announce(words: str) -> None:
-        publish(
-            turn_id, "".join(safe), payload=payload, masked=gate.masked, status=words
-        )
+        if halt.check():
+            _show_stopped(turn_id, payload=payload, halt=halt, masked=gate.masked)
+            return
+        halt.shown = "".join(safe)
+        publish(turn_id, halt.shown, payload=payload, masked=gate.masked, status=words)
         if working is not None:
             working()
 
@@ -250,6 +282,7 @@ def answer_turn(
         gate=gate,
         language=str(payload.get("language", "")),
         announce=announce,
+        halt=halt,
     )
     try:
         with claude(cached=True) as client:
@@ -261,6 +294,7 @@ def answer_turn(
                 choices=choices,
                 payload=payload,
                 safe=safe,
+                halt=halt,
             )
     except LLMError as exc:
         _fail(
@@ -283,6 +317,40 @@ def answer_turn(
         result=stream.result,
         now=now,
         desk=desk,
+        halt=halt,
+    )
+
+
+def _show_stopped(
+    turn_id: str, *, payload: dict[str, Any], halt: Halt, masked: int
+) -> None:
+    """The last frame, at once: the page stops waiting while the model is
+    read out behind it, so the ledger still knows what it cost."""
+    publish(
+        turn_id,
+        halt.text or "",
+        payload=payload,
+        masked=masked,
+        done=True,
+        stopped=True,
+    )
+
+
+def _stopped_early(
+    db: Session, turn_id: str, *, payload: dict[str, Any], now: datetime
+) -> None:
+    """Stopped before the model was asked: nothing written, nothing spent,
+    and the question is not counted."""
+    publish(turn_id, "", payload=payload, done=True, stopped=True)
+    _store(
+        db,
+        payload=payload,
+        text="",
+        gate=None,
+        buttons=[],
+        replies=[],
+        now=now,
+        stopped=True,
     )
 
 
@@ -297,6 +365,7 @@ def publish(
     status: str = "",
     buttons: list[dict[str, Any]] | None = None,
     replies: list[str] | None = None,
+    stopped: bool = False,
 ) -> None:
     """The answer so far, as the stream's door reads it. ``html`` is drawn
     once, with the last frame: the page writes ``delta`` as it arrives."""
@@ -314,6 +383,7 @@ def publish(
             "session_id": payload.get("session_id", ""),
             "buttons": buttons or [],
             "replies": replies or [],
+            "stopped": stopped,
         },
         TURN_TTL_SECONDS,
     )
@@ -346,15 +416,25 @@ def _drain(
     choices: ChoiceGate,
     payload: dict[str, Any],
     safe: list[str],
+    halt: Halt,
 ) -> None:
-    """Read the model's output into ``safe``, publishing as it fills."""
+    """Read the model's output into ``safe``, publishing as it fills. After
+    a stop the rest is read and dropped: what it cost is still recorded."""
     pending = 0
     for piece in stream:
+        if halt.stopped:
+            continue
         safe.append(gate.feed(choices.feed(piece)))
         pending += len(piece)
         if pending >= STREAM_CHUNK_CHARS:
-            publish(turn_id, "".join(safe), payload=payload, masked=gate.masked)
+            if halt.check():
+                _show_stopped(turn_id, payload=payload, halt=halt, masked=gate.masked)
+                continue
+            halt.shown = "".join(safe)
+            publish(turn_id, halt.shown, payload=payload, masked=gate.masked)
             pending = 0
+    if halt.stopped:
+        return
     safe.append(gate.feed(choices.flush()))
     safe.append(gate.flush())
 
@@ -371,10 +451,34 @@ def _finish(
     result: Any,
     now: datetime,
     desk: Desk,
+    halt: Halt,
 ) -> None:
     """The last frame, the ledger row, and the message on the thread."""
     from app.modules.audit.services import record_llm_result
     from app.modules.chat.selectors.choices import picked
+
+    if halt.stopped:
+        _show_stopped(turn_id, payload=payload, halt=halt, masked=gate.masked)
+        record_llm_result(
+            db,
+            owner=owner,
+            purpose=LLMPurpose.CHAT,
+            result=result,
+            masked=gate.masked,
+            related_type=RELATED_TYPE,
+            related_id=payload.get("message_id", ""),
+        )
+        _store(
+            db,
+            payload=payload,
+            text=halt.text or "",
+            gate=gate,
+            buttons=[],
+            replies=[],
+            now=now,
+            stopped=True,
+        )
+        return
 
     offers = [
         {**item, "kind": ButtonKind.OFFER, "state": ButtonState.OPEN}
@@ -458,20 +562,24 @@ def _store(
     *,
     payload: dict[str, Any],
     text: str,
-    gate: FigureGate,
+    gate: FigureGate | None,
     buttons: list[dict[str, Any]],
     replies: list[str],
     now: datetime,
+    stopped: bool = False,
 ) -> None:
     """Fill in the row that was created empty when the question arrived."""
     key = _uuid(payload.get("message_id", ""))
     if key is None:
         return
-    session_id = db.scalar(
-        select(AssistantMessage.session_id).where(AssistantMessage.id == key)
-    )
-    if session_id is None:
+    found = db.execute(
+        select(AssistantMessage.session_id, AssistantMessage.meta).where(
+            AssistantMessage.id == key
+        )
+    ).first()
+    if found is None:
         return
+    session_id, meta = found
     db.execute(
         update(AssistantMessage)
         .where(AssistantMessage.id == key)
@@ -479,9 +587,10 @@ def _store(
             text=text,
             html=render(text),
             status=MessageStatus.DONE,
-            masked_figures=gate.masked,
+            masked_figures=gate.masked if gate is not None else 0,
             buttons=buttons,
             replies=replies,
+            meta={**(meta or {}), "stopped": True} if stopped else (meta or {}),
             updated_at=now,
         )
     )

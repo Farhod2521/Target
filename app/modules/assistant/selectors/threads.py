@@ -11,6 +11,7 @@ from app.modules.accounts.models import User
 from app.modules.assistant.constants import (
     HISTORY_CHARS,
     HISTORY_TURNS,
+    PAGE_MESSAGES,
     SIDEBAR_SESSIONS,
     Author,
     MessageStatus,
@@ -88,20 +89,38 @@ def message_for(
     return db.scalar(query)
 
 
-def messages_in(
-    db: Session, *, owner: User, session: AssistantSession
-) -> list[AssistantMessage]:
-    """One thread, oldest first. What the screen draws."""
-    return list(
-        db.scalars(
-            select(AssistantMessage)
-            .where(
-                AssistantMessage.owner_id == owner.id,
-                AssistantMessage.session_id == session.id,
+def messages_page(
+    db: Session,
+    *,
+    owner: User,
+    session: AssistantSession,
+    before: AssistantMessage | None = None,
+    limit: int = PAGE_MESSAGES,
+) -> tuple[list[AssistantMessage], bool]:
+    """The newest ``limit`` rows of a thread - or the ones written before
+    ``before`` - oldest first, and whether older ones are left."""
+    query = select(AssistantMessage).where(
+        AssistantMessage.owner_id == owner.id,
+        AssistantMessage.session_id == session.id,
+    )
+    if before is not None:
+        query = query.where(
+            or_(
+                AssistantMessage.created_at < before.created_at,
+                and_(
+                    AssistantMessage.created_at == before.created_at,
+                    AssistantMessage.id < before.id,
+                ),
             )
-            .order_by(AssistantMessage.created_at, AssistantMessage.id)
+        )
+    rows = list(
+        db.scalars(
+            query.order_by(
+                AssistantMessage.created_at.desc(), AssistantMessage.id.desc()
+            ).limit(limit + 1)
         )
     )
+    return list(reversed(rows[:limit])), len(rows) > limit
 
 
 def history(
@@ -177,7 +196,7 @@ __all__ = [
     "as_uuid",
     "history",
     "message_for",
-    "messages_in",
+    "messages_page",
     "session_for",
     "sessions_for",
     "turns",
