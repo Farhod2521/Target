@@ -44,6 +44,7 @@ class SurveyRow:
     people: int
     questions: int
     answers: int
+    partial: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +54,7 @@ class SurveyFull:
     plans: tuple[uuid.UUID, ...]
     people: tuple[uuid.UUID, ...]
     answers: int
+    partial: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +66,7 @@ class ResponseFilter:
     since: date | None = None
     until: date | None = None
     unreplied: bool = False
+    finished: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,13 +107,39 @@ def _counted(db: Session, column: Any, ids: list[uuid.UUID]) -> dict[uuid.UUID, 
     return {key: int(total) for key, total in rows}
 
 
+def _answer_counts(
+    db: Session, ids: list[uuid.UUID]
+) -> tuple[dict[uuid.UUID, int], dict[uuid.UUID, int]]:
+    """Finished and half-finished answers, per survey."""
+    finished: dict[uuid.UUID, int] = {}
+    partial: dict[uuid.UUID, int] = {}
+    for survey_id, done, total in db.execute(
+        select(
+            SurveyResponse.survey_id,
+            SurveyResponse.completed_at.is_not(None),
+            func.count(),
+        )
+        .where(SurveyResponse.survey_id.in_(ids))
+        .group_by(SurveyResponse.survey_id, SurveyResponse.completed_at.is_not(None))
+    ):
+        (finished if done else partial)[survey_id] = int(total)
+    return finished, partial
+
+
 def survey_rows(db: Session) -> list[SurveyRow]:
-    surveys = list(db.scalars(select(Survey).order_by(Survey.created_at.desc())))
+    """Every survey not deleted, newest first."""
+    surveys = list(
+        db.scalars(
+            select(Survey)
+            .where(Survey.deleted_at.is_(None))
+            .order_by(Survey.created_at.desc())
+        )
+    )
     ids = [row.id for row in surveys]
     if not ids:
         return []
     questions = _counted(db, SurveyQuestion.survey_id, ids)
-    answers = _counted(db, SurveyResponse.survey_id, ids)
+    answers, partial = _answer_counts(db, ids)
     people = _counted(db, surveys_people.c.survey_id, ids)
     plans: dict[uuid.UUID, list[str]] = {}
     for survey_id, name in db.execute(
@@ -126,6 +155,7 @@ def survey_rows(db: Session) -> list[SurveyRow]:
             people=people.get(row.id, 0),
             questions=questions.get(row.id, 0),
             answers=answers.get(row.id, 0),
+            partial=partial.get(row.id, 0),
         )
         for row in surveys
     ]
@@ -143,7 +173,7 @@ def questions_of(db: Session, survey_id: uuid.UUID) -> list[SurveyQuestion]:
 
 def survey_full(db: Session, *, survey_id: uuid.UUID) -> SurveyFull | None:
     survey = db.get(Survey, survey_id)
-    if survey is None:
+    if survey is None or survey.deleted_at is not None:
         return None
     plans = db.scalars(
         select(surveys_plans.c.plan_id).where(surveys_plans.c.survey_id == survey_id)
@@ -151,17 +181,14 @@ def survey_full(db: Session, *, survey_id: uuid.UUID) -> SurveyFull | None:
     people = db.scalars(
         select(surveys_people.c.user_id).where(surveys_people.c.survey_id == survey_id)
     )
-    answers = db.scalar(
-        select(func.count(SurveyResponse.id)).where(
-            SurveyResponse.survey_id == survey_id
-        )
-    )
+    answers, partial = _answer_counts(db, [survey_id])
     return SurveyFull(
         survey=survey,
         questions=tuple(questions_of(db, survey_id)),
         plans=tuple(plans),
         people=tuple(people),
-        answers=int(answers or 0),
+        answers=answers.get(survey_id, 0),
+        partial=partial.get(survey_id, 0),
     )
 
 
@@ -215,14 +242,16 @@ def _person(user: User, *, plan_id: str, plan: str, trial: bool) -> dict[str, An
         "plan_id": plan_id,
         "plan": plan,
         "trial": trial,
+        "staff": bool(user.is_staff),
     }
 
 
 def survey_people(
     db: Session, *, now: datetime, chosen: Collection[uuid.UUID]
 ) -> list[dict[str, Any]]:
-    """The customers on a live plan, a trial included, and those already
-    `chosen` whose plan has lapsed: a saved choice never drops out of sight."""
+    """The customers on a live plan, a trial included; the staff, to try a
+    survey on themselves; and those already `chosen` whose plan has lapsed: a
+    saved choice never drops out of sight."""
     people = [
         _person(
             row.owner,
@@ -232,6 +261,12 @@ def survey_people(
         )
         for row in db.scalars(_live_customers(now=now)).unique()
     ]
+    staff = db.scalars(
+        select(User)
+        .where(User.is_staff.is_(True), User.is_active.is_(True))
+        .order_by(User.email)
+    )
+    people += [_person(user, plan_id="", plan="", trial=False) for user in staff]
     seen = {person["id"] for person in people}
     missing = [pk for pk in chosen if str(pk) not in seen]
     gone = db.scalars(select(User).where(User.id.in_(missing))) if missing else ()
@@ -246,15 +281,19 @@ def audience_of(
     *, picked: Collection[uuid.UUID], roster: list[dict[str, Any]]
 ) -> AudienceDraft:
     """Who the ticked people are, as a survey keeps it. Nobody, or every
-    customer on a live plan: everyone. Otherwise each plan whose every live
-    customer is ticked is kept whole, and whoever else is ticked by name."""
+    customer on a live plan and no staff: everyone. Otherwise each plan whose
+    every live customer is ticked is kept whole, and whoever else is ticked by
+    name - staff always by name, since "everyone" never asks them."""
     chosen = {str(pk) for pk in picked}
     members: dict[str, set[str]] = {}
+    staff: set[str] = set()
     for person in roster:
         if person["plan_id"]:
             members.setdefault(person["plan_id"], set()).add(person["id"])
+        if person.get("staff"):
+            staff.add(person["id"])
     live = set().union(*members.values()) if members else set()
-    if not chosen or (live and live <= chosen):
+    if not chosen or (live and live <= chosen and not chosen & staff):
         return AudienceDraft()
     whole = [plan for plan, ids in members.items() if ids <= chosen]
     covered = set().union(*(members[plan] for plan in whole)) if whole else set()
@@ -301,6 +340,12 @@ def _filtered(found: ResponseFilter) -> list[ColumnElement[bool]]:
                 Subscription.plan_id == found.plan_id,
                 Subscription.status.in_(LIVE_SUBSCRIPTION_STATUSES),
             )
+        )
+    if found.finished is not None:
+        where.append(
+            SurveyResponse.completed_at.is_not(None)
+            if found.finished
+            else SurveyResponse.completed_at.is_(None)
         )
     if found.unreplied:
         where.append(
@@ -386,19 +431,25 @@ def shown(row: SurveyQuestion, item: dict[str, Any], lang: str) -> str:
 
 
 def answer_lines(db: Session, *, response: SurveyResponse) -> list[dict[str, Any]]:
+    """Each answer kept, as it was read when it was given: the question and
+    answer it carries win over today's wording, which may have been edited."""
     lang = office_language(response.survey)
     by_id = {str(row.id): row for row in questions_of(db, response.survey_id)}
     lines = []
     for item in response.answers:
         row = by_id.get(str(item.get("question")))
-        if row is None:
+        if "q" in item:
+            question, said = str(item.get("q") or ""), str(item.get("a") or "")
+        elif row is not None:
+            question, said = row.text.get(lang, ""), shown(row, item, lang)
+        else:
             continue
-        said = shown(row, item, lang)
         lines.append(
             {
-                "question": row.text.get(lang, ""),
-                "kind": row.kind,
+                "question": question,
+                "kind": str(item.get("kind") or (row.kind if row else "")),
                 "answer": said or None,
+                "removed": row is None,
             }
         )
     return lines

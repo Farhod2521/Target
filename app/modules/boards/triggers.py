@@ -328,7 +328,9 @@ def sweep_support(db: Session, *, now: datetime) -> int:
 
 
 def survey_help(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
-    """An answer the office marked «yordam kerak» was chosen."""
+    """An answer the office marked «yordam kerak» was chosen. Read by when an
+    answer was last kept, not begun: a half-finished one grows answer by answer,
+    and the help may be picked in its last save. One ticket per answer still."""
     since = _since(db)
     if since is None:
         return 0
@@ -350,17 +352,17 @@ def survey_help(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             SurveyResponse.id,
             SurveyResponse.owner_id,
             SurveyResponse.answers,
-            SurveyResponse.created_at,
+            SurveyResponse.updated_at,
         )
         .where(
-            SurveyResponse.created_at
+            SurveyResponse.updated_at
             >= max(since, now - timedelta(hours=SURVEY_LOOKBACK_HOURS)),
             SurveyResponse.survey_id.in_(surveys),
             ~_has_ref(
                 SurveyResponse.owner_id, func.concat("survey:", SurveyResponse.id)
             ),
         )
-        .order_by(SurveyResponse.created_at, SurveyResponse.id)
+        .order_by(SurveyResponse.updated_at, SurveyResponse.id)
         .limit(limit)
     )
     responses: list[Any] = []
@@ -371,14 +373,14 @@ def survey_help(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
                 query
                 if after is None
                 else query.where(
-                    tuple_(SurveyResponse.created_at, SurveyResponse.id) > after
+                    tuple_(SurveyResponse.updated_at, SurveyResponse.id) > after
                 )
             )
         )
         responses += page
         if len(page) < limit:
             break
-        after = (page[-1].created_at, page[-1].id)
+        after = (page[-1].updated_at, page[-1].id)
     written = 0
     for response_id, owner_id, answers, _ in responses:
         if not any(

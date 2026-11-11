@@ -2,6 +2,10 @@
 
 Refusals: ``survey_answer_invalid`` carries ``problems`` keyed by question
 id; ``survey_not_due`` means the survey closed or was answered elsewhere.
+
+Each answer is kept as it is given (``POST /surveys/progress``), whether or
+not the reader presses «Yuborish»; ``GET /surveys/due`` hands back what was
+kept under ``survey.saved`` so the dialog opens where it was left.
 """
 
 from dataclasses import asdict
@@ -16,7 +20,7 @@ from app.modules.accounts.models import User
 from app.modules.surveys import services
 from app.modules.surveys.constants import SNOOZE_SECONDS, ResponseChannel
 from app.modules.surveys.exceptions import SurveyAnswerInvalid, SurveyNotDue
-from app.modules.surveys.schemas import AnsweredOut, DueOut, LaterOut
+from app.modules.surveys.schemas import AnsweredOut, DueOut, LaterOut, ProgressOut
 from app.modules.surveys.selectors import due_survey
 
 router = APIRouter(prefix="/surveys", tags=["surveys"])
@@ -32,6 +36,16 @@ class AnswerIn(BaseModel):
     channel: Literal["web", "miniapp"] = Field(
         "web", description="`miniapp` when answered inside the Telegram Mini App."
     )
+
+
+class ProgressIn(BaseModel):
+    survey: str = Field(description="The `survey_id` from `GET /surveys/due`.")
+    answers: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="`{question id: [values]}`, the questions answered so far; "
+        "laid over what was kept before. An empty list clears that answer.",
+    )
+    channel: Literal["web", "miniapp"] = "web"
 
 
 def _language(user: User) -> str:
@@ -71,6 +85,22 @@ def answer(body: AnswerIn, db: Db, user: CurrentUser) -> dict[str, Any]:
         "title": "Rahmat!",
         "message": "Javoblaringizni o'qiymiz va platformani shunga qarab yaxshilaymiz.",
     }
+
+
+@router.post("/progress", responses={200: {"model": ProgressOut}})
+def progress(body: ProgressIn, db: Db, user: CurrentUser) -> dict[str, Any]:
+    """Keep the answers given so far. Nothing is required here; an answer that
+    does not fit its question is left out, not refused."""
+    kept = services.save_progress(
+        db,
+        owner=user,
+        survey_id=body.survey,
+        raw=body.answers,
+        language=_language(user),
+        channel=ResponseChannel(body.channel),
+    )
+    db.commit()
+    return {"saved": len(kept.answers) if kept is not None else 0}
 
 
 @router.post("/later", responses={200: {"model": LaterOut}})

@@ -1,5 +1,8 @@
 """What a survey found: its funnel, each question's answers, and the low scores.
 
+A half-finished answer counts in each question it answered, and as started,
+not answered, in the funnel.
+
 Read in Python over one survey's answers: a survey's answers are hundreds, not
 thousands, and an answer is a JSON list.
 """
@@ -40,6 +43,7 @@ class Funnel:
     seen: int
     later: int
     answered: int
+    partial: int = 0
 
     @property
     def rate_percent(self) -> float:
@@ -149,16 +153,18 @@ def survey_results(db: Session, *, full: SurveyFull, now: datetime) -> dict[str,
             .order_by(SurveyResponse.created_at.desc())
         )
     )
-    answered = {row.owner_id for row in responses}
+    answered = {row.owner_id for row in responses if row.completed_at is not None}
+    started = {row.owner_id for row in responses}
     sightings = list(
         db.scalars(select(SurveySighting).where(SurveySighting.survey_id == survey.id))
     )
-    seen: set[uuid.UUID] = {row.owner_id for row in sightings} | answered
+    seen: set[uuid.UUID] = {row.owner_id for row in sightings} | started
     funnel = Funnel(
-        meant=len(reached(db, full=full, now=now) | answered),
+        meant=len(reached(db, full=full, now=now) | started),
         seen=len(seen),
         later=sum(1 for row in sightings if row.later_count),
         answered=len(answered),
+        partial=len(started - answered),
     )
     rules = [
         Rule(row.position, row.show_if or 0, tuple(row.show_options or ()))
@@ -174,7 +180,9 @@ def survey_results(db: Session, *, full: SurveyFull, now: datetime) -> dict[str,
     for response in responses:
         said = {str(item.get("question")): item for item in response.answers}
         picks = _picks(questions, said)
-        days[localtime(response.created_at).date().isoformat()] += 1
+        days[
+            localtime(response.completed_at or response.created_at).date().isoformat()
+        ] += 1
         channels[response.channel] += 1
         languages[response.language] += 1
         for row in questions:
@@ -209,6 +217,7 @@ def survey_results(db: Session, *, full: SurveyFull, now: datetime) -> dict[str,
             "seen": funnel.seen,
             "later": funnel.later,
             "answered": funnel.answered,
+            "partial": funnel.partial,
             "rate_percent": funnel.rate_percent,
         },
         "days": [{"day": day, "count": days[day]} for day in sorted(days)],

@@ -11,7 +11,8 @@ from app.modules.surveys.constants import ASK_AFTER_DAYS, QuestionKind, SurveyAu
 @dataclass(frozen=True, slots=True)
 class QuestionDraft:
     """One question as written. `show_if` is the earlier choice question it
-    hangs on, by position from one, and 0 for always asked."""
+    hangs on, by position from one, and 0 for always asked. `id` is the saved
+    question it rewrites, empty for a new one."""
 
     kind: QuestionKind
     text: str
@@ -22,6 +23,7 @@ class QuestionDraft:
     is_required: bool = True
     show_if: int = 0
     show_options: tuple[int, ...] = ()
+    id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

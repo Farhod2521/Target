@@ -25,12 +25,10 @@ from app.modules.surveys.selectors.due import answered_since, due_survey
 
 
 def survey_audience(db: Session, *, now: datetime) -> list[str]:
-    """The linked owners inside the asking hours on their own clock. Staff are
-    never asked: the surveys are about the customers' product."""
+    """The linked owners inside the asking hours on their own clock. Staff
+    come too, and are asked only a survey that picked them by name."""
     owners: list[str] = []
     for chat in db.scalars(active_chats()).all():
-        if chat.owner.is_staff:
-            continue
         hour = local_now(db, owner=chat.owner, now=now).hour
         if SURVEY_FIRST_HOUR <= hour < SURVEY_LAST_HOUR:
             owners.append(str(chat.owner_id))

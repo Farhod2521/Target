@@ -26,6 +26,8 @@ class SurveyResponse(Base):
     language: Mapped[str] = mapped_column(String(8), nullable=False, default="")
     channel: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     answers: Mapped[Any] = mapped_column(Json, nullable=False, default=list)
+    # Null while the customer is still answering; each answer is kept as given.
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # -- django extras --
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
     survey: Mapped["Survey"] = relationship(foreign_keys=[survey_id], lazy="select")  # noqa: F821

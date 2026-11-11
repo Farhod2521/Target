@@ -25,8 +25,23 @@ from app.modules.surveys.selectors.due import DueSurvey, survey_for
 
 
 def survey_of(db: Session, state: dict[str, Any]) -> DueSurvey | None:
-    """The survey this state is about, or None once it was closed."""
-    return survey_for(db, survey_id=state["survey"], language=state["language"])
+    """The survey this state is about, or None once it was closed. A survey
+    edited since may have fewer questions: the chat goes on from the first
+    one still unanswered."""
+    due = survey_for(db, survey_id=state["survey"], language=state["language"])
+    if due is not None and not 0 <= state.get("step", 0) < len(due.questions):
+        state["step"] = first_open(due, state.get("answers") or {})
+        state["picks"] = []
+    return due
+
+
+def first_open(due: DueSurvey, answers: dict[str, Any]) -> int:
+    """The first question asked that has no answer yet; the last one if all do."""
+    asked = due.asked(answers)
+    for index in asked:
+        if due.questions[index].id not in answers:
+            return index
+    return asked[-1] if asked else 0
 
 
 def local_now(db: Session, *, owner: User, now: datetime) -> datetime:
@@ -65,6 +80,7 @@ def lock_key(chat: TelegramChat) -> str:
 
 __all__ = [
     "clear",
+    "first_open",
     "load",
     "local_now",
     "local_today",
