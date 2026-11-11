@@ -132,8 +132,17 @@ class TicketReasonOut(BaseModel):
     at: datetime
 
 
+class CardOfferOut(BaseModel):
+    percent: int = Field(description="0 once the offer is over.")
+    started_at: datetime = Field(description="When «Chegirma berish» was pressed.")
+    ends_at: datetime | None = Field(description="When this percent ends.")
+
+
 class CardDetailOut(CardOut):
     client: ClientDetailOut
+    offer: CardOfferOut | None = Field(
+        None, description="Sales: the discount given, if «Chegirma berish» was pressed."
+    )
     ticket_reasons: list[TicketReasonOut] = Field(description="Support: newest first.")
     support_chat_id: str | None = Field(
         description="The client's Yordam chat, to open it from the ticket."
@@ -147,7 +156,8 @@ class CardDetailOut(CardOut):
 
 class ActionIn(BaseModel):
     action: str = Field(
-        description="Sales: `contacted`, `no_contact`, `needs_support`, `close`. "
+        description="Sales: `contacted`, `no_contact`, `offer`, `needs_support`, "
+        "`close`. "
         "Support: `start`, `resolve`."
     )
     on: bool = Field(
