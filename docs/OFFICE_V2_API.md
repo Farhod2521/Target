@@ -98,13 +98,16 @@ Sahifa ochilganda birinchi shu chaqiriladi.
 o'tkazadi va soat shu bosilgan paytdan boshlanadi: 24 soat 20%, 72-soatgacha 10%,
 keyin «Chegirmasiz». Bu o'tishlarni tizim har daqiqa o'zi qiladi. Har mijozga bir marta
 beriladi. Chegirma mijozning **birinchi** tarif to'loviga tushadi (qo'shimcha sahifa va
-o'rinlarga emas). Promokod ham kiritilsa, kattasi olinadi. Shu chegirma bilan narxlangan
+o'rinlarga emas). Tartib: asl narx → sotuv chegirmasi → promokod (qolgan summadan) →
+hamyon. Shu chegirma bilan narxlangan
 to'lov bosqich tugaganidan 15 daqiqa keyingacha to'lanadi. Karta yopilsa yoki qo'lda
 chegirma ustunlaridan chiqarilsa, chegirma ham to'xtaydi.
 
 Mijoz kabinetida: `GET /api/v1/billing` va `GET /api/v1/billing/paywall` javobida
-`sales_offer: {percent, ends_at, pay_until}` (yoki `null`). Tarif kartalari va `chosen`
-narxida chegirma allaqachon ayrilgan (`discount_minor`).
+`sales_offer: {percent, ends_at, pay_until}` (yoki `null`). Tarif kartalari
+(`cards[].offer`) va `chosen` da: `price_minor` asl narx, `offer_minor` sotuv chegirmasi,
+`promo_minor` promokod (faqat `chosen`), `discount_minor` = ikkalasi, `wallet_minor` hamyon,
+`due_minor` to'lanadigan summa. `promo_quote.base_minor` = chegirmadan keyingi narx.
 
 `trial` ustuni bazada bor, lekin hozircha yashirin: kelmaydi. Bepul sinov qilinganda chiqadi.
 

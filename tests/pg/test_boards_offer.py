@@ -1,6 +1,7 @@
 """The sales manager's offer against PostgreSQL: «Chegirma berish» moves a
 card to 20%, the minute sweep steps it to 10% and Chegirmasiz, and the
-client's first plan bill is priced with it (a larger promo code wins)."""
+client's first plan bill is priced with it; a promo code comes off what is
+left, and the wallet pays from the rest."""
 
 from datetime import timedelta
 from typing import Any
@@ -17,6 +18,8 @@ from app.modules.billing.constants import InvoiceStatus, WalletChoice
 from app.modules.billing.models import Invoice, PromoRedemption
 from app.modules.billing.models.promo_code import PromoCode
 from app.modules.boards.models import BoardCard, BoardCardEvent
+from app.modules.referrals.constants import RewardStatus
+from app.modules.referrals.models import ReferralReward
 from tests.pg.test_boards_me import _staff
 from tests.pg.test_boards_sales import (
     URL,
@@ -180,9 +183,7 @@ def test_a_closed_card_or_a_paid_client_gets_no_offer(
     assert _bill(db, staff["owner"]).offer_minor == 0
 
 
-def test_the_larger_of_the_code_and_the_offer_counts(
-    client: TestClient, db: Session
-) -> None:
+def _codes(db: Session) -> None:
     db.add_all(
         [
             PromoCode(
@@ -200,23 +201,75 @@ def test_the_larger_of_the_code_and_the_offer_counts(
         ]
     )
     db.commit()
-    _given, ali = _offered(client, db, "promo@shop.test")
+
+
+def _redeemed(db: Session, bill: Invoice) -> PromoRedemption | None:
+    return db.scalar(
+        select(PromoRedemption).where(PromoRedemption.invoice_id == bill.id)
+    )
+
+
+def test_a_code_comes_off_what_the_offer_leaves(
+    client: TestClient, db: Session
+) -> None:
+    _codes(db)
+    given, ali = _offered(client, db, "promo@shop.test")
+    after_offer = PRICE - PRICE * 20 // 100
 
     small = _bill(db, ali["owner"], promo="SMALL5")
     assert small.offer_minor == PRICE * 20 // 100
-    assert small.amount_minor == PRICE - small.offer_minor
-    assert (
-        db.scalar(select(PromoRedemption).where(PromoRedemption.invoice_id == small.id))
-        is None
-    )
+    assert small.amount_minor == after_offer - after_offer * 5 // 100
+    redeemed = _redeemed(db, small)
+    assert redeemed is not None and redeemed.discount_minor == after_offer * 5 // 100
 
     big = _bill(db, ali["owner"], promo="BIG30")
-    assert big.offer_minor == 0
-    assert big.amount_minor == PRICE - PRICE * 30 // 100
+    assert big.offer_minor == PRICE * 20 // 100
+    assert big.amount_minor == after_offer - after_offer * 30 // 100
+
+    # The offer steps down: the same code is quoted again on the new base.
+    _age(db, given.id, hours=25)
+    stepped = _bill(db, ali["owner"], promo="BIG30")
+    after_ten = PRICE - PRICE * 10 // 100
+    assert stepped.offer_minor == PRICE * 10 // 100
+    assert stepped.amount_minor == after_ten - after_ten * 30 // 100
+    redeemed = _redeemed(db, stepped)
+    assert redeemed is not None and redeemed.discount_minor == after_ten * 30 // 100
 
     back = _bill(db, ali["owner"])
-    assert back.offer_minor == PRICE * 20 // 100
-    assert back.amount_minor == PRICE - back.offer_minor
+    assert back.offer_minor == PRICE * 10 // 100
+    assert back.amount_minor == after_ten
+    assert _redeemed(db, back) is None
+
+
+def test_the_wallet_pays_after_the_offer_and_the_code(
+    client: TestClient, db: Session
+) -> None:
+    _codes(db)
+    _given, ali = _offered(client, db, "purse@shop.test")
+    owner = db.get(User, ali["owner"])
+    assert owner is not None
+    db.add(
+        ReferralReward(
+            owner_id=owner.id,
+            base_minor=5_000_000,
+            currency="UZS",
+            amount_minor=1_000_000,
+            status=RewardStatus.EARNED,
+            earned_at=utcnow(),
+        )
+    )
+    db.commit()
+    now = utcnow()
+    invoice = billing.create_invoice(db, owner=owner, plan=_plan(db), now=now)
+    bill = billing.price_invoice(
+        db, invoice=invoice, promo_code="SMALL5", wallet=WalletChoice.USE, now=now
+    )
+    db.commit()
+    after_offer = PRICE - PRICE * 20 // 100
+    after_code = after_offer - after_offer * 5 // 100
+    assert bill.offer_minor == PRICE * 20 // 100
+    assert bill.wallet_minor == 1_000_000
+    assert bill.amount_minor == after_code - 1_000_000
 
 
 def test_the_paywall_shows_the_offer_price(client: TestClient, db: Session) -> None:
@@ -231,3 +284,36 @@ def test_the_paywall_shows_the_offer_price(client: TestClient, db: Session) -> N
     assert shown["sales_offer"]["percent"] == 20
     assert shown["chosen"]["discount_minor"] == PRICE * 20 // 100
     assert [c["offer"]["discount_minor"] for c in shown["cards"]] == [PRICE * 20 // 100]
+    assert [c["offer"]["offer_minor"] for c in shown["cards"]] == [PRICE * 20 // 100]
+    assert shown["chosen"]["price_minor"] == PRICE
+    assert shown["chosen"]["promo_minor"] == 0
+
+
+def test_the_paywall_takes_a_code_off_what_the_offer_leaves(
+    client: TestClient, db: Session
+) -> None:
+    _codes(db)
+    _given, ali = _offered(client, db, "wallcode@shop.test")
+    owner = db.get(User, ali["owner"])
+    assert owner is not None
+    _plan(db)
+    db.commit()
+    shown = client.get(
+        "/api/v1/billing/paywall",
+        params={"plan": "standart", "promo": "SMALL5"},
+        headers=_auth(owner),
+    ).json()
+    after_offer = PRICE - PRICE * 20 // 100
+    promo = after_offer * 5 // 100
+    assert shown["promo_quote"]["base_minor"] == after_offer
+    assert shown["promo_quote"]["discount_minor"] == promo
+    chosen = shown["chosen"]
+    assert chosen["price_minor"] == PRICE
+    assert chosen["offer_minor"] == PRICE * 20 // 100
+    assert chosen["promo_minor"] == promo
+    assert chosen["discount_minor"] == PRICE * 20 // 100 + promo
+    assert chosen["due_minor"] == after_offer - promo
+
+    # The bill comes out at the price the paywall showed.
+    bill = _bill(db, ali["owner"], promo="SMALL5")
+    assert bill.amount_minor == chosen["due_minor"]
