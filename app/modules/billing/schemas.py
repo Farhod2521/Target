@@ -87,7 +87,15 @@ class OfferOut(BaseModel):
     until: datetime | None = Field(description="With `wait`: when it becomes possible.")
     credit_days: int
     price_minor: int
-    discount_minor: int
+    discount_minor: int = Field(
+        description="All the discount: `offer_minor` + `promo_minor`."
+    )
+    offer_minor: int = Field(
+        0, description="The sales manager's offer (20% or 10%) on the plan price."
+    )
+    promo_minor: int = Field(
+        0, description="The typed code, on the price left after the offer."
+    )
     credit_minor: int = Field(description="Unused days of the current plan, credited.")
     wallet_minor: int
     pages: int
@@ -173,7 +181,7 @@ class PricedChoice(BaseModel):
     sales_offer: SalesOfferOut | None = Field(
         None,
         description="The sales manager's offer on the first plan. The cards and "
-        "`chosen` already take it off; with a code, the larger one counts.",
+        "`chosen` already take it off; a code is taken off what is left.",
     )
     promo_quote: PromoQuote | None = Field(None, description="The typed code applies.")
     promo_error: str | None = Field(None, description="Why the typed code does not.")

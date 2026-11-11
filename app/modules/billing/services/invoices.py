@@ -441,21 +441,26 @@ def price_invoice(
     locked.credit_minor = locked.pages = locked.pages_minor = 0
     locked.seats = locked.seats_minor = locked.offer_minor = 0
     db.flush()
+    # The sales offer comes off the plan price first; a typed code then comes
+    # off what is left; the wallet (below) pays from the rest.
     pay_until, offer_take = _sales_offer(db, invoice=locked, owner=owner, now=now)
-    if (
-        promo_code
-        and _promo_minor(db, invoice=locked, owner=owner, code=promo_code, now=now)
-        >= offer_take
-    ):
+    redeemed = _redemption_on(db, locked)
+    plan_minor = locked.amount_minor + (redeemed.discount_minor if redeemed else 0)
+    if pay_until is not None and 0 < offer_take < plan_minor:
+        locked.amount_minor -= offer_take
+        locked.offer_minor = offer_take
+        locked.expires_at = min(locked.expires_at, pay_until)
+        db.flush()
+    if promo_code:
+        if redeemed is not None and redeemed.discount_minor != _promo_minor(
+            db, invoice=locked, owner=owner, code=promo_code, now=now
+        ):
+            # Quoted on another base (the offer came, went or stepped down).
+            drop_discount(db, invoice=locked, now=now)
+            db.refresh(locked, ["amount_minor"])
         apply_discount(db, invoice=locked, code=promo_code, now=now)
     else:
         drop_discount(db, invoice=locked, now=now)
-        db.refresh(locked, ["amount_minor"])
-        if pay_until is not None and 0 < offer_take < locked.amount_minor:
-            locked.amount_minor -= offer_take
-            locked.offer_minor = offer_take
-            locked.expires_at = min(locked.expires_at, pay_until)
-            db.flush()
     db.refresh(locked, ["amount_minor"])
     switch = plan_switch(db, owner=owner, plan=locked.plan, now=now)
     if switch.until is not None:

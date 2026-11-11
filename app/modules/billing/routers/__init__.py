@@ -164,7 +164,9 @@ def invoice_out(invoice: Invoice, *, paid_via: str = "") -> dict[str, Any]:
     }
 
 
-def offer_out(offer: selectors.Offer) -> dict[str, Any]:
+def offer_out(
+    offer: selectors.Offer, *, offer_minor: int = 0, promo_minor: int = 0
+) -> dict[str, Any]:
     return {
         "plan": plan_out(offer.plan),
         "move": offer.switch.move,
@@ -172,6 +174,8 @@ def offer_out(offer: selectors.Offer) -> dict[str, Any]:
         "credit_days": offer.switch.credit_days,
         "price_minor": offer.price_minor,
         "discount_minor": offer.discount_minor,
+        "offer_minor": offer_minor,
+        "promo_minor": promo_minor,
         "credit_minor": offer.credit_minor,
         "wallet_minor": offer.wallet_minor,
         "pages": offer.pages,
@@ -247,7 +251,12 @@ def priced_choice(
         elif offer.switch.move == PlanMove.RESTART:
             action = "switch"
         cards.append(
-            {"code": code, "offer": offer_out(offer), "tag": tag, "action": action}
+            {
+                "code": code,
+                "offer": offer_out(offer, offer_minor=taken.get(code, 0)),
+                "tag": tag,
+                "action": action,
+            }
         )
     page: dict[str, Any] = {
         "cards": cards,
@@ -271,9 +280,11 @@ def priced_choice(
                 db,
                 owner=user,
                 code=promo,
+                # The code is taken off what the sales offer leaves, as on the bill.
                 base_minor=int(
                     to_minor(amount=str(offer.plan.price), currency=offer.plan.currency)
-                ),
+                )
+                - taken.get(asked, 0),
                 currency=offer.plan.currency,
                 now=now,
             )
@@ -287,11 +298,9 @@ def priced_choice(
             }
         except DomainError as exc:
             discount["promo_error"] = exc.message
-    # The typed code or the sales offer, whichever takes more, as the bill does.
-    quote_minor = max(
-        discount.get("promo_quote", {}).get("discount_minor") or 0,
-        taken.get(asked, 0),
-    )
+    # The sales offer first, then the typed code on what is left, as the bill does.
+    promo_minor = discount.get("promo_quote", {}).get("discount_minor") or 0
+    quote_minor = taken.get(asked, 0) + promo_minor
     carried = selectors.renewal(
         db,
         owner=user,
@@ -315,7 +324,9 @@ def priced_choice(
         page
         | discount
         | {
-            "chosen": offer_out(chosen),
+            "chosen": offer_out(
+                chosen, offer_minor=taken.get(asked, 0), promo_minor=promo_minor
+            ),
             "chosen_ends_at": selectors.offer_ends_at(offer=chosen, now=now),
             "pages_dropped": pages == PagesChoice.DROP,
             "carried_pages": offer.pages,
