@@ -329,6 +329,24 @@ def test_the_lead_sees_the_queue_and_gives_cards_out(
     assert client.get(f"{URL}/cards/{card}", headers=ali).status_code == 404
 
 
+def test_a_phone_typed_with_spaces_is_found(client: TestClient, db: Session) -> None:
+    _live(db)
+    _client(db, "first@shop.test", minutes_ago=30)
+    other = _client(db, "second@shop.test", minutes_ago=10)
+    other.phone = "+998935557788"
+    db.commit()
+    _sweep(db)
+    lead = _staff(db, "rahbar@office.test", Role.SALES_LEAD)
+
+    for typed in ("93 555 77 88", "+998 (93) 555-77-88", "935557788"):
+        found = client.get(
+            f"{URL}/boards/sales", params={"q": typed}, headers=lead
+        ).json()
+        assert [c["client"]["email"] for c in found["columns"][0]["cards"]] == [
+            "second@shop.test"
+        ], typed
+
+
 def test_a_note_goes_into_the_history(client: TestClient, db: Session) -> None:
     _live(db)
     _client(db, "first@shop.test")

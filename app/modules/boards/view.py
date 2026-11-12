@@ -1,5 +1,6 @@
 """A board and a card as the office reads them."""
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -49,11 +50,13 @@ def _scoped(
     if words:
         client = aliased(User)
         like = f"%{words}%"
+        # "90 123 45 67" or "(90) 123-45-67" finds +998901234567.
+        digits = re.sub(r"[\s()-]", "", words) or words
         query = query.join(client, client.id == BoardCard.owner_id).where(
             or_(
                 client.full_name.ilike(like),
                 client.email.ilike(like),
-                client.phone.ilike(like),
+                client.phone.ilike(f"%{digits}%"),
             )
         )
     return query
