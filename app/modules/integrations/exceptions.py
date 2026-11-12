@@ -303,3 +303,71 @@ class PixelNotCreated(DomainError):
         super().__init__(
             "Pikselni yaratib bo'lmadi. Meta ulanishini tekshirib, qayta urining."
         )
+
+
+class AccountNotForPage(DomainError):
+    """A new pair whose ad account is not in the page's portfolio."""
+
+    def __init__(self, reason: str = "") -> None:
+        from app.modules.integrations.selectors.portfolio import (
+            OTHER_PORTFOLIO,
+            REASONS,
+        )
+
+        self.reason = reason or OTHER_PORTFOLIO
+        super().__init__(
+            "Bu reklama akkauntini sahifaga ulab bo'lmaydi. "
+            + REASONS.get(self.reason, REASONS[OTHER_PORTFOLIO])
+        )
+
+
+class AdAccountRehearsed(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Sinov rejimi yoqiq: reklama akkaunti Meta'da yaratilmadi.")
+
+
+class AdAccountNoPortfolio(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Yangi reklama akkaunti faqat biznes portfoliosidagi sahifa uchun "
+            "yaratiladi. Bu sahifa shaxsiy yoki portfoliosi noma'lum."
+        )
+
+
+class AdAccountLimit(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Meta bu biznes portfoliosida yangi reklama akkaunti ochishga ruxsat "
+            "bermadi: akkauntlar soni chegarasiga yetilgan."
+        )
+
+
+class AdAccountBadStanding(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Portfoliodagi reklama akkauntlaridan biri bloklangan yoki "
+            "tekshiruvda - Meta yangisini ochmaydi. Avval o'shani hal qiling."
+        )
+
+
+class AdAccountTwoFactor(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Meta ikki bosqichli tasdiqlashni talab qildi. Facebook profilingizda "
+            "uni yoqing va qayta urinib ko'ring."
+        )
+
+
+class AdAccountNotAllowed(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Meta reklama akkaunti yaratishga ruxsat bermadi. Biznes "
+            "portfoliosida admin ekaningizni tekshiring."
+        )
+
+
+class AdAccountNotCreated(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Reklama akkauntini yaratib bo'lmadi. Birozdan so'ng qayta urinib ko'ring."
+        )

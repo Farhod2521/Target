@@ -18,9 +18,11 @@ from googleadskit import (
 )
 from metaads import PROVIDER
 from metaads.accounts import (
-    create_pixel as make_pixel,
-)
-from metaads.accounts import (
+    ACCOUNT_IN_BAD_STANDING,
+    DEFAULT_ACCOUNT_CURRENCY,
+    TASHKENT_TIMEZONE_ID,
+    TOO_MANY_ACCOUNTS,
+    TWO_FACTOR_REQUIRED,
     custom_conversion_count,
     custom_conversions,
     list_ad_accounts,
@@ -30,6 +32,12 @@ from metaads.accounts import (
     may_run_ads,
     owes_payment,
     pixel_events,
+)
+from metaads.accounts import (
+    create_ad_account as make_ad_account,
+)
+from metaads.accounts import (
+    create_pixel as make_pixel,
 )
 from metaads.dto import AdAccountDTO, PageDTO, PixelDTO
 from metaads.errors import MetaAPIError, MetaError
@@ -52,6 +60,13 @@ from app.modules.integrations.constants import (
     ConnectionStatus,
 )
 from app.modules.integrations.exceptions import (
+    AdAccountBadStanding,
+    AdAccountLimit,
+    AdAccountNoPortfolio,
+    AdAccountNotAllowed,
+    AdAccountNotCreated,
+    AdAccountRehearsed,
+    AdAccountTwoFactor,
     ConnectionTooNarrow,
     GoogleAdsUnavailable,
     GoogleNotConnected,
@@ -187,6 +202,7 @@ def store_ad_accounts(
                 "connection_id": connection.id,
                 "name": account.name,
                 "business_external_id": account.business_id,
+                "business_ids": list(account.business_ids),
                 "currency": account.currency,
                 "timezone": account.timezone_name,
                 "account_status": str(status),
@@ -247,6 +263,23 @@ def _location(page: PageDTO) -> dict[str, object]:
     }
 
 
+def _portfolio(page: PageDTO, row: PageAccount) -> dict[str, object]:
+    """The page's portfolios, unless this read could not say.
+
+    A read that did not ask for ``business`` (Meta refused the field) and
+    found no client portfolio keeps what an earlier read learned - it is
+    no news, not news that the page left its portfolio.
+    """
+    if not page.business_asked and not page.business_ids and row.business_state:
+        return {}
+    return {
+        "business_external_id": page.business.id if page.business else "",
+        "business_name": page.business_name,
+        "business_ids": list(page.business_ids),
+        "business_state": page.business_state,
+    }
+
+
 def store_pages(
     db: Session, *, connection: ProviderConnection, pages: list[PageDTO]
 ) -> None:
@@ -283,6 +316,7 @@ def store_pages(
             "instagram_username": page.instagram_username,
             **(EMPTY_PROFILE if moved else {}),
             **_location(page),
+            **_portfolio(page, row),
             "synced_at": now,
         }
         for name, value in values.items():
@@ -413,6 +447,90 @@ def create_pixel(db: Session, *, account: AdAccount, name: str) -> PixelAccount:
     db.add(row)
     db.flush()
     return row
+
+
+def create_ad_account(
+    db: Session, *, user: User, page_external_id: str, name: str, currency: str
+) -> AdAccount:
+    """Make an ad account in the page's portfolio, store it. Caller pairs it.
+
+    Only for a page in a portfolio: Meta makes ad accounts inside one and
+    no other way. The new row is read back through the ordinary account
+    sync, so it arrives with every field the picker shows.
+    """
+    from app.modules.integrations.selectors.portfolio import create_in
+
+    page = db.scalar(
+        select(PageAccount).where(
+            PageAccount.owner_id == user.id,
+            PageAccount.provider == PROVIDER,
+            PageAccount.external_id == page_external_id,
+        )
+    )
+    if page is None:
+        raise UnknownPage
+    business_id = create_in(page)
+    if not business_id:
+        raise AdAccountNoPortfolio
+    if settings.ads_dry_run:
+        raise AdAccountRehearsed
+    connection = _usable_connection(db, owner=user)
+    token = _usable_token(connection)
+    if token is None:
+        raise NoConnection
+    try:
+        external_id = make_ad_account(
+            business_id=business_id,
+            name=(name or page.name or "Reklama akkaunti")[:100],
+            currency=(currency or DEFAULT_ACCOUNT_CURRENCY).upper(),
+            timezone_id=TASHKENT_TIMEZONE_ID,
+            page_id=page.external_id,
+            token=token,
+            dry_run=False,
+        )
+    except MetaAPIError as exc:
+        logger.info("ad account not made in %s: %s", business_id, exc)
+        refusals: dict[int, type[Exception]] = {
+            TOO_MANY_ACCOUNTS: AdAccountLimit,
+            ACCOUNT_IN_BAD_STANDING: AdAccountBadStanding,
+            TWO_FACTOR_REQUIRED: AdAccountTwoFactor,
+            PERMISSION_CODE: AdAccountNotAllowed,
+        }
+        raise refusals.get(exc.code or 0, AdAccountNotCreated)() from exc
+    except MetaError as exc:
+        logger.info("ad account not made in %s: %s", business_id, exc)
+        raise AdAccountNotCreated from exc
+    if not external_id:
+        raise AdAccountNotCreated
+    sync_ad_accounts(db, connection_id=connection.id)
+    account = db.scalar(
+        select(AdAccount).where(
+            AdAccount.owner_id == user.id,
+            AdAccount.provider == PROVIDER,
+            AdAccount.external_id == external_id,
+        )
+    )
+    if account is None:
+        # Meta made it but the list did not answer it yet: stored from what
+        # is known, the next sync fills the rest.
+        account = _upsert_account(
+            db,
+            provider=PROVIDER,
+            external_id=external_id,
+            values={
+                "owner_id": user.id,
+                "connection_id": connection.id,
+                "name": (name or page.name or "")[:255],
+                "business_external_id": business_id,
+                "business_ids": [business_id],
+                "currency": (currency or DEFAULT_ACCOUNT_CURRENCY).upper(),
+            },
+        )
+        db.flush()
+    elif business_id not in (account.business_ids or []):
+        account.business_ids = [*(account.business_ids or []), business_id]
+        db.flush()
+    return account
 
 
 def _store_pixels(db: Session, *, account: AdAccount, pixels: list[PixelDTO]) -> None:
@@ -826,6 +944,38 @@ def refresh_accounts(db: Session, *, user: User) -> None:
     key = str(connection.id)
     on_commit(db, lambda: sync_ad_accounts_task.delay(key))
     on_commit(db, lambda: sync_pages_task.delay(key))
+
+
+# How long one cabinet waits between two automatic portfolio reads.
+PORTFOLIO_READ_COOLDOWN_SECONDS = 600
+
+
+def read_portfolios_once(db: Session, *, owner: User) -> bool:
+    """Queue a page and account read for a cabinet whose pages were never asked.
+
+    Pages synced before the page picker knew about portfolios have none
+    stored, and nothing else re-reads them until somebody presses refresh.
+    Asked from the screens that show the picker, at most once per cooldown.
+    Queued straight away rather than on commit: these are read-only screens.
+    """
+    from app.modules.integrations.selectors.portfolio import unchecked
+    from app.modules.integrations.tasks import sync_ad_accounts_task, sync_pages_task
+
+    if not unchecked(db, owner=owner):
+        return False
+    connection = meta_connection(db, owner=owner)
+    if connection is None or connection.status not in USABLE_CONNECTION_STATUSES:
+        return False
+    if not cache.add(
+        f"integrations:portfolio-read:{connection.id}",
+        "1",
+        PORTFOLIO_READ_COOLDOWN_SECONDS,
+    ):
+        return False
+    key = str(connection.id)
+    sync_ad_accounts_task.delay(key)
+    sync_pages_task.delay(key)
+    return True
 
 
 def recheck_leads(db: Session, *, user: User) -> None:

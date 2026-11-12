@@ -269,12 +269,21 @@ def _ad_account_out(account: AdAccount) -> dict[str, Any]:
     }
 
 
-def _page_out(row: PageRow) -> dict[str, Any]:
+def _page_out(row: PageRow, accounts: list[AdAccount]) -> dict[str, Any]:
+    from app.modules.integrations.selectors.portfolio import page_fit
+
     page = row.page
+    fit = page_fit(page, accounts)
     return {
         "id": str(page.id),
         "external_id": page.external_id,
         "name": page.name,
+        "business_state": fit.business_state,
+        "business_name": fit.business_name,
+        # External ids an office move may pick for this page; see
+        # docs/FRONTEND_SAHIFA_AKKAUNT.md.
+        "allowed_ad_accounts": list(fit.allowed_ad_accounts),
+        "blocked_text": fit.blocked_text,
         "is_active": page.is_active,
         "leadgen_subscribed": page.leadgen_subscribed,
         "may_advertise": page.may_advertise,
@@ -462,7 +471,7 @@ def customer(customer_id: uuid.UUID, db: Db, user: Admin) -> dict[str, Any]:
         "plan_picker": _picker_out(plan_picker(db, owner=owner, now=now)),
         "meta": _connection_out(card.connection),
         "ad_accounts": [_ad_account_out(account) for account in card.ad_accounts],
-        "pages": [_page_out(row) for row in card.page_rows],
+        "pages": [_page_out(row, card.ad_accounts) for row in card.page_rows],
         "pixels": [
             {
                 "external_id": pixel.external_id,

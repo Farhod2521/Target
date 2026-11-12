@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
 from app.modules.integrations.models import AdAccount, PageAccount, PagePair
+from app.modules.integrations.selectors.portfolio import fits
 from app.modules.integrations.selectors.slots import enabled_pages, page_shown
 
 
@@ -97,10 +98,19 @@ def _fallback_accounts(
     found: dict[uuid.UUID, AdAccount] = {}
     for page in waiting:
         account = accounts.get(page.ad_account_id) if page.ad_account_id else None
-        account = account or current
+        # The account the page remembers was chosen for it and stays; the
+        # cabinet's current one is only lent, and only to a page whose
+        # portfolio it is in - or whose portfolio was never read yet, so a
+        # deploy alone takes no page's account away.
+        if account is None and current is not None and _lendable(page, current):
+            account = current
         if account is not None:
             found[page.id] = account
     return found
+
+
+def _lendable(page: PageAccount, account: AdAccount) -> bool:
+    return not page.business_state or fits(page, account)
 
 
 def stored_pairs(

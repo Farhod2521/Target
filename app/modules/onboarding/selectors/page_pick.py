@@ -22,10 +22,16 @@ from app.modules.integrations.selectors import (
     page_pairs,
 )
 from app.modules.integrations.selectors.connection import pages
+from app.modules.integrations.selectors.portfolio import misfit
 
 # What stops a page from advertising, in the order the screen names them.
 Problem = Literal[
-    "no_account", "account_off", "account_debt", "no_profile", "page_role"
+    "no_account",
+    "account_off",
+    "account_debt",
+    "no_profile",
+    "page_role",
+    "account_not_for_page",
 ]
 # What a page can advertise without, but is worse off for.
 Warning = Literal["account_cap", "no_instagram"]
@@ -55,8 +61,11 @@ class AccountOption:
     account: AdAccount
     # A campaign for this page was already made on it.
     recommended: bool
-    # Meta has switched it off. Listed, never chosen.
+    # Meta has switched it off, or it is not in the page's portfolio.
+    # Listed, never chosen.
     unusable: bool
+    # Why it is not for this page (``portfolio`` code), or "".
+    not_for_page: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +147,15 @@ def _row(
         problems.append("account_debt")
     elif payer.may_advertise is False:
         problems.append("account_off")
+    # A pair not yet stored is a new one, and has to fit the page's
+    # portfolio; a stored one was made before the rule and stays.
+    if (
+        payer is not None
+        and not (pair is not None and pair.stored)
+        and page.ad_account_id != payer.id
+        and misfit(page, payer)
+    ):
+        problems.append("account_not_for_page")
     if payer is not None and payer.cap_reached:
         warnings.append("account_cap")
     # While preparing, the profile is the step after this one.
@@ -166,14 +184,22 @@ def _options(
     from app.modules.ads.selectors import accounts_that_paid_for
 
     paid = accounts_that_paid_for(db, owner=owner, page=chosen.page)
-    options = [
-        AccountOption(
-            account=account,
-            recommended=account.id in paid,
-            unusable=account.may_advertise is False and not account.payment_due,
+    page = chosen.page
+    kept = {page.ad_account_id} if page.ad_account_id else set()
+    if chosen.paired and chosen.payer is not None:
+        kept.add(chosen.payer.id)
+    options = []
+    for account in accounts:
+        reason = "" if account.id in kept else misfit(page, account)
+        options.append(
+            AccountOption(
+                account=account,
+                recommended=account.id in paid,
+                unusable=(account.may_advertise is False and not account.payment_due)
+                or bool(reason),
+                not_for_page=reason,
+            )
         )
-        for account in accounts
-    ]
     options.sort(key=lambda option: (option.unusable, not option.recommended))
     return tuple(options)
 

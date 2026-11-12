@@ -138,6 +138,15 @@ BASE_PAGE_FIELDS = (
     "instagram_business_account{id,username}"
 )
 PAGE_FIELDS = BASE_PAGE_FIELDS + ",connected_instagram_account{id,username}"
+# The portfolio that owns the page. Meta answers it only to a page admin,
+# with ``business_management``; the page picker offers only the ad accounts
+# of that portfolio. Asked on top of the list above, and the first thing
+# dropped when Meta refuses the field set.
+BUSINESS_PAGE_FIELDS: Final = PAGE_FIELDS + ",business{id,name}"
+
+# An agency's own portfolio may hold a customer's page as a client page and
+# run it from the agency's ad accounts. Only the ids are needed.
+CLIENT_PAGES_EDGE: Final = "client_pages"
 
 # What Meta answers when one field of a list is not allowed for this token:
 # the whole read is refused, not the field. ``#100`` names the field,
@@ -299,6 +308,13 @@ def _owned_by(rows: list[dict[str, Any]], *, business_id: str) -> list[dict[str,
     for row in rows:
         if not row.get("business"):
             row["business"] = {"id": business_id}
+        # Every portfolio walked, whatever the row says about its owner:
+        # the page picker asks "may a page in this portfolio run from it",
+        # and a client account answers yes for the one it was shared into.
+        reached = list(row.get("reached_through") or ())
+        if business_id not in reached:
+            reached.append(business_id)
+        row["reached_through"] = reached
     return rows
 
 
@@ -316,14 +332,23 @@ def _unique_by_id(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     the whole point of :mod:`metaads.parsing` is that those two are not
     allowed to look alike.
     """
-    seen: set[str] = set()
+    seen: dict[str, dict[str, Any]] = {}
     unique: list[dict[str, Any]] = []
     for row in rows:
         account_id = str(row.get("id") or "")
         if account_id and account_id in seen:
+            # The first row wins on every field but this one: the portfolios
+            # an account was reached through add up across the edges.
+            kept = seen[account_id]
+            reached = list(kept.get("reached_through") or ())
+            for business_id in row.get("reached_through") or ():
+                if business_id not in reached:
+                    reached.append(business_id)
+            if reached:
+                kept["reached_through"] = reached
             continue
         if account_id:
-            seen.add(account_id)
+            seen[account_id] = row
         unique.append(row)
     return unique
 
@@ -517,24 +542,130 @@ def list_pages(*, token: str, client: GraphClient | None = None) -> list[PageDTO
     The page tokens come back in this one response. Asking for them later,
     per page, is both slower and a second chance for the user token to have
     expired in between.
+
+    Each row also says which portfolios hold the page - its owner, and any
+    business that holds it as a client page - for the page picker. A field
+    set Meta refuses is retried smaller, newest field first, and a row read
+    without ``business`` is stamped so, because "no portfolio" and "never
+    asked" must not look alike.
     """
     graph = client or GraphClient(token=token)
     try:
-        try:
-            rows = graph.get_all("me/accounts", fields=PAGE_FIELDS, limit=100)
-        except MetaAPIError as exc:
-            # The second Instagram field is the newest ask on the one read
-            # every screen stands on. Refused, it costs that field and not
-            # the page list.
-            if exc.code not in _FIELD_REFUSALS:
-                raise
-            logger.warning("page list refused the full field set: %s", exc)
-            rows = graph.get_all("me/accounts", fields=BASE_PAGE_FIELDS, limit=100)
+        rows, asked = _page_rows(graph)
+        clients = _client_page_businesses(graph)
     finally:
         if client is None:
             graph.close()
 
+    for row in rows:
+        row["business_asked"] = asked
+        row["client_of"] = clients.get(str(row.get("id") or ""), [])
     return parsed_all(PageDTO, rows)
+
+
+def _page_rows(graph: GraphClient) -> tuple[list[dict[str, Any]], bool]:
+    """The page list, and whether ``business`` was among the fields read."""
+    ladder = (
+        (BUSINESS_PAGE_FIELDS, True),
+        (PAGE_FIELDS, False),
+        (BASE_PAGE_FIELDS, False),
+    )
+    for index, (fields, asked) in enumerate(ladder):
+        try:
+            return graph.get_all("me/accounts", fields=fields, limit=100), asked
+        except MetaAPIError as exc:
+            # Refused, a field costs that field and not the page list.
+            if exc.code not in _FIELD_REFUSALS or index == len(ladder) - 1:
+                raise
+            logger.warning("page list refused a field set: %s", exc)
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _client_page_businesses(graph: GraphClient) -> dict[str, list[str]]:
+    """Page id -> the portfolios holding it as a client page.
+
+    Nothing here raises, for the reason the ad account sweep does not: it
+    only adds to what the page list already answered.
+    """
+    try:
+        payload = graph.get(
+            "me/businesses", fields=BUSINESS_FIELDS, limit=MAX_BUSINESSES
+        )
+    except MetaError as exc:
+        logger.warning("businesses could not be listed for pages: %s", exc)
+        return {}
+    found: dict[str, list[str]] = {}
+    for business in payload.get("data", []):
+        business_id = str(business.get("id") or "")
+        if not business_id:
+            continue
+        try:
+            rows = graph.get_all(
+                f"{business_id}/{CLIENT_PAGES_EDGE}", fields="id", limit=100
+            )
+        except MetaError as exc:
+            logger.warning(
+                "%s/%s could not be listed: %s", business_id, CLIENT_PAGES_EDGE, exc
+            )
+            continue
+        for row in rows:
+            page_id = str(row.get("id") or "")
+            if page_id and business_id not in found.setdefault(page_id, []):
+                found[page_id].append(business_id)
+    return found
+
+
+# What a new ad account is made with when the person does not say. UZS is
+# not a currency Meta bills in; 336 is Asia/Tashkent in Meta's timezone ids.
+DEFAULT_ACCOUNT_CURRENCY: Final = "USD"
+TASHKENT_TIMEZONE_ID: Final = 336
+
+# Meta's refusals when making an ad account, by code.
+TOO_MANY_ACCOUNTS: Final = 3979
+ACCOUNT_IN_BAD_STANDING: Final = 3980
+TWO_FACTOR_REQUIRED: Final = 415
+
+
+def create_ad_account(
+    *,
+    business_id: str,
+    name: str,
+    currency: str,
+    timezone_id: int,
+    page_id: str,
+    token: str,
+    client: GraphClient | None = None,
+    dry_run: bool = True,
+) -> str:
+    """Make an ad account in one portfolio. Returns ``act_<id>``; "" in a dry run.
+
+    ``end_advertiser`` is the page the ads are for: Meta takes a page id
+    there and it cannot be changed once set. ``media_agency`` and
+    ``partner`` are ``NONE`` - nobody but the owner runs it. No payment
+    method is sent: Meta takes none by API, and an account without one
+    accepts ads that do not deliver until a card is added on Meta's
+    billing page.
+    """
+    if dry_run:
+        return ""
+    graph = client or GraphClient(token=token)
+    try:
+        answer = graph.post(
+            f"{business_id}/adaccount",
+            name=name,
+            currency=currency,
+            timezone_id=timezone_id,
+            end_advertiser=page_id,
+            media_agency="NONE",
+            partner="NONE",
+        )
+    finally:
+        if client is None:
+            graph.close()
+    account_id = str(answer.get("id") or "")
+    if account_id and not account_id.startswith("act_"):
+        account_id = f"act_{account_id}"
+    return account_id
 
 
 # Where an advertiser goes when Meta is holding their account. Not the

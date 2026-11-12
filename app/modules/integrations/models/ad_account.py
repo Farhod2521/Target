@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint, Uuid, text
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.db import Base, utcnow
@@ -28,6 +30,9 @@ class AdAccount(Base):
     connection_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("provider_connections.id", ondelete="RESTRICT"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     business_external_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    # Every portfolio this account was reached through: its owner and any it
+    # was shared into. A page may pair with it when they share one.
+    business_ids: Mapped[list[Any]] = mapped_column(ARRAY(String(64)), nullable=False, default=list, server_default="{}")
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="")
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     account_status: Mapped[str] = mapped_column(String(32), nullable=False, default="")

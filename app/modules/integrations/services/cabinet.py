@@ -18,6 +18,7 @@ from app.modules.integrations.exceptions import (
     AccountAlreadyBound,
     AccountCannotAdvertise,
     AccountLocked,
+    AccountNotForPage,
     AlreadyEnabled,
     GoogleAccountCannotAdvertise,
     GoogleAccountNotInSubscription,
@@ -624,6 +625,15 @@ def page_and_account(
     return page, account
 
 
+def ensure_fits(page: PageAccount, account: AdAccount) -> None:
+    """Refuse a new pair whose account is not in the page's portfolio."""
+    from app.modules.integrations.selectors.portfolio import misfit
+
+    reason = misfit(page, account)
+    if reason:
+        raise AccountNotForPage(reason)
+
+
 def _pairs_of(db: Session, *, owner: User, page: PageAccount) -> list[PagePair]:
     return list(
         db.scalars(
@@ -646,7 +656,10 @@ def choose_page_account(
     )
     locked = _billing().setup_locked(db, owner=user)
     pairs = _pairs_of(db, owner=user, page=page)
-    if any(pair.ad_account_id == account.id for pair in pairs):
+    paired = any(pair.ad_account_id == account.id for pair in pairs)
+    if not paired and page.ad_account_id != account.id:
+        ensure_fits(page, account)
+    if paired:
         if locked:
             return page
     elif pairs and locked:
@@ -710,6 +723,8 @@ def add_page_pair(
     known = _pairs_of(db, owner=user, page=page)
     if any(pair.ad_account_id == account.id for pair in known):
         raise PairExists
+    if page.ad_account_id != account.id:
+        ensure_fits(page, account)
     if not known:
         today = page_pairs(db, owner=user, pages=[page])
         if today and today[0].account.id != account.id:
@@ -741,8 +756,17 @@ def add_page_pair(
 
 def pin_shown_pair(db: Session, *, user: User) -> PagePair | None:
     pair = current_pair(db, owner=user)
-    if pair is None or pair.stored:
+    if pair is None:
+        # The shown pair can be missing because the chosen account does not
+        # fit the chosen page (the fallback offers only fitting ones); the
+        # setup is then not finished on a page with no account to run from.
+        page, account = active_page(db, owner=user), active_ad_account(db, owner=user)
+        if page is not None and account is not None:
+            ensure_fits(page, account)
         return None
+    if pair.stored:
+        return None
+    ensure_fits(pair.page, pair.account)
     stored = PagePair(
         owner_id=user.id, page_id=pair.page.id, ad_account_id=pair.account.id
     )
@@ -786,6 +810,7 @@ def change_pair_account(
     pairs = _pairs_of(db, owner=owner, page=page)
     if any(pair.ad_account_id == account.id for pair in pairs):
         raise PairExists
+    ensure_fits(page, account)
     pair = next(
         (p for p in pairs if p.ad_account.external_id == from_external_id), None
     )

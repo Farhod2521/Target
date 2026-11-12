@@ -53,6 +53,7 @@ def _cabinet(db: Session, user: User) -> tuple[AdAccount, PageAccount]:
         token_fingerprint="p",
         is_current=True,
         is_active=True,
+        business_state="personal",
     )
     db.add_all([account, page])
     db.commit()

@@ -36,6 +36,7 @@ from app.modules.integrations.exceptions import (
 from app.modules.integrations.models import AdAccount, CustomAudience
 from app.modules.integrations.schemas import (
     ActionRequiredOut,
+    AdAccountCreateIn,
     AdAccountOut,
     AudienceIn,
     AudienceOut,
@@ -54,6 +55,7 @@ from app.modules.integrations.schemas import (
     OAuthStartIn,
     OAuthStartOut,
     OptionOut,
+    PageFitOut,
     PageOut,
     PagePayerOut,
     PageRowOut,
@@ -68,6 +70,7 @@ from app.modules.integrations.schemas import (
     RuleOptionOut,
     SlotsOut,
 )
+from app.modules.integrations.selectors.portfolio import REASONS
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/connections", tags=["connections"])
@@ -92,6 +95,8 @@ def _payer(payer: selectors.PagePayer) -> PagePayerOut:
                 account=AdAccountOut.model_validate(option.account),
                 recommended=option.recommended,
                 unusable=option.unusable,
+                not_for_page=option.not_for_page,
+                not_for_page_text=REASONS.get(option.not_for_page, ""),
             )
             for option in payer.options
         ],
@@ -107,6 +112,13 @@ def _pair(pair: selectors.Pair) -> PairOut:
         stored=pair.stored,
         first=pair.first,
     )
+
+
+def _page_fits(db: Session, *, owner: User) -> list[PageFitOut]:
+    return [
+        PageFitOut.model_validate(asdict(fit))
+        for fit in selectors.page_fits(db, owner=owner)
+    ]
 
 
 def _ok(db: Session, detail: str) -> MessageOut:
@@ -295,6 +307,7 @@ def add_page_context(
 def connections(
     db: Db, user: CurrentUser, add_page: str = "", pay_from: str = ""
 ) -> ConnectionsOut:
+    services.read_portfolios_once(db, owner=user)
     enabled = selectors.enabled_pages(db, owner=user)
     pixel = selectors.active_pixel(db, owner=user)
     account = selectors.active_ad_account(db, owner=user)
@@ -325,6 +338,7 @@ def connections(
         google=google_card(db, owner=user),
         chatgpt=chatgpt_card(db, owner=user),
         add_page=add_page_context(db, owner=user, add_page=add_page, pay_from=pay_from),
+        page_fits=_page_fits(db, owner=user),
     )
 
 
@@ -368,6 +382,7 @@ def cabinet(db: Db, user: CurrentUser) -> CabinetOut:
             held_lead_count(db, owner_id=user.id, now=utcnow()) if broken else 0
         ),
         meta_action_required=ActionRequiredOut(**asdict(action)) if action else None,
+        page_fits=_page_fits(db, owner=user),
     )
 
 
@@ -594,6 +609,32 @@ def add_page_pair(body: PairIn, db: Db, user: CurrentUser) -> MessageOut:
         db,
         "«%(page)s» sahifasiga «%(account)s» akkaunti qo'shildi"
         % {"page": pair.page, "account": pair.ad_account},
+    )
+
+
+@router.post("/meta/page/ad-account", response_model=MessageOut)
+def create_page_ad_account(
+    body: AdAccountCreateIn, db: Db, user: CurrentUser
+) -> MessageOut:
+    """A new ad account in the page's portfolio, paired with the page."""
+    account = services.create_ad_account(
+        db,
+        user=user,
+        page_external_id=body.page,
+        name=body.name,
+        currency=body.currency,
+    )
+    services.add_page_pair(
+        db,
+        user=user,
+        page_external_id=body.page,
+        account_external_id=account.external_id,
+    )
+    return _ok(
+        db,
+        "«%(account)s» reklama akkaunti yaratildi va sahifaga ulandi. Reklama "
+        "ko'rsatilishi uchun Meta'da to'lov kartasini qo'shing: %(url)s"
+        % {"account": account, "url": billing_url(account.external_id)},
     )
 
 

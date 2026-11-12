@@ -385,6 +385,7 @@ def test_a_page_s_pair_is_changed_and_removed_by_meta_ids(
         token_encrypted=b"x",
         is_active=True,
         is_current=True,
+        business_state="personal",
     )
     first, second = (
         AdAccount(

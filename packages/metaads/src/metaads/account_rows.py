@@ -26,6 +26,9 @@ class BusinessRefDTO(MetaDTO):
     """
 
     id: str = ""
+    # Asked for on pages only: the page picker names the portfolio a page
+    # sits in, and an ad account row never needs to.
+    name: str = ""
 
 
 class AdAccountDTO(MetaDTO):
@@ -86,6 +89,12 @@ class AdAccountDTO(MetaDTO):
     # permission to carry on and let Meta refuse if it means to.
     tos_accepted: dict[str, int] = Field(default_factory=dict)
     user_tos_accepted: dict[str, int] = Field(default_factory=dict)
+    # Every portfolio this account was reached through, stamped by the
+    # business walk in ``accounts`` - not a Meta field. An account another
+    # business shared in as a client keeps its owner in ``business`` and
+    # names the portfolio it was shared into here, and the page picker
+    # needs both: a page in that portfolio may run from it.
+    reached_through: tuple[str, ...] = ()
 
     @field_validator("spend_cap", "amount_spent", "min_daily_budget", mode="before")
     @classmethod
@@ -116,6 +125,13 @@ class AdAccountDTO(MetaDTO):
         both into the same thing, which is a link it does not offer.
         """
         return self.business.id if self.business else ""
+
+    @property
+    def business_ids(self) -> tuple[str, ...]:
+        """The owner first, then every portfolio it was shared into."""
+        found = [self.business_id] if self.business_id else []
+        found += [b for b in self.reached_through if b and b not in found]
+        return tuple(found)
 
     @property
     def min_daily_budget_minor(self) -> int:
@@ -276,6 +292,46 @@ class PageDTO(MetaDTO):
     # The two can name different accounts, and a page that answers only
     # the first one hides the second from somebody who sees both in Meta.
     connected_instagram_account: "InstagramAccountDTO | None" = None
+    # The portfolio that owns this page. Meta answers it only to a page
+    # admin and only when ``business`` was in the field list, so absent is
+    # two things - see ``business_asked``.
+    business: BusinessRefDTO | None = None
+    # Stamped by ``accounts.list_pages``, not a Meta field: whether the
+    # read that produced this row asked for ``business`` at all. Without
+    # it "no portfolio" and "never asked" look the same, and the first is
+    # a personal page while the second is a page nobody knows about.
+    business_asked: bool = False
+    # Portfolios that hold this page as a client page (an agency's), from
+    # the business walk. Also stamped, also not a Meta field.
+    client_of: tuple[str, ...] = ()
+
+    @property
+    def business_ids(self) -> tuple[str, ...]:
+        """The owning portfolio first, then every one it is a client of."""
+        own = self.business.id if self.business and self.business.id else ""
+        found = [own] if own else []
+        found += [b for b in self.client_of if b and b not in found]
+        return tuple(found)
+
+    @property
+    def business_name(self) -> str:
+        return self.business.name if self.business else ""
+
+    @property
+    def business_state(self) -> str:
+        """``business``, ``personal`` or ``unknown``.
+
+        Personal only when the question was asked of somebody Meta answers
+        it for - a page admin (``MANAGE``) - and no portfolio came back.
+        Anybody else gets no answer either way, and guessing "personal"
+        for them would open every personal ad account to a page that may
+        sit in a portfolio.
+        """
+        if self.business_ids:
+            return "business"
+        if self.business_asked and "MANAGE" in self.tasks:
+            return "personal"
+        return "unknown"
 
     @property
     def instagram_accounts(self) -> tuple["InstagramAccountDTO", ...]:

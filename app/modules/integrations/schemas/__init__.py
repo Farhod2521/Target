@@ -40,6 +40,14 @@ class AdAccountOut(_Row):
         "account (another profile was connected, or its role was removed).",
     )
     reach_lost_at: datetime | None = None
+    business_external_id: str = Field(
+        default="",
+        description="The portfolio that owns the account; empty when personal.",
+    )
+    business_ids: list[str] = Field(
+        default_factory=list,
+        description="Every portfolio the account was reached through (owner and shared-into).",
+    )
 
 
 class PageOut(_Row):
@@ -57,6 +65,12 @@ class PageOut(_Row):
     instagram_username: str
     location_city: str
     ad_account_id: uuid.UUID | None
+    business_external_id: str = ""
+    business_name: str = ""
+    business_state: str = Field(
+        default="",
+        description="business | personal | unknown, or empty while not read yet.",
+    )
 
 
 class PixelOut(_Row):
@@ -87,6 +101,12 @@ class PayerOptionOut(BaseModel):
     account: AdAccountOut
     recommended: bool
     unusable: bool
+    not_for_page: str = Field(
+        default="",
+        description="other_portfolio | not_personal | page_unknown | page_unchecked "
+        "when this account may not be newly paired with the page, else ''.",
+    )
+    not_for_page_text: str = ""
 
 
 class PagePayerOut(BaseModel):
@@ -168,6 +188,33 @@ class ChatGPTCardOut(BaseModel):
     dry_run: bool = False
 
 
+class PageFitOut(BaseModel):
+    """Which ad accounts a new pair for this page may use."""
+
+    page: str = Field(description="The page's external id.")
+    business_state: str = Field(
+        description="business | personal | unknown | '' (being read)"
+    )
+    business_id: str
+    business_name: str
+    allowed_ad_accounts: list[str] = Field(
+        description="External ids of the ad accounts a new pair may use."
+    )
+    blocked_reason: str = Field(
+        description="page_unknown | page_unchecked when no account may be used, else ''."
+    )
+    blocked_text: str
+    may_create_account: bool = Field(
+        description="True when a new ad account can be made for this page (POST /meta/page/ad-account)."
+    )
+
+
+class AdAccountCreateIn(BaseModel):
+    page: str = Field(min_length=1, max_length=128)
+    name: str = Field(default="", max_length=100)
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+
+
 class ConnectionsOut(BaseModel):
     connection: ConnectionOut | None
     is_connected: bool
@@ -188,10 +235,12 @@ class ConnectionsOut(BaseModel):
     google: GoogleCardOut
     chatgpt: ChatGPTCardOut
     add_page: dict[str, Any]
+    page_fits: list[PageFitOut] = Field(default_factory=list)
 
 
 class CabinetOut(BaseModel):
     pages: list[PageOut]
+    page_fits: list[PageFitOut] = Field(default_factory=list)
     pairs: list[PairOut]
     pair: PairOut | None
     switchable: bool

@@ -53,6 +53,14 @@ class PageAccount(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ad_account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("ad_accounts.id", ondelete="SET NULL"), nullable=True, index=True)
+    # The portfolio that owns the page, and every portfolio holding it (owner
+    # first, then agencies' client pages). ``business_state`` is "" until the
+    # first read that asked, then business / personal / unknown - see
+    # ``PageDTO.business_state``. The page picker reads all four.
+    business_external_id: Mapped[str] = mapped_column(String(64), nullable=False, default="", server_default="")
+    business_name: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
+    business_ids: Mapped[list[Any]] = mapped_column(ARRAY(String(64)), nullable=False, default=list, server_default="{}")
+    business_state: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     forms_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # -- django extras --

@@ -12,6 +12,7 @@ from app.modules.integrations.schemas import (
     AdAccountOut,
     ConnectionOut,
     InstagramChoiceOut,
+    PageFitOut,
     PageOut,
     SlotsOut,
 )
@@ -73,7 +74,8 @@ class PickRowOut(BaseModel):
     profile: ProfileOut | None
     problems: list[str] = Field(
         description="What stops it advertising: `no_account`, `account_off`, "
-        "`account_debt`, `no_profile`, `page_role`."
+        "`account_debt`, `no_profile`, `page_role`, `account_not_for_page` "
+        "(the account is not in the page's business portfolio)."
     )
     warnings: list[str] = Field(description="`account_cap`, `no_instagram`.")
     paired: bool = Field(description="The account was stored by a choice.")
@@ -137,6 +139,11 @@ class StartOut(BaseModel):
         description="Accounts the token reached that another cabinet holds."
     )
     pages: list[PageOut]
+    page_fits: list[PageFitOut] = Field(
+        default_factory=list,
+        description="Which ad accounts each page may be paired with; see "
+        "docs/FRONTEND_SAHIFA_AKKAUNT.md.",
+    )
     ig_needs_permission: bool
     active_page: PageOut | None
     spare_pages: list[OfferedPageOut] = Field(

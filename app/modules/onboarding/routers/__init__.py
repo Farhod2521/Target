@@ -95,6 +95,7 @@ def _options(options: tuple[AccountOption, ...]) -> list[dict[str, Any]]:
             "account": _account(option.account),
             "recommended": option.recommended,
             "unusable": option.unusable,
+            "not_for_page": option.not_for_page,
         }
         for option in options
     ]
@@ -136,8 +137,13 @@ def _tries(raw: str) -> int:
 def setup_context(
     db: Session, owner: User, *, tries: int = 0, watch: str = ""
 ) -> dict[str, Any]:
+    from dataclasses import asdict
+
+    from app.modules.integrations.selectors.portfolio import page_fits
+    from app.modules.integrations.services import read_portfolios_once
     from app.modules.notifications.selectors import chat_for
 
+    read_portfolios_once(db, owner=owner)
     setup = setup_overview(db, owner=owner)
     active_page = connections.active_page(db, owner=owner)
     active_account = connections.active_ad_account(db, owner=owner)
@@ -167,6 +173,9 @@ def setup_context(
             connections.ad_accounts_held_elsewhere(db, owner=owner)
         ),
         "pages": [_page(row) for row in all_pages(db, owner=owner)],
+        # Which ad accounts each page may be paired with - see the guide
+        # docs/FRONTEND_SAHIFA_AKKAUNT.md.
+        "page_fits": [asdict(fit) for fit in page_fits(db, owner=owner)],
         "ig_needs_permission": connections.instagram_permission_missing(
             db, owner=owner
         ),

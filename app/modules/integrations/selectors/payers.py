@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.modules.accounts.models import User
 from app.modules.integrations.models import AdAccount, PageAccount
 from app.modules.integrations.selectors.pairs import stored_pairs
+from app.modules.integrations.selectors.portfolio import misfit
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +17,9 @@ class PayerOption:
     account: AdAccount
     recommended: bool
     unusable: bool
+    # Why this account may not be newly paired with the page - a code from
+    # ``portfolio`` - or "". Accounts already paired with it keep "".
+    not_for_page: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,16 +105,32 @@ def _payer(
         chosen = paired[0]
     if chosen is None and page and page.ad_account_id:
         chosen = by_pk.get(page.ad_account_id)
-    options = [
-        PayerOption(
-            account=account,
-            recommended=account.id in paid,
-            unusable=(account.may_advertise is False and not account.payment_due)
-            or not account.is_reachable,
+    kept = {account.id for account in paired}
+    if page is not None and page.ad_account_id:
+        kept.add(page.ad_account_id)
+    options = []
+    for account in accounts:
+        reason = "" if page is None or account.id in kept else misfit(page, account)
+        options.append(
+            PayerOption(
+                account=account,
+                recommended=account.id in paid,
+                unusable=(account.may_advertise is False and not account.payment_due)
+                or not account.is_reachable
+                or bool(reason),
+                not_for_page=reason,
+            )
         )
-        for account in accounts
-    ]
     options.sort(key=lambda option: (option.unusable, not option.recommended))
+    # The cabinet's current account is suggested only where it may go.
+    if (
+        chosen is None
+        and current is not None
+        and page is not None
+        and page.business_state
+        and misfit(page, current)
+    ):
+        current = next((o.account for o in options if not o.unusable), None)
     return PagePayer(
         page=page, payer=chosen or current, options=tuple(options), paired=paired
     )
