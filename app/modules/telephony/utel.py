@@ -1,11 +1,13 @@
 """UTeL's REST API, the three things the settings need: a key for a login,
 the internal numbers, and the list of addresses it sends events to.
 
-Answers come as ``{"status", "code", "result", "message"}``.
+Answers come as ``{"status", "code", "result", "message"}``; the call
+history alone is paged, as ``{"data", "links", "meta"}``.
 """
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Final
 
 import httpx
@@ -42,14 +44,15 @@ def api_base(tenant: str) -> str:
     return f"https://api.{tenant}.{UTEL_ZONE}/api/v1"
 
 
-def _call(
+def _send(
     method: str,
     tenant: str,
     path: str,
     *,
     token: str = "",
     body: Any = None,
-) -> Any:
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -59,6 +62,7 @@ def _call(
             f"{api_base(tenant)}{path}",
             headers=headers,
             json=body,
+            params=params,
             timeout=TIMEOUT_SECONDS,
             follow_redirects=False,
         )
@@ -79,7 +83,21 @@ def _call(
         found = answer.json()
     except ValueError as exc:
         raise Unreachable from exc
-    if not isinstance(found, dict) or "result" not in found:
+    if not isinstance(found, dict):
+        raise Unreachable
+    return found
+
+
+def _call(
+    method: str,
+    tenant: str,
+    path: str,
+    *,
+    token: str = "",
+    body: Any = None,
+) -> Any:
+    found = _send(method, tenant, path, token=token, body=body)
+    if "result" not in found:
         raise Unreachable
     return found["result"]
 
@@ -135,3 +153,36 @@ def put_hooks(tenant: str, *, token: str, rows: list[dict[str, Any]]) -> None:
 
 def hook_row(url: str) -> dict[str, Any]:
     return {"url": url} | dict.fromkeys(HOOK_EVENTS, True)
+
+
+HISTORY_PAGE: Final = 300
+HISTORY_TIME: Final = "%Y-%m-%d %H:%M:%S"
+
+
+def call_history(
+    tenant: str, *, token: str, start: datetime, end: datetime, page: int
+) -> tuple[list[dict[str, Any]], int]:
+    """One page of finished calls between two moments on the exchange's own
+    clock, newest first, and the number of the last page."""
+    found = _send(
+        "GET",
+        tenant,
+        "/call-history",
+        token=token,
+        params={
+            "per_page": HISTORY_PAGE,
+            "page": page,
+            "sort": "-id",
+            "filter[from]": start.strftime(HISTORY_TIME),
+            "filter[to]": end.strftime(HISTORY_TIME),
+        },
+    )
+    rows = found.get("data")
+    if not isinstance(rows, list):
+        raise Unreachable
+    meta = found.get("meta")
+    last = meta.get("last_page") if isinstance(meta, dict) else None
+    return (
+        [row for row in rows if isinstance(row, dict)],
+        last if isinstance(last, int) and last > 0 else 1,
+    )

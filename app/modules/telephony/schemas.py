@@ -73,3 +73,40 @@ class TelephonyOut(BaseModel):
     staff: list[PhonePersonOut] = Field(
         description="Active staff, to choose who answers a number."
     )
+
+
+class CallOut(BaseModel):
+    id: str
+    direction: str = Field(description="`in` or `out`.")
+    direction_label: str
+    answered: bool = Field(description="False: nobody picked up.")
+    number: str = Field(description="The other side, `+998901234567`.")
+    started_at: datetime
+    duration_seconds: int = Field(description="With the ringing.")
+    talk_seconds: int = Field(description="The conversation alone.")
+    extension: str = Field(description="Our internal number; empty if none took it.")
+    staff: PhonePersonOut | None = Field(
+        description="Who held that internal number when the call was saved."
+    )
+    has_recording: bool = Field(
+        description="True: `GET /office/telephony/calls/{id}/recording` plays it."
+    )
+
+
+class CallClientOut(BaseModel):
+    id: str
+    name: str
+    email: str
+    sales_card_id: str | None
+    support_card_id: str | None
+
+
+class JournalCallOut(CallOut):
+    clients: list[CallClientOut] = Field(
+        description="Signed-up clients with this number. Empty: a stranger."
+    )
+
+
+class JournalOut(BaseModel):
+    total: int
+    calls: list[JournalCallOut] = Field(description="Newest first.")

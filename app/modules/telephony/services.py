@@ -16,11 +16,13 @@ from app.common.config import settings
 from app.common.db import utcnow
 from app.common.deletion import delete_rows
 from app.modules.accounts.models import User
-from app.modules.telephony import utel
+from app.modules.telephony import calls, utel
 from app.modules.telephony.constants import (
     CALL_ID_MAX,
+    CALL_SAVED,
     ERROR_MAX,
     EVENT_NAME_MAX,
+    FIRST_BACKFILL_DAYS,
     HOOK_KEY_BYTES,
     HOOK_PATH,
     NUMBER_MAX,
@@ -188,6 +190,9 @@ def connect(
     _try_hook(connection, now=now)
     db.commit()
     logger.info("telephony connected: %s by %s", name, actor.id)
+    from app.modules.telephony.tasks import backfill_calls_task
+
+    backfill_calls_task.delay(FIRST_BACKFILL_DAYS * 24)
 
 
 def sync(db: Session) -> None:
@@ -365,13 +370,20 @@ def keep_event(db: Session, *, key: str, payload: dict[str, Any]) -> bool:
         call_id = _text(saved.get("call_id"), CALL_ID_MAX)
     if not call_id and isinstance(call, dict):
         call_id = _text(call.get("id"), CALL_ID_MAX)
+    name = _text(data.get("name"), EVENT_NAME_MAX)
     db.add(
         PhoneHookEvent(
-            connection_id=connection.id,
-            name=_text(data.get("name"), EVENT_NAME_MAX),
-            call_id=call_id,
-            payload=payload,
+            connection_id=connection.id, name=name, call_id=call_id, payload=payload
         )
     )
     db.commit()
+    if name == CALL_SAVED and isinstance(saved, dict):
+        # The event is kept whatever happens here; a call that fails to be
+        # read out of it is brought by the hourly read of UTeL's history.
+        try:
+            calls.record(db, connection=connection, item=saved, now=utcnow())
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("telephony: call %s not kept from its event", call_id)
     return True

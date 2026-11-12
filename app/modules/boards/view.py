@@ -403,8 +403,12 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
     )
     extras = extras_for(db, [card], now=now)
     brief = card_brief(card, extras=extras, now=now)
+    # Imported here: telephony's routes read who is on a board.
+    from app.modules.telephony import calls as phone_calls
+
     return {
         **brief,
+        "calls": phone_calls.for_client(db, owner=owner),
         "client": {
             **brief["client"],
             "role": owner.role,

@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.modules.telephony.schemas import CallOut
+
 
 class PersonOut(BaseModel):
     id: str
@@ -199,6 +201,10 @@ class CardDetailOut(CardOut):
     close_note: str
     actions: list[ActionOut] = Field(description="The buttons to show, in order.")
     history: list[HistoryOut] = Field(description="Newest first.")
+    calls: list[CallOut] = Field(
+        description="Phone calls with the client's number, newest first; the "
+        "same on the client's Sales and Support cards."
+    )
 
 
 class ActionIn(BaseModel):

@@ -3,19 +3,33 @@ address UTeL sends its events to."""
 
 import json
 import uuid
+from dataclasses import dataclass
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.api.deps import Db
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.boards.access import Staff, access_for
-from app.modules.telephony import services
-from app.modules.telephony.constants import HOOK_BODY_MAX, HOOK_PATH
-from app.modules.telephony.schemas import ConnectIn, ExtensionIn, TelephonyOut
+from app.modules.telephony import calls, services
+from app.modules.telephony.constants import (
+    CALL_SEARCH_MAX,
+    CALLS_PAGE,
+    CALLS_PAGE_MAX,
+    HOOK_BODY_MAX,
+    HOOK_PATH,
+    CallScope,
+    Direction,
+)
+from app.modules.telephony.schemas import (
+    ConnectIn,
+    ExtensionIn,
+    JournalOut,
+    TelephonyOut,
+)
 
 router = APIRouter(prefix="/office/telephony", tags=["office telephony"])
 webhooks = APIRouter(tags=["webhooks"])
@@ -80,6 +94,74 @@ def extension(
         db, extension_id=extension_id, changes=body.model_dump(exclude_unset=True)
     )
     return services.state(db, now=utcnow())
+
+
+@dataclass(frozen=True, slots=True)
+class Caller:
+    user: User
+    sees_all: bool
+
+
+def _caller(db: Db, user: Staff) -> Caller:
+    """Anybody a board opens for. Leads, the superuser and the Owner see
+    every call; the rest their own and the ones nobody answered."""
+    access = access_for(db, user)
+    if not access.boards:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return Caller(user=user, sees_all=access.full or bool(access.leads))
+
+
+OnPhone = Annotated[Caller, Depends(_caller)]
+
+
+@router.get("/calls", responses={200: {"model": JournalOut}})
+def journal(
+    db: Db,
+    caller: OnPhone,
+    scope: Annotated[
+        CallScope,
+        Query(description="`unknown`: numbers nobody signed up with."),
+    ] = CallScope.ALL,
+    direction: Annotated[Direction | None, Query()] = None,
+    answered: Annotated[
+        bool | None, Query(description="`false`: the missed ones.")
+    ] = None,
+    mine: Annotated[bool, Query(description="Only the reader's own calls.")] = False,
+    q: Annotated[
+        str, Query(max_length=CALL_SEARCH_MAX, description="Digits of the number.")
+    ] = "",
+    limit: Annotated[int, Query(ge=1, le=CALLS_PAGE_MAX)] = CALLS_PAGE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    """The journal of calls, newest first."""
+    return calls.journal(
+        db,
+        viewer=caller.user,
+        sees_all=caller.sees_all,
+        scope=scope,
+        direction=direction,
+        answered=answered,
+        mine=mine,
+        q=q,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/calls/{call_id}/recording",
+    response_class=StreamingResponse,
+    responses={200: {"content": {"audio/wav": {}}}},
+)
+def recording(call_id: uuid.UUID, db: Db, caller: OnPhone) -> StreamingResponse:
+    """The call's audio. It needs the reader's token like any other call
+    here, so fetch it and play the blob; UTeL's own link is never given out."""
+    chunks, kind = calls.recording(
+        db, call_id=call_id, viewer=caller.user, sees_all=caller.sees_all
+    )
+    return StreamingResponse(
+        chunks, media_type=kind, headers={"Cache-Control": "private, max-age=3600"}
+    )
 
 
 @webhooks.post(HOOK_PATH, include_in_schema=False)

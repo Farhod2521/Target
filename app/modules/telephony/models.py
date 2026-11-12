@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     String,
     Text,
@@ -121,3 +122,40 @@ class PhoneHookEvent(Base):
     name: Mapped[str] = mapped_column(String(40), nullable=False, default="")
     call_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+
+class PhoneCall(Base):
+    """A finished call as the exchange saved it. ``number`` is the other
+    side, written the way a client's phone is kept, so the client is found
+    by it whenever the call is read - also one who signed up afterwards."""
+
+    __tablename__ = "phone_calls"
+    __table_args__ = (
+        Index("uniq_phone_call", "connection_id", "call_id", unique=True),
+        Index("phone_calls_time_idx", "connection_id", "started_at"),
+        Index("phone_calls_number_idx", "number"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("phone_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    call_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    direction: Mapped[str] = mapped_column(String(8), nullable=False)
+    answered: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    number: Mapped[str] = mapped_column(String(20), nullable=False)
+    extension: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    line: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    talk_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # UTeL's own link. It opens without a key, so it never leaves the server.
+    recording_url: Mapped[str] = mapped_column(Text, nullable=False, default="")

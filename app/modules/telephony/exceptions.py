@@ -39,6 +39,8 @@ class ExchangeUnreachable(DomainError):
 
 
 class ExtensionNotFound(NotFound):
+    code = "extension_not_found"
+
     def __init__(self) -> None:
         super().__init__("Ichki nomer topilmadi.")
 
@@ -55,3 +57,17 @@ class NotStaff(DomainError):
 
     def __init__(self) -> None:
         super().__init__("Bu foydalanuvchi faol xodim emas.")
+
+
+class CallNotFound(NotFound):
+    code = "call_not_found"
+
+    def __init__(self) -> None:
+        super().__init__("Qo'ng'iroq topilmadi.")
+
+
+class NoRecording(NotFound):
+    code = "no_recording"
+
+    def __init__(self) -> None:
+        super().__init__("Bu qo'ng'iroqning yozuvi yo'q.")
