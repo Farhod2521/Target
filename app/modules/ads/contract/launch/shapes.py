@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import Field
 
 from app.common.contract import Camel, Money, Refusal
-from app.modules.ads.constants import MAX_GEO_ADDRESS, MAX_GEO_PLACES
+from app.modules.ads.constants import BUDGET_DEFAULT, MAX_GEO_ADDRESS, MAX_GEO_PLACES
 from app.modules.ads.contract.launch.words import (
     LaunchErrorCode,
     LaunchGoal,
@@ -504,6 +504,13 @@ class EditBudget(Camel):
     level: Literal["campaign", "adset"]
     sharing: bool = False
     locked: bool = False
+    default_level: Literal["campaign", "adset"] = Field(
+        BUDGET_DEFAULT,
+        description=(
+            "Read only: the level a launch gets when nobody chooses. The screen "
+            "marks this one as the default and keeps none of its own."
+        ),
+    )
 
 
 class ProposalEdit(Camel):

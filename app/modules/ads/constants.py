@@ -583,6 +583,9 @@ BUDGET_LEVEL: Final = "budget_level"
 BUDGET_SHARING: Final = "budget_sharing"
 BUDGET_AT_CAMPAIGN: Final = "campaign"
 BUDGET_AT_ADSET: Final = "adset"
+# Where a launch nobody chose for keeps its daily budget. The editor is told
+# this too, so the screen never carries a default of its own.
+BUDGET_DEFAULT: Final = BUDGET_AT_ADSET
 BUDGET_LIFETIME: Final = "lifetime"
 
 

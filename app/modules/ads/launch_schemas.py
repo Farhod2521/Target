@@ -289,6 +289,9 @@ class BudgetChoiceOut(Shape):
     level: Literal["campaign", "adset"]
     sharing: bool
     locked: bool
+    default_level: Literal["campaign", "adset"] = Field(
+        description="The level a launch gets when nobody chooses; the editor marks it."
+    )
 
 
 class AdvancedOut(Shape):

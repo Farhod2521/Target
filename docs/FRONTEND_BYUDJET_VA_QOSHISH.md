@@ -7,21 +7,22 @@ Barcha yo'llar `/api/v1` ostida, javoblar camelCase.
 `GET /launch/drafts/{id}/edit` javobiga `budget` qo'shildi:
 
 ```json
-{ "budget": { "level": "campaign", "sharing": false, "locked": false } }
+{ "budget": { "level": "adset", "sharing": false, "locked": false, "defaultLevel": "adset" } }
 ```
 
 | Maydon | Ma'nosi |
 |---|---|
-| `level` | `campaign` (CBO, sukut bo'yicha) yoki `adset` (ABO) |
+| `level` | `adset` (ABO) yoki `campaign` (CBO): hozir tanlangani |
 | `sharing` | Faqat `adset`da: guruhlar byudjetining 20% gacha qismini bir-biriga bera oladi |
 | `locked` | `true`: launch yaratilgan, bo'lim faqat o'qiladi |
+| `defaultLevel` | Hech kim tanlamasa launch oladigan daraja (hozir `adset`). Faqat o'qiladi. «Sukut bo'yicha» belgisi va variantlar tartibi shundan olinadi: frontda qotirilgan default bo'lmasin |
 
 Saqlash o'sha `PUT /launch/drafts/{id}/edit` orqali. `budget` boshqa bo'limlar bilan birga yuboriladi.
 
 - `say.budget` ham bor, hozircha bo'sh qator.
 - `level: "campaign"` bilan `sharing: true` rad etiladi: UI'da `sharing` faqat `adset` tanlanganda ko'rinsin.
 - `sharing` keyin yoqilmaydi: Meta ishlayotgan kampaniyada buni qabul qilmaydi, shuning uchun tanlov launch'da beriladi.
-- Bo'lim tegilmasa, launch CBO bo'lib yaratiladi. Saqlangan `ad_groups`i bor eski draft ABO'da qoladi.
+- Bo'lim tegilmasa, launch `defaultLevel` bo'yicha yaratiladi: hozir ABO (byudjet guruhda). 2026-11-12 gacha default CBO edi; o'sha paytda yaratilgan launch'larga 0046 migratsiya `campaign` deb yozib qo'yadi.
 
 Launch kartasi uchun `proposal.budget`da ham `level` va `sharing` bor.
 

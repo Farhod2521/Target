@@ -68,17 +68,38 @@ def _save(
     db.refresh(launch)
 
 
-def test_left_alone_the_campaign_holds_the_budget(
+def test_left_alone_each_group_holds_its_budget(
     client: TestClient, db: Session, queued: list
 ) -> None:
     auth, user = _ready(client, db)
     launch = _reviewed(client, db, auth, user.id)
 
     assert _edit(client, launch, auth)["budget"] == {
-        "level": "campaign",
+        "level": "adset",
         "sharing": False,
         "locked": False,
+        "defaultLevel": "adset",
     }
+    assert BUDGET_LEVEL not in (launch.answers or {})
+    campaign, adset = _specs(db, launch)
+    assert campaign.name.endswith(" · ABO #1")
+    assert campaign.daily_budget_minor == 0
+    assert campaign.bid_strategy == ""
+    assert campaign_budget_minor(launch=launch) is None
+    assert adset.daily_budget_minor == launch.daily_budget_minor > 0
+
+
+def test_the_owner_moves_it_to_the_campaign(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, user = _ready(client, db)
+    launch = _reviewed(client, db, auth, user.id)
+
+    _save(client, db, launch, auth, {"level": "campaign", "sharing": False})
+
+    shown = _edit(client, launch, auth)["budget"]
+    assert shown["level"] == "campaign"
+    assert shown["defaultLevel"] == "adset"
     campaign, adset = _specs(db, launch)
     assert campaign.name.endswith(" · CBO #1")
     assert campaign.daily_budget_minor == launch.daily_budget_minor > 0

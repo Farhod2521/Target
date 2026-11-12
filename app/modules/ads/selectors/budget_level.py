@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 
 from app.modules.ads.constants import (
-    BUDGET_AT_ADSET,
     BUDGET_AT_CAMPAIGN,
+    BUDGET_DEFAULT,
     BUDGET_LEVEL,
     BUDGET_SHARING,
 )
@@ -12,11 +12,8 @@ from app.modules.ads.models import CampaignLaunch
 
 
 def budget_level(*, launch: CampaignLaunch) -> str:
-    """The owner's choice; untouched, the campaign, except a draft already divided."""
-    chosen = str((launch.answers or {}).get(BUDGET_LEVEL) or "")
-    if chosen:
-        return chosen
-    return BUDGET_AT_ADSET if launch.ad_groups else BUDGET_AT_CAMPAIGN
+    """The owner's choice; untouched, the default, which is each ad group."""
+    return str((launch.answers or {}).get(BUDGET_LEVEL) or "") or BUDGET_DEFAULT
 
 
 def held_by_campaign(*, launch: CampaignLaunch) -> bool:
@@ -42,6 +39,7 @@ class BudgetChoice:
     level: str
     sharing: bool
     locked: bool
+    default_level: str
 
 
 def budget_choice(*, launch: CampaignLaunch) -> BudgetChoice:
@@ -51,4 +49,5 @@ def budget_choice(*, launch: CampaignLaunch) -> BudgetChoice:
         level=budget_level(launch=launch),
         sharing=shares_budget(launch=launch),
         locked=campaign_type_locked(launch=launch),
+        default_level=BUDGET_DEFAULT,
     )
