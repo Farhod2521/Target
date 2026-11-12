@@ -34,6 +34,7 @@ from app.modules.metrics.services import (
     sync_observed,
     sync_today,
 )
+from app.modules.metrics.services.sync import PROVIDER_ERROR, RATE_LIMITED
 from app.worker import celery_app, task_session
 
 logger = logging.getLogger(__name__)
@@ -53,11 +54,26 @@ def _note(sweep: str, ad_account_id: str, word: str) -> str:
     return word
 
 
+# What a night's read is asked again for. A truncated read is not: the same
+# answer would be cut at the same page.
+RETRIED = frozenset({TEMPORARY, RATE_LIMITED, PROVIDER_ERROR})
+# The night's read is tried this many times in all. Until 2026-11-12 it was
+# twice, and only for a passing fault: an account refused for the call budget
+# - which the shared gate now does on purpose, for five minutes at a time -
+# was left until the next night, and its yesterday stayed as the last
+# half-hourly read of the day had left it.
+NIGHT_TRIES = 4
+
+
 def _again(ad_account_id: str, *, attempt: int, word: str) -> str:
+    """Queue the night's read once more, each wait longer than the last."""
     minutes = int(settings.metrics_retry_minutes)
-    if attempt >= 1 or minutes <= 0:
+    if attempt + 1 >= NIGHT_TRIES or minutes <= 0:
         return word
-    countdown = minutes * 60 + uuid.UUID(ad_account_id).int % RETRY_SPREAD_SECONDS
+    countdown = (
+        minutes * 60 * (attempt + 1)
+        + uuid.UUID(ad_account_id).int % RETRY_SPREAD_SECONDS
+    )
     sync_insights_task.apply_async(
         args=[ad_account_id], kwargs={"attempt": attempt + 1}, countdown=countdown
     )
@@ -81,7 +97,7 @@ def sync_insights_task(ad_account_id: str, attempt: int = 0) -> str:
             return _note(FIGURES_SWEEP, ad_account_id, "connection_unusable")
         except SyncFailed as exc:
             word = f"provider_failed:{exc.cause}" if exc.cause else "provider_failed"
-            if exc.cause == TEMPORARY:
+            if exc.cause in RETRIED:
                 word = _again(ad_account_id, attempt=attempt, word=word)
             return _note(FIGURES_SWEEP, ad_account_id, word)
         counted = (
@@ -90,7 +106,7 @@ def sync_insights_task(ad_account_id: str, attempt: int = 0) -> str:
         if summary.complete:
             return _note(FIGURES_SWEEP, ad_account_id, counted)
         word = f"{counted} stopped:{summary.stopped_at} by:{summary.stopped_by}"
-        if summary.stopped_by == TEMPORARY:
+        if summary.stopped_by in RETRIED:
             word = _again(ad_account_id, attempt=attempt, word=word)
         return _note(FIGURES_SWEEP, ad_account_id, word)
 
