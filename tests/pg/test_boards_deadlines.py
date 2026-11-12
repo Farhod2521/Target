@@ -322,6 +322,7 @@ def test_a_ticket_is_opened_by_hand(client: TestClient, db: Session) -> None:
         "add_lead": False,
         "columns": False,
         "staff": False,
+        "telephony": False,
     }
     assert (
         client.post(

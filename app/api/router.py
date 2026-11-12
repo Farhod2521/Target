@@ -47,12 +47,15 @@ from app.modules.sales.routers import router as sales
 from app.modules.supportchat.routers import router as support
 from app.modules.supportchat.routers.guests import router as support_guest
 from app.modules.surveys.routers import router as surveys
+from app.modules.telephony.routers import router as office_telephony_v2
+from app.modules.telephony.routers import webhooks as telephony_webhooks
 from app.modules.tutorials.routers import router as tutorials
 
 api_v2_router = APIRouter(prefix="/api/v2")
 api_v2_router.include_router(campaigns_expert)
 api_v2_router.include_router(campaigns_v2)
 api_v2_router.include_router(office_boards_v2)
+api_v2_router.include_router(office_telephony_v2)
 api_v2_router.include_router(assistant_v2)
 api_v2_router.include_router(assistant_office_v2)
 
@@ -104,4 +107,5 @@ public_router.include_router(autopay_webhooks)
 public_router.include_router(referral_landing)
 public_router.include_router(leads_webhooks)
 public_router.include_router(telegram_webhooks)
+public_router.include_router(telephony_webhooks)
 public_router.include_router(public_callbacks)

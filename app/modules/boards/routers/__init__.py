@@ -80,6 +80,7 @@ def me(db: Db, user: Staff) -> dict[str, Any]:
             "add_ticket": access.sees(Board.SUPPORT),
             "columns": access.full,
             "staff": access.full,
+            "telephony": access.full,
         },
     }
 

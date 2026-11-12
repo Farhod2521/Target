@@ -28,6 +28,7 @@ class CanOut(BaseModel):
     add_ticket: bool = Field(description="Opens a Support ticket by hand.")
     columns: bool = Field(description="Renames and reorders columns.")
     staff: bool = Field(description="Adds staff and gives roles.")
+    telephony: bool = Field(description="Opens the telephony settings.")
 
 
 class MeOut(BaseModel):
