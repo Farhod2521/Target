@@ -51,7 +51,9 @@ ADSET_FIELDS = (
 )
 
 # Not on the mirror, and needed only when an ad set is copied from this one.
-ADSET_SETTINGS_FIELDS = "bid_strategy,bid_amount,attribution_spec,frequency_control_specs"
+ADSET_SETTINGS_FIELDS = (
+    "bid_strategy,bid_amount,attribution_spec,frequency_control_specs"
+)
 
 # The nested creative read is there for one field above all: the lead form
 # id, the link between an ad and the leads it bought, which asking for
@@ -214,21 +216,51 @@ def list_ads(
     sync. The ads come back with their creative's id alone; the caller
     keeps what it already holds about those creatives.
     """
+    return _read_ads(owner_id=account_id, token=token, client=client)
+
+
+def _read_ads(*, owner_id: str, token: str, client: GraphClient | None) -> list[AdRow]:
+    """The ``ads`` edge of an account or of one campaign, with the fallback
+    :func:`list_ads` describes."""
     try:
         rows = _read(
-            path=f"{account_id}/ads", fields=AD_FIELDS, token=token, client=client
+            path=f"{owner_id}/ads", fields=AD_FIELDS, token=token, client=client
         )
     except MetaAPIError as exc:
         if exc.subcode != UNREADABLE_CREATIVE_SUBCODE:
             raise
-        logger.warning("ads of %s read without creative content: %s", account_id, exc)
+        logger.warning("ads of %s read without creative content: %s", owner_id, exc)
         rows = _read(
-            path=f"{account_id}/ads",
+            path=f"{owner_id}/ads",
             fields=AD_FIELDS_WITHOUT_CONTENT,
             token=token,
             client=client,
         )
     return parsed_all(AdRow, rows)
+
+
+def list_campaign_adsets(
+    *, campaign_id: str, token: str, client: GraphClient | None = None
+) -> list[AdSetRow]:
+    """One campaign's ad sets, with the fields the account's list reads.
+
+    For the half-hourly mirror of a large account: measured on production,
+    2026-11-12, the mirror was the largest load left, and on the accounts
+    that made it most rows sat under campaigns long switched off. Reading
+    the few campaigns that run costs two calls each instead of every page
+    of the account's ad sets and adverts.
+    """
+    rows = _read(
+        path=f"{campaign_id}/adsets", fields=ADSET_FIELDS, token=token, client=client
+    )
+    return parsed_all(AdSetRow, rows)
+
+
+def list_campaign_ads(
+    *, campaign_id: str, token: str, client: GraphClient | None = None
+) -> list[AdRow]:
+    """One campaign's adverts, as :func:`list_ads` reads the account's."""
+    return _read_ads(owner_id=campaign_id, token=token, client=client)
 
 
 def get_adset(

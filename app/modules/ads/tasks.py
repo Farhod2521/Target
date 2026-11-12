@@ -70,7 +70,7 @@ def _counted(summary: SyncSummary) -> str:
 
 # Its queue is the account's: see app.common.task_routes.
 @celery_app.task(ignore_result=True)
-def sync_ad_account_task(ad_account_id: str) -> str:
+def sync_ad_account_task(ad_account_id: str, whole: bool = True) -> str:
     with task_session() as db:
         pk = _uuid(ad_account_id)
         account = db.get(AdAccount, pk) if pk else None
@@ -80,7 +80,7 @@ def sync_ad_account_task(ad_account_id: str) -> str:
             sweep=MIRROR_SWEEP, ad_account_id=ad_account_id, outcome=SYNC_STARTED
         )
         try:
-            summary = sync_ad_account(db, ad_account=account)
+            summary = sync_ad_account(db, ad_account=account, whole=whole)
         except SyncAlreadyRunning:
             outcome = "busy"
         except ConnectionUnusable:
@@ -101,8 +101,10 @@ def sync_all_accounts() -> int:
     with task_session() as db:
         accounts = frequently_swept_account_ids(db, now=utcnow())
     for account_id in accounts:
+        # Not whole: the night reads every account whole, and a large one
+        # is asked each half hour only about what runs.
         sync_ad_account_task.apply_async(
-            (str(account_id),), expires=SWEEP_EXPIRES_SECONDS
+            (str(account_id),), {"whole": False}, expires=SWEEP_EXPIRES_SECONDS
         )
     return len(accounts)
 

@@ -10,6 +10,9 @@ alohida — u `client.py` dagi konstantada.
   80 foizga yetganini hamma jarayon ko'radigan umumiy to'xtash. Faqat fon
   o'qishlari (`gate.background()`) kutadi; yozish va foydalanuvchi so'ragan
   o'qish to'xtatilmaydi. `gate.install()` chaqirilmasa hech narsa o'zgarmaydi.
+- `list_campaign_adsets`, `list_campaign_ads` va adapterda
+  `list_campaign_children`: bitta kampaniyaning guruh va reklamalarini
+  akkaunt ro'yxatidagi maydonlar bilan o'qish (yarim soatlik yengil oyna uchun).
 
 ## 0.47.0 — 2026-11-02
 

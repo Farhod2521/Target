@@ -16,7 +16,7 @@ from adskit.errors import (
     ResultTruncated,
 )
 from adskit.refs import ExternalRef, ProviderName
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import DataError
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,7 @@ from app.modules.accounts.models import User
 from app.modules.ads.constants import (
     AUTO_SYNC_COOLING_MINUTES,
     MIRROR_SWEEP,
+    NOT_RUNNING,
     PRESS_WINDOW_SECONDS,
     REFRESH_QUEUE,
     REFUSED_SAMPLE,
@@ -52,6 +53,13 @@ logger = logging.getLogger(__name__)
 OPEN_BUCKET = "ads:sync-open"
 OPEN_LIMIT = 1
 PRESS_BUCKET = "ads:sync-press"
+# Meta's page of the three lists - what one call of a whole read brings.
+LIST_PAGE = 100
+# A whole read within this long lets the next half-hourly one be a light
+# one. Longer than a day, so the night's read keeps it alive and one missed
+# night does not; without it every read is whole, as before.
+WHOLE_READ_KEY = "ads:mirror-whole:{account_id}"
+WHOLE_READ_SECONDS = 26 * 60 * 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,14 +142,20 @@ def _upsert(
     defaults: dict[str, Any],
     label: str,
     refused: list[str],
+    known: dict[str, Any] | None = None,
 ) -> Any | None:
     try:
         with db.begin_nested():
-            row = db.scalars(
-                select(model).where(
-                    model.provider == provider, model.external_id == external_id
-                )
-            ).first()
+            # ``known`` is every row of the batch read in one query. A row it
+            # lacks is still looked for: a provider's id is unique across
+            # owners, and the batch's read may have been narrower.
+            row = known.get(external_id) if known is not None else None
+            if row is None:
+                row = db.scalars(
+                    select(model).where(
+                        model.provider == provider, model.external_id == external_id
+                    )
+                ).first()
             if row is None:
                 row = model(provider=provider, external_id=external_id)
                 db.add(row)
@@ -164,6 +178,27 @@ def _upsert(
             )
         ).first()
     return row
+
+
+def _known(
+    db: Session, model: Any, *, provider: str, external_ids: Sequence[str]
+) -> dict[str, Any]:
+    """The rows a batch is about to write, read in pages instead of one
+    query a row: a large account's mirror was thousands of single reads."""
+    found: dict[str, Any] = {}
+    ids = list(dict.fromkeys(external_ids))
+    for start in range(0, len(ids), KNOWN_PAGE):
+        for row in db.scalars(
+            select(model).where(
+                model.provider == provider,
+                model.external_id.in_(ids[start : start + KNOWN_PAGE]),
+            )
+        ):
+            found[row.external_id] = row
+    return found
+
+
+KNOWN_PAGE = 1000
 
 
 def _bulk_delete(db: Session, model: Any, *where: Any) -> int:
@@ -233,6 +268,12 @@ def write_campaigns(
 ) -> dict[str, Campaign]:
     owner = ad_account.owner
     stored: dict[str, Campaign] = {}
+    known = _known(
+        db,
+        Campaign,
+        provider=ad_account.provider,
+        external_ids=[dto.ref.id for dto in campaigns],
+    )
     for dto in campaigns:
         campaign = _upsert(
             db,
@@ -242,6 +283,7 @@ def write_campaigns(
             external_id=dto.ref.id,
             label="campaign",
             refused=refused,
+            known=known,
             defaults={
                 "owner_id": owner.id,
                 "ad_account_id": ad_account.id,
@@ -277,6 +319,12 @@ def write_adsets(
 ) -> dict[str, AdSet]:
     owner = ad_account.owner
     stored: dict[str, AdSet] = {}
+    known = _known(
+        db,
+        AdSet,
+        provider=ad_account.provider,
+        external_ids=[dto.ref.id for dto in adsets],
+    )
     for dto in adsets:
         campaign = campaigns.get(dto.campaign_ref.id)
         if campaign is None:
@@ -290,6 +338,7 @@ def write_adsets(
             external_id=dto.ref.id,
             label="ad set",
             refused=refused,
+            known=known,
             defaults={
                 "owner_id": owner.id,
                 "campaign_id": campaign.id,
@@ -331,6 +380,9 @@ def write_ads(
     seen: set[str] = set()
     rejected: list[Ad] = []
     known_forms = forms_still_known(db, owner=owner, ads=ads)
+    known = _known(
+        db, Ad, provider=ad_account.provider, external_ids=[dto.ref.id for dto in ads]
+    )
     for dto in ads:
         adset = adsets.get(dto.adset_ref.id)
         if adset is None:
@@ -362,6 +414,7 @@ def write_ads(
             label="ad",
             refused=refused,
             defaults=defaults,
+            known=known,
         )
         if ad is not None:
             seen.add(dto.ref.id)
@@ -395,6 +448,12 @@ def write_creatives(
     tried: set[str] = set()
     seen: set[str] = set()
     held = creatives_held(db, owner=owner, ads=ads)
+    known = _known(
+        db,
+        AdCreative,
+        provider=ad_account.provider,
+        external_ids=[dto.creative.ref.id for dto in ads if dto.creative is not None],
+    )
     for dto in ads:
         creative = dto.creative
         if creative is None or creative.ref.id in tried:
@@ -431,6 +490,7 @@ def write_creatives(
             label="creative",
             refused=refused,
             defaults=defaults,
+            known=known,
         )
         if row is not None:
             seen.add(creative.ref.id)
@@ -444,7 +504,16 @@ def store_everything(
     campaigns: list[CampaignDTO],
     adsets: list[AdSetDTO],
     ads: list[AdDTO],
+    scope: frozenset[str] | None = None,
 ) -> SyncSummary:
+    """Write what was read, and forget what the read no longer holds.
+
+    ``scope`` is the campaigns whose groups and adverts were read - a light
+    read's. Every campaign is still in ``campaigns``, so one gone from Meta
+    goes here too; a group or advert is forgotten only under a campaign of
+    the scope, because under any other nothing was asked. Creatives are
+    forgotten by a whole read only.
+    """
     now = utcnow()
     refused: list[str] = []
     owner_id = ad_account.owner_id
@@ -468,6 +537,8 @@ def store_everything(
         refused=refused,
     )
     on_account = select(Campaign.id).where(Campaign.ad_account_id == ad_account.id)
+    if scope is not None:
+        on_account = on_account.where(Campaign.external_id.in_(scope))
     _remove_missing(
         db,
         AdSet,
@@ -496,14 +567,15 @@ def store_everything(
     stored_creatives = write_creatives(
         db, ad_account=ad_account, ads=ads, now=now, refused=refused
     )
-    _remove_missing(
-        db,
-        AdCreative,
-        AdCreative.owner_id == owner_id,
-        AdCreative.ad_account_id == ad_account.id,
-        keep=stored_creatives,
-        label="creative",
-    )
+    if scope is None:
+        _remove_missing(
+            db,
+            AdCreative,
+            AdCreative.owner_id == owner_id,
+            AdCreative.ad_account_id == ad_account.id,
+            keep=stored_creatives,
+            label="creative",
+        )
     ad_account.synced_at = now
     db.commit()
     summary = SyncSummary(
@@ -546,11 +618,124 @@ def list_everything(
     )
 
 
-def read_everything(
-    db: Session, ad_account: AdAccount
-) -> tuple[list[CampaignDTO], list[AdSetDTO], list[AdDTO]]:
+@dataclass(frozen=True, slots=True)
+class MirrorRead:
+    """What one read brought. ``scope`` is the campaigns whose groups and
+    adverts are in it; ``None`` when the whole account is."""
+
+    campaigns: list[CampaignDTO]
+    adsets: list[AdSetDTO]
+    ads: list[AdDTO]
+    scope: frozenset[str] | None = None
+
+
+def _pages(rows: int) -> int:
+    return max(1, -(-rows // LIST_PAGE))
+
+
+def campaigns_to_reread(
+    db: Session, *, ad_account: AdAccount, campaigns: Sequence[CampaignDTO]
+) -> list[CampaignDTO] | None:
+    """The campaigns a light read asks about, or ``None`` for a whole read.
+
+    Every campaign has just been listed, so one switched on in Ads Manager
+    is seen at once. Asked about further are the ones that run, the ones new
+    here and the ones whose state moved since the last read - a campaign
+    just stopped shows its groups stopped with it. Everything under a
+    campaign that was off and is still off waits for the night.
+
+    A whole read whenever it costs no more calls: on a small account three
+    calls bring everything, and two per running campaign would be more.
+    """
+    held = {
+        external_id: (status, effective)
+        for external_id, status, effective in db.execute(
+            select(
+                Campaign.external_id, Campaign.status, Campaign.effective_status
+            ).where(
+                Campaign.owner_id == ad_account.owner_id,
+                Campaign.ad_account_id == ad_account.id,
+            )
+        )
+    }
+    asked = [
+        dto
+        for dto in campaigns
+        if str(dto.delivery) not in NOT_RUNNING
+        or held.get(dto.ref.id) != (dto.status, dto.effective_status)
+    ]
+    on_account = select(Campaign.id).where(Campaign.ad_account_id == ad_account.id)
+    groups = db.scalar(
+        select(func.count()).select_from(AdSet).where(AdSet.campaign_id.in_(on_account))
+    )
+    adverts = db.scalar(
+        select(func.count())
+        .select_from(Ad)
+        .join(AdSet, AdSet.id == Ad.adset_id)
+        .where(AdSet.campaign_id.in_(on_account))
+    )
+    whole = _pages(int(groups or 0)) + _pages(int(adverts or 0))
+    return asked if 2 * len(asked) < whole else None
+
+
+def read_mirror(ad_account: AdAccount, db: Session, *, whole: bool) -> MirrorRead:
+    """The account from the provider: everything, or - on a half-hourly read
+    of an account read whole within the day - only what runs."""
+    bundle = registry.get(ad_account.provider)
+    children = getattr(bundle.campaigns, "list_campaign_children", None)
+    light = (
+        not whole
+        and children is not None
+        and ad_account.synced_at is not None
+        and cache.get(WHOLE_READ_KEY.format(account_id=ad_account.id)) is not None
+    )
+    if not light:
+        return MirrorRead(*list_everything(ad_account))
+    token = token_for(ad_account=ad_account)
+    account = ExternalRef(
+        provider=ProviderName(ad_account.provider),
+        level="account",
+        id=ad_account.external_id,
+    )
+    campaigns = bundle.campaigns.list_campaigns(account=account, token=token)
+    asked = campaigns_to_reread(db, ad_account=ad_account, campaigns=campaigns)
+    if asked is None:
+        return MirrorRead(
+            campaigns,
+            bundle.campaigns.list_adsets(account=account, token=token),
+            bundle.campaigns.list_ads(account=account, token=token),
+        )
+    if not asked:
+        # Nothing runs and nothing moved: the campaigns' list was the read.
+        return MirrorRead(campaigns, [], [], scope=frozenset())
     try:
-        return list_everything(ad_account)
+        adsets, ads = children(campaigns=[dto.ref for dto in asked], token=token)
+    except (AuthFailed, PermissionDenied, RateLimited):
+        raise
+    except ProviderError as exc:
+        # The light read must never be why an account goes unread: whatever
+        # one campaign's own lists refuse, the account's lists are asked as
+        # they always were.
+        logger.warning(
+            "light sync of %s fell back to a whole read: %s",
+            ad_account.external_id,
+            exc,
+        )
+        return MirrorRead(
+            campaigns,
+            bundle.campaigns.list_adsets(account=account, token=token),
+            bundle.campaigns.list_ads(account=account, token=token),
+        )
+    return MirrorRead(
+        campaigns, adsets, ads, scope=frozenset(dto.ref.id for dto in asked)
+    )
+
+
+def read_everything(
+    db: Session, ad_account: AdAccount, *, whole: bool = True
+) -> MirrorRead:
+    try:
+        return read_mirror(ad_account, db, whole=whole)
     except PermissionDenied as exc:
         from app.modules.metrics.services import refusal_is_the_accounts
 
@@ -593,7 +778,11 @@ def mirror_lock_key(ad_account: AdAccount) -> str:
     return f"ads:sync:{ad_account.provider}:{ad_account.external_id}"
 
 
-def sync_ad_account(db: Session, *, ad_account: AdAccount) -> SyncSummary:
+def sync_ad_account(
+    db: Session, *, ad_account: AdAccount, whole: bool = True
+) -> SyncSummary:
+    """Read the account and store it. ``whole=False`` is the half-hourly
+    sweep's: it may read only what runs - see :func:`campaigns_to_reread`."""
     key = mirror_lock_key(ad_account)
     if not cache.add(key, "1", SYNC_LOCK_SECONDS):
         raise SyncAlreadyRunning
@@ -605,12 +794,30 @@ def sync_ad_account(db: Session, *, ad_account: AdAccount) -> SyncSummary:
             store_account_state,
         )
 
-        campaigns, adsets, ads = read_everything(db, ad_account)
+        read = read_everything(db, ad_account, whole=whole)
         state = read_account_state(ad_account)
         before = our_rows(db, ad_account=ad_account)
         summary = store_everything(
-            db, ad_account=ad_account, campaigns=campaigns, adsets=adsets, ads=ads
+            db,
+            ad_account=ad_account,
+            campaigns=read.campaigns,
+            adsets=read.adsets,
+            ads=read.ads,
+            scope=read.scope,
         )
+        if read.scope is None:
+            cache.set(
+                WHOLE_READ_KEY.format(account_id=ad_account.id),
+                1,
+                timeout=WHOLE_READ_SECONDS,
+            )
+        else:
+            logger.info(
+                "light sync of %s: %s of %s campaigns asked about",
+                ad_account.external_id,
+                len(read.scope),
+                len(read.campaigns),
+            )
         if state is not None:
             store_account_state(db, ad_account=ad_account, state=state)
         note_stops(db, ad_account=ad_account, before=before, state=state, now=utcnow())

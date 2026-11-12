@@ -118,7 +118,7 @@ def _sent(monkeypatch: pytest.MonkeyPatch, task: Any) -> list[dict[str, Any]]:
     sent: list[dict[str, Any]] = []
 
     def apply_async(args: Any = None, kwargs: Any = None, **options: Any) -> None:
-        sent.append({"args": args, **options})
+        sent.append({"args": args, "kwargs": kwargs, **options})
 
     monkeypatch.setattr(task, "apply_async", apply_async)
     return sent
@@ -146,8 +146,9 @@ def test_a_half_hourly_read_left_in_the_queue_is_dropped_before_the_next(
     ads_tasks.sync_all_accounts()
     metrics_tasks.sync_today_metrics()
 
-    expected = [{"args": (str(account.id),), "expires": SWEEP_EXPIRES_SECONDS}]
-    assert mirror == expected
-    assert today == expected
+    expected = {"args": (str(account.id),), "expires": SWEEP_EXPIRES_SECONDS}
+    # The mirror's half-hourly read may be a light one; the night's is whole.
+    assert mirror == [{**expected, "kwargs": {"whole": False}}]
+    assert today == [{**expected, "kwargs": None}]
     # Shorter than the half hour between two sweeps, or nothing is dropped.
     assert SWEEP_EXPIRES_SECONDS < 30 * 60

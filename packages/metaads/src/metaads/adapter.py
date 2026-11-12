@@ -115,6 +115,8 @@ from metaads.campaigns import (
     get_object,
     list_ads,
     list_adsets,
+    list_campaign_ads,
+    list_campaign_adsets,
     list_campaigns,
 )
 from metaads.client import GraphClient
@@ -633,6 +635,32 @@ class MetaCampaigns:
         with session(token) as graph:
             rows = list_ads(account_id=account.id, token=token, client=graph)
         return [self._ad(row) for row in rows]
+
+    def list_campaign_children(
+        self, *, campaigns: Sequence[ExternalRef], token: str
+    ) -> tuple[list[AdSetDTO], list[AdDTO]]:
+        """The ad sets and adverts of these campaigns only, on one connection.
+
+        Not on the port: a provider without it is read whole, as before -
+        see ``app.modules.ads.services.mirror``.
+        """
+        adsets: list[AdSetDTO] = []
+        ads: list[AdDTO] = []
+        with session(token) as graph:
+            for campaign in campaigns:
+                adsets += [
+                    self._adset(row)
+                    for row in list_campaign_adsets(
+                        campaign_id=campaign.id, token=token, client=graph
+                    )
+                ]
+                ads += [
+                    self._ad(row)
+                    for row in list_campaign_ads(
+                        campaign_id=campaign.id, token=token, client=graph
+                    )
+                ]
+        return adsets, ads
 
     def read_objects(
         self, *, account: ExternalRef, refs: Sequence[ExternalRef], token: str
