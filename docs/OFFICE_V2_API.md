@@ -108,6 +108,7 @@ Mijoz kabinetida: `GET /api/v1/billing` va `GET /api/v1/billing/paywall` javobid
 (`cards[].offer`) va `chosen` da: `price_minor` asl narx, `offer_minor` sotuv chegirmasi,
 `promo_minor` promokod (faqat `chosen`), `discount_minor` = ikkalasi, `wallet_minor` hamyon,
 `due_minor` to'lanadigan summa. `promo_quote.base_minor` = chegirmadan keyingi narx.
+Start va bir martalik tariflarga sotuv chegirmasi berilmaydi: ularda `offer_minor` = 0.
 
 `trial` ustuni bazada bor, lekin hozircha yashirin: kelmaydi. Bepul sinov qilinganda chiqadi.
 

@@ -15,7 +15,7 @@ from app.modules.accounts.models import User
 from app.modules.backoffice.constants import Role
 from app.modules.billing import services as billing
 from app.modules.billing.constants import InvoiceStatus, WalletChoice
-from app.modules.billing.models import Invoice, PromoRedemption
+from app.modules.billing.models import Invoice, Plan, PromoRedemption
 from app.modules.billing.models.promo_code import PromoCode
 from app.modules.boards.models import BoardCard, BoardCardEvent
 from app.modules.referrals.constants import RewardStatus
@@ -317,3 +317,52 @@ def test_the_paywall_takes_a_code_off_what_the_offer_leaves(
     # The bill comes out at the price the paywall showed.
     bill = _bill(db, ali["owner"], promo="SMALL5")
     assert bill.amount_minor == chosen["due_minor"]
+
+
+START = 9_900_000  # 99 000 so'm in tiyin
+
+
+def _start(db: Session, *, code: str = "start", one_time: bool = True) -> Plan:
+    plan = Plan(
+        code=code,
+        name=code.title(),
+        price=99000,
+        currency="UZS",
+        period_days=7,
+        max_adsets=1,
+        llm_cost_limit_minor=1000,
+        is_one_time=one_time,
+    )
+    db.add(plan)
+    db.flush()
+    return plan
+
+
+def test_start_is_never_discounted(client: TestClient, db: Session) -> None:
+    _given, ali = _offered(client, db, "start@shop.test")
+    owner = db.get(User, ali["owner"])
+    assert owner is not None
+    _plan(db)
+    # Start by its code alone, and another plan by being one-time alone.
+    start = _start(db, one_time=False)
+    _start(db, code="proba")
+    db.commit()
+    shown = client.get(
+        "/api/v1/billing/paywall", params={"plan": "start"}, headers=_auth(owner)
+    ).json()
+    assert shown["sales_offer"]["percent"] == 20
+    taken = {c["code"]: c["offer"] for c in shown["cards"]}
+    for code in ("start", "proba"):
+        assert taken[code]["offer_minor"] == 0
+        assert taken[code]["discount_minor"] == 0
+        assert taken[code]["due_minor"] == START
+    assert taken["standart"]["offer_minor"] == PRICE * 20 // 100
+    assert shown["chosen"]["offer_minor"] == 0
+    assert shown["chosen"]["due_minor"] == START
+
+    now = utcnow()
+    invoice = billing.create_invoice(db, owner=owner, plan=start, now=now)
+    bill = billing.price_invoice(
+        db, invoice=invoice, promo_code="", wallet=WalletChoice.KEEP, now=now
+    )
+    assert bill.offer_minor == 0 and bill.amount_minor == START

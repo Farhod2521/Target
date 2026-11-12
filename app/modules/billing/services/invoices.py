@@ -518,7 +518,7 @@ def _sales_offer(
 ) -> tuple[datetime | None, int]:
     """The sales manager's offer on a first plan bill: until when a bill
     priced with it may be paid, and what it takes off the plan's price.
-    Pages and seats are not discounted."""
+    Pages and seats are not discounted, nor is Start or a one-time plan."""
     from app.modules.boards.offer import live_offer, offer_minor
 
     if invoice.kind != InvoiceKind.PLAN:
@@ -527,7 +527,8 @@ def _sales_offer(
     if offer is None:
         return None, 0
     base = int(to_minor(amount=str(invoice.plan.price), currency=invoice.currency))
-    return offer.pay_until, offer_minor(offer=offer, base_minor=base)
+    take = offer_minor(offer=offer, plan=invoice.plan, base_minor=base)
+    return (offer.pay_until, take) if take else (None, 0)
 
 
 def _promo_minor(

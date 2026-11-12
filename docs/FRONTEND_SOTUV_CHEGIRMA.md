@@ -11,6 +11,8 @@ Sotuv menejeri ofis kanbanida «Chegirma berish» tugmasini bosadi. Shundan keyi
 - 72-soatgacha — 10%
 - keyin — chegirma yo'q
 
+**Start tarifiga chegirma berilmaydi** (bir martalik tariflarga ham). Batafsil: 7-band.
+
 Hisoblash tartibi: **asl narx → sotuv chegirmasi → promokod (qolgan summadan) → hamyon**.
 
 Misol (Standard, 490 000 so'm, 20% va 5% promokod):
@@ -36,9 +38,10 @@ Har bir tarif kartasida:
 | Asl narx (ustidan chiziladi) | `cards[].offer.price_minor` |
 | Sotuv chegirmasi summasi | `cards[].offer.offer_minor` |
 | Yangi narx | `cards[].offer.price_minor - cards[].offer.discount_minor` |
-| «−20%» belgisi | `sales_offer.percent` |
+| «−20%» belgisi | `sales_offer.percent`, faqat `cards[].offer.offer_minor > 0` bo'lgan kartada |
 
 `sales_offer === null` bo'lsa, chegirma yo'q: eski ko'rinish qoladi.
+Kartada `offer_minor === 0` bo'lsa ham shu kartada eski ko'rinish qoladi (7-band).
 
 ### 2. Chegirma yozuvi va taymer
 
@@ -94,6 +97,29 @@ Bu sahifa ham 1–4-bandlardagi kabi ishlaydi: maydonlar bir xil (`cards`, `chos
 
 - `packages/api/src/live/bridges/billing.ts` dagi `toPaywallPlan` `cards[].offer` va `sales_offer` ni o'qisin.
 - OpenAPI turlari qayta generatsiya qilinsin: `OfferOut.offer_minor` va `OfferOut.promo_minor` yangi maydonlar.
+
+### 7. Start tarifiga chegirma yo'q (2026-11-12)
+
+Backend endi Start tarifiga (va `plan.is_one_time: true` tariflarga) sotuv chegirmasini
+qo'llamaydi. Bunday kartada `sales_offer` bor bo'lsa ham:
+
+```json
+"offer": { "price_minor": 9900000, "offer_minor": 0, "discount_minor": 0, "due_minor": 9900000 }
+```
+
+Hozirgi xato: front «−20%» belgisini va chizilgan narxni `sales_offer.percent` bo'yicha
+hamma kartaga qo'yadi, shuning uchun Start ham «79 200» ko'rinadi.
+
+Qilinadigan ishlar:
+
+- Kartada chizilgan asl narx, «−20%» belgisi va yangi narx **faqat
+  `cards[].offer.offer_minor > 0` bo'lsa** chiqadi. Aks holda oddiy narx: `offer.price_minor`.
+- Narxni frontda foizdan hisoblamang: har doim `price_minor - discount_minor` ni oling.
+- Tepadagi «20% chegirma · 23:14:42 qoldi» yozuvi o'zgarmaydi: u `sales_offer` dan olinadi.
+- To'lov hisobida (`chosen`) «Sotuv chegirmasi» qatori faqat `chosen.offer_minor > 0` bo'lsa chiqadi.
+- Start uchun hisob to'liq narxda yaratiladi; promokod va hamyon avvalgidek ishlaydi.
+
+Tarif kodi yoki nomiga qarab shart yozmang: faqat `offer_minor` ga qarang.
 
 ## `sales_offer`
 

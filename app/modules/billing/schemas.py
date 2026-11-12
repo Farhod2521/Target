@@ -181,7 +181,8 @@ class PricedChoice(BaseModel):
     sales_offer: SalesOfferOut | None = Field(
         None,
         description="The sales manager's offer on the first plan. The cards and "
-        "`chosen` already take it off; a code is taken off what is left.",
+        "`chosen` already take it off; a code is taken off what is left. Start "
+        "and one-time plans are not discounted: their `offer_minor` is 0.",
     )
     promo_quote: PromoQuote | None = Field(None, description="The typed code applies.")
     promo_error: str | None = Field(None, description="Why the typed code does not.")

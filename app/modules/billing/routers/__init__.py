@@ -225,6 +225,7 @@ def priced_choice(
     taken = {
         plan.code: offer_minor(
             offer=sales,
+            plan=plan,
             base_minor=int(to_minor(amount=str(plan.price), currency=plan.currency)),
         )
         for plan in plans

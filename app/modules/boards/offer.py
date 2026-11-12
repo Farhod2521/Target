@@ -1,5 +1,6 @@
 """The sales manager's offer: «Chegirma berish» gives the client 20% off
 their first plan for a day, then 10% until the third day ends, then none.
+Start (the trial plan) and one-time plans are never discounted.
 
 The clock is the press itself (the ``offered`` line), not the column, so a
 bill priced a minute before the sweep moves the card is still right."""
@@ -11,8 +12,12 @@ from datetime import datetime, timedelta
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
-from app.modules.billing.constants import InvoiceKind, InvoiceStatus
-from app.modules.billing.models import Invoice
+from app.modules.billing.constants import (
+    DEFAULT_PLAN_CODE,
+    InvoiceKind,
+    InvoiceStatus,
+)
+from app.modules.billing.models import Invoice, Plan
 from app.modules.boards.constants import (
     OFFER_COLUMNS,
     OFFER_INVOICE_GRACE_MINUTES,
@@ -83,8 +88,13 @@ def live_offer(db: Session, *, owner_id: uuid.UUID, now: datetime) -> Offer | No
     return step_at(started, now)
 
 
-def offer_minor(*, offer: Offer | None, base_minor: int) -> int:
-    """What the offer takes off a plan priced ``base_minor``."""
-    if offer is None or base_minor <= 0:
+def is_discounted(plan: Plan) -> bool:
+    """Whether the offer applies to this plan: not Start, not a one-time one."""
+    return plan.code != DEFAULT_PLAN_CODE and not plan.is_one_time
+
+
+def offer_minor(*, offer: Offer | None, plan: Plan, base_minor: int) -> int:
+    """What the offer takes off ``plan`` priced ``base_minor``."""
+    if offer is None or base_minor <= 0 or not is_discounted(plan):
         return 0
     return base_minor * offer.percent // 100
