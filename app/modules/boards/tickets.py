@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.modules.accounts.models import User
 from app.modules.boards.constants import Board, EventKind, SupportColumn, TicketReason
 from app.modules.boards.models import BoardCard, BoardCardEvent
 from app.modules.boards.services import move, record
@@ -31,10 +32,11 @@ def raise_ticket(
     ref: str,
     now: datetime,
     detail: str = "",
+    actor: User | None = None,
 ) -> bool:
     """Put ``reason`` on the client's ticket, opening or reopening it.
     ``ref`` names the fact (a payment, a launch); the same fact twice is
-    nothing. Whether anything was written. The caller commits."""
+    nothing. ``actor`` is who opened it by hand; a rule has none. Whether anything was written. The caller commits."""
     item = {"code": str(reason), "ref": ref, "at": now.isoformat(), "detail": detail}
     card = _locked(db, owner_id)
     if card is None:
@@ -67,6 +69,7 @@ def raise_ticket(
                 to_column=card.column_code,
                 body=detail,
                 ref=ref,
+                actor=actor,
             )
             db.flush()
             return True
@@ -88,9 +91,18 @@ def raise_ticket(
             now=now,
             body=detail,
             ref=ref,
+            actor=actor,
         )
     else:
-        record(db, card=card, kind=EventKind.REASON, now=now, body=detail, ref=ref)
+        record(
+            db,
+            card=card,
+            kind=EventKind.REASON,
+            now=now,
+            body=detail,
+            ref=ref,
+            actor=actor,
+        )
     # Flushed, so the same fact met again in this transaction is seen.
     db.flush()
     return True

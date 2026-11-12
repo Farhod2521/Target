@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, SmallInteger, String, Text, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,6 +24,7 @@ class BoardCard(Base):
         Index("uniq_board_card_owner", "board", "owner_id", unique=True),
         Index("board_cards_column_idx", "board", "column_code", "column_since"),
         Index("board_cards_manager_idx", "board", "manager_id"),
+        Index("board_cards_due_idx", "board", "due_at", postgresql_where=text("due_at IS NOT NULL")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -38,6 +39,10 @@ class BoardCard(Base):
     contact_mark: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     # Sales: the client asked for help; a ticket opens as soon as they pay.
     needs_support: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Sales: how many times «Bog'lanilmadi» was pressed.
+    attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0, server_default="0")
+    # The time the person working the card set for its next step.
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Support: why the ticket is open, each reason once, oldest first.
     reasons: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

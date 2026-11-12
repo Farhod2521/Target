@@ -78,6 +78,17 @@ def test_the_migration_seeds_the_same_columns_as_the_code() -> None:
         (board, code, name, kind, final, shown or code in offer.OFFER_COLUMNS)
         for board, code, name, kind, final, shown in module.COLUMNS
     ]
+    # 0045 puts three more columns in, each right after a neighbour.
+    newest = next(Path("migrations/versions").glob("*_0045_board_deadlines.py"))
+    spec = importlib.util.spec_from_file_location("m0045", newest)
+    assert spec is not None and spec.loader is not None
+    deadlines = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(deadlines)
+    for board, code, name, kind, after in deadlines.NEW_COLUMNS:
+        at = next(
+            i for i, row in enumerate(seeded) if row[0] == board and row[1] == after
+        )
+        seeded.insert(at + 1, (board, code, name, kind, False, True))
     assert seeded == [
         (str(s.board), s.code, s.name, str(s.kind), s.is_final, s.is_visible)
         for s in SEED_COLUMNS

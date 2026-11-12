@@ -44,6 +44,7 @@ def test_the_superuser_renames_and_reorders_columns(
             "columns": [
                 {"code": "in_progress", "name": "  Jarayonda "},
                 {"code": "new", "name": "Kelgan"},
+                {"code": "waiting", "name": "Kutilmoqda"},
                 {"code": "resolved", "name": "Tayyor"},
             ]
         },
@@ -53,6 +54,7 @@ def test_the_superuser_renames_and_reorders_columns(
     assert _codes(saved) == [
         ("in_progress", "Jarayonda"),
         ("new", "Kelgan"),
+        ("waiting", "Kutilmoqda"),
         ("resolved", "Tayyor"),
     ]
 

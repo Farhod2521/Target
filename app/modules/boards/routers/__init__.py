@@ -17,6 +17,7 @@ from app.modules.boards.constants import (
     CLOSE_REASON_LABELS,
     COLUMN_CARDS,
     COLUMN_CARDS_MAX,
+    Board,
     CardAction,
     CloseReason,
 )
@@ -24,9 +25,12 @@ from app.modules.boards.schemas import (
     ActionIn,
     AssignIn,
     BoardViewOut,
+    CardAddIn,
     CardDetailOut,
+    ClientsFoundOut,
     ColumnsIn,
     ColumnsOut,
+    DueIn,
     HelpOptionsIn,
     HelpOptionsOut,
     MeOut,
@@ -72,6 +76,8 @@ def me(db: Db, user: Staff) -> dict[str, Any]:
             "take": may_take(db, user),
             "assign": bool(access.leads),
             "move": access.full,
+            "add_lead": access.leads_board(Board.SALES),
+            "add_ticket": access.sees(Board.SUPPORT),
             "columns": access.full,
             "staff": access.full,
         },
@@ -109,20 +115,40 @@ def board(
         str, Query(max_length=24, description="One column only, for its next page.")
     ] = "",
     q: Annotated[str, Query(max_length=100, description="Name, email or phone.")] = "",
+    mine: Annotated[bool, Query(description="Only the reader's own cards.")] = False,
+    manager: Annotated[
+        str,
+        Query(max_length=36, description="A staff member's id, or `none`: nobody's."),
+    ] = "",
+    due: Annotated[
+        str,
+        Query(
+            max_length=8,
+            description="`overdue`: the deadline passed; `today`: due on the "
+            "office's day today; `set`: any deadline.",
+        ),
+    ] = "",
+    reason: Annotated[
+        str, Query(max_length=24, description="Support: a ticket reason's code.")
+    ] = "",
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=COLUMN_CARDS_MAX)] = COLUMN_CARDS,
 ) -> dict[str, Any]:
     """The board as this person sees it: a sales manager only their own
-    cards, the lead and Support everything on their board."""
-    selectors.ensure_board(db, board=staff.board, now=utcnow())
+    cards, the lead and Support everything on their board. In a column the
+    nearest deadline is on top."""
+    now = utcnow()
+    selectors.ensure_board(db, board=staff.board, now=now)
     db.commit()
     return view.board_view(
         db,
         board=staff.board,
         user=staff.user,
         access=staff.access,
+        now=now,
         column=column,
         search=q,
+        filters=view.Filters(mine=mine, manager=manager, due=due, reason=reason),
         offset=offset,
         limit=limit,
     )
@@ -136,6 +162,67 @@ def board_people(db: Db, staff: BoardStaff) -> dict[str, Any]:
     return {"staff": view.board_staff(db, board=staff.board)}
 
 
+@router.get("/boards/{board}/clients", responses={200: {"model": ClientsFoundOut}})
+def board_clients(
+    db: Db, staff: BoardStaff, q: Annotated[str, Query(min_length=3, max_length=100)]
+) -> dict[str, Any]:
+    """Signed-up clients to open a card for, by email, phone or name. For
+    who may add a card to this board."""
+    _may_add(staff)
+    return {"clients": view.search_clients(db, board=staff.board, q=q)}
+
+
+def _may_add(staff: BoardStaff) -> None:
+    allowed = (
+        staff.access.leads_board(Board.SALES)
+        if staff.board == Board.SALES
+        else staff.access.sees(Board.SUPPORT)
+    )
+    if not allowed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+
+
+@router.post(
+    "/boards/{board}/cards",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": CardDetailOut}},
+)
+def add_card(db: Db, staff: BoardStaff, body: CardAddIn) -> dict[str, Any]:
+    """A card opened by hand. Sales (the lead, the Owner, the superuser): a
+    client who has not paid becomes a lead, in Ishlanmagan or with
+    `staff_id`. Support (anybody on the board): the client's ticket opens,
+    or takes one more reason; `note` says why."""
+    _may_add(staff)
+    now = utcnow()
+    try:
+        client_id = uuid.UUID(body.user_id)
+        to_id = uuid.UUID(body.staff_id) if body.staff_id else None
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Mijoz topilmadi."
+        ) from None
+    if staff.board == Board.SALES:
+        found = services.add_lead(
+            db,
+            client_id=client_id,
+            user=staff.user,
+            access=staff.access,
+            note=body.note,
+            to_id=to_id,
+            now=now,
+        )
+    else:
+        found = services.add_ticket(
+            db,
+            client_id=client_id,
+            user=staff.user,
+            access=staff.access,
+            note=body.note,
+            now=now,
+        )
+    return view.card_detail(db, card=found, now=now)
+
+
 @router.get("/boards/sales/reasons", responses={200: {"model": list[ReasonOut]}})
 def close_reasons(staff: Staff) -> list[dict[str, str]]:
     """Why a Sales card is closed."""
@@ -147,7 +234,7 @@ def close_reasons(staff: Staff) -> list[dict[str, str]]:
 
 @router.post("/sales/take", responses={200: {"model": CardDetailOut}})
 def take(db: Db, user: Staff) -> dict[str, Any]:
-    """«Lid olish»: the oldest lead nobody works yet becomes this manager's."""
+    """«Lid olish»: the newest lead nobody works yet becomes this manager's."""
     if not may_take(db, user):
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     now = utcnow()
@@ -189,6 +276,24 @@ def press(db: Db, user: Staff, card_id: str, body: ActionIn) -> dict[str, Any]:
         on=body.on,
         reason=body.reason,
         note=body.note,
+        due_at=body.due_at,
+    )
+    return view.card_detail(db, card=found, now=now)
+
+
+@router.put("/cards/{card_id}/due", responses={200: {"model": CardDetailOut}})
+def due(db: Db, user: Staff, card_id: str, body: DueIn) -> dict[str, Any]:
+    """The card's deadline: set, moved or taken off (`due_at: null`) by who
+    works it. The card stays in its column."""
+    now = utcnow()
+    found = services.set_due(
+        db,
+        card_id=_card_id(card_id),
+        user=user,
+        access=access_for(db, user),
+        due_at=body.due_at,
+        note=body.note,
+        now=now,
     )
     return view.card_detail(db, card=found, now=now)
 

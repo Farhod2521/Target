@@ -1,26 +1,39 @@
 """A board and a card as the office reads them."""
 
 import re
-from datetime import datetime
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, time, timedelta
 from typing import Any
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
+from app.common.dates import localtime
 from app.modules.accounts.models import User
-from app.modules.billing.constants import LIVE_SUBSCRIPTION_STATUSES
-from app.modules.billing.models import Subscription
+from app.modules.billing.constants import (
+    LIVE_SUBSCRIPTION_STATUSES,
+    InvoiceKind,
+    InvoiceStatus,
+)
+from app.modules.billing.models import Invoice, Subscription
 from app.modules.boards.access import Access
 from app.modules.boards.constants import (
+    ACTION_DUE_OPTIONAL,
+    ACTION_DUE_REQUIRED,
+    ACTION_NOTE_REQUIRED,
     CARD_ACTION_LABELS,
+    CLIENT_SEARCH_ROWS,
     CLOSE_REASON_LABELS,
     EVENT_KIND_LABELS,
     SALES_ACTIONS,
     SEARCH_MAX,
+    SUPPORT_ACTION_LABELS,
     SUPPORT_ACTIONS,
     TICKET_REASON_LABELS,
     Board,
     CloseReason,
+    DueFilter,
     EventKind,
     SalesColumn,
     SupportColumn,
@@ -40,12 +53,60 @@ def _person(user: User | None) -> dict[str, str] | None:
     }
 
 
+@dataclass(frozen=True, slots=True)
+class Filters:
+    """What narrows a board besides the search."""
+
+    mine: bool = False
+    # A staff member's id, or ``none`` for cards nobody works.
+    manager: str = ""
+    due: str = ""
+    # Support: a ticket reason's code.
+    reason: str = ""
+
+
+def today_bounds(now: datetime) -> tuple[datetime, datetime]:
+    """The office's day that ``now`` is in."""
+    start = datetime.combine(localtime(now).date(), time.min, localtime(now).tzinfo)
+    return start, start + timedelta(days=1)
+
+
+def _due_clause(due: str, now: datetime) -> Any:
+    if due == DueFilter.OVERDUE:
+        return BoardCard.due_at <= now
+    if due == DueFilter.TODAY:
+        start, end = today_bounds(now)
+        return and_(BoardCard.due_at >= start, BoardCard.due_at < end)
+    return BoardCard.due_at.is_not(None)
+
+
 def _scoped(
-    query: Select[Any], *, board: Board, user: User, access: Access, search: str
+    query: Select[Any],
+    *,
+    board: Board,
+    user: User,
+    access: Access,
+    search: str,
+    filters: Filters,
+    now: datetime,
+    with_due: bool = True,
 ) -> Select[Any]:
     query = query.where(BoardCard.board == str(board))
     if board == Board.SALES and not access.leads_board(board):
         query = query.where(BoardCard.manager_id == user.id)
+    if filters.mine:
+        query = query.where(BoardCard.manager_id == user.id)
+    if filters.manager == "none":
+        query = query.where(BoardCard.manager_id.is_(None))
+    elif filters.manager:
+        try:
+            query = query.where(BoardCard.manager_id == uuid.UUID(filters.manager))
+        except ValueError:
+            query = query.where(BoardCard.id.is_(None))
+    if filters.reason:
+        query = query.where(BoardCard.reasons.contains([{"code": filters.reason}]))
+    if with_due and filters.due in DueFilter.values:
+        query = query.where(_due_clause(filters.due, now))
     words = search.strip()[:SEARCH_MAX]
     if words:
         client = aliased(User)
@@ -63,12 +124,15 @@ def _scoped(
 
 
 def _order(code: str) -> Any:
-    # A queue is worked oldest first; elsewhere the latest move is on top.
+    # The nearest deadline is on top, so an overdue card is the first seen.
+    # Then: the lead queue newest first, as «Lid olish» gives it; Support's
+    # queue oldest first; elsewhere the latest move.
+    due = BoardCard.due_at.asc().nulls_last()
     if code == SalesColumn.UNWORKED:
-        return (BoardCard.opened_at, BoardCard.id)
+        return (due, BoardCard.opened_at.desc(), BoardCard.id)
     if code == SupportColumn.NEW:
-        return (BoardCard.column_since, BoardCard.id)
-    return (BoardCard.column_since.desc(), BoardCard.id)
+        return (due, BoardCard.column_since, BoardCard.id)
+    return (due, BoardCard.column_since.desc(), BoardCard.id)
 
 
 def _reason_label(code: str) -> str:
@@ -77,8 +141,74 @@ def _reason_label(code: str) -> str:
     return code
 
 
-def card_brief(card: BoardCard) -> dict[str, Any]:
+@dataclass(frozen=True, slots=True)
+class Extras:
+    """What a Sales card shows from outside its own row."""
+
+    # card id -> when «Chegirma berish» was pressed.
+    offered: dict[uuid.UUID, datetime]
+    # owner id -> the bill they opened and may still pay.
+    bills: dict[uuid.UUID, Invoice]
+
+
+def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
+    """The offers and open bills of these cards, in two queries."""
+    from app.modules.boards.offer import OFFERED_REF
+
+    sales = [card for card in cards if card.board == str(Board.SALES)]
+    if not sales:
+        return Extras(offered={}, bills={})
+    offered = {
+        card_id: at
+        for card_id, at in db.execute(
+            select(BoardCardEvent.card_id, BoardCardEvent.created_at).where(
+                BoardCardEvent.card_id.in_([card.id for card in sales]),
+                BoardCardEvent.ref == OFFERED_REF,
+            )
+        )
+    }
+    bills: dict[uuid.UUID, Invoice] = {}
+    for bill in db.scalars(
+        open_bills(now)
+        .where(Invoice.owner_id.in_([card.owner_id for card in sales]))
+        .order_by(Invoice.created_at)
+    ):
+        if bill.owner_id is not None:
+            bills[bill.owner_id] = bill
+    return Extras(offered=offered, bills=bills)
+
+
+def open_bills(at: datetime) -> Select[Any]:
+    """Plan bills a client opened and may still pay at ``at``."""
+    return select(Invoice).where(
+        Invoice.kind == str(InvoiceKind.PLAN),
+        or_(
+            and_(Invoice.status == str(InvoiceStatus.PENDING), Invoice.expires_at > at),
+            Invoice.status == str(InvoiceStatus.HELD),
+        ),
+    )
+
+
+def _brief_offer(
+    card: BoardCard, extras: Extras, now: datetime
+) -> dict[str, Any] | None:
+    from app.modules.boards.offer import step_at
+
+    started = extras.offered.get(card.id)
+    if started is None:
+        return None
+    # Sold or closed: the offer no longer applies, as the bill sees it.
+    step = step_at(started, now) if card.closed_at is None else None
+    return {
+        "percent": step.percent if step else 0,
+        "started_at": started,
+        "ends_at": step.ends_at if step else None,
+    }
+
+
+def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, Any]:
     owner = card.owner
+    codes = sorted({str(item.get("code", "")) for item in card.reasons or []} - {""})
     return {
         "id": str(card.id),
         "board": card.board,
@@ -92,10 +222,16 @@ def card_brief(card: BoardCard) -> dict[str, Any]:
         },
         "manager": _person(card.manager),
         "contact_mark": card.contact_mark,
+        "attempts": card.attempts,
         "needs_support": card.needs_support,
-        "reasons": sorted(
-            {str(item.get("code", "")) for item in card.reasons or []} - {""}
-        ),
+        "reasons": codes,
+        "reason_chips": [
+            {"code": code, "label": _reason_label(code)} for code in codes
+        ],
+        "due_at": card.due_at,
+        "overdue": card.due_at is not None and card.due_at <= now,
+        "offer": _brief_offer(card, extras, now),
+        "has_bill": card.closed_at is None and card.owner_id in extras.bills,
         "opened_at": card.opened_at,
         "column_since": card.column_since,
         "closed_at": card.closed_at,
@@ -108,14 +244,18 @@ def board_view(
     board: Board,
     user: User,
     access: Access,
+    now: datetime,
     column: str = "",
     search: str = "",
+    filters: Filters = Filters(),
     offset: int = 0,
     limit: int,
 ) -> dict[str, Any]:
     """Every column this person sees with its count and first cards; with
-    ``column``, that one column from ``offset`` on."""
+    ``column``, that one column from ``offset`` on. ``due`` counts the
+    deadlines under the same search and filters, whatever the due filter."""
     shown: list[ColumnView] = columns_for(db, board=board, access=access)
+    codes = [item.code for item in shown]
     if column:
         shown = [item for item in shown if item.code == column]
     out = []
@@ -126,6 +266,8 @@ def board_view(
             user=user,
             access=access,
             search=search,
+            filters=filters,
+            now=now,
         )
         total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
         cards = list(
@@ -135,6 +277,7 @@ def board_view(
                 .limit(limit)
             )
         )
+        extras = extras_for(db, cards, now=now)
         out.append(
             {
                 "code": item.code,
@@ -143,21 +286,54 @@ def board_view(
                 "kind": item.kind,
                 "is_final": item.is_final,
                 "total": total,
-                "cards": [card_brief(card) for card in cards],
+                "cards": [card_brief(card, extras=extras, now=now) for card in cards],
             }
         )
-    return {"board": str(board), "columns": out}
+
+    def counted(due: DueFilter) -> int:
+        query = _scoped(
+            select(BoardCard).where(
+                BoardCard.column_code.in_(codes), _due_clause(due, now)
+            ),
+            board=board,
+            user=user,
+            access=access,
+            search=search,
+            filters=filters,
+            now=now,
+            with_due=False,
+        )
+        return int(db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+
+    return {
+        "board": str(board),
+        "due": {
+            "overdue": counted(DueFilter.OVERDUE),
+            "today": counted(DueFilter.TODAY),
+        },
+        "columns": out,
+    }
 
 
-def _actions(card: BoardCard) -> list[dict[str, str]]:
+def _actions(card: BoardCard) -> list[dict[str, Any]]:
     if card.board == str(Board.SUPPORT):
         offered = SUPPORT_ACTIONS.get(card.column_code, ())
     elif card.closed_at is not None:
         offered = ()
     else:
         offered = SALES_ACTIONS.get(card.column_code, ())
+    labels = SUPPORT_ACTION_LABELS if card.board == str(Board.SUPPORT) else {}
     return [
-        {"value": str(action), "label": str(CARD_ACTION_LABELS[action])}
+        {
+            "value": str(action),
+            "label": str(labels.get(action, CARD_ACTION_LABELS[action])),
+            "due": "required"
+            if action in ACTION_DUE_REQUIRED
+            else "optional"
+            if action in ACTION_DUE_OPTIONAL
+            else "",
+            "note_required": action in ACTION_NOTE_REQUIRED,
+        }
         for action in offered
     ]
 
@@ -191,20 +367,17 @@ def _plan(db: Session, owner: User) -> dict[str, Any] | None:
     }
 
 
-def _offer(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any] | None:
-    from app.modules.boards.offer import offered_at, step_at
-
-    if card.board != str(Board.SALES):
+def _bill(extras: Extras, card: BoardCard) -> dict[str, Any] | None:
+    bill = extras.bills.get(card.owner_id)
+    if bill is None or card.closed_at is not None:
         return None
-    started = offered_at(db, card_id=card.id)
-    if started is None:
-        return None
-    # Sold or closed: the offer no longer applies, as the bill sees it.
-    step = step_at(started, now) if card.closed_at is None else None
     return {
-        "percent": step.percent if step else 0,
-        "started_at": started,
-        "ends_at": step.ends_at if step else None,
+        "number": bill.number,
+        "plan": bill.plan.name if bill.plan else "",
+        "amount_minor": bill.amount_minor,
+        "currency": bill.currency,
+        "status": bill.status,
+        "expires_at": bill.expires_at,
     }
 
 
@@ -228,10 +401,12 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
         if card.close_reason in CloseReason.values
         else ""
     )
+    extras = extras_for(db, [card], now=now)
+    brief = card_brief(card, extras=extras, now=now)
     return {
-        **card_brief(card),
+        **brief,
         "client": {
-            **card_brief(card)["client"],
+            **brief["client"],
             "role": owner.role,
             "language": owner.language,
             "last_login": owner.last_login,
@@ -246,7 +421,7 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
             }
             for item in reversed(card.reasons or [])
         ],
-        "offer": _offer(db, card=card, now=now),
+        "bill": _bill(extras, card),
         "support_chat_id": _support_chat(db, owner),
         "close_reason": card.close_reason,
         "close_reason_label": reason,
@@ -284,4 +459,58 @@ def board_staff(db: Session, *, board: Board) -> list[dict[str, str]]:
         {"id": str(p.id), "name": p.full_name or p.email, "email": p.email}
         for p in people
         if works_on(db, p, board)
+    ]
+
+
+def search_clients(db: Session, *, board: Board, q: str) -> list[dict[str, Any]]:
+    """Signed-up clients a card may be opened for, by email, phone or name,
+    each with the card they already have on this board."""
+    words = q.strip()[:SEARCH_MAX]
+    if len(words) < 3:
+        return []
+    like = f"%{words}%"
+    digits = re.sub(r"[\s()-]", "", words) or words
+    people = list(
+        db.scalars(
+            select(User)
+            .where(
+                User.is_staff.is_(False),
+                User.is_superuser.is_(False),
+                User.is_active.is_(True),
+                User.crm_owner_id.is_(None),
+                or_(
+                    User.email.ilike(like),
+                    User.phone.ilike(f"%{digits}%"),
+                    User.full_name.ilike(like),
+                ),
+            )
+            .order_by(User.date_joined.desc())
+            .limit(CLIENT_SEARCH_ROWS)
+        )
+    )
+    cards = {
+        card.owner_id: card
+        for card in db.scalars(
+            select(BoardCard).where(
+                BoardCard.board == str(board),
+                BoardCard.owner_id.in_([person.id for person in people]),
+            )
+        )
+    }
+    return [
+        {
+            "id": str(person.id),
+            "name": person.full_name or person.email,
+            "email": person.email,
+            "phone": person.phone,
+            "signed_up_at": person.date_joined,
+            "card": {
+                "id": str(cards[person.id].id),
+                "column": cards[person.id].column_code,
+                "closed": cards[person.id].closed_at is not None,
+            }
+            if person.id in cards
+            else None,
+        }
+        for person in people
     ]

@@ -215,12 +215,17 @@ def test_one_ticket_per_client_reopened_with_the_same_person(
     seen = BoardViewOut.model_validate(
         client.get(f"{URL}/boards/support", headers=olim).json()
     )
-    assert [c.code for c in seen.columns] == ["new", "in_progress", "resolved"]
+    assert [c.code for c in seen.columns] == [
+        "new",
+        "in_progress",
+        "waiting",
+        "resolved",
+    ]
     assert seen.columns[0].cards[0].reasons == ["setup"]
 
     started = _detail(client.post(press, json={"action": "start"}, headers=zarina))
     assert started.column == "in_progress" and started.manager is not None
-    assert [a.value for a in started.actions] == ["resolve"]
+    assert [a.value for a in started.actions] == ["wait", "resolve", "release"]
     held = client.post(press, json={"action": "resolve"}, headers=olim)
     assert held.status_code == 409 and held.json()["code"] == "ticket_held"
 
@@ -229,7 +234,8 @@ def test_one_ticket_per_client_reopened_with_the_same_person(
             press, json={"action": "resolve", "note": "Facebook ulandi"}, headers=zarina
         )
     )
-    assert solved.column == "resolved" and solved.actions == []
+    assert solved.column == "resolved"
+    assert [a.value for a in solved.actions] == ["reopen"]
     assert solved.closed_at is not None
 
     raise_ticket(

@@ -130,7 +130,7 @@ def test_only_first_time_sign_ups_after_the_deploy_become_leads(db: Session) -> 
     assert db.scalar(select(func.count()).select_from(BoardCardEvent)) == 2
 
 
-def test_lid_olish_hands_out_the_oldest_lead_once(
+def test_lid_olish_hands_out_the_newest_lead_once(
     client: TestClient, db: Session
 ) -> None:
     _live(db)
@@ -142,8 +142,8 @@ def test_lid_olish_hands_out_the_oldest_lead_once(
 
     one = _detail(client.post(f"{URL}/sales/take", headers=ali))
     two = _detail(client.post(f"{URL}/sales/take", headers=vali))
-    assert one.client.email == "first@shop.test" and one.column == "new_lead"
-    assert two.client.email == "second@shop.test"
+    assert one.client.email == "second@shop.test" and one.column == "new_lead"
+    assert two.client.email == "first@shop.test"
     assert one.manager is not None and one.manager.email == "ali@office.test"
     assert one.history[0].kind == "taken"
 
@@ -187,13 +187,25 @@ def test_the_buttons_follow_the_column(client: TestClient, db: Session) -> None:
     card = _detail(client.post(f"{URL}/sales/take", headers=ali))
     press = f"{URL}/cards/{card.id}/actions"
 
-    assert [a.value for a in card.actions] == ["contacted", "no_contact", "close"]
+    assert [a.value for a in card.actions] == [
+        "contacted",
+        "no_contact",
+        "close",
+        "release",
+    ]
     early = client.post(press, json={"action": "needs_support"}, headers=ali)
     assert early.status_code == 409
 
     missed = _detail(client.post(press, json={"action": "no_contact"}, headers=ali))
     assert missed.column == "no_contact" and missed.contact_mark == "no_contact"
-    assert [a.value for a in missed.actions] == ["contacted", "close"]
+    assert missed.attempts == 1
+    assert [a.value for a in missed.actions] == [
+        "contacted",
+        "no_contact",
+        "callback",
+        "close",
+        "release",
+    ]
 
     talked = _detail(
         client.post(
@@ -247,9 +259,11 @@ def test_a_manager_sees_only_their_own_cards(client: TestClient, db: Session) ->
         "new_lead",
         "no_contact",
         "contacted",
+        "callback",
         "discount_20",
         "discount_10",
         "no_discount",
+        "awaiting",
         "sold",
     ]
     assert all(c.total == 0 for c in seen.columns)
@@ -258,7 +272,7 @@ def test_a_manager_sees_only_their_own_cards(client: TestClient, db: Session) ->
     )
     assert (
         own.columns[0].total == 1
-        and own.columns[0].cards[0].client.email == "first@shop.test"
+        and own.columns[0].cards[0].client.email == "second@shop.test"
     )
 
 
@@ -279,8 +293,8 @@ def test_the_lead_sees_the_queue_and_gives_cards_out(
     queue = seen.columns[0]
     assert queue.code == "unworked" and queue.total == 2
     assert [c.client.email for c in queue.cards] == [
-        "first@shop.test",
         "second@shop.test",
+        "first@shop.test",
     ]
     found = client.get(
         f"{URL}/boards/sales", params={"q": "secon"}, headers=lead

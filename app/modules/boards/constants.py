@@ -27,12 +27,16 @@ class SalesColumn(Choices):
     NEW_LEAD = "new_lead"
     NO_CONTACT = "no_contact"
     CONTACTED = "contacted"
+    # The client asked to be called later, or is thinking: a time is set.
+    CALLBACK = "callback"
     # Kept hidden until the free trial is built.
     TRIAL = "trial"
     # The manager's offer: 20% for a day, then 10% until the third day ends.
     DISCOUNT_20 = "discount_20"
     DISCOUNT_10 = "discount_10"
     NO_DISCOUNT = "no_discount"
+    # The client opened a bill, or told the manager they will pay.
+    AWAITING = "awaiting"
     SOLD = "sold"
     CLOSED = "closed"
 
@@ -42,10 +46,12 @@ SALES_COLUMN_LABELS = {
     SalesColumn.NEW_LEAD: "Yangi lead",
     SalesColumn.NO_CONTACT: "Bog'lanilmadi",
     SalesColumn.CONTACTED: "Bog'lanildi",
+    SalesColumn.CALLBACK: "Qayta aloqa",
     SalesColumn.TRIAL: "Sinovda",
     SalesColumn.DISCOUNT_20: "20% chegirma",
     SalesColumn.DISCOUNT_10: "10% chegirma",
     SalesColumn.NO_DISCOUNT: "Chegirmasiz",
+    SalesColumn.AWAITING: "To'lov kutilmoqda",
     SalesColumn.SOLD: "Sotildi",
     SalesColumn.CLOSED: "Yopildi",
 }
@@ -54,12 +60,15 @@ SALES_COLUMN_LABELS = {
 class SupportColumn(Choices):
     NEW = "new"
     IN_PROGRESS = "in_progress"
+    # Support did its part; the client's answer or action is waited for.
+    WAITING = "waiting"
     RESOLVED = "resolved"
 
 
 SUPPORT_COLUMN_LABELS = {
     SupportColumn.NEW: "Yangi",
     SupportColumn.IN_PROGRESS: "Ishlanmoqda",
+    SupportColumn.WAITING: "Mijoz kutilmoqda",
     SupportColumn.RESOLVED: "Hal qilindi",
 }
 
@@ -96,14 +105,17 @@ SEED_COLUMNS: Final[tuple[SeedColumn, ...]] = (
     _sales(SalesColumn.NEW_LEAD, ColumnKind.MANUAL),
     _sales(SalesColumn.NO_CONTACT, ColumnKind.MANUAL),
     _sales(SalesColumn.CONTACTED, ColumnKind.MANUAL),
+    _sales(SalesColumn.CALLBACK, ColumnKind.MANUAL),
     _sales(SalesColumn.TRIAL, ColumnKind.AUTO, shown=False),
     _sales(SalesColumn.DISCOUNT_20, ColumnKind.AUTO),
     _sales(SalesColumn.DISCOUNT_10, ColumnKind.AUTO),
     _sales(SalesColumn.NO_DISCOUNT, ColumnKind.AUTO),
+    _sales(SalesColumn.AWAITING, ColumnKind.AUTO),
     _sales(SalesColumn.SOLD, ColumnKind.AUTO, final=True),
     _sales(SalesColumn.CLOSED, ColumnKind.MANUAL, final=True),
     _support(SupportColumn.NEW, ColumnKind.AUTO),
     _support(SupportColumn.IN_PROGRESS, ColumnKind.MANUAL),
+    _support(SupportColumn.WAITING, ColumnKind.MANUAL),
     _support(SupportColumn.RESOLVED, ColumnKind.MANUAL, final=True),
 )
 
@@ -127,41 +139,101 @@ CODE_MAX: Final = 24
 class CardAction(Choices):
     CONTACTED = "contacted"
     NO_CONTACT = "no_contact"
+    CALLBACK = "callback"
+    WILL_PAY = "will_pay"
     NEEDS_SUPPORT = "needs_support"
     OFFER = "offer"
     CLOSE = "close"
+    RELEASE = "release"
     START = "start"
+    WAIT = "wait"
     RESOLVE = "resolve"
+    REOPEN = "reopen"
 
 
 CARD_ACTION_LABELS = {
     CardAction.CONTACTED: "Bog'lanildi",
     CardAction.NO_CONTACT: "Bog'lanilmadi",
+    CardAction.CALLBACK: "Qayta aloqa",
+    CardAction.WILL_PAY: "To'laydi",
     CardAction.NEEDS_SUPPORT: "Support kerak",
     CardAction.OFFER: "Chegirma berish",
     CardAction.CLOSE: "Yopildi",
+    CardAction.RELEASE: "Navbatga qaytarish",
     CardAction.START: "Ishlayapman",
+    CardAction.WAIT: "Mijoz kutilmoqda",
     CardAction.RESOLVE: "Hal qilindi",
+    CardAction.REOPEN: "Qayta ochish",
 }
+# On Support the same button gives the ticket up, not a lead back.
+SUPPORT_ACTION_LABELS: Final = {CardAction.RELEASE: "Voz kechish"}
+
+# What a button asks for besides the press: `due` is a time, `note` a line,
+# `reason` a close reason. `required` ones are refused when empty.
+ACTION_DUE_REQUIRED: Final = frozenset({CardAction.CALLBACK, CardAction.WAIT})
+ACTION_DUE_OPTIONAL: Final = frozenset({CardAction.NO_CONTACT, CardAction.WILL_PAY})
+ACTION_NOTE_REQUIRED: Final = frozenset({CardAction.RELEASE, CardAction.RESOLVE})
 
 # The buttons each Sales column shows. "Support kerak" comes after a talk:
 # the client asked for help while the manager was on the phone with them.
+# A card in a discount column stays there while the discount runs (the bill
+# reads the column), so it has no button that would move it.
 SALES_ACTIONS: Final[dict[str, tuple[CardAction, ...]]] = {
     str(SalesColumn.NEW_LEAD): (
         CardAction.CONTACTED,
         CardAction.NO_CONTACT,
         CardAction.CLOSE,
+        CardAction.RELEASE,
     ),
-    str(SalesColumn.NO_CONTACT): (CardAction.CONTACTED, CardAction.CLOSE),
+    str(SalesColumn.NO_CONTACT): (
+        CardAction.CONTACTED,
+        CardAction.NO_CONTACT,
+        CardAction.CALLBACK,
+        CardAction.CLOSE,
+        CardAction.RELEASE,
+    ),
     str(SalesColumn.CONTACTED): (
         CardAction.OFFER,
+        CardAction.CALLBACK,
+        CardAction.WILL_PAY,
         CardAction.NEEDS_SUPPORT,
         CardAction.CLOSE,
+        CardAction.RELEASE,
+    ),
+    str(SalesColumn.CALLBACK): (
+        CardAction.CONTACTED,
+        CardAction.NO_CONTACT,
+        CardAction.OFFER,
+        CardAction.WILL_PAY,
+        CardAction.NEEDS_SUPPORT,
+        CardAction.CLOSE,
+        CardAction.RELEASE,
     ),
     str(SalesColumn.DISCOUNT_20): (CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
     str(SalesColumn.DISCOUNT_10): (CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
-    str(SalesColumn.NO_DISCOUNT): (CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
+    str(SalesColumn.NO_DISCOUNT): (
+        CardAction.CALLBACK,
+        CardAction.WILL_PAY,
+        CardAction.NEEDS_SUPPORT,
+        CardAction.CLOSE,
+        CardAction.RELEASE,
+    ),
+    str(SalesColumn.AWAITING): (
+        CardAction.CALLBACK,
+        CardAction.NEEDS_SUPPORT,
+        CardAction.CLOSE,
+    ),
 }
+# A client's own bill moves the card to «To'lov kutilmoqda» from these.
+BILL_FROM_COLUMNS: Final = frozenset(
+    {
+        str(SalesColumn.NEW_LEAD),
+        str(SalesColumn.NO_CONTACT),
+        str(SalesColumn.CONTACTED),
+        str(SalesColumn.CALLBACK),
+        str(SalesColumn.NO_DISCOUNT),
+    }
+)
 
 # «Chegirma berish» starts the offer. Each step: the percent, the hour after
 # the press it lasts until, and its column. Once per client; then none.
@@ -174,11 +246,21 @@ OFFER_COLUMNS: Final = frozenset(str(step[2]) for step in OFFER_STEPS)
 OFFER_INVOICE_GRACE_MINUTES: Final = 15
 
 
-# The buttons each Support column shows. A solved ticket has none: a new
-# reason reopens it on its own.
+# The buttons each Support column shows. A solved ticket is reopened by a
+# new reason on its own, or by «Qayta ochish».
 SUPPORT_ACTIONS: Final[dict[str, tuple[CardAction, ...]]] = {
     str(SupportColumn.NEW): (CardAction.START,),
-    str(SupportColumn.IN_PROGRESS): (CardAction.RESOLVE,),
+    str(SupportColumn.IN_PROGRESS): (
+        CardAction.WAIT,
+        CardAction.RESOLVE,
+        CardAction.RELEASE,
+    ),
+    str(SupportColumn.WAITING): (
+        CardAction.START,
+        CardAction.RESOLVE,
+        CardAction.RELEASE,
+    ),
+    str(SupportColumn.RESOLVED): (CardAction.REOPEN,),
 }
 
 
@@ -190,6 +272,8 @@ class TicketReason(Choices):
     IDLE = "idle"
     # The client pressed «Mutaxassisga yuborish» in the assistant's chat.
     AI = "ai"
+    # Opened by hand in the office.
+    MANUAL = "manual"
 
 
 TICKET_REASON_LABELS = {
@@ -199,6 +283,7 @@ TICKET_REASON_LABELS = {
     TicketReason.SURVEY: "So'rovnoma: yordam kerak",
     TicketReason.IDLE: "Ishlamayapti",
     TicketReason.AI: "AI chatdan",
+    TicketReason.MANUAL: "Qo'lda ochilgan",
 }
 
 # Paid this long ago and still not set up: Support calls.
@@ -255,6 +340,16 @@ class EventKind(Choices):
     STARTED = "started"
     RESOLVED = "resolved"
     MOVED = "moved"
+    ADDED = "added"
+    CALLBACK = "callback"
+    WILL_PAY = "will_pay"
+    BILL_OPENED = "bill_opened"
+    BILL_UNPAID = "bill_unpaid"
+    RELEASED = "released"
+    WAITING = "waiting"
+    CLIENT_REPLIED = "client_replied"
+    DUE_SET = "due_set"
+    DUE_CLEARED = "due_cleared"
 
 
 EVENT_KIND_LABELS = {
@@ -278,6 +373,16 @@ EVENT_KIND_LABELS = {
     EventKind.STARTED: "Ishga olindi",
     EventKind.RESOLVED: "Hal qilindi",
     EventKind.MOVED: "Qo'lda ko'chirildi",
+    EventKind.ADDED: "Qo'lda qo'shildi",
+    EventKind.CALLBACK: "Qayta aloqa belgilandi",
+    EventKind.WILL_PAY: "To'laydi",
+    EventKind.BILL_OPENED: "Mijoz hisob ochdi",
+    EventKind.BILL_UNPAID: "Hisob to'lanmadi",
+    EventKind.RELEASED: "Xodim kartani qaytardi",
+    EventKind.WAITING: "Mijoz javobi kutilmoqda",
+    EventKind.CLIENT_REPLIED: "Mijoz javob yozdi",
+    EventKind.DUE_SET: "Muddat qo'yildi",
+    EventKind.DUE_CLEARED: "Muddat olib tashlandi",
 }
 
 NOTE_MAX: Final = 2000
@@ -285,3 +390,18 @@ COLUMN_CARDS: Final = 50
 COLUMN_CARDS_MAX: Final = 200
 SWEEP_BATCH: Final = 500
 SEARCH_MAX: Final = 100
+# A deadline is set this far ahead at most.
+DUE_MAX_DAYS: Final = 365
+# A minute of slack for a time picked "now" and sent a moment later.
+DUE_PAST_SLACK_SECONDS: Final = 60
+
+
+class DueFilter(Choices):
+    OVERDUE = "overdue"
+    TODAY = "today"
+    SET = "set"
+
+
+# «Bog'lanilmadi» is counted up to this; the column is a small integer.
+ATTEMPTS_MAX: Final = 999
+CLIENT_SEARCH_ROWS: Final = 20

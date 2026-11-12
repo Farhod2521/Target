@@ -2,14 +2,22 @@
 manager, write a note. Each change is one transaction with its history line."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.common.dates import localtime
 from app.modules.accounts.models import User
 from app.modules.boards.access import Access, works_on
 from app.modules.boards.constants import (
+    ACTION_DUE_OPTIONAL,
+    ACTION_DUE_REQUIRED,
+    ACTION_NOTE_REQUIRED,
+    ATTEMPTS_MAX,
+    DUE_MAX_DAYS,
+    DUE_PAST_SLACK_SECONDS,
     NOTE_MAX,
     SALES_ACTIONS,
     SUPPORT_ACTIONS,
@@ -23,7 +31,13 @@ from app.modules.boards.constants import (
 from app.modules.boards.exceptions import (
     ActionNotHere,
     CardClosed,
+    CardExists,
     CardNotFound,
+    ClientNotFound,
+    ClientPaid,
+    DueInvalid,
+    DuePast,
+    DueRequired,
     NoteRequired,
     NothingToTake,
     NotOnBoard,
@@ -113,8 +127,8 @@ def card_for(
 
 
 def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
-    """The oldest lead nobody works yet, now this manager's. Two managers
-    pressing at once get two different leads."""
+    """The newest lead nobody works yet, now this manager's: a fresh sign-up
+    is called first. Two managers pressing at once get two different leads."""
     card = db.scalar(
         select(BoardCard)
         .where(
@@ -122,7 +136,7 @@ def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
             BoardCard.column_code == str(SalesColumn.UNWORKED),
             BoardCard.closed_at.is_(None),
         )
-        .order_by(BoardCard.opened_at, BoardCard.id)
+        .order_by(BoardCard.opened_at.desc(), BoardCard.id)
         .limit(1)
         .with_for_update(skip_locked=True)
         .execution_options(populate_existing=True)
@@ -130,6 +144,7 @@ def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
     if card is None:
         raise NothingToTake
     card.manager_id = manager.id
+    card.due_at = None
     move(
         db,
         card=card,
@@ -140,6 +155,33 @@ def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
     )
     db.commit()
     return card
+
+
+def due_words(due_at: datetime) -> str:
+    """A deadline as the office reads it in a card's history."""
+    return localtime(due_at).strftime("%d.%m.%Y %H:%M")
+
+
+def checked_due(due_at: datetime | None, *, now: datetime) -> datetime | None:
+    """A deadline that may be kept: it names its zone, is not behind us and
+    is not years away."""
+    if due_at is None:
+        return None
+    if due_at.tzinfo is None:
+        raise DueInvalid
+    if due_at < now - timedelta(seconds=DUE_PAST_SLACK_SECONDS):
+        raise DuePast
+    if due_at > now + timedelta(days=DUE_MAX_DAYS):
+        raise DueInvalid
+    return due_at
+
+
+def _said(note: str, due_at: datetime | None) -> str:
+    """The history line of a button pressed with a deadline."""
+    if due_at is None:
+        return note
+    head = f"Muddat: {due_words(due_at)}"
+    return f"{head}. {note}" if note else head
 
 
 def act(
@@ -153,43 +195,35 @@ def act(
     on: bool = True,
     reason: str = "",
     note: str = "",
+    due_at: datetime | None = None,
 ) -> BoardCard:
-    """One button of a card, if its column has it."""
+    """One button of a card, if its column has it. A button that moves the
+    card ends its deadline, unless it sets a new one."""
     card = card_for(db, card_id=card_id, user=user, access=access, lock=True)
+    text = note.strip()[:NOTE_MAX]
+    due = checked_due(due_at, now=now)
+    if action in ACTION_DUE_REQUIRED and due is None:
+        raise DueRequired
+    if action not in ACTION_DUE_REQUIRED and action not in ACTION_DUE_OPTIONAL:
+        due = None
     if card.board == str(Board.SUPPORT):
         return _support_act(
-            db, card=card, user=user, access=access, action=action, note=note, now=now
+            db,
+            card=card,
+            user=user,
+            access=access,
+            action=action,
+            note=text,
+            due=due,
+            now=now,
         )
     if card.closed_at is not None:
         raise CardClosed
     if action not in SALES_ACTIONS.get(card.column_code, ()):
         raise ActionNotHere
-    text = note.strip()[:NOTE_MAX]
-    if action == CardAction.CONTACTED:
-        card.contact_mark = str(CardAction.CONTACTED)
-        move(
-            db,
-            card=card,
-            to=str(SalesColumn.CONTACTED),
-            kind=EventKind.CONTACTED,
-            now=now,
-            actor=user,
-            body=text,
-        )
-    elif action == CardAction.NO_CONTACT:
-        card.contact_mark = str(CardAction.NO_CONTACT)
-        move(
-            db,
-            card=card,
-            to=str(SalesColumn.NO_CONTACT),
-            kind=EventKind.NO_CONTACT,
-            now=now,
-            actor=user,
-            body=text,
-        )
-    elif action == CardAction.OFFER:
-        _offer(db, card=card, user=user, note=text, now=now)
-    elif action == CardAction.NEEDS_SUPPORT:
+    if action in ACTION_NOTE_REQUIRED and not text:
+        raise NoteRequired
+    if action == CardAction.NEEDS_SUPPORT:
         if card.needs_support != on:
             card.needs_support = on
             record(
@@ -200,7 +234,15 @@ def act(
                 actor=user,
                 body=text,
             )
-    else:
+        db.commit()
+        return card
+    if action == CardAction.OFFER:
+        # The discount's own clock is the card's deadline now.
+        _offer(db, card=card, user=user, note=text, now=now)
+        card.due_at = None
+        db.commit()
+        return card
+    if action == CardAction.CLOSE:
         if reason not in CloseReason.values:
             raise ReasonRequired
         if reason == CloseReason.OTHER and not text:
@@ -208,17 +250,37 @@ def act(
         card.close_reason = reason
         card.close_note = text
         card.closed_at = now
-        move(
-            db,
-            card=card,
-            to=str(SalesColumn.CLOSED),
-            kind=EventKind.CLOSED,
-            now=now,
-            actor=user,
-            body=text,
-        )
+    elif action == CardAction.CONTACTED:
+        card.contact_mark = str(CardAction.CONTACTED)
+    elif action == CardAction.NO_CONTACT:
+        card.contact_mark = str(CardAction.NO_CONTACT)
+        card.attempts = min(card.attempts + 1, ATTEMPTS_MAX)
+    elif action == CardAction.RELEASE:
+        card.manager_id = None
+    to, kind = _SALES_MOVES[action]
+    card.due_at = due
+    move(
+        db,
+        card=card,
+        to=str(to),
+        kind=kind,
+        now=now,
+        actor=user,
+        body=_said(text, due),
+    )
     db.commit()
     return card
+
+
+# Where a Sales button puts the card, and the line it writes.
+_SALES_MOVES: dict[CardAction, tuple[SalesColumn, EventKind]] = {
+    CardAction.CONTACTED: (SalesColumn.CONTACTED, EventKind.CONTACTED),
+    CardAction.NO_CONTACT: (SalesColumn.NO_CONTACT, EventKind.NO_CONTACT),
+    CardAction.CALLBACK: (SalesColumn.CALLBACK, EventKind.CALLBACK),
+    CardAction.WILL_PAY: (SalesColumn.AWAITING, EventKind.WILL_PAY),
+    CardAction.CLOSE: (SalesColumn.CLOSED, EventKind.CLOSED),
+    CardAction.RELEASE: (SalesColumn.UNWORKED, EventKind.RELEASED),
+}
 
 
 def _offer(
@@ -242,6 +304,12 @@ def _offer(
     )
 
 
+def held_by_another(card: BoardCard, *, user: User, access: Access) -> bool:
+    """A ticket somebody else works: only they, the superuser and the Owner
+    press its buttons."""
+    return card.manager_id not in (None, user.id) and not access.full
+
+
 def _support_act(
     db: Session,
     *,
@@ -250,40 +318,232 @@ def _support_act(
     access: Access,
     action: CardAction,
     note: str,
+    due: datetime | None,
     now: datetime,
 ) -> BoardCard:
     """«Ishlayapman» makes the first Support member who presses it the
-    client's person for good; «Hal qilindi» is theirs to press. The
-    superuser and the Owner may press either."""
+    client's person; the ticket's buttons are theirs from then on, and the
+    superuser's and the Owner's. «Qayta ochish» is anybody's on the board:
+    the ticket goes back to its person, or to who pressed if it had none."""
     if action not in SUPPORT_ACTIONS.get(card.column_code, ()):
         raise ActionNotHere
-    if card.manager_id not in (None, user.id) and not access.full:
+    if action != CardAction.REOPEN and held_by_another(card, user=user, access=access):
         raise TicketHeld
-    text = note.strip()[:NOTE_MAX]
+    if action in ACTION_NOTE_REQUIRED and not note:
+        raise NoteRequired
     if action == CardAction.START:
         if card.manager_id is None:
             card.manager_id = user.id
-        move(
-            db,
-            card=card,
-            to=str(SupportColumn.IN_PROGRESS),
-            kind=EventKind.STARTED,
-            now=now,
-            actor=user,
-            body=text,
-        )
+        to, kind = SupportColumn.IN_PROGRESS, EventKind.STARTED
+    elif action == CardAction.WAIT:
+        to, kind = SupportColumn.WAITING, EventKind.WAITING
+    elif action == CardAction.RELEASE:
+        card.manager_id = None
+        to, kind = SupportColumn.NEW, EventKind.RELEASED
+    elif action == CardAction.REOPEN:
+        card.closed_at = None
+        if card.manager_id is None:
+            card.manager_id = user.id
+        to, kind = SupportColumn.IN_PROGRESS, EventKind.REOPENED
     else:
         card.closed_at = now
+        to, kind = SupportColumn.RESOLVED, EventKind.RESOLVED
+    card.due_at = due
+    move(
+        db,
+        card=card,
+        to=str(to),
+        kind=kind,
+        now=now,
+        actor=user,
+        body=_said(note, due),
+    )
+    db.commit()
+    return card
+
+
+def set_due(
+    db: Session,
+    *,
+    card_id: uuid.UUID,
+    user: User,
+    access: Access,
+    due_at: datetime | None,
+    note: str,
+    now: datetime,
+) -> BoardCard:
+    """The card's deadline, set or taken off by who works it. The card
+    stays in its column."""
+    card = card_for(db, card_id=card_id, user=user, access=access, lock=True)
+    if card.closed_at is not None:
+        raise CardClosed
+    if card.board == str(Board.SUPPORT) and held_by_another(
+        card, user=user, access=access
+    ):
+        raise TicketHeld
+    due = checked_due(due_at, now=now)
+    if due == card.due_at:
+        return card
+    card.due_at = due
+    text = note.strip()[:NOTE_MAX]
+    if due is None:
+        record(
+            db, card=card, kind=EventKind.DUE_CLEARED, now=now, actor=user, body=text
+        )
+    else:
+        body = f"{due_words(due)}. {text}" if text else due_words(due)
+        record(db, card=card, kind=EventKind.DUE_SET, now=now, actor=user, body=body)
+    db.commit()
+    return card
+
+
+def client_for(db: Session, client_id: uuid.UUID) -> User:
+    """An account a card may be opened for: a customer's own, not staff's
+    and not a CRM login's (that one belongs to its owner's business)."""
+    client = db.get(User, client_id)
+    if (
+        client is None
+        or not client.is_active
+        or client.is_staff
+        or client.is_superuser
+        or client.crm_owner_id is not None
+    ):
+        raise ClientNotFound
+    return client
+
+
+def add_lead(
+    db: Session,
+    *,
+    client_id: uuid.UUID,
+    user: User,
+    access: Access,
+    note: str,
+    to_id: uuid.UUID | None,
+    now: datetime,
+) -> BoardCard:
+    """The Sales lead puts a signed-up client on the board by hand: into
+    Ishlanmagan, or straight to a manager. A client who paid a plan is not
+    a lead; one whose card was closed gets that card back, with its history."""
+    from app.modules.billing.constants import InvoiceKind, InvoiceStatus
+    from app.modules.billing.models import Invoice
+    from app.modules.boards.access import may_take
+
+    if not access.leads_board(Board.SALES):
+        raise CardNotFound
+    client = client_for(db, client_id)
+    manager = None
+    if to_id is not None:
+        manager = db.get(User, to_id)
+        if manager is None or not may_take(db, manager):
+            raise NotOnBoard
+    paid = db.scalar(
+        select(Invoice.id)
+        .where(
+            Invoice.owner_id == client.id,
+            Invoice.kind == str(InvoiceKind.PLAN),
+            Invoice.status == str(InvoiceStatus.PAID),
+        )
+        .limit(1)
+    )
+    if paid is not None:
+        raise ClientPaid
+    text = note.strip()[:NOTE_MAX]
+    to = str(SalesColumn.NEW_LEAD if manager else SalesColumn.UNWORKED)
+    card = db.scalar(
+        select(BoardCard)
+        .where(BoardCard.board == str(Board.SALES), BoardCard.owner_id == client.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if card is not None:
+        if card.closed_at is None:
+            raise CardExists
+        if card.column_code == SalesColumn.SOLD:
+            raise ClientPaid
+        card.closed_at = None
+        card.close_reason = ""
+        card.close_note = ""
+        card.manager_id = manager.id if manager else None
+        card.due_at = None
         move(
             db,
             card=card,
-            to=str(SupportColumn.RESOLVED),
-            kind=EventKind.RESOLVED,
+            to=to,
+            kind=EventKind.REOPENED,
             now=now,
             actor=user,
             body=text,
         )
+        db.commit()
+        return card
+    card = BoardCard(
+        board=str(Board.SALES),
+        owner_id=client.id,
+        manager_id=manager.id if manager else None,
+        column_code=to,
+        opened_at=now,
+        column_since=now,
+        reasons=[],
+    )
+    try:
+        with db.begin_nested():
+            db.add(card)
+            db.flush()
+    except IntegrityError:
+        # The minute's sweep opened this client's card a moment ago.
+        raise CardExists from None
+    record(
+        db,
+        card=card,
+        kind=EventKind.ADDED,
+        now=now,
+        actor=user,
+        to_column=to,
+        body=text,
+        ref="opened",
+    )
     db.commit()
+    return card
+
+
+def add_ticket(
+    db: Session,
+    *,
+    client_id: uuid.UUID,
+    user: User,
+    access: Access,
+    note: str,
+    now: datetime,
+) -> BoardCard:
+    """Anybody on the Support board opens a client's ticket by hand, saying
+    why. The client's one ticket takes it as one more reason: a solved one
+    is reopened, an open one gets the line."""
+    from app.modules.boards.constants import TicketReason
+    from app.modules.boards.tickets import raise_ticket
+
+    if not access.sees(Board.SUPPORT):
+        raise CardNotFound
+    text = note.strip()[:NOTE_MAX]
+    if not text:
+        raise NoteRequired
+    client = client_for(db, client_id)
+    raise_ticket(
+        db,
+        owner_id=client.id,
+        reason=TicketReason.MANUAL,
+        ref=f"manual:{uuid.uuid4()}",
+        now=now,
+        detail=text,
+        actor=user,
+    )
+    db.commit()
+    card = db.scalar(
+        select(BoardCard).where(
+            BoardCard.board == str(Board.SUPPORT), BoardCard.owner_id == client.id
+        )
+    )
+    assert card is not None
     return card
 
 
@@ -309,6 +569,7 @@ def assign(
         if card.manager_id is None:
             return card
         card.manager_id = None
+        card.due_at = None
         if board == Board.SALES:
             back = str(SalesColumn.UNWORKED)
         elif card.column_code == SupportColumn.RESOLVED:
@@ -392,8 +653,11 @@ def move_by_hand(
     if column.code == card.column_code:
         return card
     card.closed_at = now if column.is_final else None
+    if column.is_final:
+        card.due_at = None
     if column.code == SalesColumn.UNWORKED:
         card.manager_id = None
+        card.due_at = None
     move(
         db,
         card=card,

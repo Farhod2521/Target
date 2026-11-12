@@ -44,7 +44,14 @@ def _offered(client: TestClient, db: Session, email: str) -> tuple[Any, dict[str
     card = _detail(client.post(f"{URL}/sales/take", headers=ali))
     press = f"{URL}/cards/{card.id}/actions"
     talked = _detail(client.post(press, json={"action": "contacted"}, headers=ali))
-    assert [a.value for a in talked.actions] == ["offer", "needs_support", "close"]
+    assert [a.value for a in talked.actions] == [
+        "offer",
+        "callback",
+        "will_pay",
+        "needs_support",
+        "close",
+        "release",
+    ]
     given = _detail(client.post(press, json={"action": "offer"}, headers=ali))
     db.expire_all()
     return given, ali | {"owner": str(owner.id)}
@@ -135,7 +142,12 @@ def test_the_columns_are_shown_after_bogxlanildi(
     answer = client.get(f"{URL}/boards/sales/columns", headers=lead)
     codes = [c["code"] for c in answer.json()["columns"]]
     at = codes.index("contacted")
-    assert codes[at + 1 : at + 4] == ["discount_20", "discount_10", "no_discount"]
+    assert codes[at + 1 : at + 5] == [
+        "callback",
+        "discount_20",
+        "discount_10",
+        "no_discount",
+    ]
     assert "trial" not in codes
 
 

@@ -29,7 +29,8 @@ Sahifa ochilganda birinchi shu chaqiriladi.
   "is_superuser": false,
   "boards": [{"code": "sales", "label": "Sotuv", "lead": false}],
   "default_board": "sales",
-  "can": {"take": true, "assign": false, "move": false, "columns": false, "staff": false}
+  "can": {"take": true, "assign": false, "move": false, "add_lead": false, "add_ticket": false,
+          "columns": false, "staff": false}
 }
 ```
 
@@ -37,6 +38,8 @@ Sahifa ochilganda birinchi shu chaqiriladi.
 - `default_board`: birinchi ochiladigan kanban.
 - `can.take`: «Lid olish» tugmasi. `can.assign`: kartani boshqa xodimga berish.
   `can.move`, `can.columns`, `can.staff`: superuser va Egasi uchun.
+- `can.add_lead`: Sotuvga qo'lda lid qo'shish (rahbar, Egasi, superuser).
+  `can.add_ticket`: Supportga qo'lda zayavka ochish (Support, Egasi, superuser).
 
 ## 2. Kanban
 
@@ -49,10 +52,15 @@ Sahifa ochilganda birinchi shu chaqiriladi.
 | `q` | Mijozning ismi, emaili yoki telefoni bo'yicha qidiruv |
 | `column` | Faqat bitta ustun (keyingi sahifa uchun) |
 | `offset`, `limit` | Shu ustunning sahifasi; `limit` 1–200, odatda 50 |
+| `mine` | `true`: faqat o'qiyotgan xodimning kartalari |
+| `manager` | Xodim `id` si yoki `none` (hech kimniki emas) |
+| `due` | `overdue` (muddati o'tgan), `today` (ofis kuni bo'yicha bugungi), `set` (muddati bor) |
+| `reason` | Support: sabab kodi (`setup`, `manual`, …) |
 
 ```json
 {
   "board": "sales",
+  "due": {"overdue": 3, "today": 7},
   "columns": [
     {
       "code": "new_lead", "name": "Yangi lead", "position": 2,
@@ -62,7 +70,10 @@ Sahifa ochilganda birinchi shu chaqiriladi.
           "id": "…", "board": "sales", "column": "new_lead",
           "client": {"id": "…", "name": "Vali", "email": "…", "phone": "+998…", "signed_up_at": "…"},
           "manager": {"id": "…", "name": "Ali", "email": "…"},
-          "contact_mark": "", "needs_support": false, "reasons": [],
+          "contact_mark": "", "attempts": 0, "needs_support": false,
+          "reasons": [], "reason_chips": [],
+          "due_at": "2026-11-13T05:00:00Z", "overdue": false,
+          "offer": null, "has_bill": false,
           "opened_at": "…", "column_since": "…", "closed_at": null
         }
       ]
@@ -75,6 +86,12 @@ Sahifa ochilganda birinchi shu chaqiriladi.
   Mantiqni hech qachon nomga emas, **`code`** ga bog'lang.
 - `total`: ustundagi kartalar soni (qidiruv bilan). Kartalar dastlab 50 tadan keladi,
   qolganini `?column=<code>&offset=50` bilan oling.
+- `due`: doskadagi muddatlar soni, shu qidiruv va filtrlar bilan (`due` filtridan qat'i nazar).
+- Ustun ichida **muddati eng yaqin karta tepada**, muddatsizlar pastda. «Ishlanmagan» da
+  eng yangi lid tepada («Lid olish» ham shuni beradi), Support «Yangi» da eng eskisi.
+- `due_at`: xodim qo'ygan muddat; `overdue`: u o'tgan. `attempts`: «Bog'lanilmadi» necha marta
+  bosilgan. `offer`: berilgan chegirma (`percent` 0 bo'lsa tugagan). `has_bill`: mijoz tarif
+  hisobini ochgan va hali to'lasa bo'ladi. `reason_chips`: Support sabablari nomi bilan.
 - Kartani sudrab ko'chirib bo'lmaydi (drag-and-drop yo'q). Karta faqat tugma yoki
   avtomatik hodisa bilan ko'chadi.
 
@@ -88,9 +105,11 @@ Sahifa ochilganda birinchi shu chaqiriladi.
 | `new_lead` | Yangi lead | tugma | Ega menejer, rahbar |
 | `no_contact` | Bog'lanilmadi | tugma | Ega menejer, rahbar |
 | `contacted` | Bog'lanildi | tugma | Ega menejer, rahbar |
+| `callback` | Qayta aloqa | tugma (muddat majburiy) | Ega menejer, rahbar |
 | `discount_20` | 20% chegirma | avto | Ega menejer, rahbar |
 | `discount_10` | 10% chegirma | avto | Ega menejer, rahbar |
 | `no_discount` | Chegirmasiz | avto | Ega menejer, rahbar |
+| `awaiting` | To'lov kutilmoqda | avto yoki «To'laydi» tugmasi | Ega menejer, rahbar |
 | `sold` | Sotildi | avto, yakuniy | Ega menejer, rahbar |
 | `closed` | Yopildi | tugma, yakuniy | Rahbar |
 
@@ -112,7 +131,8 @@ Start va bir martalik tariflarga sotuv chegirmasi berilmaydi: ularda `offer_mino
 
 `trial` ustuni bazada bor, lekin hozircha yashirin: kelmaydi. Bepul sinov qilinganda chiqadi.
 
-**Support:** `new` (Yangi), `in_progress` (Ishlanmoqda), `resolved` (Hal qilindi, yakuniy).
+**Support:** `new` (Yangi), `in_progress` (Ishlanmoqda), `waiting` (Mijoz kutilmoqda,
+muddat majburiy), `resolved` (Hal qilindi, yakuniy).
 
 ### `GET /api/v2/office/boards/{board}/columns`
 
@@ -132,13 +152,18 @@ Kartaning hammasi: `card` maydonlari, hamda:
   "support_chat_id": "…",
   "offer": {"percent": 20, "started_at": "…", "ends_at": "…"},
   "close_reason": "expensive", "close_reason_label": "Qimmat", "close_note": "",
-  "actions": [{"value": "contacted", "label": "Bog'lanildi"}],
+  "bill": {"number": "TA-…", "plan": "Standart", "amount_minor": 49000000, "currency": "UZS",
+           "status": "pending", "expires_at": "…"},
+  "actions": [{"value": "callback", "label": "Qayta aloqa", "due": "required", "note_required": false}],
   "history": [{"kind": "taken", "label": "Lid olindi", "from_column": "unworked", "to_column": "new_lead",
                "actor": {"id": "…", "name": "Ali", "email": "…"}, "body": "", "at": "…"}]
 }
 ```
 
 - **`actions`**: kartada ko'rsatiladigan tugmalar, tartibi bilan. Faqat shularni chizing.
+  `due`: `required` (vaqt so'rang va `due_at` da yuboring), `optional` yoki bo'sh.
+  `note_required`: izoh majburiy.
+- `bill`: mijoz ochgan va hali to'lasa bo'ladigan tarif hisobi, yo'q bo'lsa `null`.
 - `history`: eng yangisi birinchi. `actor: null` bo'lsa, buni tizim qilgan.
 - `ticket_reasons`: Support kartasi nega ochilgani (eng yangisi birinchi).
 - `support_chat_id`: mijozning Yordam chati bo'lsa, shu chatni ochish uchun.
@@ -147,7 +172,7 @@ Kartaning hammasi: `card` maydonlari, hamda:
 
 ### `POST /api/v2/office/sales/take`
 
-«Lid olish». Body yo'q. Eng eski «Ishlanmagan» lid shu menejerga beriladi va
+«Lid olish». Body yo'q. Eng **yangi** «Ishlanmagan» lid shu menejerga beriladi va
 «Yangi lead» ga o'tadi. Javob: karta (yuqoridagi shakl).
 Lid qolmagan bo'lsa: **409** `nothing_to_take`. Sotuv rollarida, superuserda va `Owner` da ishlaydi.
 
@@ -159,18 +184,55 @@ Lid qolmagan bo'lsa: **409** `nothing_to_take`. Sotuv rollarida, superuserda va 
 
 | `action` | Qaysi ustunda | Nima bo'ladi |
 |---|---|---|
-| `contacted` | Yangi lead, Bog'lanilmadi | → Bog'lanildi |
-| `no_contact` | Yangi lead | → Bog'lanilmadi |
-| `offer` | Bog'lanildi | → 20% chegirma; ikkinchi marta **409** `offer_given` |
-| `needs_support` | Bog'lanildi, 20%, 10%, Chegirmasiz | «Support kerak» belgisi; `"on": false` olib tashlaydi |
-| `close` | Yangi lead, Bog'lanilmadi, Bog'lanildi, 20%, 10%, Chegirmasiz | → Yopildi; `reason` majburiy |
-| `start` | Support: Yangi | → Ishlanmoqda; bosgan xodim mijozning doimiy mas'uli bo'ladi |
-| `resolve` | Support: Ishlanmoqda | → Hal qilindi |
+| `contacted` | Yangi lead, Bog'lanilmadi, Qayta aloqa | → Bog'lanildi |
+| `no_contact` | Yangi lead, Bog'lanilmadi, Qayta aloqa | → Bog'lanilmadi, `attempts` +1; `due_at` ixtiyoriy |
+| `callback` | Bog'lanilmadi, Bog'lanildi, Chegirmasiz, To'lov kutilmoqda | → Qayta aloqa; `due_at` **majburiy** |
+| `will_pay` | Bog'lanildi, Qayta aloqa, Chegirmasiz | → To'lov kutilmoqda; `due_at` ixtiyoriy |
+| `offer` | Bog'lanildi, Qayta aloqa | → 20% chegirma; ikkinchi marta **409** `offer_given` |
+| `needs_support` | Bog'lanildi, Qayta aloqa, 20%, 10%, Chegirmasiz, To'lov kutilmoqda | «Support kerak» belgisi; `"on": false` olib tashlaydi |
+| `close` | Yopiq bo'lmagan hamma ustun (Ishlanmagandan tashqari) | → Yopildi; `reason` majburiy |
+| `release` | Yangi lead, Bog'lanilmadi, Bog'lanildi, Qayta aloqa, Chegirmasiz | Menejer lidni qaytaradi: → Ishlanmagan, menejersiz; `note` majburiy |
+| `start` | Support: Yangi, Mijoz kutilmoqda | → Ishlanmoqda; mas'uli yo'q bo'lsa, bosgan xodim mas'ul bo'ladi |
+| `wait` | Support: Ishlanmoqda | → Mijoz kutilmoqda; `due_at` **majburiy** |
+| `resolve` | Support: Ishlanmoqda, Mijoz kutilmoqda | → Hal qilindi; `note` **majburiy** |
+| `release` | Support: Ishlanmoqda, Mijoz kutilmoqda | «Voz kechish»: → Yangi, mas'ulsiz; `note` majburiy |
+| `reopen` | Support: Hal qilindi | → Ishlanmoqda, avvalgi mas'ulga (yo'q bo'lsa bosganga); har qanday Support xodimi bosa oladi |
 
 - `close` uchun `reason`: `GET /api/v2/office/boards/sales/reasons` dagi qiymat
   (`expensive`, `not_needed`, `no_answer`, `wrong_number`, `other`). `other` bo'lsa `note` majburiy.
-- `note` ixtiyoriy (`close` + `other` dan tashqari), tarixga yoziladi.
+- `note` tarixga yoziladi. `due_at`: zona bilan ISO vaqt; kelajakda, ko'pi bilan 1 yil.
+- Ustunni o'zgartiradigan tugma kartaning muddatini o'chiradi, agar yangi `due_at` berilmasa.
+- 20% va 10% ustunidagi karta chegirma tugaguncha shu yerda turadi (to'lov chegirmani
+  ustundan o'qiydi), shuning uchun unda ko'chiradigan tugma yo'q.
 - Javob: yangilangan karta.
+
+### `PUT /api/v2/office/cards/{id}/due`
+
+Muddatni qo'yish, o'zgartirish yoki olib tashlash. Karta ustunida qoladi.
+
+```json
+{"due_at": "2026-11-13T10:00:00+05:00", "note": ""}
+```
+
+`"due_at": null` olib tashlaydi. Kim: kartani ko'radigan xodim (Sotuv menejeri o'zinikiga,
+rahbar hammasiga; Supportda mas'ul yoki mas'ulsiz kartaga har kim; superuser va Egasi hammasiga).
+Xatolar: 409 `card_closed`, 409 `ticket_held`, 422 `due_past`, 422 `due_invalid`.
+
+### Qo'lda karta: `POST /api/v2/office/boards/{board}/cards`
+
+```json
+{"user_id": "…", "note": "Instagramdan", "staff_id": null}
+```
+
+- **Sotuv** (`can.add_lead`): to'lamagan mijoz lid bo'ladi: «Ishlanmagan» ga yoki `staff_id`
+  berilsa o'sha menejerga «Yangi lead» ga. Yopilgan kartasi bo'lsa, o'sha karta qayta ochiladi.
+  409 `card_exists`, 409 `client_paid`.
+- **Support** (`can.add_ticket`): `note` majburiy. Mijozning zayavkasi ochiladi (sabab `manual`);
+  bor bo'lsa, sabab o'sha kartaga qo'shiladi, «Hal qilindi» dagi karta qayta ochiladi.
+- 422 `client_not_found`: xodim, CRM logini yoki bloklangan hisob. Javob **201**: karta.
+
+Mijozni topish: `GET /api/v2/office/boards/{board}/clients?q=` (kamida 3 belgi) →
+`{"clients": [{id, name, email, phone, signed_up_at, card: {id, column, closed} | null}]}`.
 
 ### `POST /api/v2/office/cards/{id}/notes`
 
@@ -207,6 +269,10 @@ Hammasi faqat **deploydan keyin** bo'lgan hodisalar uchun ishlaydi; undan olding
 - Ro'yxatdan o'tdi va hech qachon to'lamagan → «Ishlanmagan» da lid. Xodimlar, CRM loginlari va
   bloklanganlar tushmaydi.
 - Mijoz tarif uchun to'ladi → istalgan ustundan «Sotildi».
+- Menejeri bor mijoz tarif hisobini ochdi → «To'lov kutilmoqda» (har hisob uchun bir marta;
+  20% va 10% ustunidagi karta ko'chmaydi, unda faqat `has_bill` yonadi).
+- Shu hisob to'lanmay muddati o'tdi → «Qayta aloqa», muddati shu zahoti o'tgan. «To'laydi»
+  tugmasi bilan qo'yilgan karta o'zi qaytmaydi.
 
 **Support**: bitta mijozga **bitta** karta. Yangi sabab shu kartaga qo'shiladi.
 «Hal qilindi» dagi kartaga yangi sabab kelsa, u qayta ochiladi va o'sha xodimga qaytadi.
@@ -217,7 +283,11 @@ Hammasi faqat **deploydan keyin** bo'lgan hodisalar uchun ishlaydi; undan olding
 | `from_sales` | Sotuvda «Support kerak» belgisi bor mijoz to'ladi (darhol) |
 | `meta_error` | Reklamani ishga tushirish yoki mijozning amali Meta xatosi bilan tugadi |
 | `survey` | So'rovnomada «yordam kerak» deb belgilangan variantni tanladi |
+| `ai` | Mijoz AI chatda «Mutaxassisga yuborish» ni bosdi |
+| `manual` | Ofisda qo'lda ochildi |
 | `idle` | To'lovdan 3 kun o'tib birorta reklama yoqilmagan, yoki faol reklamada 24 soat sarf 0 (soatiga bir tekshiriladi) |
+
+«Mijoz kutilmoqda» dagi zayavka: mijoz Yordam chatiga yozsa, karta o'zi «Ishlanmoqda» ga qaytadi.
 
 ## 5. Sozlamalar (superuser va Egasi)
 
@@ -226,7 +296,8 @@ Hammasi faqat **deploydan keyin** bo'lgan hodisalar uchun ishlaydi; undan olding
 Hamma ko'rinadigan ustunlarni yangi tartibda va nomi bilan yuboring:
 
 ```json
-{"columns": [{"code": "new", "name": "Kelgan"}, {"code": "in_progress", "name": "Jarayonda"}, {"code": "resolved", "name": "Tayyor"}]}
+{"columns": [{"code": "new", "name": "Kelgan"}, {"code": "in_progress", "name": "Jarayonda"},
+             {"code": "waiting", "name": "Kutilmoqda"}, {"code": "resolved", "name": "Tayyor"}]}
 ```
 
 Ro'yxat to'liq bo'lmasa: **422** `columns_mismatch`. Kodlar o'zgarmaydi.
@@ -267,6 +338,9 @@ Xato javobida `code` va `message` (foydalanuvchiga ko'rsatiladigan matn) bor:
 | 409 | `ticket_held` | Bu mijoz bilan boshqa Support xodimi ishlayapti |
 | 422 | `reason_required`, `note_required` | Yopish sababi yoki izoh yo'q |
 | 422 | `not_on_board` | Bu xodim shu bo'limda ishlamaydi |
+| 422 | `due_required`, `due_past`, `due_invalid` | Muddat berilmagan, o'tgan vaqtga qo'yilgan yoki noto'g'ri (zonasiz, 1 yildan uzoq) |
+| 409 | `card_exists`, `client_paid` | Qo'lda lid: mijozning ochiq kartasi bor yoki u tarif sotib olgan |
+| 422 | `client_not_found` | Qo'lda karta: bunday mijoz yo'q (xodim, CRM logini, bloklangan) |
 | 422 | `no_such_column`, `move_reason_required` | Ko'chirishda ustun yoki sabab xato |
 | 422 | `columns_mismatch`, `column_name_required` | Ustunlarni saqlashda xato |
 | 403 | `owner_role_superuser_only` | Egasi rolini faqat superuser beradi |

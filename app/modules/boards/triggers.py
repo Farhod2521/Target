@@ -22,6 +22,7 @@ from app.modules.billing.constants import (
 )
 from app.modules.billing.models import Invoice, Subscription
 from app.modules.boards.constants import (
+    BILL_FROM_COLUMNS,
     CAMPAIGN_FRESH_HOURS,
     IDLE_NO_LAUNCH_DAYS,
     NO_SPEND_HOURS,
@@ -35,6 +36,7 @@ from app.modules.boards.constants import (
     Board,
     EventKind,
     SalesColumn,
+    SupportColumn,
     TicketReason,
 )
 from app.modules.boards.models import BoardCard, BoardCardEvent, SurveyHelpOption
@@ -139,6 +141,7 @@ def mark_sold(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     for card, paid_at in rows:
         card.closed_at = paid_at or now
         card.close_reason = ""
+        card.due_at = None
         move(
             db,
             card=card,
@@ -208,11 +211,110 @@ def _has_step(db: Session, *, card: BoardCard, ref: str) -> bool:
     )
 
 
+def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """A client a manager works opened a plan bill: the card goes to
+    «To'lov kutilmoqda». Once per bill, so a card the manager moved on stays
+    where they put it. Not from a discount column: the bill reads the
+    discount from the column, and the card must stay in it."""
+    from app.modules.boards.view import open_bills
+
+    bills = open_bills(now).subquery()
+    seen = exists().where(
+        BoardCardEvent.card_id == BoardCard.id,
+        BoardCardEvent.ref == func.concat("bill:", bills.c.id),
+    )
+    rows = list(
+        db.execute(
+            select(BoardCard, bills.c.id)
+            .join(bills, bills.c.owner_id == BoardCard.owner_id)
+            .where(
+                BoardCard.board == str(Board.SALES),
+                BoardCard.closed_at.is_(None),
+                BoardCard.manager_id.is_not(None),
+                BoardCard.column_code.in_(BILL_FROM_COLUMNS),
+                ~seen,
+            )
+            .order_by(bills.c.created_at)
+            .limit(limit)
+            .with_for_update(of=BoardCard, skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+    )
+    moved: set[uuid.UUID] = set()
+    for card, bill_id in rows:
+        # Two bills of one client in a batch: the first moved the card.
+        if card.id in moved:
+            continue
+        moved.add(card.id)
+        move(
+            db,
+            card=card,
+            to=str(SalesColumn.AWAITING),
+            kind=EventKind.BILL_OPENED,
+            now=now,
+            ref=f"bill:{bill_id}",
+        )
+    db.commit()
+    return len(moved)
+
+
+def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """A card its client's bill put in «To'lov kutilmoqda», and no bill of
+    theirs can be paid any more: back to «Qayta aloqa», due now, so the
+    manager calls. A card the manager put there with «To'laydi» is theirs to
+    move. Runs after ``mark_sold``: who paid is in Sotildi, not here."""
+    from app.modules.boards.view import open_bills
+
+    bills = open_bills(now).subquery()
+    by_bill = (
+        select(BoardCardEvent.ref)
+        .where(
+            BoardCardEvent.card_id == BoardCard.id,
+            BoardCardEvent.kind == str(EventKind.BILL_OPENED),
+            BoardCardEvent.created_at >= BoardCard.column_since,
+        )
+        .limit(1)
+        .correlate(BoardCard)
+        .scalar_subquery()
+    )
+    rows = list(
+        db.execute(
+            select(BoardCard, by_bill)
+            .where(
+                BoardCard.board == str(Board.SALES),
+                BoardCard.closed_at.is_(None),
+                BoardCard.column_code == str(SalesColumn.AWAITING),
+                by_bill.is_not(None),
+                ~exists().where(bills.c.owner_id == BoardCard.owner_id),
+            )
+            .order_by(BoardCard.column_since)
+            .limit(limit)
+            .with_for_update(of=BoardCard, skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+    )
+    for card, ref in rows:
+        if card.due_at is None or card.due_at > now:
+            card.due_at = now
+        move(
+            db,
+            card=card,
+            to=str(SalesColumn.CALLBACK),
+            kind=EventKind.BILL_UNPAID,
+            now=now,
+            ref=str(ref).replace("bill:", "unpaid:", 1),
+        )
+    db.commit()
+    return len(rows)
+
+
 def sweep_sales(db: Session, *, now: datetime) -> tuple[int, int]:
     ensure_board(db, board=Board.SALES, now=now)
     db.commit()
     opened, sold = open_leads(db, now=now), mark_sold(db, now=now)
-    return opened, sold + step_offers(db, now=now)
+    moved = step_offers(db, now=now)
+    moved += bills_opened(db, now=now) + bills_unpaid(db, now=now)
+    return opened, sold + moved
 
 
 def _since(db: Session) -> datetime | None:
@@ -384,7 +486,46 @@ def sweep_support(db: Session, *, now: datetime) -> int:
         + from_sales(db, now=now)
         + meta_errors(db, now=now)
         + survey_help(db, now=now)
+        + client_replied(db, now=now)
     )
+
+
+def client_replied(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """A ticket waiting for its client, and the client wrote in the Yordam
+    chat since: back to Ishlanmoqda, its wait over."""
+    from app.modules.supportchat.models import SupportMessage
+
+    wrote = exists().where(
+        SupportMessage.owner_id == BoardCard.owner_id,
+        SupportMessage.sender_id == BoardCard.owner_id,
+        SupportMessage.deleted_at.is_(None),
+        SupportMessage.created_at > BoardCard.column_since,
+    )
+    cards = list(
+        db.scalars(
+            select(BoardCard)
+            .where(
+                BoardCard.board == str(Board.SUPPORT),
+                BoardCard.column_code == str(SupportColumn.WAITING),
+                wrote,
+            )
+            .order_by(BoardCard.column_since)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+    )
+    for card in cards:
+        card.due_at = None
+        move(
+            db,
+            card=card,
+            to=str(SupportColumn.IN_PROGRESS),
+            kind=EventKind.CLIENT_REPLIED,
+            now=now,
+        )
+    db.commit()
+    return len(cards)
 
 
 def survey_help(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:

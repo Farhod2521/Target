@@ -88,3 +88,45 @@ class OfferGiven(DomainError):
 
     def __init__(self) -> None:
         super().__init__("Bu mijozga chegirma allaqachon berilgan.")
+
+
+class DueRequired(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Muddatni belgilang.")
+
+
+class DuePast(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Muddat o'tib ketgan vaqtga qo'yilmaydi.")
+
+
+class DueInvalid(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Muddat noto'g'ri.")
+
+
+class ClientNotFound(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bunday mijoz topilmadi.")
+
+
+class ClientPaid(DomainError):
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__("Bu mijoz tarif sotib olgan, u lid emas.")
+
+
+class CardExists(DomainError):
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__("Bu mijozning kartasi allaqachon bor.")

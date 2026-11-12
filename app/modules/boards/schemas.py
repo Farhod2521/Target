@@ -24,6 +24,8 @@ class CanOut(BaseModel):
     take: bool = Field(description="Has the «Lid olish» button.")
     assign: bool = Field(description="Gives a card to somebody else.")
     move: bool = Field(description="Moves a card to any column.")
+    add_lead: bool = Field(description="Puts a client on the Sales board by hand.")
+    add_ticket: bool = Field(description="Opens a Support ticket by hand.")
     columns: bool = Field(description="Renames and reorders columns.")
     staff: bool = Field(description="Adds staff and gives roles.")
 
@@ -63,6 +65,17 @@ class ClientOut(BaseModel):
     signed_up_at: datetime
 
 
+class ReasonChipOut(BaseModel):
+    code: str
+    label: str
+
+
+class CardOfferOut(BaseModel):
+    percent: int = Field(description="0 once the offer is over.")
+    started_at: datetime = Field(description="When «Chegirma berish» was pressed.")
+    ends_at: datetime | None = Field(description="When this percent ends.")
+
+
 class CardOut(BaseModel):
     id: str
     board: str
@@ -70,11 +83,27 @@ class CardOut(BaseModel):
     client: ClientOut
     manager: PersonOut | None
     contact_mark: str = Field(description="`contacted`, `no_contact` or empty.")
+    attempts: int = Field(
+        description="Sales: how many times «Bog'lanilmadi» was pressed."
+    )
     needs_support: bool = Field(
         description="«Support kerak»: a ticket opens when the client pays."
     )
     reasons: list[str] = Field(
         description="Support: why the ticket is open, as codes, for chips."
+    )
+    reason_chips: list[ReasonChipOut] = Field(
+        description="The same reasons with their words, to draw the chips from."
+    )
+    due_at: datetime | None = Field(
+        description="The deadline set on the card; count the timer down to it."
+    )
+    overdue: bool = Field(description="The deadline has passed.")
+    offer: CardOfferOut | None = Field(
+        description="Sales: the discount given, if «Chegirma berish» was pressed."
+    )
+    has_bill: bool = Field(
+        description="Sales: the client opened a plan bill and may still pay it."
     )
     opened_at: datetime
     column_since: datetime
@@ -88,8 +117,17 @@ class BoardColumnOut(ColumnOut):
     cards: list[CardOut]
 
 
+class DueCountsOut(BaseModel):
+    overdue: int
+    today: int = Field(description="Due on the office's day today, passed or not.")
+
+
 class BoardViewOut(BaseModel):
     board: str
+    due: DueCountsOut = Field(
+        description="Deadlines on the board under the same search and filters, "
+        "whatever the `due` filter."
+    )
     columns: list[BoardColumnOut]
 
 
@@ -110,6 +148,20 @@ class ClientDetailOut(ClientOut):
 class ActionOut(BaseModel):
     value: str
     label: str
+    due: str = Field(
+        description="`required`: ask for a time and send it as `due_at`; "
+        "`optional`: offer the time; empty: none."
+    )
+    note_required: bool = Field(description="Ask for a line and send it as `note`.")
+
+
+class BillOut(BaseModel):
+    number: str
+    plan: str
+    amount_minor: int
+    currency: str
+    status: str = Field(description="`pending` or `held`.")
+    expires_at: datetime
 
 
 class HistoryOut(BaseModel):
@@ -124,24 +176,18 @@ class HistoryOut(BaseModel):
 
 class TicketReasonOut(BaseModel):
     code: str = Field(
-        description="`setup`, `from_sales`, `meta_error`, `survey`, `idle` or "
-        "`ai` (sent from the assistant's chat)."
+        description="`setup`, `from_sales`, `meta_error`, `survey`, `idle`, "
+        "`ai` (sent from the assistant's chat) or `manual` (opened in the office)."
     )
     label: str
     detail: str
     at: datetime
 
 
-class CardOfferOut(BaseModel):
-    percent: int = Field(description="0 once the offer is over.")
-    started_at: datetime = Field(description="When «Chegirma berish» was pressed.")
-    ends_at: datetime | None = Field(description="When this percent ends.")
-
-
 class CardDetailOut(CardOut):
     client: ClientDetailOut
-    offer: CardOfferOut | None = Field(
-        None, description="Sales: the discount given, if «Chegirma berish» was pressed."
+    bill: BillOut | None = Field(
+        description="Sales: the plan bill the client opened and may still pay."
     )
     ticket_reasons: list[TicketReasonOut] = Field(description="Support: newest first.")
     support_chat_id: str | None = Field(
@@ -156,9 +202,14 @@ class CardDetailOut(CardOut):
 
 class ActionIn(BaseModel):
     action: str = Field(
-        description="Sales: `contacted`, `no_contact`, `offer`, `needs_support`, "
-        "`close`. "
-        "Support: `start`, `resolve`."
+        description="One of the card's `actions`. Sales: `contacted`, "
+        "`no_contact`, `callback`, `will_pay`, `offer`, `needs_support`, `close`, "
+        "`release`. Support: `start`, `wait`, `resolve`, `release`, `reopen`."
+    )
+    due_at: datetime | None = Field(
+        None,
+        description="The deadline, with its zone. Required where the action's "
+        "`due` is `required`; ignored where it is empty.",
     )
     on: bool = Field(
         True, description="`needs_support` only: false takes the mark off."
@@ -169,8 +220,46 @@ class ActionIn(BaseModel):
         description="`close` only: a code from `GET /office/boards/sales/reasons`.",
     )
     note: str = Field(
-        "", max_length=2000, description="Required for `close` with `other`."
+        "",
+        max_length=2000,
+        description="Required for `close` with `other` and where the action's "
+        "`note_required` is true.",
     )
+
+
+class DueIn(BaseModel):
+    due_at: datetime | None = Field(
+        description="The new deadline, with its zone; null takes it off."
+    )
+    note: str = Field("", max_length=2000)
+
+
+class CardAddIn(BaseModel):
+    user_id: str = Field(
+        description="A client from `GET /office/boards/{board}/clients`."
+    )
+    note: str = Field(
+        "", max_length=2000, description="Support: required, why the ticket is opened."
+    )
+    staff_id: str | None = Field(
+        None, description="Sales only: the manager to give the lead to at once."
+    )
+
+
+class ClientCardOut(BaseModel):
+    id: str
+    column: str
+    closed: bool
+
+
+class ClientFoundOut(ClientOut):
+    card: ClientCardOut | None = Field(
+        description="The card this client already has on the board."
+    )
+
+
+class ClientsFoundOut(BaseModel):
+    clients: list[ClientFoundOut]
 
 
 class NoteIn(BaseModel):
