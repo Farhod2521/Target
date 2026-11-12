@@ -2162,6 +2162,7 @@ class MetaMetrics:
             engagement_rate_ranking=_ranking(row.get("engagement_rate_ranking")),
             conversion_rate_ranking=_ranking(row.get("conversion_rate_ranking")),
             object_name=str(row.get(_NAME_FIELDS[level], "")),
+            optimization_goal_raw=str(row.get("optimization_goal") or ""),
             unique_clicks=_as_int(row.get("unique_clicks")),
             inline_link_clicks=_as_int(row.get("inline_link_clicks")),
             unique_inline_link_clicks=_as_int(row.get("unique_inline_link_clicks")),

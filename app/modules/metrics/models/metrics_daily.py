@@ -55,6 +55,7 @@ class MetricsDaily(Base):
     cpm_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     cpc_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     object_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    optimization_goal_raw: Mapped[str] = mapped_column(String(64), nullable=False, default="", server_default="")
     unique_clicks: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     inline_link_clicks: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     unique_inline_link_clicks: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)

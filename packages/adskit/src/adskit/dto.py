@@ -534,6 +534,15 @@ class MetricsDTO(BaseModel):
     # id nobody can identify.
     object_name: str = ""
 
+    # What the ad set was bought for on this day, in the provider's own word.
+    #
+    # Kept on the figure for the reason the name is: the mirror has no row
+    # for an object that was deleted, and without the goal its money can be
+    # counted but not said what it bought - a deleted traffic campaign's
+    # spend was drawn as leads. Empty on a level the provider names no goal
+    # for.
+    optimization_goal_raw: str = ""
+
     # What the click actually was.
     #
     # ``clicks`` counts every click on the unit, including the ones that

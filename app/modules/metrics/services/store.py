@@ -42,6 +42,7 @@ COPIED = (
     "cpm_minor",
     "cpc_minor",
     "object_name",
+    "optimization_goal_raw",
     "unique_clicks",
     "inline_link_clicks",
     "unique_inline_link_clicks",

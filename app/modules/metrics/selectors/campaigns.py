@@ -138,7 +138,89 @@ def campaign_meta(
                 "promoted_raw": row.promoted_raw,
             }
         )
+    found.update(
+        gone_campaign_meta(
+            db, owner=owner, account=account, campaign_ids=campaign_ids, known=found
+        )
+    )
     return found
+
+
+def gone_campaign_meta(
+    db: Session,
+    *,
+    owner: User,
+    account: AdAccount | None,
+    campaign_ids: frozenset[str] | None,
+    known: Mapping[str, Any],
+) -> dict[str, "periods.CampaignMeta"]:
+    """The campaigns with figures and no mirror row: Meta lists them no more.
+
+    Their name and goal are read from the figures themselves - the name of
+    the newest day, the goal of the group that spent most. Without this a
+    deleted campaign was drawn under its bare id and its money as leads,
+    whatever it had bought.
+    """
+    M = MetricsDaily
+    if campaign_ids is not None:
+        missing = set(campaign_ids) - set(known)
+    elif account is not None:
+        missing = set(
+            db.scalars(
+                select(M.external_id)
+                .where(
+                    M.owner_id == owner.id,
+                    M.ad_account_id == account.id,
+                    M.level == str(MetricLevel.CAMPAIGN),
+                )
+                .distinct()
+            )
+        ) - set(known)
+    else:
+        return {}
+    missing.discard("")
+    if not missing:
+        return {}
+    wanted = sorted(missing)
+    names = dict(
+        db.execute(
+            select(M.external_id, M.object_name)
+            .where(
+                M.owner_id == owner.id,
+                M.level == str(MetricLevel.CAMPAIGN),
+                M.external_id.in_(wanted),
+                M.object_name != "",
+            )
+            .distinct(M.external_id)
+            .order_by(M.external_id, M.date.desc())
+        ).all()
+    )
+    goals: dict[str, str] = {}
+    for campaign, goal in db.execute(
+        select(M.campaign_external_id, M.optimization_goal_raw)
+        .where(
+            M.owner_id == owner.id,
+            M.level == str(MetricLevel.ADSET),
+            M.campaign_external_id.in_(wanted),
+            M.optimization_goal_raw != "",
+        )
+        .group_by(M.campaign_external_id, M.optimization_goal_raw)
+        .order_by(M.campaign_external_id, func.sum(M.spend_minor).desc())
+    ):
+        goals.setdefault(campaign, goal)
+    return {
+        key: meta_of(
+            {
+                "external_id": key,
+                "name": names.get(key, ""),
+                "delivery": "unknown",
+                "goal_raw": goals.get(key, ""),
+                "promoted_raw": None,
+            }
+        )
+        for key in wanted
+        if key in names or key in goals
+    }
 
 
 def meta_of(row: dict[str, Any]) -> "periods.CampaignMeta":
