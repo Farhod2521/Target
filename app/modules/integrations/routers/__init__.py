@@ -697,6 +697,12 @@ def google_callback(
     return _back(next_url, connected="google")
 
 
+@router.post("/google/disconnect", response_model=MessageOut)
+def disconnect_google(db: Db, user: CurrentUser) -> MessageOut:
+    services.disconnect_google(db, user=user)
+    return _ok(db, "Google Ads akkaunti uzildi.")
+
+
 @router.post("/google/account", response_model=MessageOut)
 def select_google_account(body: ExternalIdIn, db: Db, user: CurrentUser) -> MessageOut:
     account = services.select_google_account(

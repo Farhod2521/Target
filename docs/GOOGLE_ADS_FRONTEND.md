@@ -18,12 +18,22 @@ Bu bo'limda javoblar **snake_case**.
 |---|---|---|---|
 | GET | `/connections/google` | — | Karta (pastda) |
 | POST | `/connections/google/start` | `{"next": "/app/connections"}` | `{"url"}` → shu manzilga yo'naltiring |
-| POST | `/connections/google/account` | `{"external_id"}` | `{"message"}` — ekranda shu akkaunt ko'rinadi |
-| POST | `/connections/google/add` | `{"external_id"}` | `{"message"}` — akkauntni obunaga qo'shadi |
-| POST | `/connections/google/refresh` | — | `{"message"}` — akkauntlar ro'yxatini Google'dan qayta o'qiydi |
+| POST | `/connections/google/account` | `{"external_id"}` | `{"detail"}` — ekranda shu akkaunt ko'rinadi |
+| POST | `/connections/google/add` | `{"external_id"}` | `{"detail"}` — akkauntni obunaga qo'shadi |
+| POST | `/connections/google/refresh` | — | `{"detail"}` — akkauntlar ro'yxatini Google'dan qayta o'qiydi |
+| POST | `/connections/google/disconnect` | — | `{"detail"}` — Google'ni uzadi (pastda) |
 
 Google ruxsatdan keyin `next` manziliga qaytaradi:
 `?connected=google` (muvaffaqiyat) yoki `?error=<matn>` (xato — matnni ko'rsating).
+
+**Uzish (`POST /connections/google/disconnect`):** ulangan kartada «Uzish» tugmasi,
+oldin tasdiq so'rang («Google Ads uzilsa, kampaniyalar ekrani va lidlar
+yangilanmaydi. Reklamalar Google'da o'z holicha qoladi»). Backend Google'dan
+ruxsatni qaytarib oladi va tokenni o'chiradi. Javobdan keyin kartani qayta
+o'qing: `connected: false` bo'ladi, qayta ulash — yana `/start`.
+Ulanish yo'q bo'lsa — 400, `detail` ni ko'rsating.
+Bu tugma Google'ning ilova tekshiruvi (OAuth verification) uchun kerak:
+foydalanuvchi ruxsatni ilovaning o'zidan qaytara olishi demo videoda ko'rsatiladi.
 
 **Karta (`GET /connections/google`):**
 
@@ -107,6 +117,18 @@ Google ruxsatdan keyin `next` manziliga qaytaradi:
 | POST `/google/delete` | `{"id": "<kampaniya>"}` — butunlay o'chiradi, oldin tasdiq so'rang |
 | POST `/google/refresh` | — |
 | POST `/google/account` | `{"id": "<external id>"}` — ekrandagi akkauntni almashtirish |
+| POST `/google/end-date` | `{"id": "<kampaniya>", "endDate": "2026-12-31"}` — oxirgi kun (akkaunt vaqt zonasida, kun oxirigacha). O'tgan sana — 400 |
+| POST `/google/places` | `{"id": "<kampaniya>", "places": ["geoTargetConstants/10303", ...]}` — hududlar **to'liq almashtiriladi**; 1–10 ta |
+
+**Hududlarni tahrirlash oynasi:**
+
+| Yo'l | Javob |
+|---|---|
+| GET `/google/places?id=<kampaniya>` | `{"places": [{"id", "name"}]}` — hozirgi hududlar |
+| GET `/google/places/search?q=<kamida 2 harf>` | `{"places": [{"id", "name", "context", "kind"}]}` — qidiruv (yozish to'xtagach ~300 ms kutib so'rang) |
+
+Oyna: hozirgilarni chip qilib ko'rsating → qidiruvdan qo'shish / chipni o'chirish →
+«Saqlash» da hamma `id` larni `POST /google/places` ga yuboring. Bittasi ham qolmasa tugmani o'chiring.
 
 ---
 

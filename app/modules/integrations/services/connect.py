@@ -7,7 +7,8 @@ from typing import Final, Literal
 
 from adskit import GrantDTO, ProviderError, registry
 from googleadskit import PROVIDER as GOOGLE
-from googlekit import SCOPE_ADWORDS
+from googlekit import SCOPE_ADWORDS, GoogleError
+from googlekit import revoke as google_revoke
 from metaads import PROVIDER
 from metaads.accounts import list_ad_accounts, list_pages
 from metaads.adapter import translate_error
@@ -42,6 +43,7 @@ from app.modules.integrations.exceptions import (
     GoogleAdsUnavailable,
     GoogleConnectionFailed,
     GoogleIdentityTaken,
+    GoogleNotConnected,
     IdentityTaken,
     NoConnection,
     SubscriptionRequired,
@@ -49,6 +51,7 @@ from app.modules.integrations.exceptions import (
 from app.modules.integrations.models import AdAccount, PageAccount, ProviderConnection
 from app.modules.integrations.selectors import (
     google_ads_on,
+    google_connection,
     meta_connection,
     owner_of_meta_user,
 )
@@ -666,6 +669,41 @@ def disconnect_meta(db: Session, *, user: User) -> None:
         aggregate_type="connection",
         aggregate_id=connection.id,
         payload={"provider": PROVIDER},
+    )
+    db.flush()
+
+
+def disconnect_google(db: Session, *, user: User) -> None:
+    """Hand the Google Ads permission back and forget the token.
+
+    Not behind the feature flag: whoever connected must always be able to
+    let go. Google is asked first, while the token is still in hand; a
+    refusal or an outage is logged and the token is forgotten anyway - the
+    person asked for it to be gone from here, and Google's own settings
+    page still lets them remove the app.
+    """
+    connection = google_connection(db, owner=user)
+    if connection is None or not connection.token_fingerprint:
+        raise GoogleNotConnected
+    try:
+        google_revoke(token=decrypt(connection.token_encrypted))
+    except (GoogleError, DecryptionFailed) as exc:
+        logger.warning(
+            "google revoke failed for connection %s: %s",
+            connection.id,
+            type(exc).__name__,
+        )
+    connection.token_encrypted = NO_TOKEN
+    connection.token_fingerprint = ""
+    connection.status = ConnectionStatus.REVOKED
+    connection.expires_at = None
+    emit(
+        db,
+        owner_id=user.id,
+        name=EventName.CONNECTION_REMOVED,
+        aggregate_type="connection",
+        aggregate_id=connection.id,
+        payload={"provider": GOOGLE},
     )
     db.flush()
 
