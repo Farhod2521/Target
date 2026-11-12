@@ -15,8 +15,9 @@ from app.common import crypto
 from app.common.config import settings
 from app.common.db import utcnow
 from app.common.deletion import delete_rows
+from app.common.exceptions import DecryptionFailed
 from app.modules.accounts.models import User
-from app.modules.telephony import calls, utel
+from app.modules.telephony import calls, live, utel
 from app.modules.telephony.constants import (
     CALL_ID_MAX,
     CALL_SAVED,
@@ -26,10 +27,13 @@ from app.modules.telephony.constants import (
     HOOK_KEY_BYTES,
     HOOK_PATH,
     NUMBER_MAX,
+    PHONE_OFF_LABELS,
+    SIP_RULES,
     SIP_SOCKET,
     TENANT_SHAPE,
     TITLE_MAX,
     UTEL_ZONE,
+    PhoneOff,
     Provider,
 )
 from app.modules.telephony.exceptions import (
@@ -113,13 +117,22 @@ def _pull(db: Session, connection: PhoneConnection, *, now: datetime) -> None:
             row = PhoneExtension(connection_id=connection.id, number=number)
             db.add(row)
         row.title = found.title[:TITLE_MAX]
-        row.sip_password = crypto.encrypt(found.password)
+        if row.sip_password is None or _plain(row.sip_password) != found.password:
+            row.sip_password = crypto.encrypt(found.password)
+            row.sip_refused_at = None
         row.is_gone = False
     for number, row in kept.items():
         if number not in seen:
             row.is_gone = True
             row.user_id = None
     connection.synced_at = now
+
+
+def _plain(kept: bytes) -> str | None:
+    try:
+        return crypto.decrypt(kept)
+    except DecryptionFailed:
+        return None
 
 
 def _set_hook(connection: PhoneConnection, *, now: datetime) -> None:
@@ -276,8 +289,10 @@ def assign(
                 # The unique index is checked row by row: empty first.
                 db.flush()
             row.user_id = person.id
+            row.sip_refused_at = None
     if changes.get("softphone") is not None:
         row.softphone = bool(changes["softphone"])
+        row.sip_refused_at = None
     db.commit()
 
 
@@ -341,11 +356,87 @@ def state(db: Session, *, now: datetime) -> dict[str, Any]:
                 "user": _person(people[row.user_id]) if row.user_id in people else None,
                 "softphone": row.softphone,
                 "is_gone": row.is_gone,
+                "sip_refused_at": row.sip_refused_at,
             }
             for row in rows
         ],
         "staff": [_person(person) for person in staff],
     }
+
+
+def _no_phone(why: PhoneOff) -> dict[str, Any]:
+    return {
+        "enabled": False,
+        "reason": str(why),
+        "reason_label": str(PHONE_OFF_LABELS[why]),
+        "extension": None,
+        "sip": None,
+        "rules": SIP_RULES,
+    }
+
+
+def _mine(db: Session, user: User, *, lock: bool = False) -> PhoneExtension | None:
+    connection = office_connection(db)
+    if connection is None:
+        return None
+    query = select(PhoneExtension).where(
+        PhoneExtension.connection_id == connection.id,
+        PhoneExtension.user_id == user.id,
+        PhoneExtension.is_gone.is_(False),
+    )
+    if lock:
+        query = query.with_for_update()
+    return db.scalar(query)
+
+
+def my_phone(db: Session, *, user: User) -> dict[str, Any]:
+    """What the reader's browser phone registers with: their own number's
+    password, and nobody else's."""
+    connection = office_connection(db)
+    if connection is None:
+        return _no_phone(PhoneOff.NOT_CONNECTED)
+    row = _mine(db, user)
+    if row is None:
+        return _no_phone(PhoneOff.NO_EXTENSION)
+    if not row.softphone:
+        return _no_phone(PhoneOff.SOFTPHONE_OFF) | {"extension": row.number}
+    if row.sip_refused_at is not None:
+        return _no_phone(PhoneOff.SIP_REFUSED) | {"extension": row.number}
+    domain = f"{connection.tenant}.{UTEL_ZONE}"
+    return {
+        "enabled": True,
+        "reason": "",
+        "reason_label": "",
+        "extension": row.number,
+        "sip": {
+            "socket": SIP_SOCKET.format(tenant=connection.tenant),
+            "domain": domain,
+            "uri": f"sip:{row.number}@{domain}",
+            "login": row.number,
+            "password": crypto.decrypt(row.sip_password),
+        },
+        "rules": SIP_RULES,
+    }
+
+
+def sip_refused(db: Session, *, user: User) -> dict[str, Any]:
+    """The exchange refused the reader's number. The passwords are read
+    again: a changed one is handed over for one more try; the same one
+    stops the phone until the office looks at it."""
+    connection = office_connection(db, lock=True)
+    row = _mine(db, user, lock=True) if connection is not None else None
+    if connection is None or row is None:
+        return my_phone(db, user=user)
+    before = _plain(row.sip_password)
+    try:
+        _pull(db, connection, now=utcnow())
+    except (ExchangeSessionEnded, ExchangeUnreachable):
+        logger.warning("telephony: passwords not read again after a refusal")
+    if row.is_gone or _plain(row.sip_password) == before:
+        row.sip_refused_at = utcnow()
+        logger.warning("telephony: number %s refused, phone stopped", row.number)
+    db.commit()
+    return my_phone(db, user=user)
 
 
 def _text(value: object, limit: int) -> str:
@@ -377,6 +468,14 @@ def keep_event(db: Session, *, key: str, payload: dict[str, Any]) -> bool:
         )
     )
     db.commit()
+    try:
+        told = live.note(db, connection=connection, name=name, data=data)
+    except Exception:
+        db.rollback()
+        told = None
+        logger.exception("telephony: live picture not moved by %s", name)
+    if told is not None:
+        live.announce(told)
     if name == CALL_SAVED and isinstance(saved, dict):
         # The event is kept whatever happens here; a call that fails to be
         # read out of it is brought by the hourly read of UTeL's history.

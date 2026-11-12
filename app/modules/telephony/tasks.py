@@ -2,7 +2,7 @@ import logging
 from datetime import timedelta
 
 from app.common.db import utcnow
-from app.modules.telephony import calls, utel
+from app.modules.telephony import calls, live, utel
 from app.modules.telephony.constants import BACKFILL_HOURS
 from app.worker import celery_app, task_session
 
@@ -37,6 +37,8 @@ def backfill_calls_task(hours: int = BACKFILL_HOURS) -> int:
 
 @celery_app.task(queue="webhooks", ignore_result=True)
 def forget_hook_events_task() -> int:
-    """Every night: raw events older than two weeks go."""
+    """Every night: raw events older than two weeks go, and calls whose end
+    never reached us leave the live picture."""
     with task_session() as db:
+        live.forget_stale(db, now=utcnow())
         return calls.forget_old_events(db, now=utcnow())

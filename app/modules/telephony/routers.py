@@ -1,26 +1,42 @@
 """The office's telephony settings, ``/api/v2/office/telephony``, and the
 address UTeL sends its events to."""
 
+import asyncio
 import json
 import uuid
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy.orm import Session
 
 from app.api.deps import Db
-from app.common.db import utcnow
+from app.common import tokens
+from app.common.db import get_db, utcnow
 from app.modules.accounts.models import User
 from app.modules.boards.access import Staff, access_for
-from app.modules.telephony import calls, services
+from app.modules.supportchat.live import hub
+from app.modules.telephony import calls, live, services
 from app.modules.telephony.constants import (
     CALL_SEARCH_MAX,
     CALLS_PAGE,
     CALLS_PAGE_MAX,
     HOOK_BODY_MAX,
     HOOK_PATH,
+    LIVE_CHANNEL,
     CallScope,
     Direction,
 )
@@ -28,6 +44,8 @@ from app.modules.telephony.schemas import (
     ConnectIn,
     ExtensionIn,
     JournalOut,
+    LiveOut,
+    MyPhoneOut,
     TelephonyOut,
 )
 
@@ -112,6 +130,95 @@ def _caller(db: Db, user: Staff) -> Caller:
 
 
 OnPhone = Annotated[Caller, Depends(_caller)]
+
+
+NO_STORE = {"Cache-Control": "no-store"}
+
+
+@router.get("/me", responses={200: {"model": MyPhoneOut}})
+def my_phone(db: Db, caller: OnPhone) -> JSONResponse:
+    """The reader's browser phone: whether to start it and what it
+    registers with. The password is the reader's own number's only."""
+    found = services.my_phone(db, user=caller.user)
+    return JSONResponse(MyPhoneOut.model_validate(found).model_dump(), headers=NO_STORE)
+
+
+@router.post("/me/refused", responses={200: {"model": MyPhoneOut}})
+def sip_refused(db: Db, caller: OnPhone) -> JSONResponse:
+    """Say that UTeL answered 401 or 403 to the registration. The answer
+    is the phone's settings again: `enabled` with a new password means try
+    once more; not enabled means stop."""
+    found = services.sip_refused(db, user=caller.user)
+    return JSONResponse(MyPhoneOut.model_validate(found).model_dump(), headers=NO_STORE)
+
+
+@router.get("/live", responses={200: {"model": LiveOut}})
+def live_calls(db: Db, caller: OnPhone) -> dict[str, Any]:
+    """The calls going on now. The socket beside it sends each change;
+    this is the whole picture, for a page that cannot hold a socket."""
+    return live.snapshot(db, now=utcnow())
+
+
+def _listener(db: Session, token: str) -> bool:
+    """A reader the calls may be told to: active staff a board opens for."""
+    subject = tokens.read(token, kind="access") if token else None
+    try:
+        user = db.get(User, uuid.UUID(subject or ""))
+        if user is None or not user.is_active or not user.is_staff:
+            return False
+        return bool(access_for(db, user).boards)
+    except ValueError:
+        return False
+    finally:
+        db.close()
+
+
+def _picture(db: Session) -> dict[str, Any]:
+    try:
+        calls_now: dict[str, Any] = jsonable_encoder(live.snapshot(db, now=utcnow()))
+        return {"type": live.SNAPSHOT} | calls_now
+    finally:
+        db.close()
+
+
+async def phone_socket(
+    websocket: WebSocket,
+    db: Session = Depends(get_db),
+    token: str = Query("", description="The access token."),
+) -> None:
+    """``/api/v2/office/telephony/ws?token=``: the calls going on, live.
+
+    First a ``snapshot`` (the same as ``GET /live``), then ``call.ringing``
+    and ``call.talking`` with the call, and ``call.ended`` with its
+    ``call_id``. The page says nothing; whatever it sends is ignored."""
+    if not await run_in_threadpool(_listener, db, token):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    async with AsyncExitStack() as stack:
+        try:
+            frames = await stack.enter_async_context(hub.listen(LIVE_CHANNEL))
+        except Exception:
+            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+            return
+        await websocket.accept()
+        await websocket.send_json(await run_in_threadpool(_picture, db))
+
+        async def forward() -> None:
+            async for raw in frames:
+                await websocket.send_text(raw)
+
+        forwarding = asyncio.create_task(forward())
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            forwarding.cancel()
+            await asyncio.gather(forwarding, return_exceptions=True)
+
+
+router.add_api_websocket_route("/ws", phone_socket)
 
 
 @router.get("/calls", responses={200: {"model": JournalOut}})

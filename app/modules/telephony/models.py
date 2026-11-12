@@ -101,6 +101,12 @@ class PhoneExtension(Base):
     # The exchange no longer lists it. Registering a number that is not
     # there gets the whole office's address blocked, so it is never offered.
     is_gone: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # The exchange refused this number's password to the browser phone.
+    # Until the password changes or the office gives the number again, the
+    # phone is not started: repeated refusals get the office's address blocked.
+    sip_refused_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class PhoneHookEvent(Base):
@@ -159,3 +165,29 @@ class PhoneCall(Base):
     talk_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # UTeL's own link. It opens without a key, so it never leaves the server.
     recording_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class PhoneLiveCall(Base):
+    """A call going on right now, by what the exchange has said so far.
+    The row goes when the call ends."""
+
+    __tablename__ = "phone_live_calls"
+    __table_args__ = (
+        Index("uniq_phone_live_call", "connection_id", "call_id", unique=True),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("phone_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    call_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    direction: Mapped[str] = mapped_column(String(8), nullable=False)
+    number: Mapped[str] = mapped_column(String(20), nullable=False)
+    extension: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    state: Mapped[str] = mapped_column(String(8), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )

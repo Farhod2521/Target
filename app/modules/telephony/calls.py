@@ -30,6 +30,8 @@ from app.modules.telephony.constants import (
     HOOK_EVENTS_KEEP_DAYS,
     LINE_MAX,
     LOCAL_DIGITS,
+    MISSED_FRESH_HOURS,
+    MISSED_REF,
     NUMBER_MAX,
     PHONE_MAX,
     RECORDING_MAX_BYTES,
@@ -213,7 +215,52 @@ def record(
             | {"user_id": func.coalesce(PhoneCall.user_id, statement.excluded.user_id)},
         )
     )
+    _ask_to_call_back(db, call=call, now=now)
     return True
+
+
+def _ask_to_call_back(db: Session, *, call: Finished, now: datetime) -> None:
+    """A client rang and nobody picked up: each of their open cards says so
+    once and is due now, unless it was already due."""
+    from app.modules.boards.constants import EventKind
+    from app.modules.boards.models import BoardCard, BoardCardEvent
+    from app.modules.boards.services import record as write_line
+
+    if (
+        call.direction is not Direction.IN
+        or call.answered
+        or call.started_at < now - timedelta(hours=MISSED_FRESH_HOURS)
+    ):
+        return
+    owners = select(User.id).where(
+        User.phone == call.number, User.phone != "", User.is_staff.is_(False)
+    )
+    ref = MISSED_REF.format(call_id=call.call_id)
+    cards = db.scalars(
+        select(BoardCard)
+        .where(BoardCard.owner_id.in_(owners), BoardCard.closed_at.is_(None))
+        .order_by(BoardCard.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    for card in cards:
+        said = db.scalar(
+            select(BoardCardEvent.id).where(
+                BoardCardEvent.card_id == card.id, BoardCardEvent.ref == ref
+            )
+        )
+        if said is not None:
+            continue
+        write_line(
+            db,
+            card=card,
+            kind=EventKind.MISSED_CALL,
+            now=now,
+            body=call.number,
+            ref=ref,
+        )
+        if card.due_at is None or card.due_at > now:
+            card.due_at = now
 
 
 def backfill(

@@ -73,3 +73,50 @@ CALLS_PAGE_MAX: Final = 100
 CALL_SEARCH_MAX: Final = 20
 RECORDING_MAX_BYTES: Final = 200 * 1024 * 1024
 RECORDING_TIMEOUT_SECONDS: Final = 60.0
+
+
+class PhoneOff(Choices):
+    """Why the reader has no browser phone."""
+
+    NOT_CONNECTED = "not_connected"
+    NO_EXTENSION = "no_extension"
+    SOFTPHONE_OFF = "softphone_off"
+    SIP_REFUSED = "sip_refused"
+
+
+PHONE_OFF_LABELS: Final = {
+    PhoneOff.NOT_CONNECTED: "Telefoniya ulanmagan.",
+    PhoneOff.NO_EXTENSION: "Sizga ichki nomer biriktirilmagan.",
+    PhoneOff.SOFTPHONE_OFF: "Sizda brauzer telefoni o'chirilgan.",
+    PhoneOff.SIP_REFUSED: "UTeL nomeringiz parolini qabul qilmadi. Rahbarga ayting.",
+}
+
+# How the browser phone registers. Wrong or hasty tries get the whole
+# office's address blocked at the exchange for half an hour, so the page is
+# told the rules instead of choosing its own.
+SIP_RULES: Final = {
+    # Wait a random time up to this before the first try: tabs opened
+    # together after a release must not arrive together.
+    "start_delay_max_seconds": 6,
+    "retry_max": 3,
+    # Before try n (1, 2, 3): base + n * step + random up to jitter.
+    "retry_base_seconds": 10,
+    "retry_step_seconds": 8,
+    "retry_jitter_seconds": 5,
+    # These answers are never retried; they are reported instead.
+    "never_retry_codes": [401, 403],
+}
+
+
+class LiveState(Choices):
+    RINGING = "ringing"
+    TALKING = "talking"
+
+
+# A call still open after this is one whose end never reached us.
+LIVE_STALE_HOURS: Final = 3
+LIVE_CHANNEL: Final = "telephony.office"
+# A client's unanswered call older than this, read from history, is told
+# on the journal but no longer asks for a call back on their card.
+MISSED_FRESH_HOURS: Final = 12
+MISSED_REF: Final = "call:{call_id}"

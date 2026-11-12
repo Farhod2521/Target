@@ -350,6 +350,7 @@ class EventKind(Choices):
     CLIENT_REPLIED = "client_replied"
     DUE_SET = "due_set"
     DUE_CLEARED = "due_cleared"
+    MISSED_CALL = "missed_call"
 
 
 EVENT_KIND_LABELS = {
@@ -383,6 +384,7 @@ EVENT_KIND_LABELS = {
     EventKind.CLIENT_REPLIED: "Mijoz javob yozdi",
     EventKind.DUE_SET: "Muddat qo'yildi",
     EventKind.DUE_CLEARED: "Muddat olib tashlandi",
+    EventKind.MISSED_CALL: "Javobsiz qo'ng'iroq",
 }
 
 NOTE_MAX: Final = 2000

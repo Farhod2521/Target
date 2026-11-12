@@ -15,7 +15,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TABLE crm_cards ADD COLUMN IF NOT EXISTS quality_sent_at timestamptz NULL")
+    op.execute(
+        "ALTER TABLE crm_cards ADD COLUMN IF NOT EXISTS quality_sent_at timestamptz NULL"
+    )
 
 
 def downgrade() -> None:

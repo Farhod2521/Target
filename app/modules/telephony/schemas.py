@@ -64,6 +64,11 @@ class ExtensionOut(BaseModel):
     is_gone: bool = Field(
         description="UTeL no longer has this number; it cannot be given to anybody."
     )
+    sip_refused_at: datetime | None = Field(
+        description="UTeL refused this number's password to the browser phone, "
+        "which is stopped since. Giving the number again or switching the "
+        "browser phone clears it; so does a changed password on «Yangilash»."
+    )
 
 
 class TelephonyOut(BaseModel):
@@ -110,3 +115,52 @@ class JournalCallOut(CallOut):
 class JournalOut(BaseModel):
     total: int
     calls: list[JournalCallOut] = Field(description="Newest first.")
+
+
+class SipOut(BaseModel):
+    socket: str = Field(description="`wss://utc181.utel.uz:8089/ws`.")
+    domain: str
+    uri: str = Field(description="`sip:101@utc181.utel.uz`.")
+    login: str
+    password: str = Field(description="Keep in memory only; never store or log.")
+
+
+class SipRulesOut(BaseModel):
+    start_delay_max_seconds: int
+    retry_max: int
+    retry_base_seconds: int
+    retry_step_seconds: int
+    retry_jitter_seconds: int
+    never_retry_codes: list[int]
+
+
+class MyPhoneOut(BaseModel):
+    enabled: bool = Field(description="False: do not start the browser phone.")
+    reason: str = Field(
+        description="Why not: `not_connected`, `no_extension`, `softphone_off`, "
+        "`sip_refused`. Empty when enabled."
+    )
+    reason_label: str
+    extension: str | None = Field(description="The reader's internal number.")
+    sip: SipOut | None
+    rules: SipRulesOut = Field(description="How to register and retry.")
+
+
+class LiveCallOut(BaseModel):
+    call_id: str = Field(description="UTeL's id; the same in every event of the call.")
+    direction: str
+    direction_label: str
+    state: str = Field(description="`ringing` or `talking`.")
+    number: str
+    extension: str = Field(
+        description="Incoming: where it rings or who answered. Outgoing: who calls. "
+        "May be empty while an incoming call has reached nobody yet."
+    )
+    staff: PhonePersonOut | None = Field(description="Who holds that number.")
+    started_at: datetime
+    clients: list[CallClientOut] = Field(description="Empty: a stranger.")
+
+
+class LiveOut(BaseModel):
+    calls: list[LiveCallOut] = Field(description="Going on now, oldest first.")
+    busy: list[str] = Field(description="Internal numbers in a conversation.")
