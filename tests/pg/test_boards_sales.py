@@ -151,7 +151,7 @@ def test_lid_olish_hands_out_the_oldest_lead_once(
     assert empty.status_code == 409 and empty.json()["code"] == "nothing_to_take"
 
 
-def test_support_does_not_take_leads_the_superuser_does(
+def test_support_does_not_take_leads_the_superuser_and_owner_do(
     client: TestClient, db: Session
 ) -> None:
     _live(db)
@@ -169,6 +169,14 @@ def test_support_does_not_take_leads_the_superuser_does(
     card = _detail(client.post(f"{URL}/sales/take", headers=boss))
     assert card.client.email == "first@shop.test" and card.column == "new_lead"
     assert card.manager is not None and card.manager.email == "boss@office.test"
+
+    _client(db, "second@shop.test")
+    _sweep(db)
+    owner = _staff(db, "owner@office.test", Role.OWNER)
+    assert client.get("/api/v2/office/me", headers=owner).json()["can"]["take"] is True
+    card = _detail(client.post(f"{URL}/sales/take", headers=owner))
+    assert card.client.email == "second@shop.test"
+    assert card.manager is not None and card.manager.email == "owner@office.test"
 
 
 def test_the_buttons_follow_the_column(client: TestClient, db: Session) -> None:

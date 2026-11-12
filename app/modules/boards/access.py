@@ -59,8 +59,10 @@ def works_on(db: Session, user: User, board: Board) -> bool:
 
 
 def may_take(db: Session, user: User) -> bool:
-    """«Lid olish»: the Sales team, and the superuser, who may do everything."""
-    if user.is_active and user.is_staff and user.is_superuser:
+    """«Lid olish»: the Sales team, the superuser and the Owner."""
+    if not user.is_active or not user.is_staff:
+        return False
+    if access_for(db, user).full:
         return True
     return works_on(db, user, Board.SALES)
 
