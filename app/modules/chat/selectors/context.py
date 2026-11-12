@@ -36,6 +36,7 @@ from core.chat.context import (
     BusinessDigest,
     CampaignDigest,
     ChatContext,
+    ConnectionDown,
     FocusDigest,
     OfferDigest,
     PageTotals,
@@ -254,6 +255,7 @@ def _account(
             ),
         ),
         maturity=str(MATURITY_LABELS.get(getattr(run, "maturity", ""), "")),
+        down=connection_down(db, accounts=accounts),
         by_page=tuple(
             PageTotals(
                 name=row.name,
@@ -292,6 +294,23 @@ def _account(
         if "suggestions" in wants
         else (),
         omitted=tuple(name for name in SECTIONS if name not in wants),
+    )
+
+
+def connection_down(db: Session, *, accounts: Any) -> ConnectionDown | None:
+    """The dead connection these accounts hang on, in the model's words."""
+    from app.modules.integrations.selectors import disconnected_of
+
+    found = disconnected_of(db, accounts=list(accounts))
+    if found is None:
+        return None
+    return ConnectionDown(
+        network="Google" if found.provider == "google" else "Meta (Facebook)",
+        status=found.status,
+        lost_at=f"{found.lost_at:%Y-%m-%d %H:%M} UTC" if found.lost_at else "",
+        last_read=f"{found.last_synced_at:%Y-%m-%d %H:%M} UTC"
+        if found.last_synced_at
+        else "",
     )
 
 

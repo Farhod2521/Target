@@ -124,6 +124,13 @@ def heading(book: DayBook, *, part: int = 0, parts: int = 1) -> str:
 
 def status_section(book: DayBook) -> list[str]:
     """Whether these figures are the period's own, or nothing when they are."""
+    if book.cut_off:
+        return [
+            _italic(
+                "⚠️ Facebook ulanishi uzilgan — raqamlar %(at)s gacha, "
+                "undan keyingisi o'qilmagan" % {"at": book.cut_off}
+            )
+        ]
     if book.ongoing:
         return [_italic("⏳ Kun hali tugamagan — raqamlar shu paytgacha")]
     if not book.final:

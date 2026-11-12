@@ -226,3 +226,48 @@ def test_what_runs_behind_dead_connections_is_reported_once_a_day(
     assert first == second == 1
     said = [r for r in caplog.records if "behind dead connections" in r.message]
     assert len(said) == 1
+
+
+def test_the_ai_chat_is_told_the_read_stopped(client: TestClient, db: Session) -> None:
+    from app.modules.chat.selectors.context import connection_down
+
+    _, account, connection = _cabinet(client, db)
+    assert connection_down(db, accounts=[account]) is None
+    connection.status = ConnectionStatus.INVALID
+    db.commit()
+
+    found = connection_down(db, accounts=[account])
+
+    assert found is not None
+    assert found.network == "Meta (Facebook)" and found.status == "invalid"
+    assert found.last_read == f"{account.synced_at:%Y-%m-%d %H:%M} UTC"
+    assert found.lost_at == ""
+
+
+def test_a_report_is_cut_where_the_dead_connection_stopped_reading(
+    client: TestClient, db: Session
+) -> None:
+    from zoneinfo import ZoneInfo
+
+    from app.modules.chat.selectors.daily import _cut_off
+
+    _, account, connection = _cabinet(client, db)
+    owner, utc = account.owner, ZoneInfo("UTC")
+    today = utcnow().date()
+    yesterday = today - timedelta(days=1)
+    assert _cut_off(db, owner=owner, until=yesterday, tzinfo=utc) == ""
+
+    connection.status = ConnectionStatus.INVALID
+    # Read for the last time in the middle of yesterday.
+    account.synced_at = utcnow().replace(
+        hour=12, minute=5, second=0, microsecond=0
+    ) - timedelta(days=1)
+    db.commit()
+
+    cut = _cut_off(db, owner=owner, until=yesterday, tzinfo=utc)
+    week = _cut_off(db, owner=owner, until=today + timedelta(days=3), tzinfo=utc)
+    older = _cut_off(db, owner=owner, until=today - timedelta(days=3), tzinfo=utc)
+
+    assert cut.endswith(" 12:05") and cut == week
+    # A day whose own night was read before the fall is whole.
+    assert older == ""

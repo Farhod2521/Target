@@ -122,12 +122,30 @@ class TroubleDigest:
 
 
 @dataclass(frozen=True, slots=True)
+class ConnectionDown:
+    """The connection everything below was read through no longer works.
+
+    The context is the mirror: statuses and figures as the network last gave
+    them. With the connection down nothing has been read since ``last_read``,
+    and a campaign marked running may have stopped - or be spending - since.
+    Unsaid, the model called such campaigns running, because nothing it was
+    handed said otherwise.
+    """
+
+    network: str
+    status: str
+    lost_at: str = ""
+    last_read: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class AccountDigest:
     """The account, as much of it as this question needed."""
 
     business: BusinessDigest
     totals: TotalsDigest
     maturity: str
+    down: ConnectionDown | None = None
     by_page: tuple[PageTotals, ...] = ()
     adsets: tuple[AdSetDigest, ...] = ()
     ads: tuple[AdDigest, ...] = ()
@@ -253,6 +271,7 @@ class ChatContext:
     def _lines(account: AccountDigest) -> list[str]:
         business, totals = account.business, account.totals
         lines = [
+            *_down_lines(account.down),
             "## Business",
             f"- Name: {business.name}",
             f"- Category: {business.category}",
@@ -310,6 +329,31 @@ OUTSIDE_ITEM: str = (
 )
 
 UNPLACED: str = "adverts no page could be found for"
+
+
+def _down_lines(down: ConnectionDown | None) -> list[str]:
+    """First, before any figure: how old everything after it is."""
+    if down is None:
+        return []
+    since = f" since {down.lost_at}" if down.lost_at else ""
+    read = (
+        f"was last read from {down.network} at {down.last_read}"
+        if down.last_read
+        else f"was never read from {down.network}"
+    )
+    return [
+        f"## IMPORTANT: the {down.network} connection is not working",
+        f"- The connection is {down.status}{since}. Nothing can be read, "
+        "launched or changed until the owner connects it again in the cabinet.",
+        f"- Everything below {read}. Each status ('running', 'active', "
+        "'paused') is what was true then. What is true now is unknown.",
+        "- Never say an advert, group or campaign is running, delivering or "
+        "stopped now. Say what it was at the last read, that the connection "
+        "is down, and that it must be connected again.",
+        "- No spend, lead or result after the last read is here. A day or "
+        "period after it is unread, not zero.",
+        "",
+    ]
 
 
 def _page_lines(pages: tuple[PageTotals, ...]) -> list[str]:

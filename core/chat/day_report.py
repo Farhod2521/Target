@@ -144,6 +144,11 @@ class DayBook:
     outside: tuple[str, ...] = ()
     final: bool = True
     ongoing: bool = False
+    # Set when the connection was down before the period's last night was
+    # read: the moment of the last read, in the cabinet's own time. The
+    # figures stop there, and "not final yet" would promise a re-read that
+    # cannot come.
+    cut_off: str = ""
 
     @property
     def spent(self) -> tuple[DailyReport, ...]:

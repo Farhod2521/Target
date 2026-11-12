@@ -201,7 +201,34 @@ def _book(
         ),
         final=final,
         ongoing=ongoing,
+        cut_off=_cut_off(db, owner=owner, until=until, tzinfo=tzinfo),
     )
+
+
+def _cut_off(db: Session, *, owner: User, until: date, tzinfo: ZoneInfo) -> str:
+    """When the figures stopped, if a dead connection stopped them before the
+    period's own night was read; nothing otherwise.
+
+    Without it a day cut short said only "not final yet", and a week missing
+    its last days was told as final: read on production's rules, a week is
+    final once the day after it has begun, whatever was read of it.
+    """
+    from app.modules.integrations.selectors import disconnected_of
+
+    found = disconnected_of(db, accounts=subscribed_accounts(db, owner=owner))
+    if found is None:
+        return ""
+    read = found.last_synced_at
+    if read is None:
+        # Never read: there are no figures to put a date on.
+        return ""
+    settled = _start(until + timedelta(days=1), tzinfo) + timedelta(
+        hours=DAILY_REREAD_AFTER_HOURS
+    )
+    if read >= settled:
+        return ""
+    local = timezone.localtime(read, tzinfo)
+    return f"{_date_said(local.date())} {local:%H:%M}"
 
 
 def _waiting(
