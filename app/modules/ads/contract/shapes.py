@@ -70,6 +70,29 @@ class ListedCampaign(Camel):
     ad_count: int | None
     created_at: str
     launched_at: str | None
+    frozen_since: str | None = Field(
+        None,
+        description="Set when this row's account hangs on a connection that no "
+        "longer works: everything on the row, `status` included, is what the "
+        "network said at this moment (ISO; empty when never read) and may no "
+        "longer be true. Null on a row that is being read.",
+    )
+
+
+class Disconnected(Camel):
+    network: NetworkRef
+    status: Literal["invalid", "revoked", "expired"] = Field(
+        description="`revoked`: taken away (by the owner here, or the app removed "
+        "at the network); `expired`: the login ran out; `invalid`: the network "
+        "refuses it (a changed password, a security check)."
+    )
+    code: str | None = Field(None, description="The network's own error code.")
+    lost_at: str | None = Field(
+        None, description="When it stopped working; null when that was not recorded."
+    )
+    last_synced_at: str | None = Field(
+        None, description="The last time these accounts were read."
+    )
 
 
 class SyncState(Camel):
@@ -130,6 +153,11 @@ class Counts(Camel):
     running: int
     paused: int
     all: int
+    frozen: int = Field(
+        0,
+        description="How many of `running` stand behind a dead connection: "
+        "running when last read, unknown now.",
+    )
 
 
 class CampaignList(Camel):
@@ -137,6 +165,12 @@ class CampaignList(Camel):
     reading_from: str | None = None
     updated_at: str
     sync: SyncState
+    disconnected: Disconnected | None = Field(
+        None,
+        description="The connection these campaigns are read through no longer "
+        "works. The rows are kept as last read; nothing here is live until the "
+        "owner connects again.",
+    )
     auto_refresh: bool
     access: Access
     unplaced: int

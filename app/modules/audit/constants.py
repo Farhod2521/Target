@@ -179,6 +179,8 @@ class EventName(Choices):
     BUSINESS_CREATED = "business.created"
     CONNECTION_ADDED = "connection.added"
     CONNECTION_REMOVED = "connection.removed"
+    CONNECTION_LOST = "connection.lost"
+    CONNECTION_RESTORED = "connection.restored"
     CONNECTION_REFUSED_DUPLICATE = "connection.refused_duplicate"
     USER_BLOCKED = "user.blocked"
     USER_UNBLOCKED = "user.unblocked"
@@ -307,6 +309,8 @@ EVENT_NAME_LABELS = {
     EventName.BUSINESS_CREATED: "Biznes profili to'ldirildi",
     EventName.CONNECTION_ADDED: "Reklama akkaunti ulandi",
     EventName.CONNECTION_REMOVED: "Reklama akkaunti uzildi",
+    EventName.CONNECTION_LOST: "Ulanish ishlamay qoldi",
+    EventName.CONNECTION_RESTORED: "Ulanish qayta ishladi",
     EventName.CONNECTION_REFUSED_DUPLICATE: "Ulanish rad etildi: akkaunt band",
     EventName.USER_BLOCKED: "Akkaunt bloklandi",
     EventName.USER_UNBLOCKED: "Akkaunt blokdan chiqarildi",

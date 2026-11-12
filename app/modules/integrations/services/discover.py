@@ -215,7 +215,34 @@ def discover_all_lead_accounts(db: Session, *, now: datetime) -> int:
     return len(owners)
 
 
+FROZEN_REPORTED_KEY = "integrations:frozen-mirror-reported"
+FROZEN_REPORT_SECONDS = 24 * 60 * 60
+
+
+def report_frozen_mirror(db: Session) -> int:
+    """Once a day: what still draws as running behind dead connections."""
+    from app.common.cache import cache
+    from app.modules.integrations.selectors.watch import frozen_mirror
+
+    found = frozen_mirror(db)
+    if not found.accounts:
+        return 0
+    if not cache.add(FROZEN_REPORTED_KEY, "1", FROZEN_REPORT_SECONDS):
+        return found.accounts
+    logger.error(
+        "campaigns drawn as running behind dead connections",
+        extra={
+            "accounts": found.accounts,
+            "campaigns": found.campaigns,
+            "oldest_read": found.oldest.isoformat() if found.oldest else "",
+            "sample": list(found.external_ids),
+        },
+    )
+    return found.accounts
+
+
 def report_stale_mirror(db: Session, *, now: datetime) -> int:
+    report_frozen_mirror(db)
     age = mirror_age(db, now=now)
     if not age.stale:
         return 0

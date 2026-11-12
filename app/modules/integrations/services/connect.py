@@ -446,7 +446,13 @@ def refresh_connection(
             token=current,
         )
     except MetaAuthError as exc:
-        return _mark(db, connection, _status_for(exc), code=str(exc.code or ""))
+        return _mark(
+            db,
+            connection,
+            _status_for(exc),
+            code=str(exc.code or ""),
+            subcode=str(exc.subcode or ""),
+        )
     except MetaError as exc:
         logger.warning("connection %s refresh deferred: %s", connection.id, exc)
         return connection
@@ -497,8 +503,17 @@ def heal_connections(db: Session) -> list[ProviderConnection]:
     ).all():
         if _judge(db, connection) != "alive":
             continue
+        was, code = str(connection.status), connection.last_error_code
         connection.status = ConnectionStatus.ACTIVE
         connection.last_error_code = ""
+        emit(
+            db,
+            owner_id=connection.owner_id,
+            name=EventName.CONNECTION_RESTORED,
+            aggregate_type="connection",
+            aggregate_id=connection.id,
+            payload={"provider": connection.provider, "was": was, "code": code},
+        )
         db.commit()
         logger.info("connection %s works again", connection.id)
         healed.append(connection)
@@ -531,7 +546,13 @@ def _judge(
             if info.error_code
             else ConnectionStatus.REVOKED
         )
-        _mark(db, connection, status, code=str(info.error_code or ""))
+        _mark(
+            db,
+            connection,
+            status,
+            code=str(info.error_code or ""),
+            subcode=str(info.error_subcode or ""),
+        )
         return "dead"
     connection.scopes = list(info.scopes)
     connection.expires_at = info.expires_at
@@ -583,10 +604,38 @@ def _status_from_codes(*, code: int, subcode: int) -> ConnectionStatus:
 
 
 def _mark(
-    db: Session, connection: ProviderConnection, status: ConnectionStatus, *, code: str
+    db: Session,
+    connection: ProviderConnection,
+    status: ConnectionStatus,
+    *,
+    code: str,
+    subcode: str = "",
 ) -> ProviderConnection:
+    """Take a connection down, and write down when and why the first time.
+
+    Before this there was no record at all: thirty-two connections stood at
+    invalid/190 on production with nothing to say when each fell or which of
+    Meta's reasons - a changed password, a checkpoint, an app removed - it
+    was. A connection already down is marked again every hour by the heal;
+    only the fall itself is an event.
+    """
+    fell = connection.status in USABLE_CONNECTION_STATUSES
     connection.status = status
     connection.last_error_code = code[:16]
+    if fell:
+        emit(
+            db,
+            owner_id=connection.owner_id,
+            name=EventName.CONNECTION_LOST,
+            aggregate_type="connection",
+            aggregate_id=connection.id,
+            payload={
+                "provider": connection.provider,
+                "status": str(status),
+                "code": code,
+                "subcode": subcode,
+            },
+        )
     db.commit()
     return connection
 

@@ -1,4 +1,7 @@
 import uuid
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from datetime import datetime
 
 from metaads import PROVIDER
 from metaads.oauth import INSTAGRAM_SCOPE, holds, missing
@@ -215,3 +218,95 @@ def instagram_permission_missing(db: Session, *, owner: User) -> bool:
     if connection is None or not connection.scopes:
         return False
     return not holds(connection.scopes, INSTAGRAM_SCOPE)
+
+
+# -- what stands behind a connection that no longer works --------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Disconnected:
+    """A connection the shown accounts hang on that cannot be read with.
+
+    Everything mirrored from those accounts is as old as ``last_synced_at``:
+    a campaign drawn as running may have been stopped, or be spending, since.
+    """
+
+    provider: str
+    status: str
+    code: str
+    lost_at: datetime | None
+    last_synced_at: datetime | None
+
+
+def frozen_accounts(
+    db: Session, *, account_ids: Iterable[uuid.UUID]
+) -> dict[uuid.UUID, datetime | None]:
+    """The accounts among these whose connection is down, with the last
+    moment each was read."""
+    wanted = set(account_ids)
+    if not wanted:
+        return {}
+    rows = db.execute(
+        select(AdAccount.id, AdAccount.synced_at)
+        .join(ProviderConnection, ProviderConnection.id == AdAccount.connection_id)
+        .where(
+            AdAccount.id.in_(wanted),
+            ProviderConnection.status.not_in(
+                [str(s) for s in USABLE_CONNECTION_STATUSES]
+            ),
+        )
+    )
+    return {account_id: synced_at for account_id, synced_at in rows}
+
+
+def disconnected_of(
+    db: Session, *, accounts: Sequence[AdAccount]
+) -> Disconnected | None:
+    """The first dead connection among these accounts' own, or nothing.
+
+    ``lost_at`` is the last time it fell or was taken away, as the events
+    say; a connection that fell before those were written has none, and the
+    caller still has ``last_synced_at`` to say how old the picture is.
+    """
+    from app.modules.audit.constants import EventName
+    from app.modules.audit.models import Event
+
+    by_connection: dict[uuid.UUID, list[AdAccount]] = {}
+    for account in accounts:
+        by_connection.setdefault(account.connection_id, []).append(account)
+    if not by_connection:
+        return None
+    connection = db.scalars(
+        select(ProviderConnection)
+        .where(
+            ProviderConnection.id.in_(list(by_connection)),
+            ProviderConnection.status.not_in(
+                [str(s) for s in USABLE_CONNECTION_STATUSES]
+            ),
+        )
+        .order_by(ProviderConnection.created_at)
+    ).first()
+    if connection is None:
+        return None
+    lost_at = db.scalar(
+        select(Event.occurred_at)
+        .where(
+            Event.owner_id == connection.owner_id,
+            Event.aggregate_type == "connection",
+            Event.aggregate_id == str(connection.id),
+            Event.name.in_(
+                [str(EventName.CONNECTION_LOST), str(EventName.CONNECTION_REMOVED)]
+            ),
+        )
+        .order_by(Event.occurred_at.desc())
+        .limit(1)
+    )
+    stamps = [account.synced_at for account in by_connection[connection.id]]
+    read = [stamp for stamp in stamps if stamp is not None]
+    return Disconnected(
+        provider=connection.provider,
+        status=str(connection.status),
+        code=connection.last_error_code,
+        lost_at=lost_at,
+        last_synced_at=min(read) if read else None,
+    )

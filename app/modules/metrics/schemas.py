@@ -65,6 +65,21 @@ class LeadQualityOut(BaseModel):
     quality_floor_pct: int = Field(description="The share `low` is under.")
 
 
+class DisconnectedOut(BaseModel):
+    provider: str
+    status: str = Field(
+        description="`revoked` (taken away), `expired` (the login ran out) or "
+        "`invalid` (the network refuses it)."
+    )
+    code: str | None = Field(description="The network's own error code.")
+    lost_at: datetime | None = Field(
+        description="When it stopped working; null when that was not recorded."
+    )
+    last_synced_at: datetime | None = Field(
+        description="The last time these accounts were read."
+    )
+
+
 class NumbersOut(BaseModel):
     crm_qualified: int | None = Field(
         description="Qualified leads counted by the CRM; null when the CRM is off."
@@ -80,6 +95,11 @@ class NumbersOut(BaseModel):
     synced_at: datetime | None
     behind_since: datetime | None = Field(description="Figures stopped arriving at.")
     is_stale: bool
+    disconnected: DisconnectedOut | None = Field(
+        None,
+        description="The connection these figures are read through no longer "
+        "works: nothing after `last_synced_at` is here, whatever the range says.",
+    )
     since: str = Field(
         description="Pass to `GET /metrics/numbers/poll` after a refresh."
     )

@@ -19,6 +19,7 @@ from app.modules.integrations.selectors.audiences import (
     usable_audiences,
 )
 from app.modules.integrations.selectors.connection import (
+    Disconnected,
     active_ad_account,
     active_page,
     active_pixel,
@@ -28,6 +29,8 @@ from app.modules.integrations.selectors.connection import (
     broken_meta_connection,
     broken_meta_connections,
     broken_of,
+    disconnected_of,
+    frozen_accounts,
     instagram_permission_missing,
     is_connected,
     meta_connection,
@@ -104,6 +107,7 @@ from app.modules.integrations.selectors.watch import (
 __all__ = [
     "OBSERVE_DAYS",
     "ActionRequired",
+    "Disconnected",
     "InstagramChoice",
     "InstagramProfile",
     "MirrorAge",
@@ -137,10 +141,12 @@ __all__ = [
     "current_google_account",
     "current_pair",
     "customer_records",
+    "disconnected_of",
     "enabled_ad_accounts",
     "enabled_pages",
     "extra_instagram_count",
     "fired_events",
+    "frozen_accounts",
     "google_accounts",
     "google_ads_on",
     "google_connection",

@@ -235,3 +235,48 @@ def mirror_age(db: Session, *, now: datetime) -> MirrorAge:
             external_id: said.get(str(pk), "unknown") for pk, external_id in named
         },
     )
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenMirror:
+    """What is drawn as running behind connections that no longer work."""
+
+    accounts: int
+    campaigns: int
+    oldest: datetime | None
+    external_ids: tuple[str, ...]
+
+
+def frozen_mirror(db: Session) -> FrozenMirror:
+    """The chosen accounts of dead connections that still show running
+    campaigns. :func:`mirror_age` cannot see them - it watches only what can
+    be read - and on production, 2026-11-12, that was thirty accounts and
+    166 campaigns, the oldest unread since September."""
+    from sqlalchemy import func
+
+    from app.modules.ads.constants import NOT_RUNNING
+    from app.modules.ads.models import Campaign
+    from app.modules.billing.selectors import subscribed_owner_ids
+
+    rows = db.execute(
+        select(AdAccount.external_id, AdAccount.synced_at, func.count(Campaign.id))
+        .join(ProviderConnection, ProviderConnection.id == AdAccount.connection_id)
+        .join(Campaign, Campaign.ad_account_id == AdAccount.id)
+        .where(
+            AdAccount.is_active.is_(True),
+            AdAccount.owner_id.in_(subscribed_owner_ids()),
+            ProviderConnection.status.not_in(
+                [str(s) for s in USABLE_CONNECTION_STATUSES]
+            ),
+            Campaign.delivery.not_in([str(d) for d in NOT_RUNNING]),
+        )
+        .group_by(AdAccount.external_id, AdAccount.synced_at)
+        .order_by(AdAccount.synced_at.asc().nulls_first())
+    ).all()
+    read = [synced_at for _, synced_at, _ in rows if synced_at is not None]
+    return FrozenMirror(
+        accounts=len(rows),
+        campaigns=sum(count for _, _, count in rows),
+        oldest=min(read) if read else None,
+        external_ids=tuple(name for name, _, _ in rows[:STALE_SAMPLE]),
+    )

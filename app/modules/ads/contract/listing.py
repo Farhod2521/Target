@@ -150,13 +150,33 @@ def campaign_row(
         "launched_at": settings.starts_at.isoformat()
         if settings.starts_at
         else created,
+        "frozen_since": None,
+    }
+
+
+def disconnected_out(found: Any) -> dict[str, Any] | None:
+    """The dead connection the shown accounts hang on, as a screen is told it."""
+    if found is None:
+        return None
+    return {
+        "network": network_of(found.provider),
+        "status": found.status,
+        "code": found.code or None,
+        "lost_at": found.lost_at.isoformat() if found.lost_at else None,
+        "last_synced_at": found.last_synced_at.isoformat()
+        if found.last_synced_at
+        else None,
     }
 
 
 def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
     """Everything the list screen draws, for the filters asked."""
     from app.modules.businesses.selectors import business_for_page
-    from app.modules.integrations.selectors import is_connected
+    from app.modules.integrations.selectors import (
+        disconnected_of,
+        frozen_accounts,
+        is_connected,
+    )
     from app.modules.metrics.selectors import accounts_synced_at
     from app.modules.metrics.selectors import has_cooled as figures_cooled
     from app.modules.metrics.selectors.panel import campaign_chips, spend_total
@@ -202,6 +222,13 @@ def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
         )
         for row in rows
     ]
+    # A row behind a dead connection is as old as its account's last read:
+    # its status is what Meta said then, not what is true now.
+    frozen = frozen_accounts(db, account_ids={row.ad_account_id for row in rows})
+    for row, shown_row in zip(rows, every, strict=True):
+        if row.ad_account_id in frozen:
+            stamp = frozen[row.ad_account_id]
+            shown_row["frozen_since"] = stamp.isoformat() if stamp else ""
     by_network = [row for row in every if ask.network in ("all", row["network"]["id"])]
     source = ask.source
     pool = [row for row in by_network if source in ("all", row["origin"])]
@@ -258,6 +285,15 @@ def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
         "reading_from": network_of(rows[0].provider)["name"] if rows else "Meta",
         "updated_at": (synced_at.isoformat() if synced_at else ""),
         "sync": _sync(owner, synced_at=synced_at, progress=progress),
+        "disconnected": disconnected_out(
+            disconnected_of(
+                db,
+                accounts=list(
+                    {row.ad_account.id: row.ad_account for row in rows}.values()
+                )
+                or list(advertising.accounts),
+            )
+        ),
         "auto_refresh": auto,
         "access": access_of(db, owner=owner),
         "unplaced": advertising.unplaced,
@@ -300,6 +336,10 @@ def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
             "running": len(live),
             "paused": len(pool) - len(live),
             "all": len(pool),
+            "frozen": sum(
+                row["frozen_since"] is not None and row["status"] in RUNNING
+                for row in pool
+            ),
         },
         "total": len(every),
         "campaigns": shown,

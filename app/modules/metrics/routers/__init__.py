@@ -96,6 +96,22 @@ def _crm_qualified(
     )
 
 
+def _disconnected(db: Session, *, accounts: Any) -> dict[str, Any] | None:
+    """The dead connection these figures were read through, or nothing."""
+    from app.modules.integrations.selectors import disconnected_of
+
+    found = disconnected_of(db, accounts=list(accounts))
+    if found is None:
+        return None
+    return {
+        "provider": found.provider,
+        "status": found.status,
+        "code": found.code or None,
+        "lost_at": found.lost_at,
+        "last_synced_at": found.last_synced_at,
+    }
+
+
 def numbers_context(
     db: Session,
     user: User,
@@ -164,6 +180,7 @@ def numbers_context(
             db, owner=user, accounts=page.accounts, now=now
         ),
         "is_stale": figures_are_stale(synced_at=synced_at, now=now),
+        "disconnected": _disconnected(db, accounts=page.accounts),
         "since": synced_at.isoformat() if synced_at else "",
         "syncing": syncing,
         "account_ids": [str(row.id) for row in page.accounts],
