@@ -1,6 +1,6 @@
 # Ofis telefoniyasi (UTeL): API va frontend qo'llanmasi
 
-Backend: `feat/office-telephony` shoxi, migratsiyalar `0046`–`0049`. Avval backend deploy qilinadi.
+Backend: `feat/office-telephony` shoxi, migratsiyalar `0047`–`0050`. Avval backend deploy qilinadi.
 OpenAPI'ni qayta generatsiya qiling: quyidagi barcha javoblarning sxemasi unda bor.
 
 Sozlama **bitta**: Sotuv va Support doskalari bitta UTeL ulanishidan foydalanadi.
