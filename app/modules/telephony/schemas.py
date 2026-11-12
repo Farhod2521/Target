@@ -53,6 +53,10 @@ class ConnectionOut(BaseModel):
     )
     events_last_day: int
     last_error: str
+    route_url: str = Field(
+        description="Smart routing: paste into UTeL's «Aqlli yo'naltirish» module "
+        "as the external address. Secret - show it only on this page."
+    )
 
 
 class ExtensionOut(BaseModel):

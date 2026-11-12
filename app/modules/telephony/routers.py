@@ -29,7 +29,7 @@ from app.common.db import get_db, utcnow
 from app.modules.accounts.models import User
 from app.modules.boards.access import Staff, access_for
 from app.modules.supportchat.live import hub
-from app.modules.telephony import calls, live, services
+from app.modules.telephony import calls, live, routing, services
 from app.modules.telephony.constants import (
     CALL_SEARCH_MAX,
     CALLS_PAGE,
@@ -37,6 +37,7 @@ from app.modules.telephony.constants import (
     HOOK_BODY_MAX,
     HOOK_PATH,
     LIVE_CHANNEL,
+    ROUTE_PATH,
     CallScope,
     Direction,
 )
@@ -288,3 +289,24 @@ async def utel_events(key: str, request: Request, db: Db) -> JSONResponse:
     if not kept:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     return JSONResponse({"ok": True})
+
+
+@webhooks.api_route(ROUTE_PATH, methods=["GET", "POST"], include_in_schema=False)
+async def utel_route(key: str, request: Request, db: Db) -> JSONResponse:
+    """UTeL asks whom to put an incoming call through to. The number comes
+    in the query or in a JSON body; the answer is always a JSON object."""
+    number: object = request.query_params.get("number", "")
+    if not number and request.method == "POST":
+        body = await request.body()
+        try:
+            sent = json.loads(body) if len(body) <= HOOK_BODY_MAX else None
+        except ValueError:
+            sent = None
+        if isinstance(sent, dict):
+            number = sent.get("number") or ""
+    found = await run_in_threadpool(
+        routing.answer, db, key=key, number=number, now=utcnow()
+    )
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return JSONResponse(found)

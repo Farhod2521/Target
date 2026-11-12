@@ -15,6 +15,9 @@ UTEL_ZONE: Final = "utel.uz"
 # The path matters: the bare port answers 200 and speaks no SIP.
 SIP_SOCKET: Final = "wss://{tenant}.utel.uz:8089/ws"
 HOOK_PATH: Final = "/webhooks/utel/{key}"
+ROUTE_PATH: Final = "/webhooks/utel/{key}/route"
+# Whoever spoke with a caller within this is whom they reach again.
+ROUTE_RECENT_DAYS: Final = 30
 HOOK_KEY_BYTES: Final = 32
 # Every event the exchange can send; each is a flag on the hook.
 HOOK_EVENTS: Final = (

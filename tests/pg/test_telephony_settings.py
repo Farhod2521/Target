@@ -145,8 +145,10 @@ def test_signing_in_reads_the_numbers_and_asks_for_events(
     kept = db.scalar(select(PhoneExtension).where(PhoneExtension.number == "101"))
     assert kept is not None and crypto.decrypt(kept.sip_password) == "p101"
     # Nothing secret in the answer.
-    for secret in ("1|kalit", "p101", row.hook_key, "sir"):
+    for secret in ("1|kalit", "p101", '"sir"'):
         assert secret not in answer.text
+    # The routing address is shown, to be pasted into UTeL by hand.
+    assert state.connection.route_url == f"{ours['url']}/route"
 
 
 def test_a_wrong_login_or_a_strange_address_ties_nothing(

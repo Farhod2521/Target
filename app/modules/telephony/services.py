@@ -28,6 +28,7 @@ from app.modules.telephony.constants import (
     HOOK_PATH,
     NUMBER_MAX,
     PHONE_OFF_LABELS,
+    ROUTE_PATH,
     SIP_RULES,
     SIP_SOCKET,
     TENANT_SHAPE,
@@ -305,7 +306,9 @@ def _person(user: User) -> dict[str, str]:
 
 
 def state(db: Session, *, now: datetime) -> dict[str, Any]:
-    """The settings page. No key, password or hook address leaves here."""
+    """The settings page, for the superuser and the Owner. No key of the
+    exchange and no password leaves here; the routing address does, to be
+    pasted into UTeL by hand."""
     staff = list(
         db.scalars(
             select(User)
@@ -347,6 +350,7 @@ def state(db: Session, *, now: datetime) -> dict[str, Any]:
             "last_event_at": last_event,
             "events_last_day": int(day_events or 0),
             "last_error": connection.last_error,
+            "route_url": settings.site_url + ROUTE_PATH.format(key=connection.hook_key),
         },
         "extensions": [
             {
