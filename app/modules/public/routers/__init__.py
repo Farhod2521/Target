@@ -39,6 +39,7 @@ from app.modules.public.constants import (
 from app.modules.public.exceptions import DeletionRequestNotFound, InvalidSignedRequest
 from app.modules.public.models import Testimonial
 from app.modules.public.schemas import (
+    BusinessPageOut,
     BusinessPrivacyOut,
     ConsultOut,
     DeletionCreatedOut,
@@ -220,10 +221,63 @@ def business_privacy(business_id: uuid.UUID, db: Db) -> dict[str, Any]:
     if business is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     return {
-        "business": {"id": str(business.id), "name": business.name},
+        "business": {
+            "id": str(business.id),
+            "name": business.name,
+            "city": business.city,
+            "contact_phone": business.contact_phone,
+            "website": _web_address(business.website),
+        },
         "deletion_sla_days": DELETION_SLA_DAYS,
         "updated_at": ADVERTISER_POLICY_UPDATED_AT,
     }
+
+
+@router.get("/business/{business_id}", responses={200: {"model": BusinessPageOut}})
+def business_page(business_id: uuid.UUID, db: Db) -> dict[str, Any]:
+    """The page an advert links to when the business has no site of its own."""
+    from metaads.specs import instagram_profile_url
+
+    from app.modules.businesses.selectors import public_business
+
+    business = public_business(db, business_id=business_id)
+    if business is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    page = business.page
+    handle = page.instagram_username.strip().removeprefix("@") if page else ""
+    return {
+        "id": str(business.id),
+        "name": business.name,
+        "direction": _direction(business),
+        "city": business.city,
+        "contact_phone": business.contact_phone,
+        "website": _web_address(business.website),
+        "instagram_url": instagram_profile_url(handle) if handle else "",
+        "facebook_url": (
+            f"https://www.facebook.com/{page.external_id}"
+            if page and page.external_id
+            else ""
+        ),
+    }
+
+
+def _direction(business: Any) -> str:
+    """What the business does, in words. Never the bare key of a preset."""
+    if business.custom_category_id is not None and business.custom_category:
+        return str(business.custom_category.label)
+    if business.direction_id is not None and business.direction:
+        return str(business.direction.label)
+    return ""
+
+
+def _web_address(value: str) -> str:
+    """The site as a link a public page may carry, or nothing.
+
+    The field is what an owner typed. The page puts it in an ``href``, so
+    anything that is not a web address is left out rather than shown.
+    """
+    address = value.strip()
+    return address if address.lower().startswith(("https://", "http://")) else ""
 
 
 @callbacks.post("/data-deletion/callback/", include_in_schema=False)

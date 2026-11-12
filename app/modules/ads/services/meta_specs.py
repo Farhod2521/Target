@@ -20,7 +20,6 @@ from metaads.specs import (
 )
 from metaads.specs import AdSetSpec as MetaAdSetSpec
 
-from app.common.config import settings
 from app.modules.ads import draft as draft_field
 from app.modules.ads import naming
 from app.modules.ads.constants import (
@@ -36,6 +35,7 @@ from app.modules.ads.selectors.budget_level import (
     shares_budget,
 )
 from app.modules.ads.selectors.lead_form import (
+    business_page_url,
     default_title,
     effective_ending,
     privacy_url,
@@ -300,17 +300,29 @@ def destination(
     page_id: str,
     instagram_username: str = "",
 ) -> str:
-    """Where the ad's link points."""
+    """Where the ad's link points.
+
+    The last three are a formality: the tap opens a form, a chat or a
+    dialler, and nobody follows the link. Meta still reads it, so it has to
+    be about this business: its own site while that opens, and otherwise
+    its page on ours.
+    """
     if built.needs_link:
         return built.link_url
     if built.opens_profile:
         return instagram_profile_url(instagram_username)
-    site = str(launch.answers.get("link_url") or business.website or "").strip()
-    if site and is_external(site):
+    site = owner_site(launch=launch, business=business)
+    if site and not built.filler_site_down:
         return site
     if not built.shows_a_button:
         return _own_address(page_id=page_id, instagram_username=instagram_username)
-    return str(settings.default_ad_link)
+    return business_page_url(business)
+
+
+def owner_site(*, launch: CampaignLaunch, business: Business) -> str:
+    """The owner's own address outside Meta, or nothing."""
+    site = str(launch.answers.get("link_url") or business.website or "").strip()
+    return site if site and is_external(site) else ""
 
 
 def _own_address(*, page_id: str, instagram_username: str) -> str:

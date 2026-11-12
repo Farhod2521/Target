@@ -94,8 +94,26 @@ class TermsOut(BaseModel):
 
 
 class BusinessRef(BaseModel):
+    """What a business tells its own customers anyway, and nothing else."""
+
     id: str
     name: str
+    city: str = ""
+    contact_phone: str = ""
+    website: str = ""
+
+
+class BusinessPageOut(BaseModel):
+    """The business's own page: who it is and where to find it."""
+
+    id: str
+    name: str
+    direction: str = ""
+    city: str = ""
+    contact_phone: str = ""
+    website: str = ""
+    instagram_url: str = ""
+    facebook_url: str = ""
 
 
 class BusinessPrivacyOut(BaseModel):
@@ -105,6 +123,7 @@ class BusinessPrivacyOut(BaseModel):
 
 
 __all__ = [
+    "BusinessPageOut",
     "BusinessPrivacyOut",
     "ConsultOut",
     "DeletionCreatedOut",

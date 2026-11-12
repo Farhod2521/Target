@@ -101,6 +101,17 @@ def privacy_url(business: Business) -> str:
     return f"{settings.site_url}{page}"
 
 
+def business_page_url(business: Business) -> str:
+    """The business's own page on our site: who it is and how to reach it.
+
+    What a creative links to when the business has no site of its own.
+    Meta requires an address outside Meta on a lead creative, and reads
+    one that has nothing to do with the advertiser as misleading.
+    """
+    page = reverse("public:business", args=[business.id])
+    return f"{settings.site_url}{page}"
+
+
 def stored_ending(*, launch: CampaignLaunch) -> FormEnding | None:
     return ending_from_answer(launch.answers.get(LEAD_FORM_ENDING))
 

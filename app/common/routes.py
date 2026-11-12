@@ -305,6 +305,7 @@ ROUTES: dict[str, str] = {
     "onboarding:finish": "/app/start/finish/",
     "onboarding:start": "/app/start/",
     "payment_callback": "/webhooks/pay/<slug:provider>/",
+    "public:business": "/biznes/<uuid:business_id>/",
     "public:business_privacy": "/privacy/<uuid:business_id>/",
     "public:consult": "/maslahat/",
     "public:data_deletion": "/data-deletion/",

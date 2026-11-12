@@ -111,9 +111,6 @@ class Env(BaseSettings):
     map_max_zoom: int = Field(default=18, alias="MAP_MAX_ZOOM")
     default_ad_provider: str = Field(default="meta", alias="DEFAULT_AD_PROVIDER")
     fallback_category: str = Field(default="services", alias="FALLBACK_CATEGORY")
-    default_ad_link: str = Field(
-        default="https://targetolog.ai/", alias="DEFAULT_AD_LINK"
-    )
     ads_dry_run: bool = Field(default=True, alias="ADS_DRY_RUN")
     meta_conversions_test_code: str = Field(
         default="", alias="META_CONVERSIONS_TEST_CODE"

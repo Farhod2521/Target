@@ -146,6 +146,10 @@ class BuiltTargeting:
     url_tags: str = ""
     special_ad_category_countries: tuple[str, ...] = ()
     adjustments: tuple[Adjustment, ...] = ()
+    # The owner's site was looked at before the launch and nobody could open
+    # it. Only read where the site is a formality on the creative (a lead
+    # form, a chat, a call): there another address stands in for it.
+    filler_site_down: bool = False
 
     @property
     def needs_lead_form(self) -> bool:

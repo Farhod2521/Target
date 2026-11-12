@@ -3,6 +3,7 @@ mirror, and switch it on without a second press."""
 
 import logging
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any, Final
 from uuid import UUID
 
@@ -385,6 +386,8 @@ def _create(db: Session, *, launch_id: UUID | str) -> str:
                 detail={"site": site.outcome},
             )
         built = without_blind_goal(db, launch=launch, built=built, site=site)
+    else:
+        built = _without_dead_filler(launch=launch, business=business, built=built)
     try:
         validate_launchable(built)
     except SiteMissing as exc:
@@ -427,6 +430,33 @@ def _create(db: Session, *, launch_id: UUID | str) -> str:
         db.refresh(launch)
         record_outcome(trace, launch=launch, result=result)
     return result
+
+
+def _without_dead_filler(
+    *, launch: CampaignLaunch, business: Business, built: BuiltTargeting
+) -> BuiltTargeting:
+    """The spec to send, told when the owner's site cannot stand on the advert.
+
+    Not a refusal: the advert opens a form, a chat or a dialler and the
+    site is only the link Meta requires beside it. A dead one is how an
+    advert gets refused for its link, so the business's page on our site
+    takes its place.
+    """
+    from app.modules.ads.services.meta_specs import owner_site
+
+    site = owner_site(launch=launch, business=business)
+    if not site or built.opens_profile:
+        return built
+    seen = look_at_site(url=site)
+    if not seen.is_down:
+        return built
+    logger.info(
+        "launch %s: site %s is %s, the business page stands on the advert",
+        launch.id,
+        site,
+        seen.outcome,
+    )
+    return replace(built, filler_site_down=True)
 
 
 def _run(
