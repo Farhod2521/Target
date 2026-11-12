@@ -16,7 +16,7 @@ Kanbanni har **30 soniyada** qayta so'rab turing, WebSocket yo'q.
 | `Sales` (Sotuv menejeri) | Sotuv kanbani, faqat o'z kartalari | Lid olish, tugmalar, izoh |
 | `SalesLead` (Sotuv rahbari) | Butun Sotuv kanbani, «Ishlanmagan» va «Yopildi» ham | Kartani menejerga berish yoki qaytarib olish |
 | `Support` | Butun Support kanbani | Tugmalar, izoh |
-| Superuser va `Owner` | Ikkala kanban | Hammasi: ko'chirish, ustunlar, xodimlar, so'rovnoma belgilari |
+| Superuser va `Owner` | Ikkala kanban | Hammasi: ko'chirish, ustunlar, xodimlar, so'rovnoma belgilari; superuser «Lid olish» ham |
 
 ### `GET /api/v2/office/me`
 
@@ -149,7 +149,7 @@ Kartaning hammasi: `card` maydonlari, hamda:
 
 «Lid olish». Body yo'q. Eng eski «Ishlanmagan» lid shu menejerga beriladi va
 «Yangi lead» ga o'tadi. Javob: karta (yuqoridagi shakl).
-Lid qolmagan bo'lsa: **409** `nothing_to_take`. Faqat Sotuv rollarida ishlaydi.
+Lid qolmagan bo'lsa: **409** `nothing_to_take`. Sotuv rollarida va superuserda ishlaydi (`Owner` da yo'q).
 
 ### `POST /api/v2/office/cards/{id}/actions`
 

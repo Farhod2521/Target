@@ -58,6 +58,13 @@ def works_on(db: Session, user: User, board: Board) -> bool:
     return any(str(role) in roles for role in BOARD_ROLES[board])
 
 
+def may_take(db: Session, user: User) -> bool:
+    """«Lid olish»: the Sales team, and the superuser, who may do everything."""
+    if user.is_active and user.is_staff and user.is_superuser:
+        return True
+    return works_on(db, user, Board.SALES)
+
+
 Staff = Annotated[User, Depends(staff_required(*Role))]
 
 

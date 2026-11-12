@@ -11,13 +11,12 @@ from app.common.db import utcnow
 from app.modules.backoffice.constants import ROLE_LABELS, Role
 from app.modules.boards import help_options, selectors, services, view
 from app.modules.boards import staff as staff_service
-from app.modules.boards.access import BoardStaff, Staff, access_for, works_on
+from app.modules.boards.access import BoardStaff, Staff, access_for, may_take
 from app.modules.boards.constants import (
     BOARD_LABELS,
     CLOSE_REASON_LABELS,
     COLUMN_CARDS,
     COLUMN_CARDS_MAX,
-    Board,
     CardAction,
     CloseReason,
 )
@@ -70,7 +69,7 @@ def me(db: Db, user: Staff) -> dict[str, Any]:
         ],
         "default_board": str(access.boards[0]) if access.boards else None,
         "can": {
-            "take": works_on(db, user, Board.SALES),
+            "take": may_take(db, user),
             "assign": bool(access.leads),
             "move": access.full,
             "columns": access.full,
@@ -149,7 +148,7 @@ def close_reasons(staff: Staff) -> list[dict[str, str]]:
 @router.post("/sales/take", responses={200: {"model": CardDetailOut}})
 def take(db: Db, user: Staff) -> dict[str, Any]:
     """«Lid olish»: the oldest lead nobody works yet becomes this manager's."""
-    if not works_on(db, user, Board.SALES):
+    if not may_take(db, user):
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     now = utcnow()
     card = services.take_lead(db, manager=user, now=now)
