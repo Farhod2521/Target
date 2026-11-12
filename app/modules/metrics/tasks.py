@@ -5,7 +5,12 @@ from datetime import timedelta
 from app.common.config import settings
 from app.common.dates import localtime
 from app.common.db import utcnow
-from app.modules.ads.constants import FIGURES_SWEEP, SYNC_STARTED, TODAY_SWEEP
+from app.modules.ads.constants import (
+    FIGURES_SWEEP,
+    SWEEP_EXPIRES_SECONDS,
+    SYNC_STARTED,
+    TODAY_SWEEP,
+)
 from app.modules.ads.exceptions import (
     ConnectionUnusable,
     SyncAlreadyRunning,
@@ -157,7 +162,7 @@ def sync_today_metrics() -> str:
     with task_session() as db:
         accounts = frequently_swept_account_ids(db, now=utcnow())
     for account_id in accounts:
-        sync_today_task.delay(str(account_id))
+        sync_today_task.apply_async((str(account_id),), expires=SWEEP_EXPIRES_SECONDS)
     return f"queued:{len(accounts)}"
 
 

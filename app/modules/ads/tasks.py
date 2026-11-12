@@ -12,6 +12,7 @@ from app.modules.ads.constants import (
     REFRESH_QUEUE,
     STILL_POLL_SECONDS,
     STILL_TRIES,
+    SWEEP_EXPIRES_SECONDS,
     SYNC_STARTED,
     UPLOAD_RETRIES,
     UPLOAD_RETRY_SECONDS,
@@ -100,7 +101,9 @@ def sync_all_accounts() -> int:
     with task_session() as db:
         accounts = frequently_swept_account_ids(db, now=utcnow())
     for account_id in accounts:
-        sync_ad_account_task.delay(str(account_id))
+        sync_ad_account_task.apply_async(
+            (str(account_id),), expires=SWEEP_EXPIRES_SECONDS
+        )
     return len(accounts)
 
 

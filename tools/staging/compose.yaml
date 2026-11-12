@@ -56,7 +56,7 @@ services:
 
   worker:
     <<: *app
-    command: celery -A app.worker worker -Q sync,webhooks,chat,upload,refresh,agent --concurrency 2 --loglevel INFO
+    command: celery -A app.worker worker -Q sync,figures,webhooks,chat,upload,refresh,agent --concurrency 2 --loglevel INFO
 
 volumes:
   pgdata:

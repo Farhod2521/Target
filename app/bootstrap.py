@@ -40,5 +40,8 @@ def register_providers() -> None:
     from app.modules.billing.services.providers import register_payment_providers
 
     register_payment_providers()
+    from app.common.meta_gate import install as install_meta_gate
+
+    install_meta_gate()
     warn_if_rehearsing(settings)
     _done = True

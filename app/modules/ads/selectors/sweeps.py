@@ -23,7 +23,8 @@ from app.modules.ads.constants import (
     TODAY_SWEEP,
 )
 from app.modules.ads.models import Campaign
-from app.modules.integrations.models import AdAccount
+from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
+from app.modules.integrations.models import AdAccount, ProviderConnection
 
 
 def _live_campaign_accounts() -> Select[Any]:
@@ -34,6 +35,16 @@ def _live_campaign_accounts() -> Select[Any]:
     )
 
 
+def _readable() -> Select[Any]:
+    """The connections a read can be made with. An account behind a dead one
+    is not queued at all: every such task ended "unusable" without asking
+    Meta anything, forty-six connections' worth each half hour. The hourly
+    heal puts a connection back, and its accounts come back with it."""
+    return select(ProviderConnection.id).where(
+        ProviderConnection.status.in_([str(s) for s in USABLE_CONNECTION_STATUSES])
+    )
+
+
 def _frequently(*, now: datetime) -> Select[Any]:
     from app.modules.billing.selectors import recently_entitled_owner_ids
 
@@ -41,6 +52,7 @@ def _frequently(*, now: datetime) -> Select[Any]:
         or_(AdAccount.synced_at.is_(None), AdAccount.id.in_(_live_campaign_accounts())),
         AdAccount.is_active.is_(True),
         AdAccount.owner_id.in_(recently_entitled_owner_ids(now=now)),
+        AdAccount.connection_id.in_(_readable()),
     )
 
 
@@ -66,7 +78,9 @@ def _nightly() -> Select[Any]:
     from app.modules.billing.selectors import subscribed_owner_ids
 
     return select(AdAccount).where(
-        AdAccount.is_active.is_(True), AdAccount.owner_id.in_(subscribed_owner_ids())
+        AdAccount.is_active.is_(True),
+        AdAccount.owner_id.in_(subscribed_owner_ids()),
+        AdAccount.connection_id.in_(_readable()),
     )
 
 

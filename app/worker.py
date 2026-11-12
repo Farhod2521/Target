@@ -22,7 +22,12 @@ from kombu import Queue
 from sqlalchemy.orm import Session
 
 from app.common.config import settings
-from app.common.task_routes import GOOGLE_QUEUE, GOOGLE_SYNC_QUEUE, route_task
+from app.common.task_routes import (
+    FIGURES_QUEUE,
+    GOOGLE_QUEUE,
+    GOOGLE_SYNC_QUEUE,
+    route_task,
+)
 
 # httpx writes every request URL at INFO, and Graph API and Bot API URLs carry
 # the access token or the bot token in them.
@@ -41,6 +46,7 @@ celery_app.conf.update(
         Queue("upload", routing_key="upload"),
         Queue("refresh", routing_key="refresh"),
         Queue("sync", routing_key="sync"),
+        Queue(FIGURES_QUEUE, routing_key=FIGURES_QUEUE),
         Queue("broadcast", routing_key="broadcast"),
         Queue(GOOGLE_QUEUE, routing_key=GOOGLE_QUEUE),
         Queue(GOOGLE_SYNC_QUEUE, routing_key=GOOGLE_SYNC_QUEUE),
@@ -122,12 +128,31 @@ def _stamp(headers: dict[str, Any] | None = None, **_: Any) -> None:
         stamp_enqueued(headers, now=time.time())
 
 
+def _enter_background(task: Task) -> None:
+    """A sweep's read waits when Meta's app budget is nearly gone; a press does not."""
+    from metaads import gate
+
+    from app.common.meta_gate import is_background
+
+    delivery = task.request.delivery_info or {}
+    queue = str(delivery.get("routing_key") or "")
+    if is_background(task=str(task.name), queue=queue):
+        gate.enter_background()
+
+
+def _leave_background(task: Task) -> None:
+    from metaads import gate
+
+    gate.leave_background()
+
+
 @task_prerun.connect
 def _started(task: Task | None = None, **_: Any) -> None:
     from app.common.task_timing import STARTED_ATTR
 
     if task is not None and not task.request.is_eager:
         setattr(task.request, STARTED_ATTR, time.time())
+        _enter_background(task)
 
 
 @task_postrun.connect
@@ -136,6 +161,7 @@ def _finished(task: Task | None = None, state: str | None = None, **_: Any) -> N
 
     if task is None:
         return
+    _leave_background(task)
     request = task.request
     started = getattr(request, STARTED_ATTR, None)
     if started is None:

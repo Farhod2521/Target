@@ -23,7 +23,7 @@ from typing import Any, Final, Self
 
 import httpx
 
-from metaads import tracing
+from metaads import gate, tracing
 from metaads.errors import (
     AUTH_CODES,
     RATE_LIMIT_CODES,
@@ -335,6 +335,16 @@ class GraphClient:
         # that answer - see ``_brake_on``.
         self._brake.check()
 
+        # And the one any process saw on the app's budget, which only a
+        # background read meets - see ``metaads.gate``.
+        if method == "GET":
+            held = gate.blocked()
+            if held is not None:
+                raise RateLimitApproaching(
+                    f"Meta app usage was at {held:.0f} percent; background reads wait",
+                    percent=held,
+                )
+
         started = time.perf_counter()
         try:
             response = self._client.request(
@@ -502,6 +512,9 @@ class GraphClient:
         every page before it. So the answer goes back to the caller and the
         stop lands on the next call this conversation makes.
         """
+        app_wide = _app_wide_usage(response)
+        if app_wide >= USAGE_STOP_PERCENT:
+            gate.note(app_wide)
         try:
             self._check_usage(response)
         except RateLimitApproaching as stop:
@@ -575,6 +588,16 @@ def _worst_app_usage(raw: str | None) -> float:
     if not isinstance(usage, dict):
         return 0.0
     return max((_number(usage.get(name)) for name in USAGE_FIGURES), default=0.0)
+
+
+def _app_wide_usage(response: httpx.Response) -> float:
+    """The worst figure that is the whole deployment's, not one account's:
+    the app header, and the app's share of the insights capacity."""
+    insights = _parsed(response.headers.get(INSIGHTS_USAGE_HEADER))
+    share = (
+        _number(insights.get("app_id_util_pct")) if isinstance(insights, dict) else 0.0
+    )
+    return max(_worst_app_usage(response.headers.get(APP_USAGE_HEADER)), share)
 
 
 def _worst_insights_usage(raw: str | None) -> float:

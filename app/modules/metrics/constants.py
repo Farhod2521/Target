@@ -106,7 +106,13 @@ PEOPLE_LEVELS: Final[tuple[MetricLevel, ...]] = (
 # campaigns can show, as people do not add up across campaigns.
 ACCOUNT_PEOPLE: Final = "account"
 PEOPLE_ROLLING_DAYS: Final[tuple[int, ...]] = (14, 28)
-PEOPLE_REFRESH_SECONDS: Final = 25 * 60
+# How old the people counts may grow before the half-hourly read asks again.
+# Measured on production, 2026-11-12: at 25 minutes every sweep asked (it
+# comes round every 30), eight requests beside the three for the day's
+# figures, and that read alone held half of the sync slots. A person who
+# opens the screen or presses refresh still gets them at once - see
+# ``PEOPLE_ASKED_SECONDS`` - and the night's read always takes them.
+PEOPLE_REFRESH_SECONDS: Final = 3 * 60 * 60
 PEOPLE_ASKED_SECONDS: Final = 2 * 60
 DEFAULT_PERIOD: Final = Period.THIRTY
 

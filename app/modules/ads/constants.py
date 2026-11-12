@@ -46,6 +46,10 @@ SYNC_QUEUED: Final = "queued"
 SYNC_TRUNCATED = "truncated"
 SYNC_RATE_LIMITED = "rate_limited"
 SYNC_STALE_MINUTES = 180
+# A half-hourly read still queued when the next sweep is about to queue it
+# again is dropped unrun: behind a slow queue the same account's reads
+# piled up, and each ran in turn long after it was of any use.
+SWEEP_EXPIRES_SECONDS: Final = 25 * 60
 AUTO_SYNC_COOLING_MINUTES = 15
 PRESS_WINDOW_SECONDS = 60
 REFRESH_QUEUE: Final = "refresh"

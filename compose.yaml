@@ -53,9 +53,20 @@ services:
     ports:
       - "127.0.0.1:8100:8000"
 
+  # The mirror, the library, uploads and what a person pressed refresh for.
+  # Three slots, and the figures on a worker of their own below: measured on
+  # production, 2026-11-12, two slots for all of it were 87 percent busy and
+  # a task waited ten minutes on average. The work is waiting on Meta, not
+  # this machine's processors.
   worker:
     <<: *app
-    command: celery -A app.worker worker -Q sync,upload,refresh --concurrency 2 --loglevel INFO
+    command: celery -A app.worker worker -Q sync,upload,refresh --concurrency 3 --loglevel INFO
+
+  # Meta's figures - today's every half hour, the night's read - apart from
+  # the mirror, so neither waits behind the other.
+  worker-figures:
+    <<: *app
+    command: celery -A app.worker worker -Q figures --concurrency 3 --hostname figures@%h --loglevel INFO
 
   # The bots' updates and the assistant's answers there, on slots of their
   # own: a press has ten seconds before its button gives up, and on the

@@ -3,6 +3,14 @@
 Semantik versiyalash. Meta API versiyasi (`v26.0`) paket versiyasidan
 alohida — u `client.py` dagi konstantada.
 
+## Chiqarilmagan — 2026-11-12
+
+### Qo'shildi
+- `metaads.gate`: ilova limiti (`X-App-Usage`, insights `app_id_util_pct`)
+  80 foizga yetganini hamma jarayon ko'radigan umumiy to'xtash. Faqat fon
+  o'qishlari (`gate.background()`) kutadi; yozish va foydalanuvchi so'ragan
+  o'qish to'xtatilmaydi. `gate.install()` chaqirilmasa hech narsa o'zgarmaydi.
+
 ## 0.47.0 — 2026-11-02
 
 ### Qo'shildi
