@@ -203,6 +203,22 @@ def redemption_out(redemption: PromoRedemption | None) -> dict[str, Any] | None:
     }
 
 
+def sales_offer_out(sales: Any, *, now: datetime) -> dict[str, Any] | None:
+    """The Sales discount as the cabinet reads it, with the server's clock."""
+    if sales is None:
+        return None
+    return {
+        "percent": sales.percent,
+        "ends_at": sales.ends_at,
+        "pay_until": sales.pay_until,
+        "started_at": sales.started_at,
+        "source": sales.source,
+        "next_percent": sales.next_percent,
+        "next_ends_at": sales.next_ends_at,
+        "server_time": now,
+    }
+
+
 def priced_choice(
     db: Session,
     *,
@@ -269,18 +285,7 @@ def priced_choice(
     page: dict[str, Any] = {
         "cards": cards,
         "promo_typed": promo,
-        "sales_offer": {
-            "percent": sales.percent,
-            "ends_at": sales.ends_at,
-            "pay_until": sales.pay_until,
-            "started_at": sales.started_at,
-            "source": sales.source,
-            "next_percent": sales.next_percent,
-            "next_ends_at": sales.next_ends_at,
-            "server_time": now,
-        }
-        if sales is not None
-        else None,
+        "sales_offer": sales_offer_out(sales, now=now),
     }
     offer = offers.get(asked)
     if offer is None or offer.switch.move == PlanMove.WAIT:
@@ -412,8 +417,11 @@ def subscription_status(
         "shown again for the same day.",
     ),
 ) -> dict[str, Any]:
+    from app.modules.boards.offer import live_offer
+
+    now = utcnow()
     live = selectors.live_subscription(db, owner=user)
-    left = selectors.days_left(subscription=live, now=utcnow())
+    left = selectors.days_left(subscription=live, now=now)
     never = live is None and not selectors.has_ever_subscribed(db, owner=user)
     lapse_until = ""
     if live is None and not never:
@@ -433,6 +441,10 @@ def subscription_status(
         and left <= max(EXPIRY_REMINDER_DAYS)
         and seen_days != left,
         "lapse_until": lapse_until,
+        # The band over the cabinet reads it here: this is asked on every page.
+        "sales_offer": sales_offer_out(
+            live_offer(db, owner_id=user.id, now=now), now=now
+        ),
     }
 
 

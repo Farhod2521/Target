@@ -228,6 +228,11 @@ class StatusOut(BaseModel):
     days_left: int | None
     ending_soon: bool = Field(description="Show the renewal reminder.")
     lapse_until: str = Field(description="When paused adverts will be deleted.")
+    sales_offer: SalesOfferOut | None = Field(
+        None,
+        description="The client's Sales discount now (20%, then 10%), or null. "
+        "The cabinet shows it as a band over every page.",
+    )
 
 
 class TermOut(BaseModel):

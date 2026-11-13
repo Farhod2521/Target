@@ -376,6 +376,24 @@ def _start(db: Session, *, code: str = "start", one_time: bool = True) -> Plan:
     return plan
 
 
+def test_the_status_carries_the_discount_for_the_cabinet_band(
+    client: TestClient, db: Session
+) -> None:
+    _given, ali = _offered(client, db, "band@shop.test")
+    owner = db.get(User, ali["owner"])
+    assert owner is not None
+    status = client.get("/api/v1/billing/status", headers=_auth(owner)).json()
+    offer = status["sales_offer"]
+    assert offer["percent"] == 20 and offer["next_percent"] == 10
+    assert offer["source"] == "contact" and offer["server_time"]
+
+    # A client nobody has talked to and who has not paid Start has none.
+    other = _client(db, "plain@shop.test")
+    db.commit()
+    plain = client.get("/api/v1/billing/status", headers=_auth(other)).json()
+    assert plain["sales_offer"] is None
+
+
 def test_start_is_never_discounted(client: TestClient, db: Session) -> None:
     _given, ali = _offered(client, db, "start@shop.test")
     owner = db.get(User, ali["owner"])
