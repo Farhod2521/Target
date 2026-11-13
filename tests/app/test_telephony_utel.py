@@ -99,6 +99,42 @@ def test_the_numbers_are_read_with_the_key(monkeypatch: pytest.MonkeyPatch) -> N
     assert asked[0]["url"].endswith("/ats/ps-user")
 
 
+def test_the_numbers_are_read_as_the_real_exchange_pages_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asked: list[dict[str, Any]] = []
+
+    def request(method: str, url: str, **options: Any) -> httpx.Response:
+        asked.append(options)
+        page = (options.get("params") or {}).get("page", 1)
+        number = str(99 + page)
+        return httpx.Response(
+            200,
+            json={
+                "data": [{"id": page, "title": "Op", "username": number}],
+                "meta": {"current_page": page, "last_page": 2},
+            },
+        )
+
+    monkeypatch.setattr(httpx, "request", request)
+
+    found = utel.extensions("utc380", token="k")
+
+    assert [row.number for row in found] == ["100", "101"]
+    assert [call["params"] for call in asked] == [None, {"page": 2}]
+
+
+def test_the_numbers_come_whole_when_there_is_one_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asked = _answers(
+        monkeypatch, 200, {"data": [{"id": 100, "title": "Op", "username": "100"}]}
+    )
+
+    assert [row.number for row in utel.extensions("utc380", token="k")] == ["100"]
+    assert len(asked) == 1
+
+
 def test_a_hook_row_has_every_event_on() -> None:
     row = utel.hook_row("https://biz.uz/webhooks/utel/k")
     assert row == {"url": "https://biz.uz/webhooks/utel/k"} | dict.fromkeys(

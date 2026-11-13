@@ -2,7 +2,7 @@
 the internal numbers, and the list of addresses it sends events to.
 
 Answers come as ``{"status", "code", "result", "message"}``; the call
-history alone is paged, as ``{"data", "links", "meta"}``.
+history and the internal numbers are paged, as ``{"data", "links", "meta"}``.
 """
 
 import logging
@@ -118,12 +118,37 @@ def login(tenant: str, *, email: str, password: str) -> str:
     return token
 
 
+EXTENSION_PAGES_MAX: Final = 20
+
+
+def _extension_rows(tenant: str, *, token: str) -> list[Any]:
+    """The real exchange answers this one as the paged ``{"data", "meta"}``
+    and not in the ``result`` envelope its guide shows; both are read."""
+    rows: list[Any] = []
+    for page in range(1, EXTENSION_PAGES_MAX + 1):
+        found = _send(
+            "GET",
+            tenant,
+            "/ats/ps-user",
+            token=token,
+            params={"page": page} if page > 1 else None,
+        )
+        listed = found.get("result")
+        if not isinstance(listed, list):
+            listed = found.get("data")
+        if not isinstance(listed, list):
+            raise Unreachable
+        rows += listed
+        meta = found.get("meta")
+        last = meta.get("last_page") if isinstance(meta, dict) else None
+        if not isinstance(last, int) or page >= last or not listed:
+            break
+    return rows
+
+
 def extensions(tenant: str, *, token: str) -> list[Extension]:
-    result = _call("GET", tenant, "/ats/ps-user", token=token)
-    if not isinstance(result, list):
-        raise Unreachable
     found = []
-    for row in result:
+    for row in _extension_rows(tenant, token=token):
         if not isinstance(row, dict):
             continue
         number = str(row.get("username") or "").strip()
