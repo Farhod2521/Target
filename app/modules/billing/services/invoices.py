@@ -109,6 +109,7 @@ from app.modules.billing.services.entitlement import (
     run_plan_pages,
     run_plan_seats,
 )
+from app.modules.billing.services.providers import provider_for
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,11 @@ def checkout_for(
 ) -> Checkout:
     if invoice.status not in PAYABLE_INVOICE_STATUSES or invoice.expires_at <= now:
         raise InvoiceNotPayable
+    owner = invoice.owner
+    routed = provider_for(provider=provider, email=owner.email if owner else None)
+    if routed is None:
+        raise PaymentUnavailable
+    provider = routed
     try:
         adapter = registry.get(provider)
     except ProviderNotRegistered as exc:

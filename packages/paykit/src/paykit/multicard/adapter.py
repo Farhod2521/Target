@@ -105,6 +105,7 @@ class MulticardAdapter:
         ofd_vat: int | None = None,
         ofd_tin: str = "",
         allowed_ips: Iterable[str] = (),
+        name: ProviderName = PROVIDER,
     ) -> None:
         if not store_id or not secret or not callback_url:
             raise ProviderMisconfigured(
@@ -114,6 +115,9 @@ class MulticardAdapter:
             raise ProviderMisconfigured(
                 "multicard needs an IKPU (mxik) and a package code for the receipt"
             )
+        # A second shop (Multicard's sandbox) answers under its own name, so
+        # its payments are never mistaken for the live shop's.
+        self._name = name
         self._client = client
         self._store_id = str(store_id)
         self._secret = secret
@@ -130,7 +134,7 @@ class MulticardAdapter:
 
     @property
     def name(self) -> ProviderName:
-        return PROVIDER
+        return self._name
 
     def checkout(self, *, request: CheckoutRequest) -> Checkout:
         """An invoice at Multicard, and the page its payer is sent to."""
@@ -160,7 +164,7 @@ class MulticardAdapter:
         if not url:
             raise ProviderUnavailable("multicard created an invoice without a page")
         return Checkout(
-            provider=PROVIDER,
+            provider=self._name,
             kind=REDIRECT,
             url=url,
             reference=str(data.get("uuid", "")),
@@ -337,7 +341,7 @@ class MulticardAdapter:
         else:
             command = STATUS
         return CallbackRequest(
-            provider=PROVIDER,
+            provider=self._name,
             command=command,
             correlation="webhook" if "status" in body else "callback",
             number=InvoiceNumber(number),

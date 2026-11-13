@@ -251,6 +251,15 @@ class Env(BaseSettings):
         default="https://mesh.multicard.uz", alias="MULTICARD_API_URL"
     )
     multicard_callback_url: str = Field(default="", alias="MULTICARD_CALLBACK_URL")
+    # Multicard's sandbox, a second shop only the test accounts are sent to.
+    multicard_test_application_id: str = Field(
+        default="", alias="MULTICARD_TEST_APPLICATION_ID"
+    )
+    multicard_test_secret: str = Field(default="", alias="MULTICARD_TEST_SECRET")
+    multicard_test_store_id: str = Field(default="", alias="MULTICARD_TEST_STORE_ID")
+    multicard_test_api_url: str = Field(
+        default="https://dev-mesh.multicard.uz", alias="MULTICARD_TEST_API_URL"
+    )
     multicard_ofd_mxik: str = Field(default="", alias="MULTICARD_OFD_MXIK")
     multicard_ofd_package_code: str = Field(
         default="", alias="MULTICARD_OFD_PACKAGE_CODE"

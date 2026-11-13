@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.common.money import decimal_places, to_minor
 from app.modules.accounts.models import User
 from app.modules.billing.constants import (
+    HIDDEN_PROVIDERS,
     LIVE_SUBSCRIPTION_STATUSES,
     InvoiceKind,
     InvoiceStatus,
@@ -103,18 +104,23 @@ class PaymentChoice:
 PROVIDER_LABELS: dict[str, str] = {
     "multicard": "Rahmat (Uzcard, Humo, Visa)",
     "payme": "Payme (Uzcard, Humo)",
+    "multicard_test": "Rahmat (test)",
 }
+
+
+def offered_providers() -> list[str]:
+    return [name for name in registry.available() if name not in HIDDEN_PROVIDERS]
 
 
 def payment_providers() -> list[dict[str, str]]:
     return [
         {"name": name, "label": PROVIDER_LABELS.get(name, name.title())}
-        for name in registry.available()
+        for name in offered_providers()
     ]
 
 
 def payments_configured() -> bool:
-    return bool(registry.available())
+    return bool(offered_providers())
 
 
 @dataclass(frozen=True, slots=True)
