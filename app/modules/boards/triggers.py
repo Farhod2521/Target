@@ -21,6 +21,7 @@ from app.modules.billing.constants import (
     SubscriptionStatus,
 )
 from app.modules.billing.models import Invoice, Subscription
+from app.modules.boards import confirm
 from app.modules.boards.constants import (
     BILL_FROM_COLUMNS,
     CAMPAIGN_FRESH_HOURS,
@@ -28,8 +29,10 @@ from app.modules.boards.constants import (
     NO_SPEND_HOURS,
     NO_SPEND_LOOKBACK_DAYS,
     NOT_META_ERRORS,
+    NOTE_MAX,
     OFFER_COLUMNS,
     OFFER_STEPS,
+    SALES_NOTES_CARRIED,
     SETUP_GRACE_MINUTES,
     SURVEY_LOOKBACK_HOURS,
     SWEEP_BATCH,
@@ -58,7 +61,13 @@ def open_leads(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     since = live_since(db, board=Board.SALES)
     if since is None:
         return 0
-    paid = exists().where(Invoice.owner_id == User.id, Invoice.status.in_(_PAID_BEFORE))
+    # A plan paid for, as «Sotildi» and a lead added by hand read it: a
+    # wallet top-up or a seat alone leaves the sign-up a lead.
+    paid = exists().where(
+        Invoice.owner_id == User.id,
+        Invoice.kind == str(InvoiceKind.PLAN),
+        Invoice.status.in_(_PAID_BEFORE),
+    )
     running = exists().where(
         Subscription.owner_id == User.id,
         Subscription.status == str(SubscriptionStatus.ACTIVE),
@@ -148,6 +157,54 @@ def mark_sold(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             to=str(SalesColumn.SOLD),
             kind=EventKind.SOLD,
             now=now,
+            ref="sold",
+        )
+    db.commit()
+    return len(rows) + _mark_given(db, now=now, limit=limit)
+
+
+def _mark_given(db: Session, *, now: datetime, limit: int) -> int:
+    """A lead the office gave a plan to, with no bill paid: a client now,
+    so the card leaves the managers' columns for Sotildi too, and its line
+    says the plan was given. Once, like a payment."""
+    sold_before = exists().where(
+        BoardCardEvent.card_id == BoardCard.id, BoardCardEvent.ref == "sold"
+    )
+    given = (
+        select(Subscription.owner_id, func.min(Subscription.started_at).label("at"))
+        .where(
+            Subscription.status == str(SubscriptionStatus.ACTIVE),
+            Subscription.activated_by_id.is_not(None),
+        )
+        .group_by(Subscription.owner_id)
+        .subquery()
+    )
+    rows = list(
+        db.execute(
+            select(BoardCard, given.c.at)
+            .join(given, given.c.owner_id == BoardCard.owner_id)
+            .where(
+                BoardCard.board == str(Board.SALES),
+                BoardCard.column_code != str(SalesColumn.SOLD),
+                ~sold_before,
+            )
+            .order_by(BoardCard.opened_at)
+            .limit(limit)
+            .with_for_update(of=BoardCard, skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+    )
+    for card, at in rows:
+        card.closed_at = at or now
+        card.close_reason = ""
+        card.due_at = None
+        move(
+            db,
+            card=card,
+            to=str(SalesColumn.SOLD),
+            kind=EventKind.SOLD,
+            now=now,
+            body="Tarif ofisdan berildi, to'lovsiz.",
             ref="sold",
         )
     db.commit()
@@ -357,6 +414,50 @@ def setup_late(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         if owner_id is not None
     )
     db.commit()
+    return written + _setup_late_given(db, since=since, now=now, limit=limit)
+
+
+def _setup_late_given(
+    db: Session, *, since: datetime, now: datetime, limit: int
+) -> int:
+    """The same hour for a plan the office gave: no bill names it, so the
+    subscription itself is the fact."""
+    billed = exists().where(
+        Invoice.owner_id == Subscription.owner_id,
+        Invoice.status == str(InvoiceStatus.PAID),
+        Invoice.kind == str(InvoiceKind.PLAN),
+        Invoice.paid_at >= since,
+    )
+    rows = list(
+        db.execute(
+            select(Subscription.id, Subscription.owner_id)
+            .where(
+                Subscription.status == str(SubscriptionStatus.ACTIVE),
+                Subscription.activated_by_id.is_not(None),
+                Subscription.setup_completed_at.is_(None),
+                Subscription.started_at >= since,
+                Subscription.started_at <= now - timedelta(minutes=SETUP_GRACE_MINUTES),
+                ~billed,
+                ~_has_ref(
+                    Subscription.owner_id, func.concat("setup:given:", Subscription.id)
+                ),
+            )
+            .order_by(Subscription.started_at)
+            .limit(limit)
+        )
+    )
+    written = sum(
+        raise_ticket(
+            db,
+            owner_id=owner_id,
+            reason=TicketReason.SETUP,
+            ref=f"setup:given:{subscription_id}",
+            now=now,
+            detail="Tarif ofisdan berilganiga 1 soat o'tdi, sozlash tugamagan.",
+        )
+        for subscription_id, owner_id in rows
+    )
+    db.commit()
     return written
 
 
@@ -367,7 +468,7 @@ def from_sales(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         return 0
     rows = list(
         db.execute(
-            select(BoardCard.id, BoardCard.owner_id)
+            select(BoardCard.id, BoardCard.owner_id, BoardCard.manager_id)
             .where(
                 BoardCard.board == str(Board.SALES),
                 BoardCard.column_code == str(SalesColumn.SOLD),
@@ -384,12 +485,44 @@ def from_sales(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             reason=TicketReason.FROM_SALES,
             ref=f"sales:{card_id}",
             now=now,
-            detail="Sotuv menejeri: mijoz yordam so'radi va to'ladi.",
+            detail=_sales_words(db, card_id=card_id, manager_id=manager_id),
         )
-        for card_id, owner_id in rows
+        for card_id, owner_id, manager_id in rows
     )
     db.commit()
     return written
+
+
+def _sales_words(
+    db: Session, *, card_id: uuid.UUID, manager_id: uuid.UUID | None
+) -> str:
+    """What Support reads on a ticket from Sales: who sold, and what they
+    wrote on the lead. Support cannot open the Sales card itself."""
+    manager = db.get(User, manager_id) if manager_id else None
+    who = (manager.full_name or manager.email) if manager else ""
+    head = (
+        f"Sotuv menejeri {who}: mijoz yordam so'radi va to'ladi."
+        if who
+        else "Sotuv menejeri: mijoz yordam so'radi va to'ladi."
+    )
+    notes = list(
+        db.scalars(
+            select(BoardCardEvent.body)
+            .where(
+                BoardCardEvent.card_id == card_id,
+                BoardCardEvent.kind.in_(
+                    [str(EventKind.NOTE), str(EventKind.SUPPORT_ON)]
+                ),
+                BoardCardEvent.body != "",
+            )
+            .order_by(BoardCardEvent.created_at.desc(), BoardCardEvent.id)
+            .limit(SALES_NOTES_CARRIED)
+        )
+    )
+    if not notes:
+        return head
+    lines = "\n".join(f"- {note}" for note in reversed(notes))
+    return f"{head}\nMenejer izohlari:\n{lines}"[:NOTE_MAX]
 
 
 def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
@@ -487,7 +620,40 @@ def sweep_support(db: Session, *, now: datetime) -> int:
         + meta_errors(db, now=now)
         + survey_help(db, now=now)
         + client_replied(db, now=now)
+        + wait_over(db, now=now)
+        + confirm.close_unanswered(db, now=now)
+        + confirm.ask_clients(db, now=now)
     )
+
+
+def wait_over(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """«Mijoz kutilmoqda» with its time up: the ticket is back in
+    Ishlanmoqda with its person, whatever they hold already."""
+    cards = list(
+        db.scalars(
+            select(BoardCard)
+            .where(
+                BoardCard.board == str(Board.SUPPORT),
+                BoardCard.column_code == str(SupportColumn.WAITING),
+                BoardCard.due_at <= now,
+            )
+            .order_by(BoardCard.due_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+    )
+    for card in cards:
+        card.due_at = None
+        move(
+            db,
+            card=card,
+            to=str(SupportColumn.IN_PROGRESS),
+            kind=EventKind.WAIT_OVER,
+            now=now,
+        )
+    db.commit()
+    return len(cards)
 
 
 def client_replied(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:

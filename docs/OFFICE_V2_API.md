@@ -1,5 +1,7 @@
 # Ofis v2: Sotuv va Support kanbanlari
 
+> **2026-11-13:** Support doskasining qoidalari o'zgardi (faqat o'z zayavkalari, «Zayavka olish», yangi ustunlar, mijoz tasdig'i). Support bo'yicha amaldagi hujjat: [SUPPORT_KANBAN_YANGI_QOIDALAR.md](SUPPORT_KANBAN_YANGI_QOIDALAR.md).
+
 Ofisdagi Sotuv bo'limining yangi versiyasi. Ikkita alohida kanban bor:
 **Sotuv** (`sales`) va **Support** (`support`). Hamma yo'llar `/api/v2/office/...`
 da. v1 (`/api/v1/office/sales/...`) o'zgarmagan va v2 ga aralashmaydi.

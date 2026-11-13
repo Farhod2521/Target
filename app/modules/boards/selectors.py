@@ -92,7 +92,7 @@ def columns_for(db: Session, *, board: Board, access: Access) -> list[ColumnView
             is_final=row.is_final,
         )
         for row in rows
-        if lead or row.code not in LEAD_ONLY_COLUMNS
+        if lead or (board, row.code) not in LEAD_ONLY_COLUMNS
     ]
 
 

@@ -45,7 +45,10 @@ def test_the_superuser_renames_and_reorders_columns(
                 {"code": "in_progress", "name": "  Jarayonda "},
                 {"code": "new", "name": "Kelgan"},
                 {"code": "waiting", "name": "Kutilmoqda"},
+                {"code": "developer", "name": "Dasturchida"},
+                {"code": "confirming", "name": "Tasdiq"},
                 {"code": "resolved", "name": "Tayyor"},
+                {"code": "closed", "name": "Yopiq"},
             ]
         },
         headers=boss,
@@ -55,7 +58,10 @@ def test_the_superuser_renames_and_reorders_columns(
         ("in_progress", "Jarayonda"),
         ("new", "Kelgan"),
         ("waiting", "Kutilmoqda"),
+        ("developer", "Dasturchida"),
+        ("confirming", "Tasdiq"),
         ("resolved", "Tayyor"),
+        ("closed", "Yopiq"),
     ]
 
     missing = client.patch(

@@ -109,12 +109,26 @@ def handle_update(db: Session, *, payload: dict[str, Any], now: datetime) -> str
         if isinstance(update, ChatMembership):
             return handle_membership(db, client=client, change=update, now=now)
         if isinstance(update, ButtonPress):
+            # Imported here: the boards read this package's bots and chats.
+            from app.modules.boards import confirm as ticket_confirm
+
             if is_lead_chat_press(update.data):
                 return handle_lead_chat_press(db, client=client, press=update, now=now)
             if is_daily_press(update.data):
                 return handle_daily_press(db, client=client, press=update, now=now)
             if is_survey_press(update.data):
                 return handle_survey_press(db, client=client, press=update, now=now)
+            if ticket_confirm.is_ticket_press(update.data):
+                return ticket_confirm.handle_ticket_press(
+                    db,
+                    client=client,
+                    press=update,
+                    owner_id=known.owner_id
+                    if known is not None and known.is_active
+                    else None,
+                    via=ticket_confirm.VIA_MAIN_BOT,
+                    now=now,
+                )
             if is_frequency_press(update.data):
                 return handle_frequency_press(db, client=client, press=update, now=now)
             if is_price_press(update.data):

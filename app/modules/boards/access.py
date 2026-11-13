@@ -1,5 +1,6 @@
-"""Who sees which board. Sales people see Sales, Support sees Support; the
-superuser and the Owner role see both and may change them."""
+"""Who sees which board. Sales people see Sales, Support sees Support, each
+their own cards; the superuser and the Owner role see both boards whole and
+may change them."""
 
 from dataclasses import dataclass
 from typing import Annotated
@@ -65,6 +66,15 @@ def may_take(db: Session, user: User) -> bool:
     if access_for(db, user).full:
         return True
     return works_on(db, user, Board.SALES)
+
+
+def may_take_ticket(db: Session, user: User) -> bool:
+    """«Zayavka olish»: the Support team, the superuser and the Owner."""
+    if not user.is_active or not user.is_staff:
+        return False
+    if access_for(db, user).full:
+        return True
+    return works_on(db, user, Board.SUPPORT)
 
 
 Staff = Annotated[User, Depends(staff_required(*Role))]

@@ -24,6 +24,7 @@ class BoardOut(BaseModel):
 
 class CanOut(BaseModel):
     take: bool = Field(description="Has the «Lid olish» button.")
+    take_ticket: bool = Field(description="Has the «Zayavka olish» button.")
     assign: bool = Field(description="Gives a card to somebody else.")
     move: bool = Field(description="Moves a card to any column.")
     add_lead: bool = Field(description="Puts a client on the Sales board by hand.")
@@ -125,8 +126,19 @@ class DueCountsOut(BaseModel):
     today: int = Field(description="Due on the office's day today, passed or not.")
 
 
+class TakeOut(BaseModel):
+    queue: int = Field(description="Tickets in Yangi with nobody on them.")
+    working: int = Field(description="The reader's tickets in Ishlanmoqda.")
+    limit: int = Field(
+        description="«Zayavka olish» is refused once `working` reaches this."
+    )
+
+
 class BoardViewOut(BaseModel):
     board: str
+    take: TakeOut | None = Field(
+        None, description="Support only: what «Zayavka olish» shows."
+    )
     due: DueCountsOut = Field(
         description="Deadlines on the board under the same search and filters, "
         "whatever the `due` filter."
@@ -249,7 +261,9 @@ class CardAddIn(BaseModel):
         "", max_length=2000, description="Support: required, why the ticket is opened."
     )
     staff_id: str | None = Field(
-        None, description="Sales only: the manager to give the lead to at once."
+        None,
+        description="The manager to give the lead to at once; on Support, the "
+        "member the ticket goes to. Only who gives cards out may send it.",
     )
 
 
@@ -354,4 +368,29 @@ class StaffAddIn(BaseModel):
 class StaffRolesIn(BaseModel):
     roles: list[str] = Field(
         max_length=6, description="The whole set; what is left out is taken away."
+    )
+
+
+class TicketQuestionOut(BaseModel):
+    asked_at: datetime = Field(description="When Support called the ticket solved.")
+    expires_at: datetime = Field(
+        description="Unanswered by then, the ticket is closed on its own."
+    )
+
+
+class TicketQuestionStateOut(BaseModel):
+    question: TicketQuestionOut | None = Field(
+        description="«Muammoyingiz hal bo'ldimi?» waits for the client; null: "
+        "nothing to ask."
+    )
+
+
+class TicketAnswerIn(BaseModel):
+    solved: bool = Field(description="true: «Ha»; false: «Yo'q», reopen it.")
+
+
+class TicketAnswerOut(BaseModel):
+    result: str = Field(
+        description="`solved`, `reopened`, or `stale`: the question was "
+        "answered already or is no longer asked."
     )

@@ -10,7 +10,13 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
-from app.modules.boards.constants import Board, EventKind, SupportColumn, TicketReason
+from app.modules.boards.constants import (
+    SUPPORT_DONE_COLUMNS,
+    Board,
+    EventKind,
+    SupportColumn,
+    TicketReason,
+)
 from app.modules.boards.models import BoardCard, BoardCardEvent
 from app.modules.boards.services import move, record
 
@@ -80,8 +86,9 @@ def raise_ticket(
     ):
         return False
     card.reasons = [*card.reasons, item]
-    if card.column_code == SupportColumn.RESOLVED:
+    if card.column_code in SUPPORT_DONE_COLUMNS:
         card.closed_at = None
+        card.due_at = None
         to = SupportColumn.IN_PROGRESS if card.manager_id else SupportColumn.NEW
         move(
             db,

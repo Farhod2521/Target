@@ -1,5 +1,7 @@
 # Ofis kanbani: muddat, yangi ustunlar, qo'lda karta — frontend ishlari
 
+> **2026-11-13:** Support doskasining qoidalari o'zgardi (faqat o'z zayavkalari, «Zayavka olish», yangi ustunlar, mijoz tasdig'i). Support bo'yicha amaldagi hujjat: [SUPPORT_KANBAN_YANGI_QOIDALAR.md](SUPPORT_KANBAN_YANGI_QOIDALAR.md).
+
 Backend: `feat/boards-deadline` shoxi, migratsiya `0045`. Avval backend deploy qilinadi.
 To'liq API: `docs/OFFICE_V2_API.md`. Bu yerda faqat **nima o'zgardi va frontda nima qilinadi**.
 

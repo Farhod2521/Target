@@ -136,8 +136,7 @@ def handle_support_update(
         return "ignored"
     with support_bot() as client:
         if isinstance(update_, ButtonPress):
-            answer(client=client, query_id=update_.query_id, text="Tushunarsiz tugma.")
-            return "press"
+            return _press(db, client=client, press=update_, now=now)
         if isinstance(update_, Command):
             return _command(db, client=client, command=update_, now=now)
         if update_.chat_type != PRIVATE_CHAT:
@@ -165,6 +164,30 @@ def handle_support_update(
         if media is not None:
             return _media(db, client=client, row=row, media=media, now=now)
         return _unknown(client=client, message=update_)
+
+
+def _press(db: Session, *, client: BotClient, press: ButtonPress, now: datetime) -> str:
+    """The only buttons this bot sends: «Ha» / «Yo'q» under «Muammoyingiz
+    hal bo'ldimi?»."""
+    from app.modules.boards import confirm
+
+    if not confirm.is_ticket_press(press.data):
+        answer(client=client, query_id=press.query_id, text="Tushunarsiz tugma.")
+        return "press"
+    owner_id = db.scalar(
+        select(SupportBotChat.owner_id).where(
+            SupportBotChat.chat_id == press.chat_id,
+            SupportBotChat.is_active.is_(True),
+        )
+    )
+    return confirm.handle_ticket_press(
+        db,
+        client=client,
+        press=press,
+        owner_id=owner_id,
+        via=confirm.VIA_SUPPORT_BOT,
+        now=now,
+    )
 
 
 def _command(db: Session, *, client: BotClient, command: Command, now: datetime) -> str:

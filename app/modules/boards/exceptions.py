@@ -130,3 +130,20 @@ class CardExists(DomainError):
 
     def __init__(self) -> None:
         super().__init__("Bu mijozning kartasi allaqachon bor.")
+
+
+class NoTicketToTake(DomainError):
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__("Hozir navbatda yangi zayavka yo'q.")
+
+
+class TakeLimit(DomainError):
+    status_code = 409
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(
+            f"Sizda {limit} ta zayavka ishlanmoqda. Yangisini olish uchun "
+            "avval birini yakunlang."
+        )

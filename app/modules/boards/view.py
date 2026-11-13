@@ -31,6 +31,7 @@ from app.modules.boards.constants import (
     SUPPORT_ACTION_LABELS,
     SUPPORT_ACTIONS,
     TICKET_REASON_LABELS,
+    TICKET_TAKE_LIMIT,
     Board,
     CloseReason,
     DueFilter,
@@ -92,7 +93,8 @@ def _scoped(
     with_due: bool = True,
 ) -> Select[Any]:
     query = query.where(BoardCard.board == str(board))
-    if board == Board.SALES and not access.leads_board(board):
+    # Only a board's lead reads other people's cards.
+    if not access.leads_board(board):
         query = query.where(BoardCard.manager_id == user.id)
     if filters.mine:
         query = query.where(BoardCard.manager_id == user.id)
@@ -307,11 +309,33 @@ def board_view(
 
     return {
         "board": str(board),
+        "take": _take(db, user=user) if board == Board.SUPPORT else None,
         "due": {
             "overdue": counted(DueFilter.OVERDUE),
             "today": counted(DueFilter.TODAY),
         },
         "columns": out,
+    }
+
+
+def _take(db: Session, *, user: User) -> dict[str, int]:
+    """What «Zayavka olish» shows: how many tickets wait for somebody, how
+    many this person has in Ishlanmoqda, and the most they may."""
+    from app.modules.boards.services import working_count
+
+    queue = db.scalar(
+        select(func.count())
+        .select_from(BoardCard)
+        .where(
+            BoardCard.board == str(Board.SUPPORT),
+            BoardCard.column_code == str(SupportColumn.NEW),
+            BoardCard.manager_id.is_(None),
+        )
+    )
+    return {
+        "queue": int(queue or 0),
+        "working": working_count(db, user_id=user.id),
+        "limit": TICKET_TAKE_LIMIT,
     }
 
 

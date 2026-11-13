@@ -55,10 +55,11 @@ def test_finance_and_engineers_have_no_board() -> None:
 
 
 def test_the_lead_only_columns_are_sales_columns() -> None:
-    sales = {seed.code for seed in SEED_COLUMNS if seed.board == Board.SALES}
+    seeded = {(seed.board, seed.code) for seed in SEED_COLUMNS}
 
-    assert sales >= LEAD_ONLY_COLUMNS
-    assert str(SalesColumn.UNWORKED) in LEAD_ONLY_COLUMNS
+    assert seeded >= LEAD_ONLY_COLUMNS
+    assert {board for board, _code in LEAD_ONLY_COLUMNS} == {Board.SALES}
+    assert (Board.SALES, str(SalesColumn.UNWORKED)) in LEAD_ONLY_COLUMNS
 
 
 def test_the_migration_seeds_the_same_columns_as_the_code() -> None:
@@ -89,6 +90,30 @@ def test_the_migration_seeds_the_same_columns_as_the_code() -> None:
             i for i, row in enumerate(seeded) if row[0] == board and row[1] == after
         )
         seeded.insert(at + 1, (board, code, name, kind, False, True))
+    # 0052 puts three more on Support, and Hal qilindi becomes automatic.
+    last = next(Path("migrations/versions").glob("*_0052_support_columns.py"))
+    spec = importlib.util.spec_from_file_location("m0052", last)
+    assert spec is not None and spec.loader is not None
+    support = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(support)
+    for code, name, kind, final, after, _back in support.NEW_COLUMNS:
+        at = next(
+            i
+            for i, row in enumerate(seeded)
+            if row[0] == support.BOARD and row[1] == after
+        )
+        seeded.insert(at + 1, (support.BOARD, code, name, kind, final, True))
+    seeded = [
+        (
+            board,
+            code,
+            name,
+            "auto" if (board, code) == ("support", "resolved") else kind,
+            final,
+            shown,
+        )
+        for board, code, name, kind, final, shown in seeded
+    ]
     assert seeded == [
         (str(s.board), s.code, s.name, str(s.kind), s.is_final, s.is_visible)
         for s in SEED_COLUMNS

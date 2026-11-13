@@ -269,11 +269,15 @@ def _ticket_state(db: Session, *, owner: User, key: str) -> Pressed:
             BoardCard.board == str(Board.SUPPORT), BoardCard.owner_id == owner.id
         )
     )
-    if column == SupportColumn.RESOLVED:
+    if column in (SupportColumn.RESOLVED, SupportColumn.CLOSED):
         return Pressed(
             kind=ButtonKind.TICKET, key=key, state=ButtonState.DONE, text=RESOLVED_WORDS
         )
-    if column == SupportColumn.IN_PROGRESS:
+    if column in (
+        SupportColumn.IN_PROGRESS,
+        SupportColumn.DEVELOPER,
+        SupportColumn.CONFIRMING,
+    ):
         return Pressed(
             kind=ButtonKind.TICKET,
             key=key,

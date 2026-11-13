@@ -100,12 +100,15 @@ def test_support_opens_only_support(client: TestClient, db: Session) -> None:
 
     me = MeOut.model_validate(client.get(ME, headers=head).json())
     assert [board.code for board in me.boards] == ["support"]
-    assert not me.can.take
+    assert not me.can.take and me.can.take_ticket
     assert _columns(client, "support", head) == [
         "new",
         "in_progress",
         "waiting",
+        "developer",
+        "confirming",
         "resolved",
+        "closed",
     ]
     assert (
         client.get("/api/v2/office/boards/sales/columns", headers=head).status_code
@@ -184,4 +187,4 @@ def test_a_new_seed_column_goes_after_the_office_order(db: Session) -> None:
     db.commit()
 
     back = db.scalar(select(BoardColumn).where(BoardColumn.code == "resolved"))
-    assert back is not None and back.position == 4
+    assert back is not None and back.position == 8

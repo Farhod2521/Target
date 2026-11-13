@@ -4,7 +4,7 @@ manager, write a note. Each change is one transaction with its history line."""
 import uuid
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from app.modules.boards.constants import (
     NOTE_MAX,
     SALES_ACTIONS,
     SUPPORT_ACTIONS,
+    TICKET_TAKE_LIMIT,
     Board,
     CardAction,
     CloseReason,
@@ -40,9 +41,11 @@ from app.modules.boards.exceptions import (
     DueRequired,
     NoteRequired,
     NothingToTake,
+    NoTicketToTake,
     NotOnBoard,
     OfferGiven,
     ReasonRequired,
+    TakeLimit,
     TicketHeld,
 )
 from app.modules.boards.models import BoardCard, BoardCardEvent
@@ -104,12 +107,12 @@ def move(
 
 
 def may_see(card: BoardCard, *, user: User, access: Access) -> bool:
-    """A board's lead sees every card on it; a sales manager only their own;
-    Support sees the whole Support board."""
+    """A board's lead sees every card on it; a sales manager and a Support
+    member only their own. Support's lead is the superuser or the Owner."""
     board = Board(card.board)
     if not access.sees(board):
         return False
-    if access.leads_board(board) or board == Board.SUPPORT:
+    if access.leads_board(board):
         return True
     return card.manager_id == user.id
 
@@ -152,6 +155,63 @@ def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
         kind=EventKind.TAKEN,
         now=now,
         actor=manager,
+    )
+    db.commit()
+    return card
+
+
+def working_count(db: Session, *, user_id: uuid.UUID) -> int:
+    """How many tickets this person has in Ishlanmoqda."""
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(BoardCard)
+            .where(
+                BoardCard.board == str(Board.SUPPORT),
+                BoardCard.manager_id == user_id,
+                BoardCard.column_code == str(SupportColumn.IN_PROGRESS),
+            )
+        )
+        or 0
+    )
+
+
+def _room_to_take(db: Session, *, user: User) -> None:
+    """Refuse a sixth ticket. The person's own row is locked first, so two
+    presses at once are counted one after the other."""
+    db.execute(select(User.id).where(User.id == user.id).with_for_update())
+    if working_count(db, user_id=user.id) >= TICKET_TAKE_LIMIT:
+        raise TakeLimit(TICKET_TAKE_LIMIT)
+
+
+def take_ticket(db: Session, *, member: User, now: datetime) -> BoardCard:
+    """«Zayavka olish»: the ticket that waited longest in Yangi with nobody
+    on it, now this person's and in Ishlanmoqda. One a press, and none while
+    they have the limit in Ishlanmoqda."""
+    _room_to_take(db, user=member)
+    card = db.scalar(
+        select(BoardCard)
+        .where(
+            BoardCard.board == str(Board.SUPPORT),
+            BoardCard.column_code == str(SupportColumn.NEW),
+            BoardCard.manager_id.is_(None),
+        )
+        .order_by(BoardCard.column_since, BoardCard.id)
+        .limit(1)
+        .with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)
+    )
+    if card is None:
+        raise NoTicketToTake
+    card.manager_id = member.id
+    card.due_at = None
+    move(
+        db,
+        card=card,
+        to=str(SupportColumn.IN_PROGRESS),
+        kind=EventKind.TICKET_TAKEN,
+        now=now,
+        actor=member,
     )
     db.commit()
     return card
@@ -321,13 +381,13 @@ def _support_act(
     due: datetime | None,
     now: datetime,
 ) -> BoardCard:
-    """«Ishlayapman» makes the first Support member who presses it the
-    client's person; the ticket's buttons are theirs from then on, and the
-    superuser's and the Owner's. «Qayta ochish» is anybody's on the board:
-    the ticket goes back to its person, or to who pressed if it had none."""
+    """A ticket's buttons are its person's, and the superuser's and the
+    Owner's. «Ishlayapman» on a ticket with nobody makes who pressed its
+    person. «Hal qilindi» does not close it: the client is asked first, and
+    the ticket waits in Tasdiq kutilmoqda for their answer."""
     if action not in SUPPORT_ACTIONS.get(card.column_code, ()):
         raise ActionNotHere
-    if action != CardAction.REOPEN and held_by_another(card, user=user, access=access):
+    if held_by_another(card, user=user, access=access):
         raise TicketHeld
     if action in ACTION_NOTE_REQUIRED and not note:
         raise NoteRequired
@@ -337,6 +397,8 @@ def _support_act(
         to, kind = SupportColumn.IN_PROGRESS, EventKind.STARTED
     elif action == CardAction.WAIT:
         to, kind = SupportColumn.WAITING, EventKind.WAITING
+    elif action == CardAction.TO_DEVELOPER:
+        to, kind = SupportColumn.DEVELOPER, EventKind.DEVELOPER
     elif action == CardAction.RELEASE:
         card.manager_id = None
         to, kind = SupportColumn.NEW, EventKind.RELEASED
@@ -346,8 +408,7 @@ def _support_act(
             card.manager_id = user.id
         to, kind = SupportColumn.IN_PROGRESS, EventKind.REOPENED
     else:
-        card.closed_at = now
-        to, kind = SupportColumn.RESOLVED, EventKind.RESOLVED
+        to, kind = SupportColumn.CONFIRMING, EventKind.RESOLVED
     card.due_at = due
     move(
         db,
@@ -514,11 +575,18 @@ def add_ticket(
     user: User,
     access: Access,
     note: str,
+    to_id: uuid.UUID | None = None,
     now: datetime,
 ) -> BoardCard:
-    """Anybody on the Support board opens a client's ticket by hand, saying
-    why. The client's one ticket takes it as one more reason: a solved one
-    is reopened, an open one gets the line."""
+    """A client's ticket opened by hand, saying why. The client's one
+    ticket takes it as one more reason: a closed one is reopened, an open
+    one gets the line.
+
+    The superuser and the Owner may name the Support member it goes to
+    (``to_id``), whatever that person holds already. A Support member opens
+    it for themselves: it is theirs and in Ishlanmoqda, so it needs room
+    under the limit, and a client another member works is not theirs to
+    open."""
     from app.modules.boards.constants import TicketReason
     from app.modules.boards.tickets import raise_ticket
 
@@ -528,6 +596,25 @@ def add_ticket(
     if not text:
         raise NoteRequired
     client = client_for(db, client_id)
+    lead = access.leads_board(Board.SUPPORT)
+    member: User | None = None
+    if lead:
+        if to_id is not None:
+            member = db.get(User, to_id)
+            if member is None or not works_on(db, member, Board.SUPPORT):
+                raise NotOnBoard
+    else:
+        member = user
+        held = db.scalar(
+            select(BoardCard.manager_id).where(
+                BoardCard.board == str(Board.SUPPORT), BoardCard.owner_id == client.id
+            )
+        )
+        if held not in (None, user.id):
+            raise TicketHeld
+        # Their own ticket coming back is not a new one taken.
+        if held is None:
+            _room_to_take(db, user=user)
     raise_ticket(
         db,
         owner_id=client.id,
@@ -537,13 +624,35 @@ def add_ticket(
         detail=text,
         actor=user,
     )
-    db.commit()
     card = db.scalar(
-        select(BoardCard).where(
-            BoardCard.board == str(Board.SUPPORT), BoardCard.owner_id == client.id
-        )
+        select(BoardCard)
+        .where(BoardCard.board == str(Board.SUPPORT), BoardCard.owner_id == client.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     assert card is not None
+    if member is not None and card.manager_id != member.id:
+        card.manager_id = member.id
+        if lead:
+            record(
+                db,
+                card=card,
+                kind=EventKind.ASSIGNED,
+                now=now,
+                actor=user,
+                body=member.full_name or member.email,
+            )
+    if not lead and card.column_code != SupportColumn.IN_PROGRESS:
+        card.due_at = None
+        move(
+            db,
+            card=card,
+            to=str(SupportColumn.IN_PROGRESS),
+            kind=EventKind.STARTED,
+            now=now,
+            actor=user,
+        )
+    db.commit()
     return card
 
 
@@ -572,7 +681,7 @@ def assign(
         card.due_at = None
         if board == Board.SALES:
             back = str(SalesColumn.UNWORKED)
-        elif card.column_code == SupportColumn.RESOLVED:
+        elif card.closed_at is not None:
             back = card.column_code
         else:
             back = str(SupportColumn.NEW)

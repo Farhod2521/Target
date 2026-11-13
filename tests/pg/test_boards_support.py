@@ -212,31 +212,50 @@ def test_one_ticket_per_client_reopened_with_the_same_person(
     olim = _staff(db, "olim@office.test", Role.SUPPORT)
     press = f"{URL}/cards/{ticket.id}/actions"
 
+    boss = _staff(db, "boss@office.test", superuser=True)
     seen = BoardViewOut.model_validate(
-        client.get(f"{URL}/boards/support", headers=olim).json()
+        client.get(f"{URL}/boards/support", headers=boss).json()
     )
     assert [c.code for c in seen.columns] == [
         "new",
         "in_progress",
         "waiting",
+        "developer",
+        "confirming",
         "resolved",
+        "closed",
     ]
     assert seen.columns[0].cards[0].reasons == ["setup"]
+    # A Support member reads only their own: the queue is not theirs yet.
+    queue = BoardViewOut.model_validate(
+        client.get(f"{URL}/boards/support", headers=zarina).json()
+    )
+    assert all(c.total == 0 for c in queue.columns)
+    assert queue.take is not None and queue.take.queue == 1
+    assert client.get(f"{URL}/cards/{ticket.id}", headers=zarina).status_code == 404
 
-    started = _detail(client.post(press, json={"action": "start"}, headers=zarina))
+    started = _detail(client.post(f"{URL}/support/take", headers=zarina))
+    assert started.id == str(ticket.id)
     assert started.column == "in_progress" and started.manager is not None
-    assert [a.value for a in started.actions] == ["wait", "resolve", "release"]
-    held = client.post(press, json={"action": "resolve"}, headers=olim)
-    assert held.status_code == 409 and held.json()["code"] == "ticket_held"
+    assert [a.value for a in started.actions] == [
+        "wait",
+        "to_developer",
+        "resolve",
+        "release",
+    ]
+    # Another member does not see it, so cannot press it.
+    held = client.post(press, json={"action": "resolve", "note": "x"}, headers=olim)
+    assert held.status_code == 404
 
     solved = _detail(
         client.post(
             press, json={"action": "resolve", "note": "Facebook ulandi"}, headers=zarina
         )
     )
-    assert solved.column == "resolved"
+    # Not closed yet: the client is asked first.
+    assert solved.column == "confirming"
     assert [a.value for a in solved.actions] == ["reopen"]
-    assert solved.closed_at is not None
+    assert solved.closed_at is None
 
     raise_ticket(
         db,
@@ -247,7 +266,7 @@ def test_one_ticket_per_client_reopened_with_the_same_person(
         detail="Xato",
     )
     db.commit()
-    again = _detail(client.get(f"{URL}/cards/{ticket.id}", headers=olim))
+    again = _detail(client.get(f"{URL}/cards/{ticket.id}", headers=zarina))
     assert again.column == "in_progress" and again.closed_at is None
     assert again.manager is not None and again.manager.email == "zarina@office.test"
     assert again.history[0].kind == "reopened"
@@ -296,6 +315,8 @@ def test_sales_cannot_open_support_tickets_and_support_cannot_press_sales(
 
     assert client.get(f"{URL}/cards/{ticket.id}", headers=ali).status_code == 404
     assert client.get(f"{URL}/cards/{sales_card.id}", headers=zarina).status_code == 404
+    assert client.post(f"{URL}/support/take", headers=ali).status_code == 404
+    assert client.post(f"{URL}/support/take", headers=zarina).status_code == 200
     wrong = client.post(
         f"{URL}/cards/{ticket.id}/actions", json={"action": "contacted"}, headers=zarina
     )
@@ -359,7 +380,7 @@ def test_the_ticket_shows_the_clients_yordam_chat(
     assert ticket is not None
     zarina = _staff(db, "zarina@office.test", Role.SUPPORT)
 
-    seen = _detail(client.get(f"{URL}/cards/{ticket.id}", headers=zarina))
+    seen = _detail(client.post(f"{URL}/support/take", headers=zarina))
     assert seen.support_chat_id is not None
     assert seen.ticket_reasons[0].label == "Sozlash tugamadi"
 

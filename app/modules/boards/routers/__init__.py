@@ -6,12 +6,18 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from app.api.deps import Db
+from app.api.deps import CurrentUser, Db
 from app.common.db import utcnow
 from app.modules.backoffice.constants import ROLE_LABELS, Role
 from app.modules.boards import help_options, selectors, services, view
 from app.modules.boards import staff as staff_service
-from app.modules.boards.access import BoardStaff, Staff, access_for, may_take
+from app.modules.boards.access import (
+    BoardStaff,
+    Staff,
+    access_for,
+    may_take,
+    may_take_ticket,
+)
 from app.modules.boards.constants import (
     BOARD_LABELS,
     CLOSE_REASON_LABELS,
@@ -42,9 +48,48 @@ from app.modules.boards.schemas import (
     StaffPeopleOut,
     StaffPersonOut,
     StaffRolesIn,
+    TicketAnswerIn,
+    TicketAnswerOut,
+    TicketQuestionStateOut,
 )
 
 router = APIRouter(prefix="/office", tags=["office boards v2"])
+# The client's side: the one question Support asks them.
+client_router = APIRouter(prefix="/support-ticket", tags=["support ticket"])
+
+
+@client_router.get("", responses={200: {"model": TicketQuestionStateOut}})
+def ticket_question(db: Db, user: CurrentUser) -> dict[str, Any]:
+    """Whether «Muammoyingiz hal bo'ldimi?» waits for this client. The same
+    question goes to their Telegram; the cabinet shows it until answered."""
+    from app.modules.boards import confirm
+
+    card = confirm.pending(db, owner_id=user.id)
+    if card is None:
+        return {"question": None}
+    return {
+        "question": {
+            "asked_at": card.column_since,
+            "expires_at": confirm.expires_at(card),
+        }
+    }
+
+
+@client_router.post("/answer", responses={200: {"model": TicketAnswerOut}})
+def ticket_answer(db: Db, user: CurrentUser, body: TicketAnswerIn) -> dict[str, str]:
+    """The client's «Ha» or «Yo'q». Yes closes the ticket; no gives it back
+    to the Support member who worked it."""
+    from app.modules.boards import confirm
+
+    return {
+        "result": confirm.answer(
+            db,
+            owner_id=user.id,
+            solved=body.solved,
+            via=confirm.VIA_SITE,
+            now=utcnow(),
+        )
+    }
 
 
 @router.get("/me", responses={200: {"model": MeOut}})
@@ -74,6 +119,7 @@ def me(db: Db, user: Staff) -> dict[str, Any]:
         "default_board": str(access.boards[0]) if access.boards else None,
         "can": {
             "take": may_take(db, user),
+            "take_ticket": may_take_ticket(db, user),
             "assign": bool(access.leads),
             "move": access.full,
             "add_lead": access.leads_board(Board.SALES),
@@ -135,9 +181,9 @@ def board(
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=COLUMN_CARDS_MAX)] = COLUMN_CARDS,
 ) -> dict[str, Any]:
-    """The board as this person sees it: a sales manager only their own
-    cards, the lead and Support everything on their board. In a column the
-    nearest deadline is on top."""
+    """The board as this person sees it: a sales manager and a Support
+    member only their own cards, the board's lead (on Support: the superuser
+    and the Owner) everything. In a column the nearest deadline is on top."""
     now = utcnow()
     selectors.ensure_board(db, board=staff.board, now=now)
     db.commit()
@@ -191,8 +237,10 @@ def _may_add(staff: BoardStaff) -> None:
 def add_card(db: Db, staff: BoardStaff, body: CardAddIn) -> dict[str, Any]:
     """A card opened by hand. Sales (the lead, the Owner, the superuser): a
     client who has not paid becomes a lead, in Ishlanmagan or with
-    `staff_id`. Support (anybody on the board): the client's ticket opens,
-    or takes one more reason; `note` says why."""
+    `staff_id`. Support: the client's ticket opens, or takes one more
+    reason; `note` says why. The Owner and the superuser may send it to a
+    Support member with `staff_id`; a Support member's own goes to
+    themselves, into Ishlanmoqda, while they have room under the limit."""
     _may_add(staff)
     now = utcnow()
     try:
@@ -219,6 +267,7 @@ def add_card(db: Db, staff: BoardStaff, body: CardAddIn) -> dict[str, Any]:
             user=staff.user,
             access=staff.access,
             note=body.note,
+            to_id=to_id,
             now=now,
         )
     return view.card_detail(db, card=found, now=now)
@@ -240,6 +289,18 @@ def take(db: Db, user: Staff) -> dict[str, Any]:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     now = utcnow()
     card = services.take_lead(db, manager=user, now=now)
+    return view.card_detail(db, card=card, now=now)
+
+
+@router.post("/support/take", responses={200: {"model": CardDetailOut}})
+def take_ticket(db: Db, user: Staff) -> dict[str, Any]:
+    """«Zayavka olish»: the ticket that waited longest with nobody on it
+    becomes this person's, in Ishlanmoqda. One a press; 409 while they have
+    the limit there, or when the queue is empty."""
+    if not may_take_ticket(db, user):
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    now = utcnow()
+    card = services.take_ticket(db, member=user, now=now)
     return view.card_detail(db, card=card, now=now)
 
 

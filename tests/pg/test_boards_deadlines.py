@@ -315,6 +315,7 @@ def test_a_ticket_is_opened_by_hand(client: TestClient, db: Session) -> None:
 
     me = client.get(f"{URL}/me", headers=boss).json()["can"]
     assert me["add_ticket"] and me["add_lead"]
+    assert me["take_ticket"]
     assert client.get(f"{URL}/me", headers=zarina).json()["can"] == me | {
         "take": False,
         "assign": False,
@@ -345,14 +346,23 @@ def test_a_ticket_is_opened_by_hand(client: TestClient, db: Session) -> None:
     assert opened.reason_chips[0].label == "Qo'lda ochilgan"
     assert opened.history[0].actor is not None
 
+    # A Support member's own goes to themselves, into Ishlanmoqda.
     more = _detail(
         client.post(
             path, json={"user_id": str(owner.id), "note": "Yana"}, headers=zarina
         )
     )
     assert more.id == opened.id and len(more.ticket_reasons) == 2
-    assert _board(client, "support", zarina, reason="manual").columns[0].total == 1
-    assert _board(client, "support", zarina, reason="setup").columns[0].total == 0
+    assert more.column == "in_progress"
+    assert more.manager is not None and more.manager.email == "zarina@office.test"
+    assert _board(client, "support", zarina, reason="manual").columns[1].total == 1
+    assert _board(client, "support", zarina, reason="setup").columns[1].total == 0
+    # A client another member works is not theirs to open.
+    olim = _staff(db, "olim@office.test", Role.SUPPORT)
+    held = client.post(
+        path, json={"user_id": str(owner.id), "note": "Men ham"}, headers=olim
+    )
+    assert held.status_code == 409 and held.json()["code"] == "ticket_held"
 
 
 def test_a_ticket_waits_for_the_client_is_given_up_and_reopened(
@@ -370,7 +380,7 @@ def test_a_ticket_waits_for_the_client_is_given_up_and_reopened(
         )
     )
     press = f"{URL}/cards/{opened.id}/actions"
-    client.post(press, json={"action": "start"}, headers=zarina)
+    assert opened.column == "in_progress"
 
     bare = client.post(press, json={"action": "wait"}, headers=zarina)
     assert bare.status_code == 422 and bare.json()["code"] == "due_required"
@@ -382,13 +392,13 @@ def test_a_ticket_waits_for_the_client_is_given_up_and_reopened(
     assert (
         next(a for a in waiting.actions if a.value == "release").label == "Voz kechish"
     )
-    assert _board(client, "support", olim, mine=True).columns[2].total == 0
-    assert _board(client, "support", zarina, mine=True).columns[2].total == 1
+    assert _board(client, "support", olim).columns[2].total == 0
+    assert _board(client, "support", zarina).columns[2].total == 1
     assert (
         client.put(
             f"{URL}/cards/{opened.id}/due", json={"due_at": None}, headers=olim
         ).status_code
-        == 409
+        == 404
     )
 
     # The client writes in the Yordam chat: the wait is over.
@@ -419,12 +429,15 @@ def test_a_ticket_waits_for_the_client_is_given_up_and_reopened(
     )
     assert left.column == "new" and left.manager is None
 
-    client.post(press, json={"action": "start"}, headers=olim)
+    # Given up, it is in the queue again and no longer its old person's.
+    assert client.get(f"{URL}/cards/{opened.id}", headers=zarina).status_code == 404
+    taken = _detail(client.post(f"{URL}/support/take", headers=olim))
+    assert taken.id == opened.id and taken.history[0].kind == "ticket_taken"
     solved = _detail(
         client.post(press, json={"action": "resolve", "note": "Ulandi"}, headers=olim)
     )
-    assert solved.column == "resolved"
-    again = _detail(client.post(press, json={"action": "reopen"}, headers=zarina))
+    assert solved.column == "confirming" and solved.closed_at is None
+    again = _detail(client.post(press, json={"action": "reopen"}, headers=olim))
     assert again.column == "in_progress" and again.closed_at is None
     assert again.manager is not None and again.manager.email == "olim@office.test"
     assert again.history[0].kind == "reopened" and again.history[0].actor is not None

@@ -21,6 +21,7 @@ from app.modules.autopay.routers import webhooks as autopay_webhooks
 from app.modules.backoffice.routers import router as office
 from app.modules.billing.routers import router as billing
 from app.modules.billing.routers import webhooks as billing_webhooks
+from app.modules.boards.routers import client_router as support_ticket_v2
 from app.modules.boards.routers import router as office_boards_v2
 from app.modules.broadcasts.routers import router as news
 from app.modules.businesses.routers import router as businesses
@@ -55,6 +56,7 @@ api_v2_router = APIRouter(prefix="/api/v2")
 api_v2_router.include_router(campaigns_expert)
 api_v2_router.include_router(campaigns_v2)
 api_v2_router.include_router(office_boards_v2)
+api_v2_router.include_router(support_ticket_v2)
 api_v2_router.include_router(office_telephony_v2)
 api_v2_router.include_router(assistant_v2)
 api_v2_router.include_router(assistant_office_v2)

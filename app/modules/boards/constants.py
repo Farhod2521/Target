@@ -62,14 +62,24 @@ class SupportColumn(Choices):
     IN_PROGRESS = "in_progress"
     # Support did its part; the client's answer or action is waited for.
     WAITING = "waiting"
+    # A fault only a developer can mend; the ticket stays its person's.
+    DEVELOPER = "developer"
+    # Support says it is solved; the client is asked whether it is.
+    CONFIRMING = "confirming"
+    # The client said yes.
     RESOLVED = "resolved"
+    # The client did not answer the question in time.
+    CLOSED = "closed"
 
 
 SUPPORT_COLUMN_LABELS = {
     SupportColumn.NEW: "Yangi",
     SupportColumn.IN_PROGRESS: "Ishlanmoqda",
     SupportColumn.WAITING: "Mijoz kutilmoqda",
+    SupportColumn.DEVELOPER: "Dasturchiga berildi",
+    SupportColumn.CONFIRMING: "Tasdiq kutilmoqda",
     SupportColumn.RESOLVED: "Hal qilindi",
+    SupportColumn.CLOSED: "Yopildi",
 }
 
 
@@ -116,12 +126,19 @@ SEED_COLUMNS: Final[tuple[SeedColumn, ...]] = (
     _support(SupportColumn.NEW, ColumnKind.AUTO),
     _support(SupportColumn.IN_PROGRESS, ColumnKind.MANUAL),
     _support(SupportColumn.WAITING, ColumnKind.MANUAL),
-    _support(SupportColumn.RESOLVED, ColumnKind.MANUAL, final=True),
+    _support(SupportColumn.DEVELOPER, ColumnKind.MANUAL),
+    _support(SupportColumn.CONFIRMING, ColumnKind.MANUAL),
+    _support(SupportColumn.RESOLVED, ColumnKind.AUTO, final=True),
+    _support(SupportColumn.CLOSED, ColumnKind.AUTO, final=True),
 )
 
-# Columns only a board's lead (and the superuser or Owner) sees.
+# Columns only a board's lead (and the superuser or Owner) sees. Support's
+# own Yopildi is its person's to read.
 LEAD_ONLY_COLUMNS: Final = frozenset(
-    {str(SalesColumn.UNWORKED), str(SalesColumn.CLOSED)}
+    {
+        (Board.SALES, str(SalesColumn.UNWORKED)),
+        (Board.SALES, str(SalesColumn.CLOSED)),
+    }
 )
 
 # Who works each board. The superuser and the Owner role see both.
@@ -149,6 +166,7 @@ class CardAction(Choices):
     WAIT = "wait"
     RESOLVE = "resolve"
     REOPEN = "reopen"
+    TO_DEVELOPER = "to_developer"
 
 
 CARD_ACTION_LABELS = {
@@ -164,6 +182,7 @@ CARD_ACTION_LABELS = {
     CardAction.WAIT: "Mijoz kutilmoqda",
     CardAction.RESOLVE: "Hal qilindi",
     CardAction.REOPEN: "Qayta ochish",
+    CardAction.TO_DEVELOPER: "Dasturchiga berish",
 }
 # On Support the same button gives the ticket up, not a lead back.
 SUPPORT_ACTION_LABELS: Final = {CardAction.RELEASE: "Voz kechish"}
@@ -172,7 +191,9 @@ SUPPORT_ACTION_LABELS: Final = {CardAction.RELEASE: "Voz kechish"}
 # `reason` a close reason. `required` ones are refused when empty.
 ACTION_DUE_REQUIRED: Final = frozenset({CardAction.CALLBACK, CardAction.WAIT})
 ACTION_DUE_OPTIONAL: Final = frozenset({CardAction.NO_CONTACT, CardAction.WILL_PAY})
-ACTION_NOTE_REQUIRED: Final = frozenset({CardAction.RELEASE, CardAction.RESOLVE})
+ACTION_NOTE_REQUIRED: Final = frozenset(
+    {CardAction.RELEASE, CardAction.RESOLVE, CardAction.TO_DEVELOPER}
+)
 
 # The buttons each Sales column shows. "Support kerak" comes after a talk:
 # the client asked for help while the manager was on the phone with them.
@@ -246,12 +267,14 @@ OFFER_COLUMNS: Final = frozenset(str(step[2]) for step in OFFER_STEPS)
 OFFER_INVOICE_GRACE_MINUTES: Final = 15
 
 
-# The buttons each Support column shows. A solved ticket is reopened by a
-# new reason on its own, or by «Qayta ochish».
+# The buttons each Support column shows. «Hal qilindi» does not close the
+# ticket: the client is asked, and their yes does. A closed ticket is
+# reopened by a new reason on its own, or by «Qayta ochish».
 SUPPORT_ACTIONS: Final[dict[str, tuple[CardAction, ...]]] = {
     str(SupportColumn.NEW): (CardAction.START,),
     str(SupportColumn.IN_PROGRESS): (
         CardAction.WAIT,
+        CardAction.TO_DEVELOPER,
         CardAction.RESOLVE,
         CardAction.RELEASE,
     ),
@@ -260,8 +283,27 @@ SUPPORT_ACTIONS: Final[dict[str, tuple[CardAction, ...]]] = {
         CardAction.RESOLVE,
         CardAction.RELEASE,
     ),
+    str(SupportColumn.DEVELOPER): (CardAction.START, CardAction.RESOLVE),
+    str(SupportColumn.CONFIRMING): (CardAction.REOPEN,),
     str(SupportColumn.RESOLVED): (CardAction.REOPEN,),
+    str(SupportColumn.CLOSED): (CardAction.REOPEN,),
 }
+# A new reason reopens a ticket standing in these.
+SUPPORT_DONE_COLUMNS: Final = frozenset(
+    {
+        str(SupportColumn.CONFIRMING),
+        str(SupportColumn.RESOLVED),
+        str(SupportColumn.CLOSED),
+    }
+)
+# «Zayavka olish» gives one ticket a press, while this person has fewer
+# than this many in Ishlanmoqda. What comes back on its own (a timer, the
+# client's "no", the Owner's hand) is not held by it.
+TICKET_TAKE_LIMIT: Final = 5
+# The client has this long to say whether the problem is solved.
+CONFIRM_HOURS: Final = 24
+# How many of the sales manager's notes go with a ticket from Sales.
+SALES_NOTES_CARRIED: Final = 5
 
 
 class TicketReason(Choices):
@@ -351,6 +393,13 @@ class EventKind(Choices):
     DUE_SET = "due_set"
     DUE_CLEARED = "due_cleared"
     MISSED_CALL = "missed_call"
+    TICKET_TAKEN = "ticket_taken"
+    DEVELOPER = "developer"
+    WAIT_OVER = "wait_over"
+    ASKED = "asked"
+    CONFIRMED = "confirmed"
+    DENIED = "denied"
+    UNANSWERED = "unanswered"
 
 
 EVENT_KIND_LABELS = {
@@ -372,7 +421,7 @@ EVENT_KIND_LABELS = {
     EventKind.REASON: "Yangi sabab",
     EventKind.REOPENED: "Zayavka qayta ochildi",
     EventKind.STARTED: "Ishga olindi",
-    EventKind.RESOLVED: "Hal qilindi",
+    EventKind.RESOLVED: "Xodim: hal qilindi",
     EventKind.MOVED: "Qo'lda ko'chirildi",
     EventKind.ADDED: "Qo'lda qo'shildi",
     EventKind.CALLBACK: "Qayta aloqa belgilandi",
@@ -385,6 +434,13 @@ EVENT_KIND_LABELS = {
     EventKind.DUE_SET: "Muddat qo'yildi",
     EventKind.DUE_CLEARED: "Muddat olib tashlandi",
     EventKind.MISSED_CALL: "Javobsiz qo'ng'iroq",
+    EventKind.TICKET_TAKEN: "Zayavka olindi",
+    EventKind.DEVELOPER: "Dasturchiga berildi",
+    EventKind.WAIT_OVER: "Kutish vaqti tugadi",
+    EventKind.ASKED: "Mijozdan so'raldi: hal bo'ldimi?",
+    EventKind.CONFIRMED: "Mijoz tasdiqladi: hal bo'ldi",
+    EventKind.DENIED: "Mijoz: hal bo'lmadi",
+    EventKind.UNANSWERED: "Mijoz javob bermadi, yopildi",
 }
 
 NOTE_MAX: Final = 2000
