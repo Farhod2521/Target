@@ -31,7 +31,7 @@ class SalesColumn(Choices):
     CALLBACK = "callback"
     # Kept hidden until the free trial is built.
     TRIAL = "trial"
-    # The manager's offer: 20% for a day, then 10% until the third day ends.
+    # The discount's own clock: 20% for a day, then 10% for three more.
     DISCOUNT_20 = "discount_20"
     DISCOUNT_10 = "discount_10"
     NO_DISCOUNT = "no_discount"
@@ -119,7 +119,8 @@ SEED_COLUMNS: Final[tuple[SeedColumn, ...]] = (
     _sales(SalesColumn.TRIAL, ColumnKind.AUTO, shown=False),
     _sales(SalesColumn.DISCOUNT_20, ColumnKind.AUTO),
     _sales(SalesColumn.DISCOUNT_10, ColumnKind.AUTO),
-    _sales(SalesColumn.NO_DISCOUNT, ColumnKind.AUTO),
+    # Not reached any more: a card whose discount ran out closes.
+    _sales(SalesColumn.NO_DISCOUNT, ColumnKind.AUTO, shown=False),
     _sales(SalesColumn.AWAITING, ColumnKind.AUTO),
     _sales(SalesColumn.SOLD, ColumnKind.AUTO, final=True),
     _sales(SalesColumn.CLOSED, ColumnKind.MANUAL, final=True),
@@ -170,13 +171,13 @@ class CardAction(Choices):
 
 
 CARD_ACTION_LABELS = {
-    CardAction.CONTACTED: "Bog'lanildi",
-    CardAction.NO_CONTACT: "Bog'lanilmadi",
-    CardAction.CALLBACK: "Qayta aloqa",
+    CardAction.CONTACTED: "Gaplashildi",
+    CardAction.NO_CONTACT: "Bog'lanib bo'lmadi",
+    CardAction.CALLBACK: "Vaqt qo'yish",
     CardAction.WILL_PAY: "To'laydi",
     CardAction.NEEDS_SUPPORT: "Support kerak",
     CardAction.OFFER: "Chegirma berish",
-    CardAction.CLOSE: "Yopildi",
+    CardAction.CLOSE: "Yopish",
     CardAction.RELEASE: "Navbatga qaytarish",
     CardAction.START: "Ishlayapman",
     CardAction.WAIT: "Mijoz kutilmoqda",
@@ -192,52 +193,45 @@ SUPPORT_ACTION_LABELS: Final = {CardAction.RELEASE: "Voz kechish"}
 ACTION_DUE_REQUIRED: Final = frozenset({CardAction.CALLBACK, CardAction.WAIT})
 ACTION_DUE_OPTIONAL: Final = frozenset({CardAction.NO_CONTACT, CardAction.WILL_PAY})
 ACTION_NOTE_REQUIRED: Final = frozenset(
-    {CardAction.RELEASE, CardAction.RESOLVE, CardAction.TO_DEVELOPER}
+    {
+        CardAction.RELEASE,
+        CardAction.RESOLVE,
+        CardAction.TO_DEVELOPER,
+        # Sales: Support reads why the client needs it.
+        CardAction.NEEDS_SUPPORT,
+    }
 )
 
-# The buttons each Sales column shows. "Support kerak" comes after a talk:
-# the client asked for help while the manager was on the phone with them.
-# A card in a discount column stays there while the discount runs (the bill
-# reads the column), so it has no button that would move it.
+# The buttons each Sales column shows. The manager says what the call came
+# to and sets a time to call again; the system moves the card. «Support
+# kerak» is pressed with its reason written. Giving a lead back is the
+# lead's (the Owner's, the superuser's): `POST /cards/{id}/assign`.
+_CALL: Final = (CardAction.CONTACTED, CardAction.NO_CONTACT, CardAction.CALLBACK)
 SALES_ACTIONS: Final[dict[str, tuple[CardAction, ...]]] = {
-    str(SalesColumn.NEW_LEAD): (
-        CardAction.CONTACTED,
-        CardAction.NO_CONTACT,
-        CardAction.CLOSE,
-        CardAction.RELEASE,
-    ),
-    str(SalesColumn.NO_CONTACT): (
-        CardAction.CONTACTED,
-        CardAction.NO_CONTACT,
-        CardAction.CALLBACK,
-        CardAction.CLOSE,
-        CardAction.RELEASE,
-    ),
+    str(SalesColumn.NEW_LEAD): (*_CALL, CardAction.CLOSE),
+    str(SalesColumn.NO_CONTACT): (*_CALL, CardAction.CLOSE),
     str(SalesColumn.CONTACTED): (
-        CardAction.OFFER,
         CardAction.CALLBACK,
-        CardAction.WILL_PAY,
         CardAction.NEEDS_SUPPORT,
         CardAction.CLOSE,
-        CardAction.RELEASE,
     ),
-    str(SalesColumn.CALLBACK): (
-        CardAction.CONTACTED,
-        CardAction.NO_CONTACT,
-        CardAction.OFFER,
-        CardAction.WILL_PAY,
+    str(SalesColumn.CALLBACK): (*_CALL, CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
+    # The discount's clock owns the column: here the same buttons leave
+    # their mark on the card and do not move it.
+    str(SalesColumn.DISCOUNT_20): (
+        *_CALL,
         CardAction.NEEDS_SUPPORT,
         CardAction.CLOSE,
-        CardAction.RELEASE,
     ),
-    str(SalesColumn.DISCOUNT_20): (CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
-    str(SalesColumn.DISCOUNT_10): (CardAction.NEEDS_SUPPORT, CardAction.CLOSE),
+    str(SalesColumn.DISCOUNT_10): (
+        *_CALL,
+        CardAction.NEEDS_SUPPORT,
+        CardAction.CLOSE,
+    ),
     str(SalesColumn.NO_DISCOUNT): (
         CardAction.CALLBACK,
-        CardAction.WILL_PAY,
         CardAction.NEEDS_SUPPORT,
         CardAction.CLOSE,
-        CardAction.RELEASE,
     ),
     str(SalesColumn.AWAITING): (
         CardAction.CALLBACK,
@@ -256,15 +250,21 @@ BILL_FROM_COLUMNS: Final = frozenset(
     }
 )
 
-# «Chegirma berish» starts the offer. Each step: the percent, the hour after
-# the press it lasts until, and its column. Once per client; then none.
+# The discount starts on its own: when the client pays Start, or when the
+# manager presses «Gaplashildi» on a lead who has not. Each step: the
+# percent, the hour after the start it lasts until, and its column: 20% for
+# a day, then 10% for three more days. When the last ends the card closes.
 OFFER_STEPS: Final[tuple[tuple[int, int, SalesColumn], ...]] = (
     (20, 24, SalesColumn.DISCOUNT_20),
-    (10, 72, SalesColumn.DISCOUNT_10),
+    (10, 96, SalesColumn.DISCOUNT_10),
 )
 OFFER_COLUMNS: Final = frozenset(str(step[2]) for step in OFFER_STEPS)
+OFFER_HOURS: Final = OFFER_STEPS[-1][1]
 # A bill priced with the offer stays payable this long after its step ends.
 OFFER_INVOICE_GRACE_MINUTES: Final = 15
+# Why a card closed when its discount ran out; not a reason a person picks.
+OFFER_ENDED_REASON: Final = "offer_ended"
+OFFER_ENDED_LABEL: Final = "Chegirma tugadi"
 
 
 # The buttons each Support column shows. «Hal qilindi» does not close the
@@ -369,6 +369,7 @@ class EventKind(Choices):
     CONTACTED = "contacted"
     NO_CONTACT = "no_contact"
     OFFERED = "offered"
+    START_BOUGHT = "start_bought"
     OFFER_STEP = "offer_step"
     OFFER_ENDED = "offer_ended"
     SUPPORT_ON = "support_on"
@@ -409,7 +410,8 @@ EVENT_KIND_LABELS = {
     EventKind.RETURNED: "Qaytarib olindi",
     EventKind.CONTACTED: "Bog'lanildi",
     EventKind.NO_CONTACT: "Bog'lanilmadi",
-    EventKind.OFFERED: "20% chegirma berildi",
+    EventKind.OFFERED: "20% chegirma boshlandi",
+    EventKind.START_BOUGHT: "Start sotib oldi, chegirma boshlandi",
     EventKind.OFFER_STEP: "Chegirma 10% ga tushdi",
     EventKind.OFFER_ENDED: "Chegirma tugadi",
     EventKind.SUPPORT_ON: "Support kerak deb belgilandi",

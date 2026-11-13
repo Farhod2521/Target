@@ -105,7 +105,10 @@ def test_sales_support_kerak_opens_the_ticket_at_payment_not_an_hour_later(
     card = client.post(f"{URL}/sales/take", headers=ali).json()
     press = f"{URL}/cards/{card['id']}/actions"
     client.post(press, json={"action": "contacted"}, headers=ali)
-    client.post(press, json={"action": "needs_support"}, headers=ali)
+    marked = client.post(
+        press, json={"action": "needs_support", "note": "Sozlab bering"}, headers=ali
+    )
+    assert marked.status_code == 200, marked.text
     assert triggers.sweep_support(db, now=utcnow()) == 0
 
     _bought(db, owner, minutes_ago=1)

@@ -190,11 +190,14 @@ def test_the_buttons_follow_the_column(client: TestClient, db: Session) -> None:
     assert [a.value for a in card.actions] == [
         "contacted",
         "no_contact",
+        "callback",
         "close",
-        "release",
     ]
     early = client.post(press, json={"action": "needs_support"}, headers=ali)
     assert early.status_code == 409
+    # Giving the lead back is not the manager's any more.
+    back = client.post(press, json={"action": "release", "note": "x"}, headers=ali)
+    assert back.status_code == 409
 
     missed = _detail(client.post(press, json={"action": "no_contact"}, headers=ali))
     assert missed.column == "no_contact" and missed.contact_mark == "no_contact"
@@ -204,19 +207,28 @@ def test_the_buttons_follow_the_column(client: TestClient, db: Session) -> None:
         "no_contact",
         "callback",
         "close",
-        "release",
     ]
 
+    # «Gaplashildi» starts the lead's discount: the card is in 20% at once.
     talked = _detail(
         client.post(
             press, json={"action": "contacted", "note": "Ertaga to'laydi"}, headers=ali
         )
     )
-    assert talked.column == "contacted" and talked.history[0].body == "Ertaga to'laydi"
+    assert talked.column == "discount_20" and talked.contact_mark == "contacted"
+    assert [h.kind for h in talked.history[:2]] == ["offered", "contacted"]
+    assert talked.history[1].body == "Ertaga to'laydi"
+    assert talked.offer is not None and talked.offer.percent == 20
+    assert talked.offer.source == "contact" and talked.offer.next_percent == 10
 
-    marked = _detail(client.post(press, json={"action": "needs_support"}, headers=ali))
-    assert marked.needs_support and marked.column == "contacted"
-    again = _detail(client.post(press, json={"action": "needs_support"}, headers=ali))
+    # «Support kerak» is pressed with its reason written.
+    bare = client.post(press, json={"action": "needs_support"}, headers=ali)
+    assert bare.status_code == 422 and bare.json()["code"] == "note_required"
+    why = {"action": "needs_support", "note": "Pixel o'rnatolmayapti"}
+    marked = _detail(client.post(press, json=why, headers=ali))
+    assert marked.needs_support and marked.column == "discount_20"
+    assert marked.history[0].body == "Pixel o'rnatolmayapti"
+    again = _detail(client.post(press, json=why, headers=ali))
     assert [h.kind for h in again.history].count("support_on") == 1
     off = _detail(
         client.post(press, json={"action": "needs_support", "on": False}, headers=ali)
@@ -262,7 +274,6 @@ def test_a_manager_sees_only_their_own_cards(client: TestClient, db: Session) ->
         "callback",
         "discount_20",
         "discount_10",
-        "no_discount",
         "awaiting",
         "sold",
     ]

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Date, cast, exists, func, select, tuple_
+from sqlalchemy import Date, cast, exists, func, or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
@@ -15,12 +15,13 @@ from app.modules.ads.models import Campaign, CampaignLaunch, GoogleLaunch
 from app.modules.audit.constants import ActionStatus, ActorType
 from app.modules.audit.models import ActionLog
 from app.modules.billing.constants import (
+    DEFAULT_PLAN_CODE,
     LIVE_SUBSCRIPTION_STATUSES,
     InvoiceKind,
     InvoiceStatus,
     SubscriptionStatus,
 )
-from app.modules.billing.models import Invoice, Subscription
+from app.modules.billing.models import Invoice, Plan, Subscription
 from app.modules.boards import confirm
 from app.modules.boards.constants import (
     BILL_FROM_COLUMNS,
@@ -31,6 +32,8 @@ from app.modules.boards.constants import (
     NOT_META_ERRORS,
     NOTE_MAX,
     OFFER_COLUMNS,
+    OFFER_ENDED_REASON,
+    OFFER_HOURS,
     OFFER_STEPS,
     SALES_NOTES_CARRIED,
     SETUP_GRACE_MINUTES,
@@ -43,6 +46,12 @@ from app.modules.boards.constants import (
     TicketReason,
 )
 from app.modules.boards.models import BoardCard, BoardCardEvent, SurveyHelpOption
+from app.modules.boards.offer import (
+    OFFERED_REF,
+    OfferSource,
+    column_at,
+    start_paid_at,
+)
 from app.modules.boards.selectors import ensure_board, live_since
 from app.modules.boards.services import move, record
 from app.modules.boards.tickets import raise_ticket
@@ -52,6 +61,17 @@ from app.modules.surveys.models import SurveyQuestion, SurveyResponse
 
 # Paid once already: such a client is not a first-time sign-up.
 _PAID_BEFORE = (str(InvoiceStatus.PAID), str(InvoiceStatus.REFUNDED))
+# What a Start payment leaves of an older «Sotildi» line: the client is a
+# lead again, and the full plan they buy later is the sale.
+_SOLD_REF = "sold"
+_SOLD_BY_START_REF = "sold:start"
+
+
+def _full_plans() -> Any:
+    """The plans whose payment is a sale: not Start, not a one-time one."""
+    return select(Plan.id).where(
+        Plan.code != DEFAULT_PLAN_CODE, Plan.is_one_time.is_(False)
+    )
 
 
 def open_leads(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
@@ -116,10 +136,11 @@ def open_leads(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
 
 
 def mark_sold(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
-    """A Sales card whose client paid a plan goes to Sotildi from any
-    column, Yopildi too: the payment is what happened. Once: a card the
-    Owner moved out of Sotildi by hand stays where they put it, and its
-    second ``sold`` line would break the one-fact-once index and the batch."""
+    """A Sales card whose client paid a full plan goes to Sotildi from any
+    column, Yopildi too: the payment is what happened. Start is not a sale:
+    its buyer stays a lead (``start_bought``). Once: a card the Owner moved
+    out of Sotildi by hand stays where they put it, and its second ``sold``
+    line would break the one-fact-once index and the batch."""
     sold_before = exists().where(
         BoardCardEvent.card_id == BoardCard.id, BoardCardEvent.ref == "sold"
     )
@@ -128,6 +149,7 @@ def mark_sold(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         .where(
             Invoice.status == str(InvoiceStatus.PAID),
             Invoice.kind == str(InvoiceKind.PLAN),
+            Invoice.plan_id.in_(_full_plans()),
         )
         .group_by(Invoice.owner_id)
         .subquery()
@@ -175,6 +197,7 @@ def _mark_given(db: Session, *, now: datetime, limit: int) -> int:
         .where(
             Subscription.status == str(SubscriptionStatus.ACTIVE),
             Subscription.activated_by_id.is_not(None),
+            Subscription.plan_id.in_(_full_plans()),
         )
         .group_by(Subscription.owner_id)
         .subquery()
@@ -211,46 +234,189 @@ def _mark_given(db: Session, *, now: datetime, limit: int) -> int:
     return len(rows)
 
 
-def step_offers(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
-    """An offer card follows its clock: 20% → 10% a day after the press,
-    → Chegirmasiz when the third day ends. Each step once: a card the Owner
-    moved back by hand stays where they put it. Runs after ``mark_sold``,
-    so a client who paid is in Sotildi, not here."""
-    from app.modules.boards.offer import OFFERED_REF, step_at
-
-    started = (
-        select(BoardCardEvent.card_id, BoardCardEvent.created_at.label("at"))
-        .where(BoardCardEvent.ref == OFFERED_REF)
-        .subquery()
+def start_bought(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """A client paid Start: their discount on a full plan starts at that
+    payment, and their Sales card stands in its column: 20% for a day, then
+    10%. A card that was closed, or sold by this very payment under the old
+    rule, opens again; a client without a card gets one. The card keeps its
+    manager; one without a manager is given out by «Lid olish». Once per
+    payment, and only while the discount still runs."""
+    paid = start_paid_at().subquery()
+    start_bill = (
+        select(Invoice.id)
+        .join(Plan, Plan.id == Invoice.plan_id)
+        .where(
+            Invoice.owner_id == paid.c.owner_id,
+            Invoice.paid_at == paid.c.at,
+            Invoice.kind == str(InvoiceKind.PLAN),
+            Invoice.status == str(InvoiceStatus.PAID),
+            Plan.code == DEFAULT_PLAN_CODE,
+        )
+        .order_by(Invoice.id)
+        .limit(1)
+        .correlate(paid)
+        .scalar_subquery()
     )
+    seen = exists().where(
+        BoardCardEvent.owner_id == paid.c.owner_id,
+        BoardCardEvent.ref == func.concat("start:", start_bill),
+    )
+    bought = exists().where(
+        Invoice.owner_id == paid.c.owner_id,
+        Invoice.kind == str(InvoiceKind.PLAN),
+        Invoice.status.in_(_PAID_BEFORE),
+        Invoice.plan_id.in_(_full_plans()),
+    )
+    rows = list(
+        db.execute(
+            select(User.id, paid.c.at, start_bill)
+            .join(paid, paid.c.owner_id == User.id)
+            .where(
+                paid.c.at > now - timedelta(hours=OFFER_HOURS),
+                User.crm_owner_id.is_(None),
+                User.is_staff.is_(False),
+                User.is_superuser.is_(False),
+                User.is_active.is_(True),
+                ~seen,
+                ~bought,
+            )
+            .order_by(paid.c.at)
+            .limit(limit)
+        )
+    )
+    moved = 0
+    for owner_id, paid_at, bill_id in rows:
+        to = column_at(paid_at, now)
+        if to is None:
+            continue
+        card = db.scalar(
+            select(BoardCard)
+            .where(BoardCard.board == str(Board.SALES), BoardCard.owner_id == owner_id)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+        ref = f"start:{bill_id}"
+        if card is None:
+            if _has_card(db, owner_id=owner_id):
+                # Somebody holds the card this second: the next minute's.
+                continue
+            card = BoardCard(
+                board=str(Board.SALES),
+                owner_id=owner_id,
+                column_code=to,
+                opened_at=paid_at,
+                column_since=now,
+                reasons=[],
+            )
+            db.add(card)
+            db.flush()
+            record(
+                db,
+                card=card,
+                kind=EventKind.START_BOUGHT,
+                now=now,
+                to_column=to,
+                ref=ref,
+            )
+            moved += 1
+            continue
+        # The old rule sold the card on this payment; it is a lead again,
+        # and the full plan paid later writes the sale.
+        for line in db.scalars(
+            select(BoardCardEvent).where(
+                BoardCardEvent.card_id == card.id, BoardCardEvent.ref == _SOLD_REF
+            )
+        ):
+            line.ref = _SOLD_BY_START_REF
+        card.closed_at = None
+        card.close_reason = ""
+        card.close_note = ""
+        move(db, card=card, to=to, kind=EventKind.START_BOUGHT, now=now, ref=ref)
+        moved += 1
+    db.commit()
+    return moved
+
+
+def _has_card(db: Session, *, owner_id: uuid.UUID) -> bool:
+    return bool(
+        db.scalar(
+            select(
+                exists().where(
+                    BoardCard.board == str(Board.SALES), BoardCard.owner_id == owner_id
+                )
+            )
+        )
+    )
+
+
+def step_offers(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """A discount card follows its clock: 20% → 10% a day after the start,
+    → Yopildi («Chegirma tugadi») when the fourth day ends. The clock is the
+    client's Start payment, or without one the manager's talk. Each step
+    once per clock: a card the Owner moved back by hand stays where they put
+    it. Runs after ``mark_sold``, so a client who paid is in Sotildi, not
+    here."""
+    paid = start_paid_at().subquery()
+    by_start = (
+        select(paid.c.at)
+        .where(paid.c.owner_id == BoardCard.owner_id)
+        .correlate(BoardCard)
+        .scalar_subquery()
+    )
+    by_talk = (
+        select(BoardCardEvent.created_at)
+        .where(
+            BoardCardEvent.card_id == BoardCard.id, BoardCardEvent.ref == OFFERED_REF
+        )
+        .correlate(BoardCard)
+        .scalar_subquery()
+    )
+    started = func.coalesce(by_start, by_talk)
     first_step = OFFER_STEPS[0][1]
     rows = list(
         db.execute(
-            select(BoardCard, started.c.at)
-            .join(started, started.c.card_id == BoardCard.id)
+            select(BoardCard, by_start, by_talk)
             .where(
                 BoardCard.board == str(Board.SALES),
                 BoardCard.closed_at.is_(None),
                 BoardCard.column_code.in_(OFFER_COLUMNS),
-                started.c.at <= now - timedelta(hours=first_step),
+                started <= now - timedelta(hours=first_step),
             )
-            .order_by(started.c.at)
+            .order_by(started)
             .limit(limit)
             .with_for_update(of=BoardCard, skip_locked=True)
             .execution_options(populate_existing=True)
         )
     )
     moved = 0
-    for card, at in rows:
-        step = step_at(at, now)
-        if step is None:
-            to, kind = str(SalesColumn.NO_DISCOUNT), EventKind.OFFER_ENDED
-        else:
-            to = next(str(c) for p, _h, c in OFFER_STEPS if p == step.percent)
-            kind = EventKind.OFFER_STEP
-        if to == card.column_code or _has_step(db, card=card, ref=to):
+    for card, start_at, talk_at in rows:
+        at = start_at or talk_at
+        # Each clock writes its own lines: a lead talked to and stepped
+        # down, who then pays Start, steps down once more on that clock.
+        mark = f":{OfferSource.START}" if start_at else ""
+        to = column_at(at, now)
+        if to is None:
+            ref = f"{OFFER_ENDED_REASON}{mark}"
+            if _has_step(db, card=card, ref=ref):
+                continue
+            card.closed_at = now
+            card.close_reason = OFFER_ENDED_REASON
+            card.close_note = ""
+            card.due_at = None
+            move(
+                db,
+                card=card,
+                to=str(SalesColumn.CLOSED),
+                kind=EventKind.OFFER_ENDED,
+                now=now,
+                ref=ref,
+            )
+            moved += 1
             continue
-        move(db, card=card, to=to, kind=kind, now=now, ref=to)
+        ref = f"{to}{mark}"
+        if to == card.column_code or _has_step(db, card=card, ref=ref):
+            continue
+        move(db, card=card, to=to, kind=EventKind.OFFER_STEP, now=now, ref=ref)
         moved += 1
     db.commit()
     return moved
@@ -369,7 +535,7 @@ def sweep_sales(db: Session, *, now: datetime) -> tuple[int, int]:
     ensure_board(db, board=Board.SALES, now=now)
     db.commit()
     opened, sold = open_leads(db, now=now), mark_sold(db, now=now)
-    moved = step_offers(db, now=now)
+    moved = start_bought(db, now=now) + step_offers(db, now=now)
     moved += bills_opened(db, now=now) + bills_unpaid(db, now=now)
     return opened, sold + moved
 
@@ -463,15 +629,21 @@ def _setup_late_given(
 
 def from_sales(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """A client Sales marked «Support kerak» paid: the ticket opens now,
-    not an hour later."""
+    not an hour later. Start is a payment too: its buyer is using the
+    system, so the mark on their card opens the ticket at once."""
     if _since(db) is None:
         return 0
+    paid = exists().where(
+        Invoice.owner_id == BoardCard.owner_id,
+        Invoice.kind == str(InvoiceKind.PLAN),
+        Invoice.status == str(InvoiceStatus.PAID),
+    )
     rows = list(
         db.execute(
             select(BoardCard.id, BoardCard.owner_id, BoardCard.manager_id)
             .where(
                 BoardCard.board == str(Board.SALES),
-                BoardCard.column_code == str(SalesColumn.SOLD),
+                or_(BoardCard.column_code == str(SalesColumn.SOLD), paid),
                 BoardCard.needs_support.is_(True),
                 ~_has_ref(BoardCard.owner_id, func.concat("sales:", BoardCard.id)),
             )

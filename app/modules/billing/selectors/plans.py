@@ -279,6 +279,24 @@ def _switch(
     return PlanSwitch(move=move, current=current, credit_minor=minor, credit_days=days)
 
 
+def plan_credits(
+    db: Session, *, owner: User, plans: Sequence[Plan], now: datetime
+) -> dict[str, int]:
+    """What the running plan's unused days are worth against each of
+    ``plans``, as ``checkout_offers`` credits them: 0 where the plan does
+    not start anew. The sales discount is taken off what this leaves."""
+    current = running_subscription(db, owner=owner, now=now)
+    if current is None or current.status == SubscriptionStatus.TRIAL:
+        return {plan.code: 0 for plan in plans}
+    credit = remainder(db, owner=owner, subscription=current, now=now)
+    return {
+        plan.code: _switch(
+            db, owner=owner, current=current, plan=plan, now=now, credit=credit
+        ).credit_minor
+        for plan in plans
+    }
+
+
 def checkout_offers(
     db: Session,
     *,

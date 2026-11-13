@@ -222,11 +222,18 @@ def priced_choice(
     from app.modules.boards.offer import live_offer, offer_minor
 
     sales = live_offer(db, owner_id=user.id, now=now)
+    # The discount is a percent of what the running plan's unused days leave.
+    credits = (
+        selectors.plan_credits(db, owner=user, plans=plans, now=now)
+        if sales is not None
+        else {}
+    )
     taken = {
         plan.code: offer_minor(
             offer=sales,
             plan=plan,
             base_minor=int(to_minor(amount=str(plan.price), currency=plan.currency)),
+            credit_minor=credits.get(plan.code, 0),
         )
         for plan in plans
     }
@@ -266,6 +273,11 @@ def priced_choice(
             "percent": sales.percent,
             "ends_at": sales.ends_at,
             "pay_until": sales.pay_until,
+            "started_at": sales.started_at,
+            "source": sales.source,
+            "next_percent": sales.next_percent,
+            "next_ends_at": sales.next_ends_at,
+            "server_time": now,
         }
         if sales is not None
         else None,

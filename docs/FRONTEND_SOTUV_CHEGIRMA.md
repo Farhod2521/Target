@@ -1,22 +1,36 @@
 # Sotuv chegirmasi — frontend ishlari
 
-Backend: `main`, commit `6c3ed48`. Avval backend deploy qilinishi kerak.
+> **2026-11-13 dan qoida o'zgardi** (branch `feat/start-discount`, migration `0053`).
+> Quyidagi «Qanday ishlaydi» bo'limi yangi qoidani aytadi; front ham shu branchda qilingan.
 
 ## Qanday ishlaydi
 
-Sotuv menejeri ofis kanbanida «Chegirma berish» tugmasini bosadi. Shundan keyin mijozning
-**birinchi** tarif to'lovi uchun chegirma ishlaydi:
+Chegirma **o'zi boshlanadi**, «Chegirma berish» tugmasi yo'q. Ikki holat:
 
-- 24 soat — 20%
-- 72-soatgacha — 10%
-- keyin — chegirma yo'q
+1. **Mijoz Start sotib oldi** — soat Start to'langan paytdan yuradi (`source: "start"`).
+2. **Start olmagan lid bilan menejer gaplashdi** («Gaplashildi» bosildi) — soat shu bosilgan
+   paytdan yuradi (`source: "contact"`). Har mijozga bir marta.
 
+Start to'lovi o'z soatini yangidan boshlaydi (oldin suhbatdan chegirma bo'lgan bo'lsa ham).
+
+- birinchi 24 soat — 20%
+- keyingi 72 soat (jami 96-soatgacha) — 10%
+- keyin — chegirma yo'q, ofisdagi karta «Yopildi» ga o'tadi
+
+Chegirma mijozning **birinchi to'liq tarifiga** (Standart, Pro) tushadi.
 **Start tarifiga chegirma berilmaydi** (bir martalik tariflarga ham). Batafsil: 7-band.
 
-Hisoblash tartibi: **asl narx → sotuv chegirmasi → promokod (qolgan summadan) → hamyon**.
+Hisoblash tartibi:
+**asl narx → joriy tarif (Start) ning qolgan kunlari → qolgan summadan 20% (yoki 10%) →
+promokod → hamyon**.
 
-Misol (Standard, 490 000 so'm, 20% va 5% promokod):
-490 000 → 392 000 (−20%) → 372 400 (−5%) → hamyondagi pul ayiriladi.
+Misol (Standart 490 000 so'm, Start'ning 6 kuni qolgan = 42 000 so'm, 20%):
+490 000 − 42 000 = 448 000 → 20% = 89 600 → **358 400 so'm**. Promokod va hamyon shundan
+keyin ayiriladi. Chegirma butun so'mgacha pastga yaxlitlanadi.
+
+Kartada (`cards[].offer`) va tanlangan tarifda (`chosen`) har bir qism alohida keladi:
+`price_minor` (asl narx), `credit_minor` (Start qoldig'i), `offer_minor` (chegirma),
+`promo_minor`, `wallet_minor`, `due_minor` (to'lanadi). Front hech narsani o'zi hisoblamaydi.
 
 Hamma summalar **tiyinda** keladi: so'mga o'tkazish uchun 100 ga bo'ling.
 
@@ -127,15 +141,28 @@ Tarif kodi yoki nomiga qarab shart yozmang: faqat `offer_minor` ga qarang.
 {
   "percent": 20,
   "ends_at": "2026-11-12T10:00:00Z",
-  "pay_until": "2026-11-12T10:15:00Z"
+  "pay_until": "2026-11-12T10:15:00Z",
+  "started_at": "2026-11-11T10:00:00Z",
+  "source": "start",
+  "next_percent": 10,
+  "next_ends_at": "2026-11-15T10:00:00Z",
+  "server_time": "2026-11-11T16:20:00Z"
 }
 ```
 
 - `percent` — 20 yoki 10.
-- `ends_at` — shu foiz tugaydigan vaqt.
+- `ends_at` — shu foiz tugaydigan vaqt. Taymer faqat shunga qarab sanaydi.
 - `pay_until` — shu foiz bilan yaratilgan hisobni shu vaqtgacha to'lash mumkin (`ends_at` + 15 daqiqa).
+- `started_at` — chegirma boshlangan vaqt (Start to'lovi yoki suhbat).
+- `source` — `start` yoki `contact`.
+- `next_percent`, `next_ends_at` — keyingi bosqich (20% dan keyin 10%); 10% da `0` va `null`.
+- `server_time` — javob berilgan paytdagi server vaqti. Taymer `ends_at − server_time` dan
+  sanaydi, qurilma soatiga ishonmaydi.
+
+Start egasi tarif devorini ko'rmaydi (`GET /billing/paywall` → `already_open`): unga
+chegirma `GET /billing` (Tariflar) va to'lov sahifasida keladi.
 
 ## O'zgarmaydi
 
-- Ofis kanbani: ustunlar va «Chegirma berish» tugmasi backenddan keladi.
+- Ofis kanbani: ustunlar va tugmalar backenddan keladi.
 - Mijozga chegirma haqida xabar yuborilmaydi.

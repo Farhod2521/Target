@@ -26,6 +26,8 @@ from app.modules.boards.constants import (
     CLIENT_SEARCH_ROWS,
     CLOSE_REASON_LABELS,
     EVENT_KIND_LABELS,
+    OFFER_ENDED_LABEL,
+    OFFER_ENDED_REASON,
     SALES_ACTIONS,
     SEARCH_MAX,
     SUPPORT_ACTION_LABELS,
@@ -147,28 +149,19 @@ def _reason_label(code: str) -> str:
 class Extras:
     """What a Sales card shows from outside its own row."""
 
-    # card id -> when «Chegirma berish» was pressed.
-    offered: dict[uuid.UUID, datetime]
+    # card id -> when its discount started, and from what (boards.offer).
+    offered: dict[uuid.UUID, tuple[datetime, str]]
     # owner id -> the bill they opened and may still pay.
     bills: dict[uuid.UUID, Invoice]
 
 
 def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
-    """The offers and open bills of these cards, in two queries."""
-    from app.modules.boards.offer import OFFERED_REF
+    """The discounts and open bills of these cards, in three queries."""
+    from app.modules.boards.offer import clocks_for
 
     sales = [card for card in cards if card.board == str(Board.SALES)]
     if not sales:
         return Extras(offered={}, bills={})
-    offered = {
-        card_id: at
-        for card_id, at in db.execute(
-            select(BoardCardEvent.card_id, BoardCardEvent.created_at).where(
-                BoardCardEvent.card_id.in_([card.id for card in sales]),
-                BoardCardEvent.ref == OFFERED_REF,
-            )
-        )
-    }
     bills: dict[uuid.UUID, Invoice] = {}
     for bill in db.scalars(
         open_bills(now)
@@ -177,7 +170,7 @@ def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
     ):
         if bill.owner_id is not None:
             bills[bill.owner_id] = bill
-    return Extras(offered=offered, bills=bills)
+    return Extras(offered=clocks_for(db, sales), bills=bills)
 
 
 def open_bills(at: datetime) -> Select[Any]:
@@ -196,15 +189,19 @@ def _brief_offer(
 ) -> dict[str, Any] | None:
     from app.modules.boards.offer import step_at
 
-    started = extras.offered.get(card.id)
-    if started is None:
+    clock = extras.offered.get(card.id)
+    if clock is None:
         return None
-    # Sold or closed: the offer no longer applies, as the bill sees it.
-    step = step_at(started, now) if card.closed_at is None else None
+    started, source = clock
+    # Sold or closed: the discount is over on the card.
+    step = step_at(started, now, source=source) if card.closed_at is None else None
     return {
         "percent": step.percent if step else 0,
         "started_at": started,
         "ends_at": step.ends_at if step else None,
+        "source": source,
+        "next_percent": step.next_percent if step else 0,
+        "next_ends_at": step.next_ends_at if step else None,
     }
 
 
@@ -423,6 +420,8 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
     reason = (
         str(CLOSE_REASON_LABELS[CloseReason(card.close_reason)])
         if card.close_reason in CloseReason.values
+        else OFFER_ENDED_LABEL
+        if card.close_reason == OFFER_ENDED_REASON
         else ""
     )
     extras = extras_for(db, [card], now=now)

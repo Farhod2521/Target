@@ -19,6 +19,8 @@ from app.modules.boards.constants import (
     DUE_MAX_DAYS,
     DUE_PAST_SLACK_SECONDS,
     NOTE_MAX,
+    OFFER_COLUMNS,
+    OFFER_STEPS,
     SALES_ACTIONS,
     SUPPORT_ACTIONS,
     TICKET_TAKE_LIMIT,
@@ -43,12 +45,12 @@ from app.modules.boards.exceptions import (
     NothingToTake,
     NoTicketToTake,
     NotOnBoard,
-    OfferGiven,
     ReasonRequired,
     TakeLimit,
     TicketHeld,
 )
 from app.modules.boards.models import BoardCard, BoardCardEvent
+from app.modules.boards.offer import OFFERED_REF
 
 
 def record(
@@ -130,19 +132,36 @@ def card_for(
 
 
 def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
-    """The newest lead nobody works yet, now this manager's: a fresh sign-up
-    is called first. Two managers pressing at once get two different leads."""
-    card = db.scalar(
+    """The next lead nobody works yet, now this manager's. A client whose
+    discount is running (they paid Start) comes first, the 20% ones before
+    the 10% ones: their time is going. Then the newest sign-up. Two managers
+    pressing at once get two different leads."""
+    waiting = (
         select(BoardCard)
-        .where(
-            BoardCard.board == str(Board.SALES),
-            BoardCard.column_code == str(SalesColumn.UNWORKED),
-            BoardCard.closed_at.is_(None),
-        )
-        .order_by(BoardCard.opened_at.desc(), BoardCard.id)
+        .where(BoardCard.board == str(Board.SALES), BoardCard.closed_at.is_(None))
         .limit(1)
         .with_for_update(skip_locked=True)
         .execution_options(populate_existing=True)
+    )
+    card = None
+    for _percent, _hours, column in OFFER_STEPS:
+        card = db.scalar(
+            waiting.where(
+                BoardCard.column_code == str(column), BoardCard.manager_id.is_(None)
+            ).order_by(BoardCard.column_since.desc(), BoardCard.id)
+        )
+        if card is not None:
+            break
+    if card is not None:
+        # The card stays in its discount column; only its person changes.
+        card.manager_id = manager.id
+        record(db, card=card, kind=EventKind.TAKEN, now=now, actor=manager)
+        db.commit()
+        return card
+    card = db.scalar(
+        waiting.where(BoardCard.column_code == str(SalesColumn.UNWORKED)).order_by(
+            BoardCard.opened_at.desc(), BoardCard.id
+        )
     )
     if card is None:
         raise NothingToTake
@@ -281,9 +300,10 @@ def act(
         raise CardClosed
     if action not in SALES_ACTIONS.get(card.column_code, ()):
         raise ActionNotHere
-    if action in ACTION_NOTE_REQUIRED and not text:
-        raise NoteRequired
     if action == CardAction.NEEDS_SUPPORT:
+        # Support reads why: the mark is set with its reason written.
+        if on and not text:
+            raise NoteRequired
         if card.needs_support != on:
             card.needs_support = on
             record(
@@ -296,12 +316,8 @@ def act(
             )
         db.commit()
         return card
-    if action == CardAction.OFFER:
-        # The discount's own clock is the card's deadline now.
-        _offer(db, card=card, user=user, note=text, now=now)
-        card.due_at = None
-        db.commit()
-        return card
+    if action in ACTION_NOTE_REQUIRED and not text:
+        raise NoteRequired
     if action == CardAction.CLOSE:
         if reason not in CloseReason.values:
             raise ReasonRequired
@@ -319,17 +335,38 @@ def act(
         card.manager_id = None
     to, kind = _SALES_MOVES[action]
     card.due_at = due
-    move(
-        db,
-        card=card,
-        to=str(to),
-        kind=kind,
-        now=now,
-        actor=user,
-        body=_said(text, due),
-    )
+    said = _said(text, due)
+    if action != CardAction.CLOSE and card.column_code in OFFER_COLUMNS:
+        # The discount's clock owns this column: the call leaves its mark.
+        record(db, card=card, kind=kind, now=now, actor=user, body=said)
+    elif action == CardAction.CONTACTED and _starts_offer(db, card=card):
+        # The talk itself starts the lead's discount: 20% from this minute.
+        # Its own line a moment earlier, so the history reads in order.
+        talked = now - timedelta(microseconds=1)
+        record(db, card=card, kind=kind, now=talked, actor=user, body=said)
+        move(
+            db,
+            card=card,
+            to=str(OFFER_STEPS[0][2]),
+            kind=EventKind.OFFERED,
+            now=now,
+            actor=user,
+            ref=OFFERED_REF,
+        )
+    else:
+        move(db, card=card, to=str(to), kind=kind, now=now, actor=user, body=said)
     db.commit()
     return card
+
+
+def _starts_offer(db: Session, *, card: BoardCard) -> bool:
+    """Whether «Gaplashildi» starts this lead's discount: once per client,
+    and not for one whose Start payment started it, or who paid a full plan."""
+    from app.modules.boards.offer import bought_full_plan, clocks_for
+
+    if clocks_for(db, [card]):
+        return False
+    return not bought_full_plan(db, owner_id=card.owner_id)
 
 
 # Where a Sales button puts the card, and the line it writes.
@@ -341,27 +378,6 @@ _SALES_MOVES: dict[CardAction, tuple[SalesColumn, EventKind]] = {
     CardAction.CLOSE: (SalesColumn.CLOSED, EventKind.CLOSED),
     CardAction.RELEASE: (SalesColumn.UNWORKED, EventKind.RELEASED),
 }
-
-
-def _offer(
-    db: Session, *, card: BoardCard, user: User, note: str, now: datetime
-) -> None:
-    """«Chegirma berish»: the card goes to 20%, and the offer's clock starts.
-    Once per client, even if the card is later moved back by hand."""
-    from app.modules.boards.offer import OFFERED_REF, offered_at
-
-    if offered_at(db, card_id=card.id) is not None:
-        raise OfferGiven
-    move(
-        db,
-        card=card,
-        to=str(SalesColumn.DISCOUNT_20),
-        kind=EventKind.OFFERED,
-        now=now,
-        actor=user,
-        body=note,
-        ref=OFFERED_REF,
-    )
 
 
 def held_by_another(card: BoardCard, *, user: User, access: Access) -> bool:
@@ -484,11 +500,10 @@ def add_lead(
     now: datetime,
 ) -> BoardCard:
     """The Sales lead puts a signed-up client on the board by hand: into
-    Ishlanmagan, or straight to a manager. A client who paid a plan is not
-    a lead; one whose card was closed gets that card back, with its history."""
-    from app.modules.billing.constants import InvoiceKind, InvoiceStatus
-    from app.modules.billing.models import Invoice
+    Ishlanmagan, or straight to a manager. A client who paid a full plan is
+    not a lead (one who paid only Start is); one whose card was closed gets that card back, with its history."""
     from app.modules.boards.access import may_take
+    from app.modules.boards.offer import bought_full_plan
 
     if not access.leads_board(Board.SALES):
         raise CardNotFound
@@ -498,16 +513,7 @@ def add_lead(
         manager = db.get(User, to_id)
         if manager is None or not may_take(db, manager):
             raise NotOnBoard
-    paid = db.scalar(
-        select(Invoice.id)
-        .where(
-            Invoice.owner_id == client.id,
-            Invoice.kind == str(InvoiceKind.PLAN),
-            Invoice.status == str(InvoiceStatus.PAID),
-        )
-        .limit(1)
-    )
-    if paid is not None:
+    if bought_full_plan(db, owner_id=client.id):
         raise ClientPaid
     text = note.strip()[:NOTE_MAX]
     to = str(SalesColumn.NEW_LEAD if manager else SalesColumn.UNWORKED)
@@ -679,13 +685,19 @@ def assign(
             return card
         card.manager_id = None
         card.due_at = None
-        if board == Board.SALES:
+        if board == Board.SALES and card.column_code in OFFER_COLUMNS:
+            # The discount's clock owns the column; «Lid olish» gives it out.
+            back = card.column_code
+        elif board == Board.SALES:
             back = str(SalesColumn.UNWORKED)
         elif card.closed_at is not None:
             back = card.column_code
         else:
             back = str(SupportColumn.NEW)
-        move(db, card=card, to=back, kind=EventKind.RETURNED, now=now, actor=user)
+        if back == card.column_code:
+            record(db, card=card, kind=EventKind.RETURNED, now=now, actor=user)
+        else:
+            move(db, card=card, to=back, kind=EventKind.RETURNED, now=now, actor=user)
         db.commit()
         return card
     manager = db.get(User, to_id)

@@ -366,7 +366,11 @@ def test_sales_words_come_with_the_ticket(client: TestClient, db: Session) -> No
         json={"body": "Instagram sahifasi yo'q, ochib berish kerak"},
         headers=ali,
     )
-    client.post(press, json={"action": "needs_support", "on": True}, headers=ali)
+    client.post(
+        press,
+        json={"action": "needs_support", "on": True, "note": "Pixel kerak"},
+        headers=ali,
+    )
     _paid(db, owner)
     triggers.sweep_sales(db, now=utcnow())
     triggers.sweep_support(db, now=utcnow())
@@ -376,6 +380,7 @@ def test_sales_words_come_with_the_ticket(client: TestClient, db: Session) -> No
     detail = str(ticket.reasons[0]["detail"])
     assert "ali@office.test" in detail
     assert "Instagram sahifasi yo'q" in detail
+    assert "Pixel kerak" in detail
 
 
 def test_a_plan_the_office_gave_sells_the_lead_and_is_watched_for_setup(

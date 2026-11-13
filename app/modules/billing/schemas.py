@@ -91,7 +91,9 @@ class OfferOut(BaseModel):
         description="All the discount: `offer_minor` + `promo_minor`."
     )
     offer_minor: int = Field(
-        0, description="The sales manager's offer (20% or 10%) on the plan price."
+        0,
+        description="The sales discount (20% or 10%) of the plan price less "
+        "`credit_minor`.",
     )
     promo_minor: int = Field(
         0, description="The typed code, on the price left after the offer."
@@ -173,6 +175,25 @@ class SalesOfferOut(BaseModel):
     percent: int = Field(description="20 for the first day, then 10.")
     ends_at: datetime = Field(description="When this percent ends.")
     pay_until: datetime = Field(description="A bill priced now is payable until then.")
+    started_at: datetime | None = Field(
+        None, description="When the discount started: the Start payment or the talk."
+    )
+    source: str = Field(
+        "contact",
+        description="`start`: the client paid Start. `contact`: the sales "
+        "manager talked to a lead who has not.",
+    )
+    next_percent: int = Field(
+        0, description="The percent after `ends_at`: 10 after 20, then 0 (none)."
+    )
+    next_ends_at: datetime | None = Field(
+        None, description="When `next_percent` ends; null when nothing follows."
+    )
+    server_time: datetime | None = Field(
+        None,
+        description="The server's clock when this was read. Count the timer "
+        "down from `ends_at - server_time`, not from the device's clock.",
+    )
 
 
 class PricedChoice(BaseModel):
@@ -180,9 +201,12 @@ class PricedChoice(BaseModel):
     promo_typed: str
     sales_offer: SalesOfferOut | None = Field(
         None,
-        description="The sales manager's offer on the first plan. The cards and "
-        "`chosen` already take it off; a code is taken off what is left. Start "
-        "and one-time plans are not discounted: their `offer_minor` is 0.",
+        description="The discount on the first full plan: 20% for a day after "
+        "the Start payment (or the sales manager's talk), then 10% for three "
+        "more days. The cards and `chosen` already take it off: `offer_minor` "
+        "is the percent of `price_minor - credit_minor` (the price less the "
+        "running plan's unused days); a code is taken off what is left, then "
+        "the wallet. Start and one-time plans are not discounted.",
     )
     promo_quote: PromoQuote | None = Field(None, description="The typed code applies.")
     promo_error: str | None = Field(None, description="Why the typed code does not.")

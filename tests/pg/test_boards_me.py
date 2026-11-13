@@ -65,7 +65,6 @@ def test_a_sales_manager_opens_sales_and_is_refused_support(
         "callback",
         "discount_20",
         "discount_10",
-        "no_discount",
         "awaiting",
         "sold",
     ]
@@ -88,7 +87,6 @@ def test_the_sales_lead_also_sees_unworked_and_closed(
         "callback",
         "discount_20",
         "discount_10",
-        "no_discount",
         "awaiting",
         "sold",
         "closed",
@@ -124,7 +122,7 @@ def test_the_superuser_opens_both_and_may_change_them(
     me = MeOut.model_validate(client.get(ME, headers=head).json())
     assert [board.code for board in me.boards] == ["sales", "support"]
     assert me.can.move and me.can.columns and me.can.staff
-    assert len(_columns(client, "sales", head)) == 11
+    assert len(_columns(client, "sales", head)) == 10
 
 
 def test_staff_without_a_board_get_none_and_customers_get_404(

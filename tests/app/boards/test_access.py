@@ -110,7 +110,8 @@ def test_the_migration_seeds_the_same_columns_as_the_code() -> None:
             name,
             "auto" if (board, code) == ("support", "resolved") else kind,
             final,
-            shown,
+            # 0053 hides «Chegirmasiz»: a card whose discount ran out closes.
+            shown and (board, code) != ("sales", "no_discount"),
         )
         for board, code, name, kind, final, shown in seeded
     ]

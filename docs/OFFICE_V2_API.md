@@ -110,19 +110,27 @@ Sahifa ochilganda birinchi shu chaqiriladi.
 | `callback` | Qayta aloqa | tugma (muddat majburiy) | Ega menejer, rahbar |
 | `discount_20` | 20% chegirma | avto | Ega menejer, rahbar |
 | `discount_10` | 10% chegirma | avto | Ega menejer, rahbar |
-| `no_discount` | Chegirmasiz | avto | Ega menejer, rahbar |
-| `awaiting` | To'lov kutilmoqda | avto yoki «To'laydi» tugmasi | Ega menejer, rahbar |
+| `awaiting` | To'lov kutilmoqda | avto (mijoz hisob ochsa) | Ega menejer, rahbar |
 | `sold` | Sotildi | avto, yakuniy | Ega menejer, rahbar |
 | `closed` | Yopildi | tugma, yakuniy | Rahbar |
 
-**Chegirma.** «Bog'lanildi» dagi «Chegirma berish» (`offer`) kartani «20% chegirma» ga
-o'tkazadi va soat shu bosilgan paytdan boshlanadi: 24 soat 20%, 72-soatgacha 10%,
-keyin «Chegirmasiz». Bu o'tishlarni tizim har daqiqa o'zi qiladi. Har mijozga bir marta
-beriladi. Chegirma mijozning **birinchi** tarif to'loviga tushadi (qo'shimcha sahifa va
-o'rinlarga emas). Tartib: asl narx → sotuv chegirmasi → promokod (qolgan summadan) →
-hamyon. Shu chegirma bilan narxlangan
-to'lov bosqich tugaganidan 15 daqiqa keyingacha to'lanadi. Karta yopilsa yoki qo'lda
-chegirma ustunlaridan chiqarilsa, chegirma ham to'xtaydi.
+**Chegirma (2026-11-13 dan o'zi boshlanadi).** «Chegirma berish» tugmasi yo'q.
+Soat ikki joydan boshlanadi: mijoz **Start sotib olsa** (to'lov payti), yoki Start olmagan
+lidda menejer **«Gaplashildi»** ni bossa (bosilgan payt, har mijozga bir marta). Karta
+«20% chegirma» ga tushadi: 24 soat 20%, keyin yana 72 soat 10% (96-soatgacha), keyin karta
+**«Yopildi»** ga o'tadi (`close_reason: "offer_ended"`, «Chegirma tugadi»). «Chegirmasiz»
+ustuni yashirilgan (migration `0053`, bo'sh bo'lsa). Bu o'tishlarni tizim har daqiqa o'zi
+qiladi. Start to'lovi **sotuv emas**: karta «Sotildi» ga faqat Standart/Pro to'langanda
+o'tadi; Start olgan mijozning kartasi ochiq qoladi (yopilgan bo'lsa qayta ochiladi) va
+menejeri saqlanadi, menejeri yo'q bo'lsa «Lid olish» avval shularni beradi. Chegirma
+ustunlarida «Gaplashildi», «Bog'lanib bo'lmadi», «Vaqt qo'yish» kartani **ko'chirmaydi** —
+`contact_mark`, `attempts`, `due_at` ga belgi qo'yadi. Chegirma mijozning **birinchi to'liq**
+tarif to'loviga tushadi (qo'shimcha sahifa va o'rinlarga, Start'ga emas). Tartib: asl narx →
+Start'ning qolgan kunlari → qolgan summadan foiz → promokod → hamyon. Chegirma kartaning
+ustuniga qaramaydi: soat to'lov yoki suhbat paytining o'zi. Shu chegirma bilan narxlangan
+to'lov bosqich tugaganidan 15 daqiqa keyingacha to'lanadi. Suhbatdan boshlangan
+chegirma karta yopilsa to'xtaydi; Start to'lovidan boshlangani faqat vaqti bilan tugaydi.
+Kartani qo'lda boshqa ustunga ko'chirish chegirmani to'xtatmaydi.
 
 Mijoz kabinetida: `GET /api/v1/billing` va `GET /api/v1/billing/paywall` javobida
 `sales_offer: {percent, ends_at, pay_until}` (yoki `null`). Tarif kartalari
@@ -152,7 +160,7 @@ Kartaning hammasi: `card` maydonlari, hamda:
              "plan": {"name": "Standart", "status": "active", "expires_at": "…", "setup_done": false}},
   "ticket_reasons": [{"code": "meta_error", "label": "Meta xatosi", "detail": "Reklama ishga tushmadi: …", "at": "…"}],
   "support_chat_id": "…",
-  "offer": {"percent": 20, "started_at": "…", "ends_at": "…"},
+  "offer": {"percent": 20, "started_at": "…", "ends_at": "…", "source": "start", "next_percent": 10, "next_ends_at": "…"},
   "close_reason": "expensive", "close_reason_label": "Qimmat", "close_note": "",
   "bill": {"number": "TA-…", "plan": "Standart", "amount_minor": 49000000, "currency": "UZS",
            "status": "pending", "expires_at": "…"},
@@ -186,14 +194,12 @@ Lid qolmagan bo'lsa: **409** `nothing_to_take`. Sotuv rollarida, superuserda va 
 
 | `action` | Qaysi ustunda | Nima bo'ladi |
 |---|---|---|
-| `contacted` | Yangi lead, Bog'lanilmadi, Qayta aloqa | → Bog'lanildi |
-| `no_contact` | Yangi lead, Bog'lanilmadi, Qayta aloqa | → Bog'lanilmadi, `attempts` +1; `due_at` ixtiyoriy |
-| `callback` | Bog'lanilmadi, Bog'lanildi, Chegirmasiz, To'lov kutilmoqda | → Qayta aloqa; `due_at` **majburiy** |
-| `will_pay` | Bog'lanildi, Qayta aloqa, Chegirmasiz | → To'lov kutilmoqda; `due_at` ixtiyoriy |
-| `offer` | Bog'lanildi, Qayta aloqa | → 20% chegirma; ikkinchi marta **409** `offer_given` |
-| `needs_support` | Bog'lanildi, Qayta aloqa, 20%, 10%, Chegirmasiz, To'lov kutilmoqda | «Support kerak» belgisi; `"on": false` olib tashlaydi |
-| `close` | Yopiq bo'lmagan hamma ustun (Ishlanmagandan tashqari) | → Yopildi; `reason` majburiy |
-| `release` | Yangi lead, Bog'lanilmadi, Bog'lanildi, Qayta aloqa, Chegirmasiz | Menejer lidni qaytaradi: → Ishlanmagan, menejersiz; `note` majburiy |
+| `contacted` («Gaplashildi») | Yangi lead, Bog'lanilmadi, Qayta aloqa, 20%, 10% | Chegirmasi hali bo'lmagan lid: → 20% chegirma, soat boshlanadi. Chegirma ustunida: belgi, karta joyida. Chegirmasi ishlatilgan lid: → Bog'lanildi |
+| `no_contact` («Bog'lanib bo'lmadi») | Yangi lead, Bog'lanilmadi, Qayta aloqa, 20%, 10% | → Bog'lanilmadi (chegirma ustunida joyida), `attempts` +1; `due_at` ixtiyoriy |
+| `callback` («Vaqt qo'yish») | Yangi lead, Bog'lanilmadi, Bog'lanildi, Qayta aloqa, 20%, 10%, To'lov kutilmoqda | → Qayta aloqa (chegirma ustunida joyida); `due_at` **majburiy** |
+| `needs_support` | Bog'lanildi, Qayta aloqa, 20%, 10%, To'lov kutilmoqda | «Support kerak» belgisi; yoqishda `note` (sabab) **majburiy**, `"on": false` izohsiz olib tashlaydi. Mijoz to'lagan bo'lsa (Start ham) zayavka shu daqiqada ochiladi |
+| `close` («Yopish») | Yopiq bo'lmagan hamma ustun (Ishlanmagandan tashqari) | → Yopildi; `reason` majburiy |
+| ~~`will_pay`, `offer`, `release` (Sotuv)~~ | — | Olib tashlangan: **409** `action_not_here`. Lidni qaytarish faqat rahbar/Owner/superuser: `POST /cards/{id}/assign` `{"staff_id": null}` (chegirma ustunidagi karta joyida qoladi, menejersiz) |
 | `start` | Support: Yangi, Mijoz kutilmoqda | → Ishlanmoqda; mas'uli yo'q bo'lsa, bosgan xodim mas'ul bo'ladi |
 | `wait` | Support: Ishlanmoqda | → Mijoz kutilmoqda; `due_at` **majburiy** |
 | `resolve` | Support: Ishlanmoqda, Mijoz kutilmoqda | → Hal qilindi; `note` **majburiy** |

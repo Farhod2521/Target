@@ -74,7 +74,6 @@ def test_callback_needs_a_time_and_any_result_ends_it(
 ) -> None:
     card, ali, _ = _taken(client, db)
     press = f"{URL}/cards/{card.id}/actions"
-    _detail(client.post(press, json={"action": "contacted"}, headers=ali))
 
     bare = client.post(press, json={"action": "callback"}, headers=ali)
     assert bare.status_code == 422 and bare.json()["code"] == "due_required"
@@ -99,10 +98,53 @@ def test_callback_needs_a_time_and_any_result_ends_it(
     )
     button = {a.value: a for a in later.actions}
     assert button["no_contact"].due == "optional" and button["contacted"].due == ""
-    assert button["release"].note_required
+    assert button["needs_support"].note_required and "release" not in button
 
+    # The talk starts the discount, and the call time is over.
     talked = _detail(client.post(press, json={"action": "contacted"}, headers=ali))
-    assert talked.column == "contacted" and talked.due_at is None
+    assert talked.column == "discount_20" and talked.due_at is None
+
+
+def test_in_a_discount_column_the_buttons_mark_the_card_and_do_not_move_it(
+    client: TestClient, db: Session
+) -> None:
+    card, ali, _ = _taken(client, db)
+    press = f"{URL}/cards/{card.id}/actions"
+    talked = _detail(client.post(press, json={"action": "contacted"}, headers=ali))
+    assert [a.value for a in talked.actions] == [
+        "contacted",
+        "no_contact",
+        "callback",
+        "needs_support",
+        "close",
+    ]
+
+    bare = client.post(press, json={"action": "callback"}, headers=ali)
+    assert bare.status_code == 422 and bare.json()["code"] == "due_required"
+    timed = _detail(
+        client.post(press, json={"action": "callback", "due_at": _in(3)}, headers=ali)
+    )
+    assert timed.column == "discount_20" and timed.due_at is not None
+    assert timed.history[0].kind == "callback" and timed.history[0].to_column == ""
+    assert timed.contact_mark == "contacted"
+
+    missed = _detail(client.post(press, json={"action": "no_contact"}, headers=ali))
+    assert missed.column == "discount_20" and missed.contact_mark == "no_contact"
+    assert missed.attempts == 1 and missed.due_at is None
+
+    again = _detail(client.post(press, json={"action": "contacted"}, headers=ali))
+    assert again.column == "discount_20" and again.contact_mark == "contacted"
+    assert [h.kind for h in again.history].count("offered") == 1
+    assert again.offer is not None and again.offer.started_at == talked.offer.started_at  # type: ignore[union-attr]
+
+    seen = _board(client, "sales", ali)
+    lane = next(c for c in seen.columns if c.code == "discount_20")
+    assert lane.total == 1 and lane.cards[0].contact_mark == "contacted"
+
+    closed = _detail(
+        client.post(press, json={"action": "close", "reason": "expensive"}, headers=ali)
+    )
+    assert closed.column == "closed" and closed.offer.percent == 0  # type: ignore[union-attr]
 
 
 def test_the_deadline_is_set_moved_and_taken_off_in_place(
@@ -159,7 +201,7 @@ def test_the_nearest_deadline_is_on_top_of_its_column(
     assert lane.cards[2].due_at is None
 
 
-def test_missed_calls_are_counted_and_the_manager_gives_the_lead_back(
+def test_missed_calls_are_counted_and_only_the_lead_gives_the_lead_back(
     client: TestClient, db: Session
 ) -> None:
     card, ali, _ = _taken(client, db)
@@ -174,18 +216,42 @@ def test_missed_calls_are_counted_and_the_manager_gives_the_lead_back(
         and again.due_at is not None
     )
 
-    silent = client.post(press, json={"action": "release"}, headers=ali)
-    assert silent.status_code == 422 and silent.json()["code"] == "note_required"
+    # The manager has no «Navbatga qaytarish» any more.
+    refused = client.post(
+        press, json={"action": "release", "note": "Ta'tilga chiqyapman"}, headers=ali
+    )
+    assert refused.status_code == 409
+    give = f"{URL}/cards/{card.id}/assign"
+    assert client.post(give, json={"staff_id": None}, headers=ali).status_code == 404
+
+    boss = _staff(db, "boss@office.test", superuser=True)
+    back = _detail(client.post(give, json={"staff_id": None}, headers=boss))
+    assert back.column == "unworked" and back.manager is None and back.due_at is None
+    assert back.history[0].kind == "returned"
+    assert client.get(f"{URL}/cards/{card.id}", headers=ali).status_code == 404
+
+
+def test_a_discount_card_given_back_stays_in_its_column_for_lid_olish(
+    client: TestClient, db: Session
+) -> None:
+    card, ali, _ = _taken(client, db)
+    press = f"{URL}/cards/{card.id}/actions"
+    client.post(press, json={"action": "contacted"}, headers=ali)
+
+    owner = _staff(db, "owner@office.test", Role.OWNER)
     back = _detail(
         client.post(
-            press,
-            json={"action": "release", "note": "Ta'tilga chiqyapman"},
-            headers=ali,
+            f"{URL}/cards/{card.id}/assign", json={"staff_id": None}, headers=owner
         )
     )
-    assert back.column == "unworked" and back.manager is None and back.due_at is None
-    assert back.history[0].kind == "released"
-    assert client.get(f"{URL}/cards/{card.id}", headers=ali).status_code == 404
+    assert back.column == "discount_20" and back.manager is None
+    assert back.history[0].kind == "returned"
+    assert back.offer is not None and back.offer.percent == 20
+
+    vali = _staff(db, "vali@office.test", Role.SALES)
+    taken = _detail(client.post(f"{URL}/sales/take", headers=vali))
+    assert taken.id == card.id and taken.column == "discount_20"
+    assert taken.manager is not None and taken.history[0].kind == "taken"
 
 
 def test_a_bill_moves_the_card_to_awaiting_and_back_when_unpaid(
@@ -193,7 +259,7 @@ def test_a_bill_moves_the_card_to_awaiting_and_back_when_unpaid(
 ) -> None:
     card, ali, owner = _taken(client, db)
     press = f"{URL}/cards/{card.id}/actions"
-    client.post(press, json={"action": "contacted"}, headers=ali)
+    client.post(press, json={"action": "no_contact"}, headers=ali)
     bill = _bill(db, owner)
 
     _sweep(db)
@@ -218,7 +284,6 @@ def test_a_bill_leaves_a_discount_card_where_it_is(
     card, ali, owner = _taken(client, db)
     press = f"{URL}/cards/{card.id}/actions"
     client.post(press, json={"action": "contacted"}, headers=ali)
-    client.post(press, json={"action": "offer"}, headers=ali)
     _bill(db, owner)
 
     _sweep(db)
@@ -228,25 +293,23 @@ def test_a_bill_leaves_a_discount_card_where_it_is(
     assert lane.cards[0].offer is not None and lane.cards[0].offer.percent == 20
 
 
-def test_will_pay_is_the_managers_and_a_payment_sells_it(
+def test_a_payment_sells_a_discount_card_and_the_old_buttons_are_gone(
     client: TestClient, db: Session
 ) -> None:
     card, ali, owner = _taken(client, db)
     press = f"{URL}/cards/{card.id}/actions"
     client.post(press, json={"action": "contacted"}, headers=ali)
-    promised = _detail(
-        client.post(press, json={"action": "will_pay", "due_at": _in(4)}, headers=ali)
-    )
-    assert promised.column == "awaiting" and promised.due_at is not None
+    for gone in ("will_pay", "offer"):
+        refused = client.post(
+            press, json={"action": gone, "due_at": _in(4)}, headers=ali
+        )
+        assert refused.status_code == 409, gone
 
-    _sweep(db)
-    assert (
-        _detail(client.get(f"{URL}/cards/{card.id}", headers=ali)).column == "awaiting"
-    )
     _paid(db, owner)
     _sweep(db)
     sold = _detail(client.get(f"{URL}/cards/{card.id}", headers=ali))
     assert sold.column == "sold" and sold.due_at is None
+    assert sold.offer is not None and sold.offer.percent == 0
 
 
 def test_the_lead_adds_a_client_by_hand(client: TestClient, db: Session) -> None:

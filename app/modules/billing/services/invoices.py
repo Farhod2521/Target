@@ -441,9 +441,13 @@ def price_invoice(
     locked.credit_minor = locked.pages = locked.pages_minor = 0
     locked.seats = locked.seats_minor = locked.offer_minor = 0
     db.flush()
-    # The sales offer comes off the plan price first; a typed code then comes
-    # off what is left; the wallet (below) pays from the rest.
-    pay_until, offer_take = _sales_offer(db, invoice=locked, owner=owner, now=now)
+    # The sales discount is a percent of the plan price less the running
+    # plan's unused days; a typed code then comes off what is left, the days'
+    # credit after it, and the wallet (below) pays from the rest.
+    switch = plan_switch(db, owner=owner, plan=locked.plan, now=now)
+    pay_until, offer_take = _sales_offer(
+        db, invoice=locked, owner=owner, credit_minor=switch.credit_minor, now=now
+    )
     redeemed = _redemption_on(db, locked)
     plan_minor = locked.amount_minor + (redeemed.discount_minor if redeemed else 0)
     if pay_until is not None and 0 < offer_take < plan_minor:
@@ -462,7 +466,6 @@ def price_invoice(
     else:
         drop_discount(db, invoice=locked, now=now)
     db.refresh(locked, ["amount_minor"])
-    switch = plan_switch(db, owner=owner, plan=locked.plan, now=now)
     if switch.until is not None:
         raise CheaperPlanWaits(until=switch.until)
     current = running_subscription(db, owner=owner, now=now)
@@ -514,10 +517,11 @@ def price_invoice(
 
 
 def _sales_offer(
-    db: Session, *, invoice: Invoice, owner: User, now: datetime
+    db: Session, *, invoice: Invoice, owner: User, credit_minor: int, now: datetime
 ) -> tuple[datetime | None, int]:
-    """The sales manager's offer on a first plan bill: until when a bill
-    priced with it may be paid, and what it takes off the plan's price.
+    """The sales discount on a first full plan bill: until when a bill
+    priced with it may be paid, and what it takes off: its percent of the
+    plan's price less the running plan's unused days (``credit_minor``).
     Pages and seats are not discounted, nor is Start or a one-time plan."""
     from app.modules.boards.offer import live_offer, offer_minor
 
@@ -527,7 +531,9 @@ def _sales_offer(
     if offer is None:
         return None, 0
     base = int(to_minor(amount=str(invoice.plan.price), currency=invoice.currency))
-    take = offer_minor(offer=offer, plan=invoice.plan, base_minor=base)
+    take = offer_minor(
+        offer=offer, plan=invoice.plan, base_minor=base, credit_minor=credit_minor
+    )
     return (offer.pay_until, take) if take else (None, 0)
 
 

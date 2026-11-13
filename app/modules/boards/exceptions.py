@@ -83,13 +83,6 @@ class MoveReasonRequired(DomainError):
         super().__init__("Nega ko'chirilayotganini yozing.")
 
 
-class OfferGiven(DomainError):
-    status_code = 409
-
-    def __init__(self) -> None:
-        super().__init__("Bu mijozga chegirma allaqachon berilgan.")
-
-
 class DueRequired(DomainError):
     status_code = 422
 

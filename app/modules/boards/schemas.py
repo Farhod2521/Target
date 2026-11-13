@@ -75,9 +75,21 @@ class ReasonChipOut(BaseModel):
 
 
 class CardOfferOut(BaseModel):
-    percent: int = Field(description="0 once the offer is over.")
-    started_at: datetime = Field(description="When «Chegirma berish» was pressed.")
+    percent: int = Field(description="20, then 10; 0 once the discount is over.")
+    started_at: datetime = Field(
+        description="When the discount started: the Start payment, or the "
+        "manager's «Gaplashildi»."
+    )
     ends_at: datetime | None = Field(description="When this percent ends.")
+    source: str = Field(
+        "contact",
+        description="`start`: the client paid Start. `contact`: the manager "
+        "talked to a lead who has not.",
+    )
+    next_percent: int = Field(0, description="The percent after `ends_at`; 0: none.")
+    next_ends_at: datetime | None = Field(
+        None, description="When `next_percent` ends: the card closes then."
+    )
 
 
 class CardOut(BaseModel):
