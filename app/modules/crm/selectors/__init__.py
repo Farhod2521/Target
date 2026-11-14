@@ -669,6 +669,9 @@ def _today(now: datetime) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
+_PHONE_DRESS = str.maketrans("", "", " +-()")
+
+
 def _narrowed(
     query: Select[Any], *, filters: BoardFilters, viewer: Viewer, now: datetime
 ) -> Select[Any]:
@@ -676,11 +679,12 @@ def _narrowed(
         query = query.join(Lead, Lead.id == CrmCard.lead_id)
     if filters.query:
         term = filters.query
+        # A phone is typed with spaces, dashes or brackets; only its digits are
+        # looked for. ``%`` and ``_`` are letters here, not wildcards.
+        digits = term.translate(_PHONE_DRESS)
+        named = Lead.full_name.icontains(term, autoescape=True)
         query = query.where(
-            or_(
-                Lead.full_name.icontains(term),
-                Lead.phone_e164.icontains(term.replace(" ", "")),
-            )
+            or_(named, Lead.phone_e164.contains(digits)) if digits.isdigit() else named
         )
     if filters.member and viewer.is_owner:
         if filters.member == "none":
@@ -832,7 +836,14 @@ def board(
         for card in column.cards
         if card.lead.ad_external_id
     }
-    open_cards = visible_cards(viewer).where(CrmCard.closed_at.is_(None))
+    # The two chips count under the search, advert and manager chosen, so a
+    # chip never promises more cards than pressing it shows.
+    open_cards = _narrowed(
+        visible_cards(viewer),
+        filters=replace(filters, flag=""),
+        viewer=viewer,
+        now=now,
+    ).where(CrmCard.closed_at.is_(None))
     start, end = _today(now)
     late = _count(db, open_cards.where(CrmCard.due_at < now))
     today = _count(db, open_cards.where(CrmCard.due_at >= start, CrmCard.due_at < end))

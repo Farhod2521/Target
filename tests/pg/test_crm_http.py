@@ -16,6 +16,7 @@ from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.ads.models import CampaignLaunch
 from app.modules.billing.models import Plan, Subscription
+from app.modules.crm.models import CrmCard
 from app.modules.integrations.models import (
     AdAccount,
     PageAccount,
@@ -800,3 +801,79 @@ def test_the_board_reads_leads_once_not_once_per_card(
     assert {c["lead"]["ad_external_id"] for c in page.json()["cards"]} == {"ad_1"}
     lead_reads = [sql for sql in seen if sql.startswith("SELECT leads.id")]
     assert len(lead_reads) == 2, lead_reads
+
+
+def test_an_opened_lead_says_where_it_stands_on_the_board_as_the_list_does(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    _running(client, head)
+
+    rows = client.get("/api/v1/leads", headers=head).json()["rows"]
+    placed = next(row for row in rows if row["place"])
+
+    one = client.get(f"/api/v1/leads/{placed['id']}", headers=head)
+
+    assert one.status_code == 200
+    assert one.json()["place"] == placed["place"]
+
+
+def _total(board: dict[str, Any]) -> int:
+    return sum(column["total"] for column in board["columns"])
+
+
+def test_a_phone_is_found_however_it_is_typed_and_a_wildcard_is_a_letter(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    assert _total(_running(client, head)) == 3
+
+    def found(q: str) -> int:
+        return _total(client.get(CRM, headers=head, params={"q": q}).json())
+
+    assert found("90 000 00 01") == 1
+    assert found("90-000-00-01") == 1
+    assert found("+998 (90) 000-00-02") == 1
+    assert found("lid1") == 1
+    # A name with a figure in it is not a phone: «lid 9» is nobody here.
+    assert found("lid 9") == 0
+    assert found("_") == 0
+    assert found("%") == 0
+
+
+def test_the_chips_count_under_the_search_they_stand_beside(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    for card in board["columns"][0]["cards"]:
+        due = client.post(
+            f"{CRM}/cards/{card['id']}/due", headers=head, json={"due": LATER}
+        )
+        assert due.is_success
+    db.execute(update(CrmCard).values(due_at=utcnow() - timedelta(hours=1)))
+    db.commit()
+
+    assert client.get(CRM, headers=head).json()["late"] == 3
+    narrowed = client.get(CRM, headers=head, params={"q": "lid1"}).json()
+    assert narrowed["late"] == 1
+    pressed = client.get(CRM, headers=head, params={"q": "lid1", "f": "late"}).json()
+    assert (pressed["late"], _total(pressed)) == (1, 1)
+
+
+def test_the_leads_of_no_advert_can_be_listed_and_downloaded(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    one = db.query(Lead).filter_by(owner_id=owner.id, leadgen_id="lid0").one()
+    one.ad_external_id = ""
+    db.commit()
+
+    rows = client.get("/api/v1/leads", headers=head, params={"ad": "none"}).json()
+    file = client.get("/api/v1/leads/export", headers=head, params={"ad": "none"})
+
+    assert [row["full_name"] for row in rows["rows"]] == ["lid0"]
+    assert file.status_code == 200
+    wild = client.get("/api/v1/leads", headers=head, params={"q": "_"}).json()
+    assert wild["rows"] == []

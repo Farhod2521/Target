@@ -339,12 +339,21 @@ def lead_detail(pk: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     label = ad_labels(db, owner=user, external_ids=[lead.ad_external_id]).get(
         lead.ad_external_id
     )
-    return lead_out(lead, label=label) | {
+    return lead_out(lead, label=label, place=_place(db, user, lead)) | {
         "answer_rows": [asdict(row) for row in selectors.answer_rows(lead=lead)],
         "statuses": [
             {"value": k, "label": v} for k, v in OUTCOME_STATUS_LABELS.items()
         ],
     }
+
+
+def _place(db: Session, user: User, lead: Lead) -> Any:
+    """Where the lead stands on the CRM board, as the list says it."""
+    from app.modules.crm.services import crm_open, is_running, lead_places
+
+    if not (crm_open(db, owner=user) and is_running(db, owner=user)):
+        return None
+    return lead_places(db, owner=user, lead_ids=[lead.id]).get(str(lead.id))
 
 
 class VerdictIn(BaseModel):
@@ -373,7 +382,7 @@ def verdict(
     )
     if lead is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
-    return lead_out(lead)
+    return lead_out(lead, place=_place(db, user, lead))
 
 
 @webhooks.get("/webhooks/meta/leads/", include_in_schema=False)
