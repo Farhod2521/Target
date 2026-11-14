@@ -305,3 +305,36 @@ def test_a_pixel_is_made_on_the_account_and_a_dry_run_makes_none() -> None:
     )
     assert made == "777"
     assert Graph.asked == ("act_1/adspixels", {"name": "X"})
+
+
+def test_a_portfolio_pixel_is_made_and_shared_with_the_account() -> None:
+    from metaads.accounts import create_business_pixel
+
+    asked: list[tuple[str, dict[str, str]]] = []
+
+    class Graph:
+        def post(self, path: str, **data: str) -> dict[str, str]:
+            asked.append((path, data))
+            return {"id": "888"} if path.endswith("adspixels") else {"success": "1"}
+
+    assert (
+        create_business_pixel(
+            business_id="b1", account_id="act_1", name="X", token="t", client=Graph()
+        )
+        == ""
+    )
+    assert asked == []
+
+    made = create_business_pixel(
+        business_id="b1",
+        account_id="act_1",
+        name="X",
+        token="t",
+        client=Graph(),
+        dry_run=False,
+    )
+    assert made == "888"
+    assert asked == [
+        ("b1/adspixels", {"name": "X"}),
+        ("888/shared_accounts", {"account_id": "1", "business": "b1"}),
+    ]

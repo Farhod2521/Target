@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from metaads import PROVIDER
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.common import tokens
@@ -661,6 +662,48 @@ def test_a_pixel_made_here_is_chosen_and_named_after_the_page(
     assert (asked["account_id"], asked["name"]) == ("act_1", "Sahifa CRM")
     assert asked["dry_run"] is False
     assert client.get(CRM, headers=head).json()["pixel_state"] == "ready"
+
+
+def test_a_second_pixel_is_made_in_the_portfolio_and_chosen(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from metaads.errors import MetaAPIError
+
+    from app.modules.integrations.services import sync
+
+    _no_rehearsal(monkeypatch)
+    owner = _owner(db)
+    _pixels(db, owner, "px_old")
+    db.execute(
+        update(AdAccount)
+        .where(AdAccount.owner_id == owner.id)
+        .values(business_external_id="b1")
+    )
+    db.commit()
+    asked: dict[str, Any] = {}
+
+    def refused(**_: Any) -> str:
+        raise MetaAPIError("one only", code=6200)
+
+    def made(**kwargs: Any) -> str:
+        asked.update(kwargs)
+        return "px_new"
+
+    monkeypatch.setattr(sync, "make_pixel", refused)
+    monkeypatch.setattr(sync, "make_business_pixel", made)
+    head = _auth(owner)
+    _running(client, head)
+    client.post(f"{CRM}/settings/pixel", headers=head, json={"external_id": "px_old"})
+
+    answer = client.post(f"{CRM}/settings/pixel/create", headers=head)
+
+    assert answer.status_code == 200
+    assert answer.json()["meta"]["selected"] == "px_new"
+    assert {p["external_id"] for p in answer.json()["meta"]["pixels"]} == {
+        "px_old",
+        "px_new",
+    }
+    assert (asked["business_id"], asked["account_id"]) == ("b1", "act_1")
 
 
 def test_a_rehearsal_makes_no_pixel(
