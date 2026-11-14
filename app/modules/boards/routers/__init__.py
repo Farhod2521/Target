@@ -10,8 +10,17 @@ from fastapi import APIRouter, HTTPException, Query, status
 from app.api.deps import CurrentUser, Db
 from app.common.dates import localtime
 from app.common.db import utcnow
+from app.modules.accounts.models import User
 from app.modules.backoffice.constants import ADMIN_ROLES, ROLE_LABELS, Role
-from app.modules.boards import help_options, renewal, selectors, services, view
+from app.modules.backoffice.services import seen
+from app.modules.boards import (
+    client,
+    help_options,
+    renewal,
+    selectors,
+    services,
+    view,
+)
 from app.modules.boards import staff as staff_service
 from app.modules.boards.access import (
     BoardStaff,
@@ -37,6 +46,7 @@ from app.modules.boards.schemas import (
     AssignIn,
     BoardViewOut,
     CardAddIn,
+    CardClientOut,
     CardDetailOut,
     ClientsFoundOut,
     ColumnsIn,
@@ -422,6 +432,22 @@ def card(db: Db, user: Staff, card_id: str) -> dict[str, Any]:
         db, card_id=_card_id(card_id), user=user, access=access_for(db, user)
     )
     return view.card_detail(db, card=found, now=utcnow())
+
+
+@router.get("/cards/{card_id}/client", responses={200: {"model": CardClientOut}})
+def card_client(db: Db, user: Staff, card_id: str) -> dict[str, Any]:
+    """The card's client in short, to read only: profile, business, term,
+    Meta, pages and the newest bills. Whoever sees the card may read it;
+    the reading is written to the journal."""
+    found = services.card_for(
+        db, card_id=_card_id(card_id), user=user, access=access_for(db, user)
+    )
+    owner = db.get(User, found.owner_id)
+    if owner is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    seen(db, customer=owner, actor=user)
+    db.commit()
+    return client.brief(db, owner=owner, now=localtime(utcnow()))
 
 
 @router.post("/cards/{card_id}/actions", responses={200: {"model": CardDetailOut}})

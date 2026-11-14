@@ -11,6 +11,13 @@ class SuperuserRolesFixed(DomainError):
         super().__init__("Super adminda hamma rol bor, ularni o'zgartirib bo'lmaydi.")
 
 
+class OwnerRoleSuperuserOnly(DomainError):
+    status_code = 403
+
+    def __init__(self) -> None:
+        super().__init__("Egasi rolini faqat superuser beradi va oladi.")
+
+
 class StaffAccountMissing(DomainError):
     def __init__(self) -> None:
         super().__init__(

@@ -1776,9 +1776,21 @@ class StaffMemberOut(BaseModel):
     id: str
     name: str
     email: str
+    phone: str | None = None
     roles: list[str] = Field(description="Every role for a super admin.")
     superuser: bool
     is_me: bool
+
+
+class StaffFoundRow(BaseModel):
+    id: str
+    name: str
+    email: str
+    phone: str | None = None
+
+
+class StaffFoundOut(BaseModel):
+    people: list[StaffFoundRow]
 
 
 class StaffTeamOut(BaseModel):

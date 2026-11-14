@@ -83,6 +83,79 @@ def default_manager(db: Session) -> User | None:
     return manager
 
 
+def workers(db: Session) -> list[User]:
+    """Everybody who holds the board's own role: who a card can go to."""
+    people = db.scalars(
+        select(User)
+        .where(User.is_staff.is_(True), User.is_active.is_(True))
+        .order_by(User.date_joined, User.id)
+    )
+    return [person for person in people if works_on(db, person, Board.RENEWAL)]
+
+
+class Hands:
+    """Who the next card goes to. The chosen manager takes every card; with
+    nobody chosen the role is enough, and the cards are shared out: each to
+    whoever holds the fewest open ones."""
+
+    def __init__(self, db: Session) -> None:
+        chosen = default_manager(db)
+        self.people = [chosen] if chosen else workers(db)
+        held = dict(
+            db.execute(
+                select(BoardCard.manager_id, func.count())
+                .where(
+                    BoardCard.board == BOARD,
+                    BoardCard.closed_at.is_(None),
+                    BoardCard.manager_id.is_not(None),
+                )
+                .group_by(BoardCard.manager_id)
+            ).all()
+        )
+        self.load = {person.id: int(held.get(person.id, 0)) for person in self.people}
+
+    def next(self) -> User | None:
+        if not self.people:
+            return None
+        person = min(self.people, key=lambda one: self.load[one.id])
+        self.load[person.id] += 1
+        return person
+
+
+def hand_out(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """The open cards nobody holds go to the team as soon as there is one:
+    a role given after the cards were opened is enough to receive them."""
+    hands = Hands(db)
+    if not hands.people:
+        return 0
+    cards = list(
+        db.scalars(
+            select(BoardCard)
+            .where(
+                BoardCard.board == BOARD,
+                BoardCard.closed_at.is_(None),
+                BoardCard.manager_id.is_(None),
+            )
+            .order_by(BoardCard.term_ends_at, BoardCard.id)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+    )
+    for card in cards:
+        person = hands.next()
+        assert person is not None
+        card.manager_id = person.id
+        record(
+            db,
+            card=card,
+            kind=EventKind.ASSIGNED,
+            now=now,
+            body=person.full_name or person.email,
+        )
+    db.commit()
+    return len(cards)
+
+
 def date_words(moment: datetime) -> str:
     return localtime(moment).strftime("%d.%m.%Y")
 
@@ -93,7 +166,7 @@ def date_words(moment: datetime) -> str:
 def open_cards(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """A card for every paying Standart or Pro client whose term ends
     within three days, or ended in the last thirty: into Tugayapti or
-    Tugagan, the default manager's. One card per term, and none while the
+    Tugagan, the team's (``Hands``). One card per term, and none while the
     client's earlier card is still worked (``follow_terms`` moves its date).
     The first run after the board is switched on loads the terms that have
     ended already the same way."""
@@ -131,7 +204,7 @@ def open_cards(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     )
     if not rows:
         return 0
-    manager = default_manager(db)
+    hands = Hands(db)
     opened = 0
     for owner_id, ends_at, plan_code in rows:
         ended = ends_at <= now
@@ -139,7 +212,6 @@ def open_cards(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         card = BoardCard(
             board=BOARD,
             owner_id=owner_id,
-            manager_id=manager.id if manager else None,
             column_code=to,
             plan_code=plan_code,
             term_ends_at=ends_at,
@@ -154,6 +226,8 @@ def open_cards(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         except IntegrityError:
             # Another run opened this term's card a moment ago.
             continue
+        manager = hands.next()
+        card.manager_id = manager.id if manager else None
         record(
             db,
             card=card,
@@ -439,6 +513,7 @@ def sweep(db: Session, *, now: datetime) -> int:
     done = mark_renewed(db, now=now)
     done += follow_terms(db, now=now)
     done += open_cards(db, now=now)
+    done += hand_out(db, now=now)
     done += mark_ended(db, now=now)
     done += bills_opened(db, now=now)
     done += bills_unpaid(db, now=now)
@@ -516,7 +591,7 @@ def set_manager(
 ) -> int:
     """The manager every new card goes to. The cards still worked pass to
     the new one; the finished ones keep who worked them. Empty: new cards
-    wait for the lead to give them out. How many cards changed hands."""
+    are shared among everybody with the board's role. How many cards changed hands."""
     ensure_board(db, board=Board.RENEWAL, now=now)
     setting = db.scalar(
         select(BoardSetting).where(BoardSetting.board == BOARD).with_for_update()

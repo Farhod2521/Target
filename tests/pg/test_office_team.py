@@ -482,3 +482,69 @@ def test_someone_taken_off_the_staff_gets_nothing_more(
     ]
     launch = _failed(db)
     assert report_launch_failure(db, launch_id=str(launch.id)) == 0
+
+
+def test_only_the_superuser_gives_and_takes_the_owner_role(
+    client: TestClient, db: Session
+) -> None:
+    _, owner = _staff(db, Role.OWNER, email="o@x.co")
+    _, boss = _staff(db, email="boss@x.co", superuser=True)
+    member, _ = _staff(db, Role.SUPPORT, email="m@x.co")
+    other, _ = _staff(db, Role.OWNER, Role.FINANCE, email="o2@x.co")
+    customer, _ = _shop(db)
+
+    given = client.post(
+        f"{TEAM}/{member.id}/roles", headers=owner, json={"roles": ["Owner"]}
+    )
+    assert given.status_code == 403
+    taken = client.post(
+        f"{TEAM}/{other.id}/roles", headers=owner, json={"roles": ["Finance"]}
+    )
+    assert taken.status_code == 403
+    assert client.post(f"{TEAM}/{other.id}/remove", headers=owner).status_code == 403
+    joined = client.post(
+        TEAM, headers=owner, json={"email": customer.email, "roles": ["Owner"]}
+    )
+    assert joined.status_code == 403
+    db.expire_all()
+    assert not customer.is_staff
+    # An Owner still changes another Owner's other roles.
+    kept = client.post(
+        f"{TEAM}/{other.id}/roles", headers=owner, json={"roles": ["Owner", "Sales"]}
+    )
+    assert kept.status_code == 200
+
+    done = client.post(
+        f"{TEAM}/{member.id}/roles", headers=boss, json={"roles": ["Owner"]}
+    )
+    assert done.status_code == 200 and done.json()["roles"] == ["Owner"]
+
+
+def test_an_account_is_found_and_joins_with_its_roles(
+    client: TestClient, db: Session
+) -> None:
+    _, owner = _staff(db, Role.OWNER, email="o@x.co")
+    _, finance = _staff(db, Role.FINANCE, email="f@x.co")
+    customer, _ = _shop(db)
+    customer.phone = "+998 90 765 43 21"
+    db.commit()
+
+    assert client.get(f"{TEAM}/search?q=765", headers=finance).status_code == 404
+    assert client.get(f"{TEAM}/search?q=76", headers=owner).status_code == 422
+    found = client.get(f"{TEAM}/search", params={"q": "765 43"}, headers=owner)
+    assert found.status_code == 200
+    assert [row["id"] for row in found.json()["people"]] == [str(customer.id)]
+    # The staff are not offered again.
+    again = client.get(f"{TEAM}/search", params={"q": "f@x.co"}, headers=owner)
+    assert again.json()["people"] == []
+
+    added = client.post(
+        TEAM,
+        headers=owner,
+        json={"email": customer.email, "roles": ["Renewal", "Sales"]},
+    )
+    assert added.status_code == 200
+    assert added.json()["roles"] == ["Renewal", "Sales"]
+    assert added.json()["phone"] == "+998 90 765 43 21"
+    db.expire_all()
+    assert roles_of(db, customer) == {"Renewal", "Sales"}

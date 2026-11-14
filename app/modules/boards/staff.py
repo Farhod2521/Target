@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.common.exceptions import DomainError, NotFound
 from app.modules.accounts.models import User
 from app.modules.backoffice.constants import ROLE_LABELS, Role
+from app.modules.backoffice.exceptions import OwnerRoleSuperuserOnly
 from app.modules.backoffice.permissions import roles_of
 from app.modules.boards.constants import SEARCH_MAX
 
@@ -34,13 +35,6 @@ class UnknownRole(DomainError):
 
     def __init__(self) -> None:
         super().__init__("Bunday rol yo'q.")
-
-
-class OwnerRoleSuperuserOnly(DomainError):
-    status_code = 403
-
-    def __init__(self) -> None:
-        super().__init__("Egasi rolini faqat superuser beradi va oladi.")
 
 
 def _roles(values: list[str]) -> list[Role]:

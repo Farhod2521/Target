@@ -17,6 +17,7 @@ from app.modules.backoffice.constants import ActionKind, Role
 from app.modules.backoffice.exceptions import (
     AlreadyStaff,
     CannotChangeOwnRoles,
+    OwnerRoleSuperuserOnly,
     StaffAccountClosed,
     StaffAccountMissing,
     SuperuserRolesFixed,
@@ -29,6 +30,14 @@ def _editable(member: User, actor: User) -> None:
         raise CannotChangeOwnRoles
     if member.is_superuser:
         raise SuperuserRolesFixed
+
+
+def _owner_kept(held: set[str], wanted: set[str], actor: User) -> None:
+    """The Owner role opens the staff list itself, so an Owner cannot make
+    another: only the superuser gives it and takes it."""
+    owner = str(Role.OWNER)
+    if (owner in held) != (owner in wanted) and not actor.is_superuser:
+        raise OwnerRoleSuperuserOnly
 
 
 def _groups(db: Session) -> dict[str, Group]:
@@ -75,6 +84,7 @@ def set_roles(
     groups = _groups(db)
     wanted = {str(role) for role in roles}
     held = _held(db, member, groups)
+    _owner_kept(held, wanted, actor)
     _drop(db, member, [groups[name] for name in held - wanted])
     db.add_all(
         UserGroup(user_id=member.id, group_id=groups[name].id) for name in wanted - held
@@ -113,6 +123,7 @@ def remove_member(db: Session, *, member: User, actor: User) -> None:
     _editable(member, actor)
     groups = _groups(db)
     held = _held(db, member, groups)
+    _owner_kept(held, set(), actor)
     _drop(db, member, [groups[name] for name in held])
     member.is_staff = False
     db.flush()

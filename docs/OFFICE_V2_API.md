@@ -180,6 +180,12 @@ Kartaning hammasi: `card` maydonlari, hamda:
 - `offer`: Sotuv kartasiga chegirma berilgan bo'lsa: hozirgi foiz va u qachon tugashi.
   Chegirma tugagan yoki karta yopilgan bo'lsa `percent: 0`, `ends_at: null`. Berilmagan bo'lsa `null`.
 
+### `GET /api/v2/office/cards/{id}/client`
+
+Karta mijozi qisqacha, faqat o'qish uchun (`CardClientOut`): `profile`, `businesses`, `subscription`, `meta`,
+`pages`, `telegram`, `bills` (oxirgi 10 ta). Kartani ko'ra olgan har bir xodim o'qiydi — Sotuv va Uzaytirish
+menejeri ham; to'liq ofis kartasi (`can.client_card`) Support, Moliya va Egasida qoladi. O'qish jurnalga yoziladi.
+
 ### `POST /api/v2/office/sales/take`
 
 «Lid olish». Body yo'q. Eng **yangi** «Ishlanmagan» lid shu menejerga beriladi va
@@ -312,6 +318,11 @@ Ro'yxat to'liq bo'lmasa: **422** `columns_mismatch`. Kodlar o'zgarmaydi.
 
 ### Xodimlar
 
+Ofis frontida xodimlar va rollar endi faqat **Jamoa** bo'limida (`/api/v1/office/team`, Egasi va superuser):
+`GET /team` (har birida `phone`), `GET /team/search?q=` (hali xodim bo'lmaganlar; kamida 3 belgi),
+`POST /team {"email", "roles": [...]}` (rollari bilan birga qo'shish), `POST /team/{id}/roles`, `POST /team/{id}/remove`.
+Qoidalar ikkala yo'lda bir xil. Quyidagi v2 yo'llar ishlaydi, lekin front ularni ishlatmaydi.
+
 | So'rov | Vazifasi |
 |---|---|
 | `GET /api/v2/office/staff` | Xodimlar va ularning rollari |
@@ -320,7 +331,7 @@ Ro'yxat to'liq bo'lmasa: **422** `columns_mismatch`. Kodlar o'zgarmaydi.
 | `PATCH /api/v2/office/staff/{id}` | `{"roles": ["SalesLead", "Support"]}`: rollarning to'liq to'plami |
 | `DELETE /api/v2/office/staff/{id}` | Xodimlikdan olish (yana mijoz bo'ladi) |
 
-Rollar: `Sales`, `SalesLead`, `Support`, `Finance`, `Engineer`, `Owner`.
+Rollar: `Sales`, `SalesLead`, `Renewal`, `Support`, `Finance`, `Engineer`, `Owner`.
 `Owner` rolini faqat superuser beradi va oladi (**403** `owner_role_superuser_only`).
 O'zining rolini o'zgartirib bo'lmaydi; superuserning rollari o'zgarmaydi.
 
@@ -429,7 +440,9 @@ va `total`: `due` (nechta tugadi), `renewed`, `declined`, `open`, `rate` (%), `p
 ### Mas'ul menejer: `GET` / `PUT /api/v2/office/boards/renewal/manager`
 
 Superuser va Egasi. `PUT {staff_id}` — `Renewal` roli bor xodim; ochiq kartalar darhol yangisiga o'tadi (`moved`),
-yakuniylari eskisida qoladi. `staff_id: null` — yangi kartalar egasiz tushadi.
+yakuniylari eskisida qoladi. `staff_id: null` — mas'ul yo'q: kartalar `Renewal` roli bor xodimlar orasida
+teng taqsimlanadi (kimda ochiq karta kam bo'lsa, o'shanga). Rolning o'zi yetarli: hech kim tanlanmagan bo'lsa ham,
+rol berilgandan keyingi daqiqada egasiz ochiq kartalar ham shu xodimlarga beriladi.
 
 ## 8. Start: faqat birinchi xarid
 

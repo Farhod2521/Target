@@ -20,6 +20,7 @@ from app.modules.boards import renewal
 from app.modules.boards.models import BoardCard, BoardCardEvent
 from app.modules.boards.schemas import (
     BoardViewOut,
+    CardClientOut,
     CardDetailOut,
     MeOut,
     RenewalReportOut,
@@ -618,11 +619,12 @@ def test_the_report_counts_the_period_by_plan(client: TestClient, db: Session) -
     assert (report.total.due, report.total.renewed, report.total.rate) == (4, 2, 50)
     assert report.total.paid[0].minor == (PRICES["standart"] + PRICES["pro"]) * 100
 
-    # A manager's report counts their own cards: none here.
+    # A manager's report counts their own cards: the role brought them all,
+    # and one of the terms that ended by today was declined.
     mine = RenewalReportOut.model_validate(
         client.get(f"{BOARD}/report", headers=ali).json()
     )
-    assert mine.total.due == 0
+    assert (mine.total.due, mine.total.declined) == (1, 1)
     bad = client.get(
         f"{BOARD}/report",
         params={"date_from": "2026-05-01", "date_to": "2026-04-01"},
@@ -635,10 +637,11 @@ def test_the_lead_gives_a_card_to_a_renewal_manager_only(
     client: TestClient, db: Session
 ) -> None:
     lead = _staff(db, "lead@office.test", Role.SALES_LEAD)
-    ali = _staff(db, "ali@office.test", Role.RENEWAL)
     _staff(db, "sales@office.test", Role.SALES)
     _client(db, "one@shop.test")
     _sweep(db)
+    # Joins after the sweep, so the card is still nobody's.
+    ali = _staff(db, "ali@office.test", Role.RENEWAL)
     card_id = _cards(db)["one@shop.test"].id
     ids = {
         email: str(db.scalar(select(User.id).where(User.email == email)))
@@ -655,3 +658,55 @@ def test_the_lead_gives_a_card_to_a_renewal_manager_only(
     assert client.post(give, json={"staff_id": None}, headers=ali).status_code == 404
     back = _detail(client.post(give, json={"staff_id": None}, headers=lead))
     assert back.column == "ending" and back.manager is None
+
+
+def test_the_role_alone_brings_cards_and_they_are_shared(db: Session) -> None:
+    # Cards opened before anybody holds the role wait with nobody.
+    _client(db, "early1@shop.test", ends_in=1)
+    _client(db, "early2@shop.test", ends_in=2)
+    _sweep(db)
+    assert {card.manager_id for card in _cards(db).values()} == {None}
+
+    _staff(db, "ali@office.test", Role.RENEWAL)
+    _staff(db, "vali@office.test", Role.RENEWAL)
+    _staff(db, "sales@office.test", Role.SALES)
+    assert _sweep(db) == 2
+    cards = _cards(db)
+    assert {card.manager.email for card in cards.values()} == {
+        "ali@office.test",
+        "vali@office.test",
+    }
+
+    for n in range(4):
+        _client(db, f"late{n}@shop.test", ends_in=1)
+    _sweep(db)
+    held: dict[str, int] = {}
+    for card in _cards(db).values():
+        held[card.manager.email] = held.get(card.manager.email, 0) + 1
+    assert held == {"ali@office.test": 3, "vali@office.test": 3}
+
+
+def test_whoever_sees_the_card_reads_its_client_in_short(
+    client: TestClient, db: Session
+) -> None:
+    ali = _staff(db, "ali@office.test", Role.RENEWAL)
+    other = _staff(db, "sales@office.test", Role.SALES)
+    owner = _client(db, "one@shop.test", ends_in=1)
+    _sweep(db)
+    card = _cards(db)["one@shop.test"]
+
+    answer = client.get(f"{URL}/cards/{card.id}/client", headers=ali)
+    assert answer.status_code == 200, answer.text
+    brief = CardClientOut.model_validate(answer.json())
+    assert brief.profile.email == "one@shop.test"
+    assert brief.profile.phone == "+998901234567"
+    assert brief.subscription is not None and brief.subscription.plan == "Standart"
+    assert brief.subscription.days_left is not None
+    assert [bill.status for bill in brief.bills] == ["paid"]
+    # The whole office card stays closed to this role.
+    assert (
+        client.get(f"/api/v1/office/customers/{owner.id}", headers=ali).status_code
+        == 404
+    )
+    # A card of another board's is not this manager's to read.
+    assert client.get(f"{URL}/cards/{card.id}/client", headers=other).status_code == 404

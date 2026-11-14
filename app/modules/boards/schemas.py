@@ -297,6 +297,73 @@ class ResolutionOut(BaseModel):
     count: int = Field(description="Reasons this «Hal qilindi» solved.")
 
 
+class ClientProfileOut(BaseModel):
+    id: str
+    name: str
+    email: str
+    phone: str | None = None
+    language: str | None = None
+    is_blocked: bool
+    joined_at: datetime | None = None
+    last_login_at: datetime | None = None
+
+
+class ClientBusinessOut(BaseModel):
+    name: str
+    direction: str
+    city: str | None = None
+
+
+class ClientTermOut(BaseModel):
+    plan: str
+    status: str
+    status_label: str
+    started_at: datetime | None = None
+    expires_at: datetime | None = None
+    days_left: int | None = Field(
+        default=None, description="Empty once the term has ended."
+    )
+
+
+class ClientMetaOut(BaseModel):
+    status: str
+    status_label: str
+    name: str | None = None
+    action_required: bool
+
+
+class ClientPageOut(BaseModel):
+    name: str | None = None
+    is_active: bool
+    live_groups: int = Field(description="Adverts running on this page now.")
+    instagrams: list[str]
+
+
+class ClientBillOut(BaseModel):
+    number: str | None = None
+    kind_label: str
+    status: str
+    status_label: str
+    plan: str
+    amount_minor: int
+    currency: str
+    period_days: int | None = None
+    created_at: datetime
+    paid_at: datetime | None = None
+
+
+class CardClientOut(BaseModel):
+    """The client behind a card, to read only: for whoever sees the card."""
+
+    profile: ClientProfileOut
+    businesses: list[ClientBusinessOut]
+    subscription: ClientTermOut | None = None
+    meta: ClientMetaOut | None = None
+    pages: list[ClientPageOut]
+    telegram: bool = Field(description="The client's Telegram bot is linked.")
+    bills: list[ClientBillOut] = Field(description="The newest ten.")
+
+
 class CardDetailOut(CardOut):
     client: ClientDetailOut
     bill: BillOut | None = Field(
