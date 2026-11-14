@@ -9,6 +9,7 @@ from app.modules.ads import draft as draft_field
 from app.modules.ads.constants import DraftSection
 from app.modules.ads.models import CampaignLaunch, LaunchCreative
 from app.modules.ads.selectors.goals import goal_preset
+from app.modules.ads.selectors.telegram import TELEGRAM_BUTTON, is_telegram
 from app.modules.ads.selectors.variants import post_caption, variants_needing_words
 from app.modules.businesses.models import Business
 from core.agent.copy_check import AdWords, CopyFinding, check_against_offer, check_words
@@ -52,6 +53,9 @@ def facts_by_advert(
 
 
 def button_action(db: Session, *, launch: CampaignLaunch) -> str:
+    """Where the button takes somebody, as the copy prompts and checks name it."""
+    if is_telegram(launch):
+        return TELEGRAM_BUTTON
     preset = goal_preset(db, launch=launch)
     return str(preset.sends_to) if preset is not None else NO_BUTTON
 

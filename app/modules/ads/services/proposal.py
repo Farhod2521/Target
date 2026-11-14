@@ -58,6 +58,7 @@ from app.modules.ads.selectors.lead_form import (
     form_rule_for,
     question_limit,
 )
+from app.modules.ads.selectors.telegram import TELEGRAM_LABEL, is_telegram
 from app.modules.ads.selectors.variants import variants_needing_words
 from app.modules.audit.constants import LLMCallStatus, LLMPurpose
 from app.modules.billing.exceptions import NoEntitlement
@@ -229,15 +230,19 @@ def prompt_variables(
     from app.modules.businesses.selectors import category_label
 
     goal = str(launch.answers.get("goal", ""))
-    label = next(
-        (
-            preset.label
-            for preset in goals_for(
-                provider=launch.provider, category=business.category
-            )
-            if preset.goal == goal
-        ),
-        goal,
+    label = (
+        TELEGRAM_LABEL
+        if is_telegram(launch)
+        else next(
+            (
+                preset.label
+                for preset in goals_for(
+                    provider=launch.provider, category=business.category
+                )
+                if preset.goal == goal
+            ),
+            goal,
+        )
     )
     seeds = seeds_for(provider=launch.provider, category=business.category)
     return {

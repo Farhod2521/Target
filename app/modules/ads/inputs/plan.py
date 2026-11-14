@@ -48,6 +48,14 @@ from app.modules.ads.selectors.goals import (
 from app.modules.ads.selectors.launches import last_daily_budget
 from app.modules.ads.selectors.plan_picker import account_facts, words_for_row
 from app.modules.ads.selectors.schedule import offered_days
+from app.modules.ads.selectors.telegram import (
+    LINK_KIND,
+    NOT_TELEGRAM,
+    TELEGRAM_GOAL,
+    bought_goal,
+    is_telegram,
+    telegram_link,
+)
 from app.modules.ads.services.readings import visible_rows
 from app.modules.ads.services.targeting import minimum_budget, welcome_greeting
 from app.modules.businesses.models import Business
@@ -153,8 +161,11 @@ def plan_initial(
         "daily_budget": to_major(
             amount_minor=(budget or frame.min_daily_minor) or None, places=frame.places
         ),
-        "link_url": launch.answers.get("link_url")
-        or (business.website if business else ""),
+        # The business's site is no answer to «Telegramga o'tsin»: only a
+        # Telegram address already given opens in its box.
+        "link_url": telegram_link(str(launch.answers.get("link_url") or ""))
+        if frame.goal == TELEGRAM_GOAL
+        else launch.answers.get("link_url") or (business.website if business else ""),
         "welcome_text": welcome_greeting(db, launch=launch, business=business)
         if business is not None
         else "",
@@ -227,7 +238,8 @@ def check_plan(
     answers |= _money_and_day(body, frame=frame, problems=problems)
     problems.refuse()
     answers["chat_questions"] = None
-    answers["goal"] = body.goal
+    answers["goal"] = bought_goal(body.goal)
+    answers |= _link_kind(launch, telegram=body.goal == TELEGRAM_GOAL)
     answers["goal_text"] = words_for_goal(
         launch=launch, goal=body.goal, words=body.goal_text, mode=body.goal_mode
     )
@@ -268,12 +280,25 @@ def _check_rows(
     answers |= _money_and_day(body, frame=frame, problems=problems)
     problems.refuse(hints=_hints(body, problems=problems))
     answers["goal"] = row.goal
+    answers |= _link_kind(launch, telegram=False)
     answers["goal_text"] = words_for_row(
         launch=launch, row=row, words=body.goal_text, mode=body.goal_mode
     )
     if not campaign_type_locked(launch=launch):
         answers[CAMPAIGN_TYPE] = row.key
     return answers
+
+
+def _link_kind(launch: CampaignLaunch, *, telegram: bool) -> dict[str, Any]:
+    """Where the visit's link leads, and the kind a visit to Telegram is bought as.
+
+    A launch leaving Telegram drops the kind Telegram fixed, so its site is
+    bought by the goal's own default again.
+    """
+    if telegram:
+        return {LINK_KIND: TELEGRAM_GOAL}
+    leaving = {CAMPAIGN_TYPE: ""} if is_telegram(launch) else {}
+    return {LINK_KIND: ""} | leaving
 
 
 def _hints(body: PlanIn, *, problems: Problems) -> dict[str, str]:
@@ -309,7 +334,11 @@ def _destination(
         "chat": frame.opens_chat,
     }
     answers: dict[str, Any] = dict.fromkeys(ASKED_BY)
-    if wanted["link"]:
+    if wanted["link"] and frame.goal == TELEGRAM_GOAL:
+        answers["link_url"] = telegram_link(body.link_url)
+        if not answers["link_url"]:
+            problems.add("link_url", NOT_TELEGRAM)
+    elif wanted["link"]:
         answers["link_url"] = own_site(
             body.link_url, problems=problems, field="link_url"
         )

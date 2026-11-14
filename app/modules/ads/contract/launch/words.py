@@ -10,7 +10,9 @@ from typing import Any, Final, Literal
 from app.common.contract import Money
 from app.common.money import provider_money
 
-LaunchGoal = Literal["lead", "call", "chat", "click", "profile", "view", "sub"]
+LaunchGoal = Literal[
+    "lead", "call", "chat", "click", "telegram", "profile", "view", "sub"
+]
 LaunchMethod = Literal["instant_form", "website"]
 LaunchStatus = Literal[
     "draft", "building", "prep_failed", "ready", "failed", "creating", "created", "sent"
@@ -128,6 +130,8 @@ GOALS: Final[dict[str, LaunchGoal]] = {
     "site": "click",
     "outcome_traffic": "click",
     "link_clicks": "click",
+    # The plan's own goal: a visit whose link opens Telegram (selectors/telegram).
+    "telegram": "telegram",
     "profile": "profile",
     "profile_visits": "profile",
     "view": "view",
@@ -147,6 +151,7 @@ META_KEYS: Final[dict[str, str]] = {
     "call": "calls",
     "view": "views",
     "click": "traffic",
+    "telegram": "telegram",
     "profile": "profile_visits",
     "sub": "",
 }
@@ -273,7 +278,9 @@ def kind_of(goal_key_: str) -> ResultKind:
     """The result a saved goal key counts, as the proposal's goal line draws it."""
     if method_of(goal_key_) == "website":
         return "site"
-    return goal_of(goal_key_) or "lead"
+    found = goal_of(goal_key_) or "lead"
+    # A visit to Telegram counts what a visit counts: the taps on the link.
+    return "click" if found == "telegram" else found
 
 
 def places_of(currency: str) -> int:

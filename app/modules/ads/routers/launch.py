@@ -67,6 +67,7 @@ from app.modules.ads.selectors.lead_form import form_choice
 from app.modules.ads.selectors.pixel import launch_conversion_source
 from app.modules.ads.selectors.plan_picker import BY_AI, BY_YOU, row_picker
 from app.modules.ads.selectors.quality import catalogue_questions, chat_question_reading
+from app.modules.ads.selectors.telegram import shown_goal
 from app.modules.ads.services import launch as launch_services
 from app.modules.ads.services import readings
 from app.modules.businesses.selectors import business_for_page
@@ -166,7 +167,7 @@ def plan(
 ) -> dict[str, Any]:
     """The plan step: goals, the budget's floor, where the tap goes, the day."""
     launch = owned_launch(db, user=user, launch_id=launch_id)
-    chosen = goal or str(launch.answers.get("goal") or "")
+    chosen = goal or shown_goal(launch)
     return _plan(db, launch=launch, user=user, goal=chosen, now=utcnow())
 
 

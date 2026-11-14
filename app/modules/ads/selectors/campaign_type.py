@@ -15,9 +15,12 @@ from app.modules.ads.constants import (
     LaunchStep,
 )
 from app.modules.ads.models import CampaignLaunch
+from app.modules.ads.selectors.telegram import is_telegram
 from core.targeting import campaign_type, types_for
 
 BUILT_STATUSES = (LaunchStatus.CREATING, LaunchStatus.CREATED)
+# Nothing is counted inside Telegram, so its visit is bought by the tap on the link.
+TELEGRAM_TYPE = "site_link_clicks"
 
 
 def picker_v2_on(*, user: Any) -> bool:
@@ -31,6 +34,8 @@ def picker_v2_on(*, user: Any) -> bool:
 
 def chosen_campaign_type(*, launch: CampaignLaunch) -> str:
     """The owner's choice, then the rules', as a key. ``""`` when neither."""
+    if is_telegram(launch):
+        return TELEGRAM_TYPE
     owner = str(launch.answers.get(CAMPAIGN_TYPE) or "")
     return owner or draft_field.campaign_type(launch.draft or {})
 
@@ -128,6 +133,8 @@ def campaign_type_choices(*, launch: CampaignLaunch) -> CampaignTypeChoices | No
 
     goal = str(launch.answers.get("goal") or "")
     kinds = types_for(provider=launch.provider, goal=goal)
+    if is_telegram(launch):
+        kinds = tuple(row for row in kinds if row.key == TELEGRAM_TYPE)
     if not kinds:
         return None
     advice = campaign_type_recommendation(launch=launch)

@@ -629,12 +629,14 @@ GOAL_HINTS: Final[dict[str, Any]] = {
     "calls": "Odam reklamadagi tugmani bosib, sizga qo'ng'iroq qiladi.",
     "views": "Reklama ko'proq odamga ko'rsatiladi. Ariza kutilmaydi.",
     "traffic": "Odam reklamani bosib, saytingizga o'tadi.",
+    "telegram": "Odam reklamani bosib, Telegram kanalingiz, guruhingiz yoki botingizga o'tadi.",
     "site_leads": "Odam saytingizga o'tib, ariza qoldiradi. Saytda Meta pikseli kerak.",
 }
 GOAL_PHRASES: Final[tuple[tuple[str, Any], ...]] = (
     ("leads", "Raqamini qoldirsin"),
     ("messages", "Instagram'da yozsin"),
     ("calls", "Menga qo'ng'iroq qilsin"),
+    ("telegram", "Telegram kanalimga o'tsin"),
 )
 MESSAGES_PHRASE_WITHOUT_INSTAGRAM: Final = "Menga yozsin"
 GOAL_EXAMPLES: Final[dict[str, Any]] = {
