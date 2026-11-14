@@ -1042,3 +1042,73 @@ def test_when_the_owner_hands_cards_out_a_manager_sees_and_takes_only_their_own(
         404,
     )
     assert client.get(CRM, headers=head).json()["untaken"] == 2
+
+
+def test_the_statistics_count_one_cohort_the_leads_that_came_in_the_period(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    board = _running(client, head)
+    sold, _ = _card_named(board, "lid0")
+    refused, _ = _card_named(board, "lid1")
+    reason = client.get(f"{CRM}/settings", headers=head).json()["reasons"][0]
+    assert client.post(f"{CRM}/cards/{sold['id']}/take", headers=head).is_success
+    assert client.post(
+        f"{CRM}/cards/{sold['id']}/win", headers=head, json={"amount": "150"}
+    ).is_success
+    assert client.post(
+        f"{CRM}/cards/{refused['id']}/lose", headers=head, json={"reason": reason["id"]}
+    ).is_success
+
+    stats = client.get(f"{CRM}/stats", headers=head, params={"period": "7"}).json()
+
+    totals = stats["totals"]
+    assert stats["state"] == "on"
+    assert (stats["range"]["days"], len(stats["daily"]["days"])) == (7, 7)
+    assert (totals["leads"], totals["won"], totals["lost"]) == (3, 1, 1)
+    assert (totals["taken"], totals["open"]) == (1, 1)
+    assert totals["conversion_pct"] == 33.3
+    assert totals["revenue_minor"] == totals["avg_deal_minor"] > 0
+    # Taken two hours after the enquiry came.
+    assert 115 <= totals["first_response_min"] <= 125
+    assert sum(stats["daily"]["leads"]) == 3
+    assert sum(stats["daily"]["won"]) == 1
+    funnel = {row["stage"]["kind"]: row["count"] for row in stats["funnel"]}
+    assert (funnel["new"], funnel["won"], funnel["lost"]) == (3, 1, 1)
+    # Every working column was passed by the sold card.
+    assert {
+        row["count"] for row in stats["funnel"] if row["stage"]["kind"] == "open"
+    } == {1}
+    assert stats["reasons"] == [{"name": reason["name"], "count": 1, "pct": 100}]
+    assert [(ad["id"], ad["leads"], ad["won"]) for ad in stats["ads"]] == [
+        ("ad_1", 3, 1)
+    ]
+    # The owner holds both cards they closed: the sold one and the refused one.
+    assert [(m["leads"], m["won"]) for m in stats["managers"]] == [(2, 1)]
+
+    # Leads that came before the days asked for are not this period's.
+    db.execute(
+        update(Lead)
+        .where(Lead.owner_id == owner.id)
+        .values(submitted_at=utcnow() - timedelta(days=10))
+    )
+    db.commit()
+    week = client.get(f"{CRM}/stats", headers=head, params={"period": "7"}).json()
+    month = client.get(f"{CRM}/stats", headers=head, params={"period": "30"}).json()
+    assert (week["totals"]["leads"], week["totals"]["won"]) == (0, 0)
+    assert week["totals"]["open"] == 1
+    assert month["totals"]["leads"] == 3
+
+
+def test_a_manager_has_no_statistics(client: TestClient, db: Session) -> None:
+    head = _auth(_owner(db))
+    _running(client, head)
+    _, signed_in = _member(client, head, "stat@example.com")
+    client.post(
+        f"{CRM}/password",
+        headers=signed_in,
+        json={"password": PASSWORD + "1", "again": PASSWORD + "1"},
+    )
+
+    assert client.get(f"{CRM}/stats", headers=signed_in).status_code == 404

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db, current_user
 from app.common import throttle
+from app.common.config import settings
 from app.common.db import get_db, utcnow
 from app.modules.accounts.models import User
 from app.modules.crm import selectors, services
@@ -244,6 +245,103 @@ def nav(db: Db, user: CurrentUser, pair: str = PAIR_Q) -> dict[str, Any]:
     if viewer.may_work and selectors.is_running(db, owner=viewer.owner):
         count = selectors.attention_count(db, viewer=viewer, now=utcnow())
     return {"url": "/app/crm/", "attention": count}
+
+
+@router.get("/stats")
+def stats(
+    db: Db,
+    viewer: Viewer = Depends(owner_viewer),
+    period: str = Query("", description="`today`, `7`, `30` or `90`; default 30."),
+    since: str = Query("", description="First day (ISO), with `until`."),
+    until: str = Query("", description="Last day (ISO), with `since`."),
+) -> dict[str, Any]:
+    """What this pair's CRM did with the leads that came in the period."""
+    from app.modules.ads.selectors import ad_labels
+    from app.modules.crm.selectors.stats import share
+    from app.modules.crm.selectors.stats import stats as read_stats
+
+    found = read_stats(
+        db, viewer=viewer, period=period, since=since, until=until, now=utcnow()
+    )
+    total = found.totals
+    names = ad_labels(
+        db, owner=viewer.owner, external_ids=[key for key, _ in found.ads]
+    )
+    return {
+        "state": found.state,
+        "range": {
+            "since": found.range.since.isoformat(),
+            "until": found.range.until.isoformat(),
+            "today": found.range.today.isoformat(),
+            "earliest": found.range.earliest.isoformat(),
+            "time_zone": settings.office_timezone,
+            "days": found.range.days,
+        },
+        "currency": found.currency,
+        "totals": {
+            "leads": total.leads,
+            "taken": total.taken,
+            "qualified": total.qualified,
+            "won": total.won,
+            "lost": total.lost,
+            "open": found.open,
+            "late": found.late,
+            "revenue_minor": total.revenue_minor,
+            "avg_deal_minor": (
+                round(total.revenue_minor / total.won) if total.won else None
+            ),
+            "conversion_pct": total.conversion_pct,
+            "qualified_pct": (share(total.qualified, total.leads)),
+            "first_response_min": total.first_response_min,
+            "leads_delta_pct": found.leads_delta_pct,
+            "revenue_delta_pct": found.revenue_delta_pct,
+        },
+        "funnel": [
+            {
+                "stage": stage_out(stage),
+                "count": count,
+                "pct": share(count, total.leads),
+            }
+            for stage, count in found.funnel
+        ],
+        "daily": {
+            "days": [day.isoformat() for day in found.days],
+            "leads": found.daily_leads,
+            "won": found.daily_won,
+        },
+        "managers": [
+            {
+                "user": _user(user),
+                "leads": tally.leads,
+                "won": tally.won,
+                "revenue_minor": tally.revenue_minor,
+                "conversion_pct": tally.conversion_pct,
+                "first_response_min": tally.first_response_min,
+                "late": late,
+            }
+            for user, tally, late in found.managers
+        ],
+        "ads": [
+            {
+                "id": key,
+                "name": names[key].title if key in names else key,
+                "leads": tally.leads,
+                "qualified": tally.qualified,
+                "won": tally.won,
+                "revenue_minor": tally.revenue_minor,
+                "conversion_pct": tally.conversion_pct,
+            }
+            for key, tally in found.ads
+        ],
+        "reasons": [
+            {
+                "name": name,
+                "count": count,
+                "pct": round(count / total.lost * 100) if total.lost else 0,
+            }
+            for name, count in found.reasons
+        ],
+    }
 
 
 @router.get("", responses={200: {"model": BoardOut}})
