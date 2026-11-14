@@ -66,6 +66,11 @@ FLAG_Q = Query(
     description="`late` (due time passed), `today` (due today) or `untaken` "
     "(a new card nobody holds); empty for all.",
 )
+ZONE_Q = Query(
+    "",
+    description="The reader's time zone (IANA, e.g. `Asia/Tashkent`): «Bugun» ends "
+    "at their midnight. Empty or unknown: the office's.",
+)
 PAIR_Q = Query(
     "",
     max_length=160,
@@ -352,6 +357,7 @@ def board(
     m: str = MEMBER_Q,
     ad: str = AD_Q,
     f: str = FLAG_Q,
+    tz: str = ZONE_Q,
 ) -> dict[str, Any]:
     if viewer.pair is None:
         return {"setup_needed": False, "no_pair": True} | pairs_out(viewer)
@@ -362,7 +368,7 @@ def board(
             "step": setup.step if setup else 1,
         } | pairs_out(viewer)
     now = utcnow()
-    filters = selectors.read_filters(q=q, m=m, ad=ad, f=f)
+    filters = selectors.read_filters(q=q, m=m, ad=ad, f=f, tz=tz)
     found = selectors.board(db, viewer=viewer, filters=filters, now=now)
     return pairs_out(viewer) | {
         "setup_needed": False,
@@ -415,11 +421,12 @@ def column(
     m: str = MEMBER_Q,
     ad: str = AD_Q,
     f: str = FLAG_Q,
+    tz: str = ZONE_Q,
 ) -> dict[str, Any]:
     found = selectors.column_page(
         db,
         viewer=viewer,
-        filters=selectors.read_filters(q=q, m=m, ad=ad, f=f),
+        filters=selectors.read_filters(q=q, m=m, ad=ad, f=f, tz=tz),
         stage_id=str(pk),
         start=start,
         now=utcnow(),

@@ -284,8 +284,14 @@ def lead_export(
         description="Only the last 7, 30 or 90 days, as the by-advert report "
         "counts them; empty for every lead.",
     ),
+    tz: str = Query(
+        "",
+        description="The reader's time zone (IANA): the file's times are in it. "
+        "Empty or unknown: the office's.",
+    ),
 ) -> Response:
     from app.modules.ads.selectors import ad_labels, campaign_names
+    from app.modules.crm.selectors import zone_or_none
     from app.modules.metrics.selectors import SOURCE_PERIODS
     from app.modules.metrics.selectors.lead_sources import period_start
 
@@ -309,9 +315,10 @@ def lead_export(
         campaign_names=campaign_names(
             db, owner=user, external_ids=[lead.campaign_external_id for lead in leads]
         ),
+        zone=zone_or_none(tz),
     )
     content = workbook(sheet="Mijozlar", columns=sheet.columns, rows=sheet.rows)
-    name = f"mijozlar-{localtime(utcnow()):%Y-%m-%d}.xlsx"
+    name = f"mijozlar-{localtime(utcnow(), zone_or_none(tz)):%Y-%m-%d}.xlsx"
     headers = {"Content-Disposition": f'attachment; filename="{name}"'}
     if sheet.truncated:
         headers["X-Truncated"] = str(len(sheet))

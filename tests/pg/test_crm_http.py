@@ -1112,3 +1112,37 @@ def test_a_manager_has_no_statistics(client: TestClient, db: Session) -> None:
     )
 
     assert client.get(f"{CRM}/stats", headers=signed_in).status_code == 404
+
+
+def test_today_is_what_is_still_to_do_and_ends_at_the_readers_midnight(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    cards = [card["id"] for card in board["columns"][0]["cards"]]
+    for card in cards:
+        assert client.post(
+            f"{CRM}/cards/{card}/due", headers=head, json={"due": LATER}
+        ).is_success
+    now = utcnow()
+
+    def due(card: str, at: Any) -> None:
+        db.execute(update(CrmCard).where(CrmCard.id == card).values(due_at=at))
+
+    due(cards[0], now - timedelta(minutes=5))
+    due(cards[1], now + timedelta(minutes=5))
+    due(cards[2], now + timedelta(hours=30))
+    db.commit()
+
+    # Kiritimati is 14 hours ahead and Pago Pago 11 behind: five minutes from
+    # now is today on any clock, thirty hours from now on none.
+    for zone in ("", "Pacific/Kiritimati", "Pacific/Pago_Pago", "No/Such_Zone"):
+        seen = client.get(CRM, headers=head, params={"tz": zone}).json()
+        assert seen["late"] == 1, zone
+        assert seen["today"] in (0, 1), zone
+    pressed = client.get(CRM, headers=head, params={"f": "today"}).json()
+    assert _total(pressed) == pressed["today"]
+    file = client.get(
+        "/api/v1/leads/export", headers=head, params={"tz": "Pacific/Kiritimati"}
+    )
+    assert file.status_code == 200

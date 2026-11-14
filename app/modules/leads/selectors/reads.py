@@ -1479,7 +1479,9 @@ def lead_sheet(
     leads: Sequence[Lead],
     ad_names: Mapping[str, str] | None = None,
     campaign_names: Mapping[str, str] | None = None,
+    zone: str = "",
 ) -> LeadSheet:
+    """``zone``: the reader's time zone, so the file shows the times the list does."""
     ad_names = ad_names or {}
     campaign_names = campaign_names or {}
     kept = list(leads[:EXPORT_LIMIT])
@@ -1516,7 +1518,7 @@ def lead_sheet(
                 lead.phone_e164,
                 lead.email,
                 lead.city,
-                localtime(lead.submitted_at).strftime(TIME_FORMAT),
+                localtime(lead.submitted_at, zone).strftime(TIME_FORMAT),
                 str(OUTCOME_STATUS_LABELS.get(verdict, "")) if verdict else "",
                 ad_names.get(lead.ad_external_id, lead.ad_external_id),
                 campaign_names.get(

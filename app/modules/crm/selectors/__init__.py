@@ -3,6 +3,7 @@ from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -589,6 +590,8 @@ class BoardFilters:
     member: str = ""
     ad: str = ""
     flag: str = ""
+    # The reader's own time zone (IANA), so «Bugun» ends at their midnight.
+    zone: str = ""
 
     def as_params(self) -> dict[str, str]:
         pairs = {"q": self.query, "m": self.member, "ad": self.ad, "f": self.flag}
@@ -598,8 +601,17 @@ class BoardFilters:
 NO_FILTERS = BoardFilters()
 
 
+def zone_or_none(name: str) -> str:
+    """The name when it is a time zone this server knows, else none."""
+    try:
+        ZoneInfo(name)
+    except (KeyError, ValueError, OSError):
+        return ""
+    return name
+
+
 def read_filters(
-    *, q: str = "", m: str = "", ad: str = "", f: str = ""
+    *, q: str = "", m: str = "", ad: str = "", f: str = "", tz: str = ""
 ) -> BoardFilters:
     # PostgreSQL refuses a NUL in a string, so it cannot match anything anyway.
     return BoardFilters(
@@ -607,6 +619,7 @@ def read_filters(
         member=m.replace("\x00", "")[:40],
         ad=ad.replace("\x00", "")[:64],
         flag=f if f in {item.value for item in Flag} else "",
+        zone=zone_or_none(tz),
     )
 
 
@@ -680,9 +693,14 @@ def visible_cards(viewer: Viewer) -> Select[tuple[CrmCard]]:
     return select(CrmCard).where(_visible(viewer))
 
 
-def _today(now: datetime) -> tuple[datetime, datetime]:
-    start = localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
-    return start, start + timedelta(days=1)
+def _today(now: datetime, zone: str = "") -> tuple[datetime, datetime]:
+    """From now to the reader's midnight: what is still to do today.
+
+    A time already passed today is late, not «today», so the two chips
+    never count one card twice.
+    """
+    start = localtime(now, zone).replace(hour=0, minute=0, second=0, microsecond=0)
+    return now, start + timedelta(days=1)
 
 
 _PHONE_DRESS = str.maketrans("", "", " +-()")
@@ -715,7 +733,7 @@ def _narrowed(
     if filters.flag == Flag.LATE:
         query = query.where(CrmCard.due_at < now, CrmCard.closed_at.is_(None))
     elif filters.flag == Flag.TODAY:
-        start, end = _today(now)
+        start, end = _today(now, filters.zone)
         query = query.where(
             CrmCard.due_at >= start, CrmCard.due_at < end, CrmCard.closed_at.is_(None)
         )
@@ -882,7 +900,7 @@ def board(
         viewer=viewer,
         now=now,
     ).where(CrmCard.closed_at.is_(None))
-    start, end = _today(now)
+    start, end = _today(now, filters.zone)
     late = _count(db, open_cards.where(CrmCard.due_at < now))
     today = _count(db, open_cards.where(CrmCard.due_at >= start, CrmCard.due_at < end))
     names = ad_labels(db, owner=viewer.owner, external_ids=ad_ids)
