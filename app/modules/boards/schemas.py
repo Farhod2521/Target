@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -17,7 +17,7 @@ class RoleOut(BaseModel):
 
 
 class BoardOut(BaseModel):
-    code: str = Field(description="`sales` or `support`.")
+    code: str = Field(description="`sales`, `support` or `renewal`.")
     label: str
     lead: bool = Field(description="Sees the whole board and gives cards out.")
 
@@ -32,6 +32,13 @@ class CanOut(BaseModel):
     columns: bool = Field(description="Renames and reorders columns.")
     staff: bool = Field(description="Adds staff and gives roles.")
     telephony: bool = Field(description="Opens the telephony settings.")
+    client_card: bool = Field(
+        False,
+        description="May open the client's office card; hide its link otherwise.",
+    )
+    renewal_manager: bool = Field(
+        False, description="Picks the renewal board's default manager."
+    )
 
 
 class MeOut(BaseModel):
@@ -92,6 +99,30 @@ class CardOfferOut(BaseModel):
     )
 
 
+class RenewalMoneyOut(BaseModel):
+    currency: str
+    minor: int
+
+
+class CardRenewalOut(BaseModel):
+    plan_code: str = Field(description="`standart` or `pro`.")
+    plan_name: str
+    term_ends_at: datetime
+    ended: bool = Field(description="The term is over.")
+    days: int = Field(
+        description="Days to the term's end; negative: days since it ended."
+    )
+    pages: list[str] = Field(description="The client's pages, the current first.")
+    ads_running: int
+    leads_month: int = Field(description="Applications this month.")
+    spend_month: list[RenewalMoneyOut] = Field(description="Ad spend this month.")
+    payments: int = Field(description="Plan bills the client has paid, ever.")
+    last_login: datetime | None
+    decline_reason: str = Field(description="Empty unless the card is in Rad etdi.")
+    decline_label: str
+    paid: RenewalMoneyOut | None = Field(description="The bill that renewed the term.")
+
+
 class CardOut(BaseModel):
     id: str
     board: str
@@ -120,6 +151,9 @@ class CardOut(BaseModel):
     )
     has_bill: bool = Field(
         description="Sales: the client opened a plan bill and may still pay it."
+    )
+    renewal: CardRenewalOut | None = Field(
+        None, description="Uzaytirish only: the term and the client's figures."
     )
     opened_at: datetime
     column_since: datetime
@@ -235,7 +269,8 @@ class ActionIn(BaseModel):
     action: str = Field(
         description="One of the card's `actions`. Sales: `contacted`, "
         "`no_contact`, `callback`, `will_pay`, `offer`, `needs_support`, `close`, "
-        "`release`. Support: `start`, `wait`, `resolve`, `release`, `reopen`."
+        "`release`. Support: `start`, `wait`, `resolve`, `release`, `reopen`. "
+        "Uzaytirish: `contacted`, `no_contact`, `callback`, `will_pay`, `decline`."
     )
     due_at: datetime | None = Field(
         None,
@@ -248,12 +283,13 @@ class ActionIn(BaseModel):
     reason: str = Field(
         "",
         max_length=24,
-        description="`close` only: a code from `GET /office/boards/sales/reasons`.",
+        description="`close`: a code from `GET /office/boards/sales/reasons`. "
+        "`decline`: one from `GET /office/boards/renewal/reasons`.",
     )
     note: str = Field(
         "",
         max_length=2000,
-        description="Required for `close` with `other` and where the action's "
+        description="Required for `close` and `decline` with `other` and where the action's "
         "`note_required` is true.",
     )
 
@@ -373,13 +409,13 @@ class StaffPeopleOut(BaseModel):
 class StaffAddIn(BaseModel):
     user_id: str
     roles: list[str] = Field(
-        max_length=6, description="Role values, e.g. `Sales`, `SalesLead`, `Support`."
+        max_length=7, description="Role values, e.g. `Sales`, `SalesLead`, `Support`."
     )
 
 
 class StaffRolesIn(BaseModel):
     roles: list[str] = Field(
-        max_length=6, description="The whole set; what is left out is taken away."
+        max_length=7, description="The whole set; what is left out is taken away."
     )
 
 
@@ -406,3 +442,42 @@ class TicketAnswerOut(BaseModel):
         description="`solved`, `reopened`, or `stale`: the question was "
         "answered already or is no longer asked."
     )
+
+
+class RenewalManagerOut(BaseModel):
+    manager: PersonOut | None = Field(
+        description="Who every new renewal card goes to; null: nobody."
+    )
+    moved: int = Field(0, description="Open cards that passed to the new manager.")
+
+
+class RenewalManagerIn(BaseModel):
+    staff_id: str | None = Field(
+        description="A renewal manager from `GET /office/boards/renewal/staff`; "
+        "null: new cards go to nobody."
+    )
+
+
+class ReportReasonOut(BaseModel):
+    code: str
+    label: str
+    count: int
+
+
+class ReportLineOut(BaseModel):
+    code: str = Field(description="The plan's code; empty on the total.")
+    name: str
+    due: int = Field(description="Terms that came due in the period.")
+    renewed: int
+    declined: int
+    open: int = Field(description="Still worked.")
+    rate: int = Field(description="`renewed` of `due`, in percent.")
+    paid: list[RenewalMoneyOut] = Field(description="What the renewals brought.")
+    reasons: list[ReportReasonOut] = Field(description="Why clients declined.")
+
+
+class RenewalReportOut(BaseModel):
+    date_from: date
+    date_to: date
+    total: ReportLineOut
+    plans: list[ReportLineOut] = Field(description="Standart, then Pro.")

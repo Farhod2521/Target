@@ -2,11 +2,11 @@
 
 import re
 import uuid
-from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from dataclasses import dataclass, field
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, and_, exists, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.common.dates import localtime
@@ -28,12 +28,15 @@ from app.modules.boards.constants import (
     EVENT_KIND_LABELS,
     OFFER_ENDED_LABEL,
     OFFER_ENDED_REASON,
+    RENEWAL_ACTIONS,
+    RENEWAL_PLAN_CODES,
     SALES_ACTIONS,
     SEARCH_MAX,
     SUPPORT_ACTION_LABELS,
     SUPPORT_ACTIONS,
     TICKET_REASON_LABELS,
     TICKET_TAKE_LIMIT,
+    AttemptsFilter,
     Board,
     CloseReason,
     DueFilter,
@@ -64,8 +67,14 @@ class Filters:
     # A staff member's id, or ``none`` for cards nobody works.
     manager: str = ""
     due: str = ""
-    # Support: a ticket reason's code.
+    # Support: a ticket reason's code. Uzaytirish: why the client declined.
     reason: str = ""
+    # Uzaytirish: the plan's code, the term's end between two office days,
+    # and how many times «Bog'lanib bo'lmadi» was pressed.
+    plan: str = ""
+    term_from: date | None = None
+    term_to: date | None = None
+    attempts: str = ""
 
 
 def today_bounds(now: datetime) -> tuple[datetime, datetime]:
@@ -107,8 +116,12 @@ def _scoped(
             query = query.where(BoardCard.manager_id == uuid.UUID(filters.manager))
         except ValueError:
             query = query.where(BoardCard.id.is_(None))
-    if filters.reason:
+    if filters.reason and board == Board.RENEWAL:
+        query = query.where(BoardCard.close_reason == filters.reason)
+    elif filters.reason:
         query = query.where(BoardCard.reasons.contains([{"code": filters.reason}]))
+    if board == Board.RENEWAL:
+        query = _renewal_scoped(query, filters)
     if with_due and filters.due in DueFilter.values:
         query = query.where(_due_clause(filters.due, now))
     words = search.strip()[:SEARCH_MAX]
@@ -117,17 +130,58 @@ def _scoped(
         like = f"%{words}%"
         # "90 123 45 67" or "(90) 123-45-67" finds +998901234567.
         digits = re.sub(r"[\s()-]", "", words) or words
-        query = query.join(client, client.id == BoardCard.owner_id).where(
-            or_(
-                client.full_name.ilike(like),
-                client.email.ilike(like),
-                client.phone.ilike(f"%{digits}%"),
+        found = [
+            client.full_name.ilike(like),
+            client.email.ilike(like),
+            client.phone.ilike(f"%{digits}%"),
+        ]
+        if board == Board.RENEWAL:
+            from app.modules.integrations.models import PageAccount
+
+            # The page's name is how the office knows such a client.
+            found.append(
+                exists().where(
+                    PageAccount.owner_id == BoardCard.owner_id,
+                    PageAccount.is_active.is_(True),
+                    PageAccount.name.ilike(like),
+                )
             )
-        )
+        query = query.join(client, client.id == BoardCard.owner_id).where(or_(*found))
     return query
 
 
-def _order(code: str) -> Any:
+def _renewal_scoped(query: Select[Any], filters: Filters) -> Select[Any]:
+    from app.modules.boards.renewal import day_bounds
+
+    if filters.plan:
+        known = filters.plan in RENEWAL_PLAN_CODES
+        query = query.where(
+            BoardCard.plan_code == filters.plan if known else BoardCard.id.is_(None)
+        )
+    if filters.term_from is not None:
+        first, _ = day_bounds(filters.term_from, filters.term_from)
+        query = query.where(BoardCard.term_ends_at >= first)
+    if filters.term_to is not None:
+        _, after = day_bounds(filters.term_to, filters.term_to)
+        query = query.where(BoardCard.term_ends_at < after)
+    if filters.attempts == AttemptsFilter.NONE:
+        query = query.where(BoardCard.attempts == 0)
+    elif filters.attempts == AttemptsFilter.FEW:
+        query = query.where(BoardCard.attempts.between(1, 2))
+    elif filters.attempts == AttemptsFilter.MANY:
+        query = query.where(BoardCard.attempts >= 3)
+    return query
+
+
+def _order(code: str, board: Board, now: datetime) -> Any:
+    if board == Board.RENEWAL:
+        from app.modules.boards.renewal import order
+
+        return order(code, now)
+    return _order_by_due(code)
+
+
+def _order_by_due(code: str) -> Any:
     # The nearest deadline is on top, so an overdue card is the first seen.
     # Then: the lead queue newest first, as «Lid olish» gives it; Support's
     # queue oldest first; elsewhere the latest move.
@@ -153,24 +207,33 @@ class Extras:
     offered: dict[uuid.UUID, tuple[datetime, str]]
     # owner id -> the bill they opened and may still pay.
     bills: dict[uuid.UUID, Invoice]
+    # card id -> what a renewal card shows (boards.renewal).
+    renewal: dict[uuid.UUID, dict[str, Any]] = field(default_factory=dict)
 
 
 def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
     """The discounts and open bills of these cards, in three queries."""
     from app.modules.boards.offer import clocks_for
+    from app.modules.boards.renewal import briefs
 
+    renewal = briefs(db, cards, now=now)
+    # A renewal card shows the client's open bill as a Sales card does.
+    billed = [
+        card for card in cards if card.board in (str(Board.SALES), str(Board.RENEWAL))
+    ]
     sales = [card for card in cards if card.board == str(Board.SALES)]
-    if not sales:
-        return Extras(offered={}, bills={})
+    if not billed:
+        return Extras(offered={}, bills={}, renewal=renewal)
     bills: dict[uuid.UUID, Invoice] = {}
     for bill in db.scalars(
         open_bills(now)
-        .where(Invoice.owner_id.in_([card.owner_id for card in sales]))
+        .where(Invoice.owner_id.in_([card.owner_id for card in billed]))
         .order_by(Invoice.created_at)
     ):
         if bill.owner_id is not None:
             bills[bill.owner_id] = bill
-    return Extras(offered=clocks_for(db, sales), bills=bills)
+    offered = clocks_for(db, sales) if sales else {}
+    return Extras(offered=offered, bills=bills, renewal=renewal)
 
 
 def open_bills(at: datetime) -> Select[Any]:
@@ -231,6 +294,7 @@ def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, A
         "overdue": card.due_at is not None and card.due_at <= now,
         "offer": _brief_offer(card, extras, now),
         "has_bill": card.closed_at is None and card.owner_id in extras.bills,
+        "renewal": extras.renewal.get(card.id),
         "opened_at": card.opened_at,
         "column_since": card.column_since,
         "closed_at": card.closed_at,
@@ -271,7 +335,7 @@ def board_view(
         total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
         cards = list(
             db.scalars(
-                base.order_by(*_order(item.code))
+                base.order_by(*_order(item.code, board, now))
                 .offset(offset if column else 0)
                 .limit(limit)
             )
@@ -341,6 +405,8 @@ def _actions(card: BoardCard) -> list[dict[str, Any]]:
         offered = SUPPORT_ACTIONS.get(card.column_code, ())
     elif card.closed_at is not None:
         offered = ()
+    elif card.board == str(Board.RENEWAL):
+        offered = RENEWAL_ACTIONS.get(card.column_code, ())
     else:
         offered = SALES_ACTIONS.get(card.column_code, ())
     labels = SUPPORT_ACTION_LABELS if card.board == str(Board.SUPPORT) else {}
@@ -417,8 +483,12 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
             select(User).where(User.id.in_({e.actor_id for e in events if e.actor_id}))
         )
     }
+    from app.modules.boards.renewal import decline_label
+
     reason = (
-        str(CLOSE_REASON_LABELS[CloseReason(card.close_reason)])
+        decline_label(card.close_reason)
+        if card.board == str(Board.RENEWAL)
+        else str(CLOSE_REASON_LABELS[CloseReason(card.close_reason)])
         if card.close_reason in CloseReason.values
         else OFFER_ENDED_LABEL
         if card.close_reason == OFFER_ENDED_REASON

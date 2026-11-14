@@ -5,7 +5,7 @@ working with the client."""
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -61,7 +61,10 @@ def raise_ticket(
                 column_since=now,
                 reasons=[item],
             )
-            .on_conflict_do_nothing(index_elements=["board", "owner_id"])
+            .on_conflict_do_nothing(
+                index_elements=["board", "owner_id"],
+                index_where=text("term_ends_at IS NULL"),
+            )
             .returning(BoardCard.id)
         )
         card = _locked(db, owner_id)

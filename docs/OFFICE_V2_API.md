@@ -1,4 +1,4 @@
-# Ofis v2: Sotuv va Support kanbanlari
+# Ofis v2: Sotuv, Support va Uzaytirish kanbanlari
 
 > **2026-11-13:** Support doskasining qoidalari o'zgardi (faqat o'z zayavkalari, «Zayavka olish», yangi ustunlar, mijoz tasdig'i). Support bo'yicha amaldagi hujjat: [SUPPORT_KANBAN_YANGI_QOIDALAR.md](SUPPORT_KANBAN_YANGI_QOIDALAR.md).
 
@@ -352,3 +352,88 @@ Xato javobida `code` va `message` (foydalanuvchiga ko'rsatiladigan matn) bor:
 | 422 | `no_such_column`, `move_reason_required` | Ko'chirishda ustun yoki sabab xato |
 | 422 | `columns_mismatch`, `column_name_required` | Ustunlarni saqlashda xato |
 | 403 | `owner_role_superuser_only` | Egasi rolini faqat superuser beradi |
+
+## 7. Uzaytirish kanbani (`renewal`)
+
+Uchinchi doska: Standart va Pro tarifidagi **pullik** mijozlarning tugayotgan obunalari. Start, Enterprise, sinov va
+ofisdan to'lovsiz berilgan obuna tushmaydi. «Pullik»: joriy tarifi Standart/Pro va mijozda Standart/Pro uchun
+to'langan hisob bor.
+
+Umumiy yo'llar (`boards/{board}`, `cards/{id}`, `actions`, `due`, `notes`, `assign`, `move`, `columns`, `staff`)
+`board = renewal` bilan o'zgarishsiz ishlaydi. Qo'lda karta ochilmaydi (`POST boards/renewal/cards` → 404).
+
+### Kim ko'radi
+
+| Rol | Ko'rishi | Qo'shimcha |
+|---|---|---|
+| `Renewal` («Uzaytirish menejeri») | faqat o'ziga biriktirilgan kartalar | tugmalar, izoh, muddat |
+| `SalesLead` | hamma kartalar, hisobot | kartani menejerga berish |
+| `Owner`, superuser | hammasi | mas'ul menejer, ustunlar, qo'lda ko'chirish |
+
+`me.can.client_card` — mijozning ofis kartasi ochiladimi (Support, Finance, Owner, superuser); `false` bo'lsa havola
+ko'rsatilmaydi. `me.can.renewal_manager` — mas'ul menejerni tanlay oladimi.
+
+### Ustunlar va tugmalar
+
+| Kod | Nomi | Qanday tushadi | Tugmalar |
+|---|---|---|---|
+| `ending` | Tugayapti | avto: tugashiga 3 kun qolganda | `contacted`, `no_contact`, `callback`, `decline` |
+| `ended` | Tugagan | avto: muddat o'tdi, karta hali `ending`da | shu to'rttasi |
+| `no_contact` | Bog'lanilmadi | tugma; `attempts` +1 | shu to'rttasi |
+| `contacted` | Bog'lanildi | tugma | `callback`, `will_pay`, `decline` |
+| `callback` | Qayta aloqa | tugma, `due_at` majburiy | `contacted`, `no_contact`, `callback`, `will_pay`, `decline` |
+| `awaiting` | To'lov kutilmoqda | tugma (`will_pay`) yoki mijoz Standart/Pro hisobini ochganda | `callback`, `decline` |
+| `renewed` | Uzaytirdi (yakuniy) | avto: Standart/Pro to'lovi tushganda, istalgan ustundan | — |
+| `declined` | Rad etdi (yakuniy) | `decline` (sabab majburiy) yoki avto | — |
+
+`decline`: `reason` — `GET /api/v2/office/boards/renewal/reasons` dagi kod (`expensive`, `no_result`,
+`meta_problem`, `business_stopped`, `switched`, `no_answer`, `other`); `other` uchun `note` majburiy.
+
+### O'zi nima bo'ladi (har daqiqa)
+
+- Tugashiga ≤ 3 kun qolgan yoki oxirgi 30 kunda tugagan har bir pullik obunaga karta ochiladi, sozlamadagi mas'ul
+  menejerga biriktiriladi. Birinchi ishga tushishda tugaganlar ham shu yo'l bilan yuklanadi.
+- Muddat o'tsa, `ending`dagi karta `ended`ga o'tadi.
+- Hisob ochilsa — `awaiting`; hisob to'lanmay yopilsa — `callback`, muddati «hozir».
+- To'lov tushsa — `renewed` (karta `invoice_id`ni saqlaydi), `declined`dan ham.
+- Tugaganiga 30 kun bo'lgan `ended` va `no_contact`dagi karta `declined`ga o'tadi, sabab `no_answer`.
+- Ofis kun qo'shsa yoki olsa (to'lovsiz), ochiq karta yangi sanani oladi, joyida qoladi.
+- Uzaytirilgan obuna yana tugashga yaqinlashsa, yangi karta ochiladi; eskisi `renewed`da tarix bo'lib qoladi.
+
+### Kartadagi `renewal`
+
+`CardOut.renewal` (boshqa doskalarda `null`): `plan_code`, `plan_name`, `term_ends_at`, `ended`, `days` (qolgan kun;
+manfiy — o'tgan kun), `pages`, `ads_running`, `leads_month`, `spend_month[]`, `payments`, `last_login`,
+`decline_reason`, `decline_label`, `paid` (uzaytirgan hisob summasi).
+
+### Tartib, qidiruv, filterlar — `GET /api/v2/office/boards/renewal`
+
+Tartib: eng kam kuni qolgani tepada, keyin eng yaqinda tugagani. `callback`da `due_at` bo'yicha (kechikkan tepada).
+`renewed` va `declined`da — oxirgi tushgani tepada.
+
+| Parametr | Qiymat |
+|---|---|
+| `q` | ism, email, telefon yoki sahifa nomi |
+| `plan` | `standart`, `pro` |
+| `term_from`, `term_to` | obuna tugash sanasi oralig'i (ofis kuni, `YYYY-MM-DD`) |
+| `attempts` | `0`, `1-2`, `3+` |
+| `reason` | rad sababi kodi |
+| `mine`, `manager`, `due` | boshqa doskalardagidek |
+
+### Hisobot: `GET /api/v2/office/boards/renewal/report?date_from&date_to`
+
+Davr — obuna **tugash sanasi** bo'yicha (bo'sh bo'lsa oxirgi 30 kun, ko'pi bilan 366 kun). `plans[]` (Standart, Pro)
+va `total`: `due` (nechta tugadi), `renewed`, `declined`, `open`, `rate` (%), `paid[]` (to'langan hisoblar summasi),
+`reasons[]` (rad sabablari). Menejer faqat o'z kartalari bo'yicha ko'radi.
+
+### Mas'ul menejer: `GET` / `PUT /api/v2/office/boards/renewal/manager`
+
+Superuser va Egasi. `PUT {staff_id}` — `Renewal` roli bor xodim; ochiq kartalar darhol yangisiga o'tadi (`moved`),
+yakuniylari eskisida qoladi. `staff_id: null` — yangi kartalar egasiz tushadi.
+
+## 8. Start: faqat birinchi xarid
+
+Start (kodi `start` yoki «bir martalik» tarif) faqat mijozning eng birinchi xaridi sifatida sotiladi. Mijoz biror
+tarif hisobini to'lagan yoki ofis/promo unga to'liq tarif bergan bo'lsa, Start tariflar ro'yxatida chiqmaydi va
+hisob ochilmaydi (`plan_already_bought`). Start hisobiga promo kod qo'llanmaydi (`promo_not_applicable`); sotuv
+chegirmasi ham unga tegmaydi. Hamyon balansi avvalgidek ishlatiladi.

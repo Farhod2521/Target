@@ -2,14 +2,16 @@
 board is not read or changed here."""
 
 import uuid
+from datetime import date, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import CurrentUser, Db
+from app.common.dates import localtime
 from app.common.db import utcnow
-from app.modules.backoffice.constants import ROLE_LABELS, Role
-from app.modules.boards import help_options, selectors, services, view
+from app.modules.backoffice.constants import ADMIN_ROLES, ROLE_LABELS, Role
+from app.modules.boards import help_options, renewal, selectors, services, view
 from app.modules.boards import staff as staff_service
 from app.modules.boards.access import (
     BoardStaff,
@@ -23,9 +25,12 @@ from app.modules.boards.constants import (
     CLOSE_REASON_LABELS,
     COLUMN_CARDS,
     COLUMN_CARDS_MAX,
+    DECLINE_REASON_LABELS,
+    REPORT_DEFAULT_DAYS,
     Board,
     CardAction,
     CloseReason,
+    DeclineReason,
 )
 from app.modules.boards.schemas import (
     ActionIn,
@@ -43,6 +48,9 @@ from app.modules.boards.schemas import (
     MoveIn,
     NoteIn,
     ReasonOut,
+    RenewalManagerIn,
+    RenewalManagerOut,
+    RenewalReportOut,
     StaffAddIn,
     StaffListOut,
     StaffPeopleOut,
@@ -127,6 +135,9 @@ def me(db: Db, user: Staff) -> dict[str, Any]:
             "columns": access.full,
             "staff": access.full,
             "telephony": access.full,
+            "client_card": bool(user.is_superuser)
+            or any(str(role) in access.roles for role in ADMIN_ROLES),
+            "renewal_manager": access.full,
         },
     }
 
@@ -176,7 +187,30 @@ def board(
         ),
     ] = "",
     reason: Annotated[
-        str, Query(max_length=24, description="Support: a ticket reason's code.")
+        str,
+        Query(
+            max_length=24,
+            description="Support: a ticket reason's code. Uzaytirish: a "
+            "decline reason's code.",
+        ),
+    ] = "",
+    plan: Annotated[
+        str, Query(max_length=32, description="Uzaytirish: `standart` or `pro`.")
+    ] = "",
+    term_from: Annotated[
+        date | None,
+        Query(description="Uzaytirish: the term ends on this office day or later."),
+    ] = None,
+    term_to: Annotated[
+        date | None,
+        Query(description="Uzaytirish: the term ends on this office day or earlier."),
+    ] = None,
+    attempts: Annotated[
+        str,
+        Query(
+            max_length=3,
+            description="Uzaytirish: «Bog'lanib bo'lmadi» presses: `0`, `1-2` or `3+`.",
+        ),
     ] = "",
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=COLUMN_CARDS_MAX)] = COLUMN_CARDS,
@@ -195,7 +229,16 @@ def board(
         now=now,
         column=column,
         search=q,
-        filters=view.Filters(mine=mine, manager=manager, due=due, reason=reason),
+        filters=view.Filters(
+            mine=mine,
+            manager=manager,
+            due=due,
+            reason=reason,
+            plan=plan,
+            term_from=term_from,
+            term_to=term_to,
+            attempts=attempts,
+        ),
         offset=offset,
         limit=limit,
     )
@@ -220,10 +263,11 @@ def board_clients(
 
 
 def _may_add(staff: BoardStaff) -> None:
+    # A renewal card is opened by the term running out, never by hand.
     allowed = (
         staff.access.leads_board(Board.SALES)
         if staff.board == Board.SALES
-        else staff.access.sees(Board.SUPPORT)
+        else staff.board == Board.SUPPORT and staff.access.sees(Board.SUPPORT)
     )
     if not allowed:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
@@ -280,6 +324,66 @@ def close_reasons(staff: Staff) -> list[dict[str, str]]:
         {"value": str(reason), "label": str(CLOSE_REASON_LABELS[reason])}
         for reason in CloseReason
     ]
+
+
+def _renewal(db: Db, user: Staff) -> Any:
+    access = access_for(db, user)
+    if not access.sees(Board.RENEWAL):
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return access
+
+
+@router.get("/boards/renewal/reasons", responses={200: {"model": list[ReasonOut]}})
+def decline_reasons(db: Db, user: Staff) -> list[dict[str, str]]:
+    """Why a client does not renew: what «Rad etdi» asks for."""
+    _renewal(db, user)
+    return [
+        {"value": str(reason), "label": str(DECLINE_REASON_LABELS[reason])}
+        for reason in DeclineReason
+    ]
+
+
+@router.get("/boards/renewal/report", responses={200: {"model": RenewalReportOut}})
+def renewal_report(
+    db: Db,
+    user: Staff,
+    date_from: Annotated[
+        date | None, Query(description="The first office day; 30 days back if empty.")
+    ] = None,
+    date_to: Annotated[
+        date | None, Query(description="The last office day; today if empty.")
+    ] = None,
+) -> dict[str, Any]:
+    """The terms that came due in the period, Standart and Pro apart: how
+    many, how many renewed and the share, the money, and why the rest
+    declined. A renewal manager's report counts their own cards; the Sales
+    lead, the Owner and the superuser read everybody's."""
+    access = _renewal(db, user)
+    end = date_to or localtime(utcnow()).date()
+    start = date_from or end - timedelta(days=REPORT_DEFAULT_DAYS - 1)
+    return renewal.report(db, user=user, access=access, start=start, end=end)
+
+
+@router.get("/boards/renewal/manager", responses={200: {"model": RenewalManagerOut}})
+def renewal_manager(db: Db, user: Staff) -> dict[str, Any]:
+    """Who every new renewal card goes to. For the superuser and the Owner."""
+    _full(db, user)
+    return {**renewal.manager_view(db), "moved": 0}
+
+
+@router.put("/boards/renewal/manager", responses={200: {"model": RenewalManagerOut}})
+def set_renewal_manager(db: Db, user: Staff, body: RenewalManagerIn) -> dict[str, Any]:
+    """Pick the renewal board's manager. The cards still worked pass to the
+    new one at once. For the superuser and the Owner."""
+    _full(db, user)
+    try:
+        to_id = uuid.UUID(body.staff_id) if body.staff_id else None
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Xodim topilmadi."
+        ) from None
+    moved = renewal.set_manager(db, to_id=to_id, actor=user, now=utcnow())
+    return {**renewal.manager_view(db), "moved": moved}
 
 
 @router.post("/sales/take", responses={200: {"model": CardDetailOut}})

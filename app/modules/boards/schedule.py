@@ -22,4 +22,9 @@ SCHEDULE: Final = [
         f"{TASKS}.sweep_idle_board_task",
         "15",
     ),
+    Periodic(
+        "Uzaytirish kanbani: tugayotgan obunalar",
+        f"{TASKS}.sweep_renewal_board_task",
+        "*",
+    ),
 ]

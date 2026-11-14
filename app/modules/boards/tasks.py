@@ -28,3 +28,13 @@ def sweep_idle_board_task() -> int:
     running campaigns that spent nothing in a day, become tickets."""
     with task_session() as db:
         return sweep_idle(db, now=utcnow())
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def sweep_renewal_board_task() -> int:
+    """Every minute: paying Standart and Pro terms that run out become
+    cards, an ended term, a bill and a payment move them."""
+    from app.modules.boards import renewal
+
+    with task_session() as db:
+        return renewal.sweep(db, now=utcnow())

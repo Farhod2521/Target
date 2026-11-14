@@ -55,6 +55,7 @@ from app.modules.billing.exceptions import (
     PaymentUnavailable,
     PlanAlreadyBought,
     PlanNotSellable,
+    PromoNotApplicable,
     ReasonRequired,
     ReceiptNotOrphaned,
     SeatCountOutOfRange,
@@ -73,8 +74,9 @@ from app.modules.billing.selectors import (
     PageOffer,
     PlanSwitch,
     discount_quote,
-    has_bought_plan,
+    first_purchase_over,
     invoice_by_number,
+    is_first_only,
     latest_subscription,
     locked_invoice,
     movable_discounts,
@@ -191,7 +193,7 @@ def _receipt_line(invoice: Invoice) -> str:
 def create_invoice(db: Session, *, owner: User, plan: Plan, now: datetime) -> Invoice:
     if not plan.is_active or plan.price <= 0:
         raise PlanNotSellable
-    if plan.is_one_time and has_bought_plan(db, owner=owner, plan=plan):
+    if is_first_only(plan) and first_purchase_over(db, owner=owner):
         raise PlanAlreadyBought
     until = plan_switch(db, owner=owner, plan=plan, now=now).until
     if until is not None:
@@ -346,10 +348,18 @@ def _redemption_on(db: Session, invoice: Invoice) -> PromoRedemption | None:
     )
 
 
+def promo_refused(plan: Plan | None, *, kind: str = InvoiceKind.PLAN) -> bool:
+    """A one-time plan (Start) is sold at its price: no promo code, as no
+    sales discount."""
+    return kind == InvoiceKind.PLAN and plan is not None and is_first_only(plan)
+
+
 def apply_discount(
     db: Session, *, invoice: Invoice, code: str, now: datetime
 ) -> PromoRedemption:
     locked = _payable_locked(db, invoice=invoice, now=now)
+    if promo_refused(locked.plan, kind=locked.kind):
+        raise PromoNotApplicable
     owner = payer(locked)
     current = _redemption_on(db, locked)
     base = locked.amount_minor + (current.discount_minor if current else 0)

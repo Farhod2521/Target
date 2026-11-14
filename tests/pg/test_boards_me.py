@@ -114,13 +114,13 @@ def test_support_opens_only_support(client: TestClient, db: Session) -> None:
     )
 
 
-def test_the_superuser_opens_both_and_may_change_them(
+def test_the_superuser_opens_every_board_and_may_change_them(
     client: TestClient, db: Session
 ) -> None:
     head = _staff(db, "boss@example.com", superuser=True)
 
     me = MeOut.model_validate(client.get(ME, headers=head).json())
-    assert [board.code for board in me.boards] == ["sales", "support"]
+    assert [board.code for board in me.boards] == ["sales", "support", "renewal"]
     assert me.can.move and me.can.columns and me.can.staff
     assert len(_columns(client, "sales", head)) == 10
 

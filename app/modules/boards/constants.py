@@ -7,9 +7,15 @@ from app.modules.backoffice.constants import Role
 class Board(Choices):
     SALES = "sales"
     SUPPORT = "support"
+    # Paying clients whose term is running out: the renewal manager calls.
+    RENEWAL = "renewal"
 
 
-BOARD_LABELS = {Board.SALES: "Sotuv", Board.SUPPORT: "Support"}
+BOARD_LABELS = {
+    Board.SALES: "Sotuv",
+    Board.SUPPORT: "Support",
+    Board.RENEWAL: "Uzaytirish",
+}
 
 
 class ColumnKind(Choices):
@@ -83,6 +89,32 @@ SUPPORT_COLUMN_LABELS = {
 }
 
 
+class RenewalColumn(Choices):
+    # The term ends within the window; nobody has called yet.
+    ENDING = "ending"
+    # The term ended while the card still stood in Tugayapti.
+    ENDED = "ended"
+    NO_CONTACT = "no_contact"
+    CONTACTED = "contacted"
+    CALLBACK = "callback"
+    AWAITING = "awaiting"
+    # The client paid Standart or Pro.
+    RENEWED = "renewed"
+    DECLINED = "declined"
+
+
+RENEWAL_COLUMN_LABELS = {
+    RenewalColumn.ENDING: "Tugayapti",
+    RenewalColumn.ENDED: "Tugagan",
+    RenewalColumn.NO_CONTACT: "Bog'lanilmadi",
+    RenewalColumn.CONTACTED: "Bog'lanildi",
+    RenewalColumn.CALLBACK: "Qayta aloqa",
+    RenewalColumn.AWAITING: "To'lov kutilmoqda",
+    RenewalColumn.RENEWED: "Uzaytirdi",
+    RenewalColumn.DECLINED: "Rad etdi",
+}
+
+
 class SeedColumn(NamedTuple):
     board: Board
     code: str
@@ -105,6 +137,14 @@ def _support(
 ) -> SeedColumn:
     return SeedColumn(
         Board.SUPPORT, str(code), SUPPORT_COLUMN_LABELS[code], kind, final, True
+    )
+
+
+def _renewal(
+    code: RenewalColumn, kind: ColumnKind, *, final: bool = False
+) -> SeedColumn:
+    return SeedColumn(
+        Board.RENEWAL, str(code), RENEWAL_COLUMN_LABELS[code], kind, final, True
     )
 
 
@@ -131,6 +171,14 @@ SEED_COLUMNS: Final[tuple[SeedColumn, ...]] = (
     _support(SupportColumn.CONFIRMING, ColumnKind.MANUAL),
     _support(SupportColumn.RESOLVED, ColumnKind.AUTO, final=True),
     _support(SupportColumn.CLOSED, ColumnKind.AUTO, final=True),
+    _renewal(RenewalColumn.ENDING, ColumnKind.AUTO),
+    _renewal(RenewalColumn.ENDED, ColumnKind.AUTO),
+    _renewal(RenewalColumn.NO_CONTACT, ColumnKind.MANUAL),
+    _renewal(RenewalColumn.CONTACTED, ColumnKind.MANUAL),
+    _renewal(RenewalColumn.CALLBACK, ColumnKind.MANUAL),
+    _renewal(RenewalColumn.AWAITING, ColumnKind.MANUAL),
+    _renewal(RenewalColumn.RENEWED, ColumnKind.AUTO, final=True),
+    _renewal(RenewalColumn.DECLINED, ColumnKind.MANUAL, final=True),
 )
 
 # Columns only a board's lead (and the superuser or Owner) sees. Support's
@@ -146,8 +194,20 @@ LEAD_ONLY_COLUMNS: Final = frozenset(
 BOARD_ROLES: Final = {
     Board.SALES: (Role.SALES, Role.SALES_LEAD),
     Board.SUPPORT: (Role.SUPPORT,),
+    Board.RENEWAL: (Role.RENEWAL, Role.SALES_LEAD),
 }
-LEAD_ROLES: Final = {Board.SALES: (Role.SALES_LEAD,), Board.SUPPORT: ()}
+LEAD_ROLES: Final = {
+    Board.SALES: (Role.SALES_LEAD,),
+    Board.SUPPORT: (),
+    Board.RENEWAL: (Role.SALES_LEAD,),
+}
+# Whom a board's cards are given to. The Sales lead reads the renewal board
+# whole but is not its manager.
+WORKER_ROLES: Final = {
+    Board.SALES: (Role.SALES, Role.SALES_LEAD),
+    Board.SUPPORT: (Role.SUPPORT,),
+    Board.RENEWAL: (Role.RENEWAL,),
+}
 FULL_ROLES: Final = (Role.OWNER,)
 
 COLUMN_NAME_MAX: Final = 40
@@ -168,6 +228,8 @@ class CardAction(Choices):
     RESOLVE = "resolve"
     REOPEN = "reopen"
     TO_DEVELOPER = "to_developer"
+    # Renewal: the client will not renew; the reason is picked.
+    DECLINE = "decline"
 
 
 CARD_ACTION_LABELS = {
@@ -184,6 +246,7 @@ CARD_ACTION_LABELS = {
     CardAction.RESOLVE: "Hal qilindi",
     CardAction.REOPEN: "Qayta ochish",
     CardAction.TO_DEVELOPER: "Dasturchiga berish",
+    CardAction.DECLINE: "Rad etdi",
 }
 # On Support the same button gives the ticket up, not a lead back.
 SUPPORT_ACTION_LABELS: Final = {CardAction.RELEASE: "Voz kechish"}
@@ -306,6 +369,86 @@ CONFIRM_HOURS: Final = 24
 SALES_NOTES_CARRIED: Final = 5
 
 
+# -- Uzaytirish ------------------------------------------------------------
+
+# The plans whose paying clients are called before the term ends. Start,
+# Enterprise, a trial and a plan the office gave without a payment are not.
+RENEWAL_PLAN_CODES: Final = ("standart", "pro")
+# A card opens this many days before the term ends.
+RENEWAL_OPEN_DAYS: Final = 3
+# Ended this long ago and nobody reached: the card is declined on its own.
+# The first run also opens cards for terms that ended inside this window.
+RENEWAL_DECLINE_DAYS: Final = 30
+
+_RENEWAL_CALL: Final = (
+    CardAction.CONTACTED,
+    CardAction.NO_CONTACT,
+    CardAction.CALLBACK,
+)
+RENEWAL_ACTIONS: Final[dict[str, tuple[CardAction, ...]]] = {
+    str(RenewalColumn.ENDING): (*_RENEWAL_CALL, CardAction.DECLINE),
+    str(RenewalColumn.ENDED): (*_RENEWAL_CALL, CardAction.DECLINE),
+    str(RenewalColumn.NO_CONTACT): (*_RENEWAL_CALL, CardAction.DECLINE),
+    str(RenewalColumn.CONTACTED): (
+        CardAction.CALLBACK,
+        CardAction.WILL_PAY,
+        CardAction.DECLINE,
+    ),
+    str(RenewalColumn.CALLBACK): (
+        *_RENEWAL_CALL,
+        CardAction.WILL_PAY,
+        CardAction.DECLINE,
+    ),
+    str(RenewalColumn.AWAITING): (CardAction.CALLBACK, CardAction.DECLINE),
+}
+# A client's own bill moves the card to «To'lov kutilmoqda» from these.
+RENEWAL_BILL_FROM: Final = frozenset(
+    {
+        str(RenewalColumn.ENDING),
+        str(RenewalColumn.ENDED),
+        str(RenewalColumn.NO_CONTACT),
+        str(RenewalColumn.CONTACTED),
+        str(RenewalColumn.CALLBACK),
+    }
+)
+# Nobody reached the client in these: thirty days after the end they close.
+RENEWAL_SILENT_COLUMNS: Final = frozenset(
+    {str(RenewalColumn.ENDED), str(RenewalColumn.NO_CONTACT)}
+)
+
+
+class DeclineReason(Choices):
+    EXPENSIVE = "expensive"
+    NO_RESULT = "no_result"
+    META_PROBLEM = "meta_problem"
+    BUSINESS_STOPPED = "business_stopped"
+    SWITCHED = "switched"
+    NO_ANSWER = "no_answer"
+    OTHER = "other"
+
+
+DECLINE_REASON_LABELS = {
+    DeclineReason.EXPENSIVE: "Qimmat",
+    DeclineReason.NO_RESULT: "Natija bo'lmadi",
+    DeclineReason.META_PROBLEM: "Meta muammosi",
+    DeclineReason.BUSINESS_STOPPED: "Biznes to'xtadi",
+    DeclineReason.SWITCHED: "Boshqa tizimga o'tdi",
+    DeclineReason.NO_ANSWER: "Javob bermadi",
+    DeclineReason.OTHER: "Boshqa",
+}
+
+
+class AttemptsFilter(Choices):
+    NONE = "0"
+    FEW = "1-2"
+    MANY = "3+"
+
+
+# The report reads at most this long a period.
+REPORT_MAX_DAYS: Final = 366
+REPORT_DEFAULT_DAYS: Final = 30
+
+
 class TicketReason(Choices):
     SETUP = "setup"
     FROM_SALES = "from_sales"
@@ -401,6 +544,12 @@ class EventKind(Choices):
     CONFIRMED = "confirmed"
     DENIED = "denied"
     UNANSWERED = "unanswered"
+    TERM_ENDING = "term_ending"
+    TERM_ENDED = "term_ended"
+    TERM_MOVED = "term_moved"
+    RENEWED = "renewed"
+    DECLINED = "declined"
+    SILENT = "silent"
 
 
 EVENT_KIND_LABELS = {
@@ -443,6 +592,12 @@ EVENT_KIND_LABELS = {
     EventKind.CONFIRMED: "Mijoz tasdiqladi: hal bo'ldi",
     EventKind.DENIED: "Mijoz: hal bo'lmadi",
     EventKind.UNANSWERED: "Mijoz javob bermadi, yopildi",
+    EventKind.TERM_ENDING: "Obuna tugayapti",
+    EventKind.TERM_ENDED: "Obuna tugadi",
+    EventKind.TERM_MOVED: "Obuna muddati o'zgardi",
+    EventKind.RENEWED: "Uzaytirdi",
+    EventKind.DECLINED: "Rad etdi",
+    EventKind.SILENT: "30 kun javob bermadi, yopildi",
 }
 
 NOTE_MAX: Final = 2000

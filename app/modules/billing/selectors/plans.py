@@ -3,21 +3,28 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from paykit import registry
-from sqlalchemy import Select, select
+from sqlalchemy import ColumnElement, Select, exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.money import decimal_places, to_minor
 from app.modules.accounts.models import User
 from app.modules.billing.constants import (
+    DEFAULT_PLAN_CODE,
     HIDDEN_PROVIDERS,
     LIVE_SUBSCRIPTION_STATUSES,
+    HistoryKind,
     InvoiceKind,
     InvoiceStatus,
     PagesChoice,
     PlanMove,
     SubscriptionStatus,
 )
-from app.modules.billing.models import Invoice, Plan, Subscription
+from app.modules.billing.models import (
+    Invoice,
+    Plan,
+    Subscription,
+    SubscriptionChange,
+)
 from app.modules.billing.selectors.pages import (
     page_remainder,
     plan_pages_minor,
@@ -31,17 +38,46 @@ from app.modules.billing.selectors.subscription import (
 )
 
 
-def without_spent(
-    *, plans: Select[tuple[Plan]], owner: User | None
-) -> Select[tuple[Plan]]:
-    if owner is None:
-        return plans
-    spent = select(Invoice.plan_id).where(
-        Invoice.owner_id == owner.id,
+def _took_a_plan(owner_id: object) -> ColumnElement[bool]:
+    """This account has had a plan already: a plan bill it paid, whatever
+    the plan, or a full plan the office or a promo code gave it. A trial
+    and days added to Start are neither."""
+    paid = exists().where(
+        Invoice.owner_id == owner_id,
         Invoice.status == InvoiceStatus.PAID,
         Invoice.kind == InvoiceKind.PLAN,
     )
-    return plans.where(~(Plan.is_one_time.is_(True) & Plan.id.in_(spent)))
+    given = exists().where(
+        SubscriptionChange.owner_id == owner_id,
+        SubscriptionChange.kind.in_([HistoryKind.GIVEN, HistoryKind.PROMO]),
+        SubscriptionChange.to_plan_id.in_(select(Plan.id).where(~first_only_clause())),
+    )
+    return or_(paid, given)
+
+
+def without_spent(
+    *, plans: Select[tuple[Plan]], owner: User | None
+) -> Select[tuple[Plan]]:
+    """A one-time plan (Start) is sold only as the very first purchase: once
+    the account has had any plan, it is not offered again, bought or not."""
+    if owner is None:
+        return plans
+    return plans.where(~(first_only_clause() & _took_a_plan(owner.id)))
+
+
+def first_only_clause() -> ColumnElement[bool]:
+    return or_(Plan.is_one_time.is_(True), Plan.code == DEFAULT_PLAN_CODE)
+
+
+def is_first_only(plan: Plan) -> bool:
+    """Start, by its code or by being one-time: sold once, as the first
+    purchase, at its own price."""
+    return bool(plan.is_one_time) or plan.code == DEFAULT_PLAN_CODE
+
+
+def first_purchase_over(db: Session, *, owner: User) -> bool:
+    """Whether a one-time plan is closed to this account."""
+    return bool(db.scalar(select(_took_a_plan(owner.id))))
 
 
 def sellable_plans(db: Session, *, owner: User | None = None) -> list[Plan]:

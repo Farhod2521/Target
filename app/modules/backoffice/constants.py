@@ -8,6 +8,8 @@ class Role(Choices):
     OWNER = "Owner"
     SALES = "Sales"
     SALES_LEAD = "SalesLead"
+    # Works the renewal board and nothing else.
+    RENEWAL = "Renewal"
 
 
 ROLE_LABELS = {
@@ -17,6 +19,7 @@ ROLE_LABELS = {
     Role.OWNER: "Egasi",
     Role.SALES: "Sotuv menejeri",
     Role.SALES_LEAD: "Sotuv boshlig'i",
+    Role.RENEWAL: "Uzaytirish menejeri",
 }
 ADMIN_ROLES = (Role.SUPPORT, Role.FINANCE, Role.OWNER)
 MONEY_ROLES = (Role.FINANCE, Role.OWNER)

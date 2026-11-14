@@ -15,13 +15,29 @@ if TYPE_CHECKING:
 
 
 class BoardCard(Base):
-    """A client on a board: a lead on Sales, a ticket on Support. A client
-    has at most one card per board, ever: a solved ticket is reopened, not
-    replaced, so one person in Support keeps working with them."""
+    """A client on a board: a lead on Sales, a ticket on Support, a term
+    running out on Uzaytirish. On Sales and Support a client has at most one
+    card, ever: a solved ticket is reopened, not replaced, so one person in
+    Support keeps working with them. On Uzaytirish each term that runs out
+    has its own card (``term_ends_at``), and the old ones stay as history."""
 
     __tablename__ = "board_cards"
     __table_args__ = (
-        Index("uniq_board_card_owner", "board", "owner_id", unique=True),
+        Index(
+            "uniq_board_card_owner",
+            "board",
+            "owner_id",
+            unique=True,
+            postgresql_where=text("term_ends_at IS NULL"),
+        ),
+        Index(
+            "uniq_board_card_term",
+            "board",
+            "owner_id",
+            "term_ends_at",
+            unique=True,
+            postgresql_where=text("term_ends_at IS NOT NULL"),
+        ),
         Index("board_cards_column_idx", "board", "column_code", "column_since"),
         Index("board_cards_manager_idx", "board", "manager_id"),
         Index("board_cards_due_idx", "board", "due_at", postgresql_where=text("due_at IS NOT NULL")),
@@ -50,5 +66,10 @@ class BoardCard(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     close_reason: Mapped[str] = mapped_column(String(24), nullable=False, default="")
     close_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Uzaytirish: the plan the term was on, the moment the term ends, and
+    # the bill whose payment renewed it.
+    plan_code: Mapped[str] = mapped_column(String(32), nullable=False, default="", server_default="")
+    term_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    invoice_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True, index=True)
     owner: Mapped[User] = relationship(foreign_keys=[owner_id], lazy="select")
     manager: Mapped[User | None] = relationship(foreign_keys=[manager_id], lazy="select")

@@ -140,3 +140,10 @@ class TakeLimit(DomainError):
             f"Sizda {limit} ta zayavka ishlanmoqda. Yangisini olish uchun "
             "avval birini yakunlang."
         )
+
+
+class ReportPeriodInvalid(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Hisobot davri noto'g'ri: ko'pi bilan bir yil.")

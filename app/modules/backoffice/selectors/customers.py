@@ -434,6 +434,10 @@ def _activity(
     }
 
 
+# The same figures for a board's cards.
+activity_of = _activity
+
+
 def _pages(
     db: Session,
     ids: list[uuid.UUID],

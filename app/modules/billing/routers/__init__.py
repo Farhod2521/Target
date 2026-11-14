@@ -52,6 +52,7 @@ from app.modules.billing.schemas import (
     SeatsOfferOut,
     StatusOut,
 )
+from app.modules.billing.services.invoices import promo_refused
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -294,6 +295,8 @@ def priced_choice(
     if promo:
         discount["promo_typed"] = promo
         try:
+            if promo_refused(offer.plan):
+                raise PromoNotApplicable
             quote = selectors.discount_quote(
                 db,
                 owner=user,

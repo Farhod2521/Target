@@ -1,6 +1,7 @@
-"""Who sees which board. Sales people see Sales, Support sees Support, each
-their own cards; the superuser and the Owner role see both boards whole and
-may change them."""
+"""Who sees which board. Sales people see Sales, Support sees Support, the
+renewal manager sees Uzaytirish, each their own cards; the Sales lead reads
+Uzaytirish whole; the superuser and the Owner role see every board whole
+and may change them."""
 
 from dataclasses import dataclass
 from typing import Annotated
@@ -13,7 +14,13 @@ from app.common.db import get_db
 from app.modules.accounts.models import User
 from app.modules.backoffice.constants import Role
 from app.modules.backoffice.permissions import roles_of, staff_required
-from app.modules.boards.constants import BOARD_ROLES, FULL_ROLES, LEAD_ROLES, Board
+from app.modules.boards.constants import (
+    BOARD_ROLES,
+    FULL_ROLES,
+    LEAD_ROLES,
+    WORKER_ROLES,
+    Board,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +63,7 @@ def works_on(db: Session, user: User, board: Board) -> bool:
     if not user.is_active or not user.is_staff or user.is_superuser:
         return False
     roles = roles_of(db, user)
-    return any(str(role) in roles for role in BOARD_ROLES[board])
+    return any(str(role) in roles for role in WORKER_ROLES[board])
 
 
 def may_take(db: Session, user: User) -> bool:
@@ -88,7 +95,7 @@ class OnBoard:
 
 
 def on_board(
-    board: Annotated[str, Path(description="`sales` or `support`.")],
+    board: Annotated[str, Path(description="`sales`, `support` or `renewal`.")],
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> OnBoard:

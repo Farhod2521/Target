@@ -296,6 +296,20 @@ def act(
             due=due,
             now=now,
         )
+    if card.board == str(Board.RENEWAL):
+        from app.modules.boards import renewal
+
+        return renewal.act(
+            db,
+            card=card,
+            user=user,
+            action=action,
+            reason=reason,
+            note=text,
+            due=due,
+            said=_said(text, due),
+            now=now,
+        )
     if card.closed_at is not None:
         raise CardClosed
     if action not in SALES_ACTIONS.get(card.column_code, ()):
@@ -678,7 +692,7 @@ def assign(
     board = Board(card.board)
     if not access.leads_board(board):
         raise CardNotFound
-    if board == Board.SALES and card.closed_at is not None:
+    if board != Board.SUPPORT and card.closed_at is not None:
         raise CardClosed
     if to_id is None:
         if card.manager_id is None:
@@ -690,7 +704,8 @@ def assign(
             back = card.column_code
         elif board == Board.SALES:
             back = str(SalesColumn.UNWORKED)
-        elif card.closed_at is not None:
+        elif board == Board.RENEWAL or card.closed_at is not None:
+            # A renewal card stands where the term put it, with nobody on it.
             back = card.column_code
         else:
             back = str(SupportColumn.NEW)
@@ -709,6 +724,18 @@ def assign(
     to = card.column_code
     if board == Board.SALES and card.column_code == SalesColumn.UNWORKED:
         to = str(SalesColumn.NEW_LEAD)
+    if to == card.column_code and board == Board.RENEWAL:
+        # The card stays in its column; only its person changes.
+        record(
+            db,
+            card=card,
+            kind=EventKind.ASSIGNED,
+            now=now,
+            actor=user,
+            body=manager.full_name or manager.email,
+        )
+        db.commit()
+        return card
     move(
         db,
         card=card,

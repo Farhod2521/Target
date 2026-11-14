@@ -54,9 +54,7 @@ class PlanNotSellable(DomainError):
 
 class PlanAlreadyBought(DomainError):
     def __init__(self) -> None:
-        super().__init__(
-            "Bu tarif bir marta sotiladi va siz uni allaqachon sotib olgansiz. Boshqa tarifni tanlang."
-        )
+        super().__init__("Bu tarif faqat birinchi xarid uchun. Boshqa tarifni tanlang.")
 
 
 class PaymentUnavailable(DomainError):

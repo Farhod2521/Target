@@ -24,11 +24,18 @@ def test_a_sales_manager_sees_only_sales_and_leads_nothing() -> None:
     assert not access.leads and not access.full
 
 
-def test_the_sales_lead_leads_sales_and_still_not_support() -> None:
+def test_the_sales_lead_leads_sales_and_renewal_and_still_not_support() -> None:
     access = access_of(roles=_roles(Role.SALES_LEAD), is_superuser=False)
 
-    assert access.boards == (Board.SALES,)
-    assert access.leads == {Board.SALES}
+    assert access.boards == (Board.SALES, Board.RENEWAL)
+    assert access.leads == {Board.SALES, Board.RENEWAL}
+
+
+def test_a_renewal_manager_sees_only_the_renewal_board() -> None:
+    access = access_of(roles=_roles(Role.RENEWAL), is_superuser=False)
+
+    assert access.boards == (Board.RENEWAL,)
+    assert not access.leads and not access.full
 
 
 def test_support_sees_only_support() -> None:
@@ -38,13 +45,13 @@ def test_support_sees_only_support() -> None:
     assert not access.leads
 
 
-def test_the_owner_role_and_the_superuser_see_and_lead_both() -> None:
+def test_the_owner_role_and_the_superuser_see_and_lead_every_board() -> None:
     for access in (
         access_of(roles=_roles(Role.OWNER), is_superuser=False),
         access_of(roles=frozenset(), is_superuser=True),
     ):
-        assert access.boards == (Board.SALES, Board.SUPPORT)
-        assert access.leads == {Board.SALES, Board.SUPPORT}
+        assert access.boards == (Board.SALES, Board.SUPPORT, Board.RENEWAL)
+        assert access.leads == {Board.SALES, Board.SUPPORT, Board.RENEWAL}
         assert access.full
 
 
@@ -118,6 +125,8 @@ def test_the_migration_seeds_the_same_columns_as_the_code() -> None:
     assert seeded == [
         (str(s.board), s.code, s.name, str(s.kind), s.is_final, s.is_visible)
         for s in SEED_COLUMNS
+        # The renewal board's columns are seeded by its first read.
+        if s.board != Board.RENEWAL
     ]
 
 
