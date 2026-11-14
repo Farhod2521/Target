@@ -100,6 +100,7 @@ from app.modules.crm.selectors import (
     qualified_count,
     seated_ids,
     seating,
+    setup_of,
 )
 from app.modules.leads.constants import SignalSource, SignalStatus
 from app.modules.leads.models import Lead, LeadSignal
@@ -323,7 +324,10 @@ def card_for_write(
     if viewer.is_owner or card.assignee_id == viewer.user.id:
         return card
     if card.assignee_id is None and purpose == "take":
-        return card
+        # «Men o'zim beraman»: only the owner hands a card out.
+        setup = setup_of(db, scope=viewer.scope)
+        if setup is None or setup.distribution != Distribution.MANUAL:
+            return card
     raise NotYours
 
 

@@ -273,6 +273,13 @@ def test_a_manager_is_sent_to_the_board(client: TestClient, db: Session) -> None
         json={"assignee": ""},
     )
 
+    # «Men o'zim beraman» (the lone owner's setting): nothing waits for a manager.
+    assert client.get(f"{CRM}/nav", headers=signed_in).json()["attention"] == 0
+    claim = client.post(
+        f"{CRM}/settings/distribution", headers=head, json={"distribution": "claim"}
+    )
+    assert claim.status_code == 200
+
     nav = client.get(f"{CRM}/nav", headers=signed_in).json()
 
     assert nav == {"url": "/app/crm/", "attention": 3}
@@ -975,3 +982,63 @@ def test_the_untaken_chip_counts_the_new_cards_nobody_holds(
 
     assert (after["untaken"], _total(after)) == (2, 2)
     assert card not in [c["id"] for c in after["columns"][0]["cards"]]
+
+
+def test_a_file_of_seven_days_holds_seven_days(client: TestClient, db: Session) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    db.execute(
+        update(Lead)
+        .where(Lead.owner_id == owner.id)
+        .values(submitted_at=utcnow() - timedelta(days=20))
+    )
+    db.commit()
+
+    def file(**params: Any) -> int:
+        answer = client.get("/api/v1/leads/export", headers=head, params=params)
+        return answer.status_code
+
+    assert file() == 200
+    assert file(days=30) == 200
+    # Nothing came in the last week, so there is nothing to download.
+    assert file(days=7) == 404
+
+
+def test_the_leads_list_offers_the_crm_only_where_this_pair_runs_one(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    assert client.get("/api/v1/leads", headers=head).json()["crm_on"] is False
+
+    _running(client, head)
+
+    assert client.get("/api/v1/leads", headers=head).json()["crm_on"] is True
+
+
+def test_when_the_owner_hands_cards_out_a_manager_sees_and_takes_only_their_own(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    member, signed_in = _member(client, head, "qol@example.com")
+    client.post(
+        f"{CRM}/password",
+        headers=signed_in,
+        json={"password": PASSWORD + "1", "again": PASSWORD + "1"},
+    )
+    first, second = (card["id"] for card in board["columns"][0]["cards"][:2])
+    given = client.post(
+        f"{CRM}/cards/{first}/assign",
+        headers=head,
+        json={"assignee": member["user"]["id"]},
+    )
+    assert given.is_success
+
+    seen = client.get(CRM, headers=signed_in).json()
+
+    assert (seen["untaken"], _total(seen)) == (0, 1)
+    assert client.post(f"{CRM}/cards/{second}/take", headers=signed_in).status_code in (
+        403,
+        404,
+    )
+    assert client.get(CRM, headers=head).json()["untaken"] == 2

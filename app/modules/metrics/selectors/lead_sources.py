@@ -133,13 +133,8 @@ def lead_sources(
     tzinfo = account.tzinfo() if account is not None else ZoneInfo("UTC")
     currency = account.currency if account is not None else ""
     today = utcnow().astimezone(tzinfo).date()
-    since, until = (None, None)
-    if days != ALL_TIME:
-        start = today - timedelta(days=days - 1)
-        since, until = (
-            datetime.combine(start, time.min).replace(tzinfo=tzinfo),
-            utcnow(),
-        )
+    since = _start(days=days, today=today, tzinfo=tzinfo)
+    until = utcnow() if since is not None else None
     tallies = tallies_by_ad(
         db,
         owner=owner,
@@ -229,6 +224,22 @@ def lead_sources(
         cpl=format_minor(amount_minor=totals.cpl_minor, currency=currency),
         cpql=format_minor(amount_minor=totals.cpql_minor, currency=currency),
     )
+
+
+def _start(*, days: int, today: date, tzinfo: ZoneInfo) -> datetime | None:
+    if days == ALL_TIME:
+        return None
+    start = today - timedelta(days=days - 1)
+    return datetime.combine(start, time.min).replace(tzinfo=tzinfo)
+
+
+def period_start(db: Session, *, owner: User, days: int) -> datetime | None:
+    """Where the report's period begins, so a file of it holds the same days."""
+    from app.modules.ads.selectors import page_advertising
+
+    account = page_advertising(db, owner=owner).home
+    tzinfo = account.tzinfo() if account is not None else ZoneInfo("UTC")
+    return _start(days=days, today=utcnow().astimezone(tzinfo).date(), tzinfo=tzinfo)
 
 
 def _spend_by_ad(

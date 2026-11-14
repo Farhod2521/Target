@@ -15,6 +15,7 @@ from app.modules.crm.constants import (
     CLOSED_DAYS_ON_BOARD,
     CLOSING_KINDS,
     LOST_REASONS_SHOWN,
+    Distribution,
     Flag,
     SeatKind,
     SetupState,
@@ -652,11 +653,25 @@ def _visible(viewer: Viewer) -> ColumnElement[bool]:
     new_stages = select(CrmStage.id).where(
         holds(viewer.scope, CrmStage), CrmStage.kind == StageKind.NEW
     )
+    # «Men o'zim beraman»: the owner hands every card out, so a manager sees
+    # no card that is not theirs yet, and has nothing to «Olish».
+    handed_out = (
+        select(CrmSetup.id)
+        .where(
+            holds(viewer.scope, CrmSetup),
+            CrmSetup.distribution == Distribution.MANUAL,
+        )
+        .exists()
+    )
     return and_(
         mine,
         or_(
             CrmCard.assignee_id == viewer.user.id,
-            and_(CrmCard.assignee_id.is_(None), CrmCard.stage_id.in_(new_stages)),
+            and_(
+                CrmCard.assignee_id.is_(None),
+                CrmCard.stage_id.in_(new_stages),
+                ~handed_out,
+            ),
         ),
     )
 
