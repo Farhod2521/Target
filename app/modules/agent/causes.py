@@ -18,7 +18,7 @@ from app.modules.metrics.constants import Ranking
 from core.agent.diagnosis import CAUSE_OF
 from core.agent.signals import HOLD_FLOOR_BP, HOOK_FLOOR_BP, MIN_CLICKS
 from core.agent.sufficiency import MIN_IMPRESSIONS, MIN_LINK_CLICKS, SPEND_MULTIPLE
-from core.metrics import arithmetic, formulas
+from core.metrics import formulas
 from core.metrics.arithmetic import basis_points
 
 _BOTTOM: Final = ("below_average_10", "below_average_20", "below_average_35")
@@ -256,20 +256,6 @@ def _weak_hold(evidence: Mapping[str, Any], currency: str) -> str:
     )
 
 
-def _junk_numbers(evidence: Mapping[str, Any], currency: str) -> str:
-    junk, leads = (_int(evidence, "junk_leads"), _int(evidence, "leads"))
-    if not junk or not leads:
-        return ""
-    return (
-        "%(total)s ta murojaatdan %(junk)s tasida raqam noto'g'ri, boshqa davlatniki yoki takror (%(share)s%%)."
-        % {
-            "total": leads,
-            "junk": junk,
-            "share": arithmetic.share(part=junk, whole=leads),
-        }
-    )
-
-
 def _underspending(evidence: Mapping[str, Any], currency: str) -> str:
     share = _int(evidence, "spend_share")
     if share is None:
@@ -368,7 +354,6 @@ _LINES: Final[dict[str, Line]] = {
     "low_click_to_lead": _low_click_to_lead,
     "low_arrival": _low_arrival,
     "conversion_ranking_low": _conversion_ranking_low,
-    "junk_numbers": _junk_numbers,
     "long_form": _long_form,
     "learning_limited": _learning_limited,
 }

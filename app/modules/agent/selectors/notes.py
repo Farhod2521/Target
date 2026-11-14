@@ -112,10 +112,6 @@ LANDING_ADVICE: Final[dict[str, Any]] = {
         "Bosganlar saytga yetib bormayapti: sahifa sekin yoki telefonda noto'g'ri "
         "ochilayotgan bo'lishi mumkin."
     ),
-    "junk_numbers": (
-        "Formaga yuborishdan oldin raqamni tasdiqlash qadamini qo'shing - "
-        "noto'g'ri va takror raqamlar kamayadi."
-    ),
     "conversion_ranking_low": (
         "Bosgandan keyingi qadamni soddalashtiring: forma yoki sahifa ortiqcha "
         "narsa so'rayotgan bo'lishi mumkin."

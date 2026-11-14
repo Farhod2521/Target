@@ -544,17 +544,3 @@ def test_a_price_twice_the_usual_these_three_days_is_a_problem_already() -> None
 
     assert found.evidence["cost_trend_pct"] == 267
     assert found.cause != "no_problem"
-
-
-# --- numbers nobody can call --------------------------------------------------
-def test_a_tenth_of_the_enquiries_with_bad_numbers_is_the_form() -> None:
-    """Cheap on paper: thirty enquiries at the usual price, but six of them
-    cannot be called back, so the price is not what it looks like."""
-    found = verdict(group(junk_leads=6))
-
-    assert found.cause == "landing_blocks"
-    assert "junk_numbers" in found.signals
-
-
-def test_a_few_bad_numbers_are_ordinary() -> None:
-    assert "junk_numbers" not in verdict(group(junk_leads=2)).signals

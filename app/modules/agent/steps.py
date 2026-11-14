@@ -106,7 +106,6 @@ def step_lines(
             words.hold, evidence, "hold_bp", "account_hold_bp", bp_percent, words
         ),
         "spend_share": _share(words.spend_share, evidence, "spend_share"),
-        "junk": _junk(evidence, words),
         "learning": _learning(evidence, words),
         "enough": _enough(evidence, money=money, words=words),
         "trend": _trend(evidence, money=money, words=words),
@@ -163,13 +162,6 @@ def _weeks(evidence: Mapping[str, Any], words: StepWords) -> str:
 def _share(label: str, evidence: Mapping[str, Any], key: str) -> str:
     share = whole(evidence.get(key))
     return f"{label}: {share}%" if share is not None else ""
-
-
-def _junk(evidence: Mapping[str, Any], words: StepWords) -> str:
-    junk, leads = (whole(evidence.get("junk_leads")), whole(evidence.get("leads")))
-    if not junk or not leads:
-        return ""
-    return f"{words.junk}: {junk} / {leads}"
 
 
 def _learning(evidence: Mapping[str, Any], words: StepWords) -> str:

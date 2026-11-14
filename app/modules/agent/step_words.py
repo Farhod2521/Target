@@ -22,7 +22,6 @@ class StepWords:
     hook: str
     hold: str
     spend_share: str
-    junk: str
     learning: str
     trend: str
     trend_none: str
@@ -58,7 +57,6 @@ UZ = StepWords(
     hook="Videoni 3 soniyadan ko'p ko'rgan",
     hold="3 soniyadan o'tganlardan oxirigacha ko'rgan",
     spend_share="Kunlik byudjetdan sarflangani",
-    junk="Noto'g'ri yoki takror raqamli murojaat",
     learning="Haftalik natija: {results} (Meta o'rganishi uchun taxminan 50 kerak)",
     trend="Oxirgi 3 kunda natija narxi",
     trend_none="natija yo'q",
@@ -93,7 +91,6 @@ EN = StepWords(
     hook="video watched past 3 seconds",
     hold="of those, watched to the end",
     spend_share="share of the day's budget spent",
-    junk="leads with a wrong or repeated number",
     learning="results this week: {results} (Meta learns on about 50)",
     trend="cost per result, last 3 days",
     trend_none="no result",

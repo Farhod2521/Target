@@ -1,9 +1,9 @@
 """The per-group reads one night's facts are assembled from: money, cuts, adverts, landing, trends."""
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any
 
 from adskit import MinorUnits
@@ -15,7 +15,7 @@ from app.modules.ads.constants import Delivery
 from app.modules.ads.models import Ad, AdCreative, AdSet, Campaign, SiteCheck
 from app.modules.agent.selectors.window import end_of, start_of
 from app.modules.integrations.models import AdAccount
-from app.modules.leads.models import Lead, LeadForm
+from app.modules.leads.models import LeadForm
 from app.modules.metrics.constants import NIGHTLY_BREAKDOWNS, MetricLevel
 from app.modules.metrics.models import MetricsBreakdown, MetricsDaily
 from core.agent import (
@@ -30,7 +30,6 @@ from core.agent import (
 from core.agent.benchmark import count_in, family_of, per_of
 from core.agent.facts import ctr_bp
 from core.agent.usual import DayFigures, Usual, usual_level
-from core.leads.phone import is_home_number
 from core.metrics import SegmentFigures, Totals
 
 M = MetricsDaily
@@ -433,55 +432,6 @@ def unusable_in(
     )
 
 
-def junk_by_adset(
-    db: Session, *, owner: User, adset_ids: list[str], since: datetime, until: datetime
-) -> dict[str, int]:
-    """``{group: enquiries in the window nobody can usefully call}``."""
-    from app.modules.businesses.models import Business
-
-    if not adset_ids:
-        return {}
-    regions = frozenset(
-        code.upper()
-        for code in db.scalars(
-            select(Business.country_code).where(Business.user_id == owner.id)
-        )
-        if code
-    )
-    rows = list(
-        db.execute(
-            select(Lead.id, Lead.adset_external_id, Lead.phone_e164, Lead.submitted_at)
-            .where(
-                Lead.owner_id == owner.id,
-                Lead.adset_external_id.in_(adset_ids),
-                Lead.submitted_at >= since,
-                Lead.submitted_at <= until,
-            )
-            .order_by(Lead.submitted_at)
-        )
-    )
-    if not rows:
-        return {}
-    phones = {phone for _pk, _g, phone, _at in rows if phone}
-    first_seen: dict[str, Any] = {}
-    if phones:
-        first_seen = dict(
-            db.execute(
-                select(Lead.phone_e164, Lead.id)
-                .where(Lead.owner_id == owner.id, Lead.phone_e164.in_(phones))
-                .order_by(Lead.submitted_at.desc())
-            ).all()
-        )
-    found: Counter[str] = Counter()
-    for pk, adset_id, phone, _at in rows:
-        if (
-            not is_home_number(e164=phone, regions=regions)
-            or first_seen.get(phone) != pk
-        ):
-            found[adset_id] += 1
-    return dict(found)
-
-
 def landing_by_adset(
     db: Session, *, owner: User, account: AdAccount
 ) -> dict[str, Landing]:
@@ -763,7 +713,6 @@ __all__ = [
     "Window",
     "ads_by_adset",
     "audiences_we_hold",
-    "junk_by_adset",
     "landing_by_adset",
     "launch_ctr_by_adset",
     "recent_by_adset",

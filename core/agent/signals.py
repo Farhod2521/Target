@@ -76,8 +76,6 @@ Signal = Literal[
     "low_click_to_lead",
     "low_arrival",
     "conversion_ranking_low",
-    # A tenth or more of the enquiries left a number nobody can call back.
-    "junk_numbers",
     "long_form",
     # Last: the provider's own word that the group cannot learn, said only
     # when no step explains it better.
@@ -107,11 +105,6 @@ STUCK_SHARE_PCT: Final = 30
 # The last three days' click-through rate under this share of the first
 # three's is a tired advert - the brief's starting value.
 FATIGUE_SHARE_PCT: Final = 70
-# Past this share of a group's enquiries with a number nobody can call
-# back, the form lets too much through - over at least this many of them.
-# The brief's starting values.
-JUNK_SHARE_PCT: Final = 10
-JUNK_MIN_LEADS: Final = 10
 # A group that spent under this share of its budget is not being shown
 # enough to judge its advert by - the brief's starting value.
 UNDERSPEND_SHARE_PCT: Final = 70
@@ -318,16 +311,9 @@ def _after_click(item: AdSetFacts, bench: Benchmark) -> list[Signal]:
         and _below(own.arrival_bp, LOW_ARRIVAL_BP, 100)
     ):
         found.append("low_arrival")
-    if item.counts_leads and _junk(item):
-        found.append("junk_numbers")
     if item.landing.form_questions > MAX_EASY_QUESTIONS:
         found.append("long_form")
     return found
-
-
-def _junk(item: AdSetFacts) -> bool:
-    leads = lead_count(item)
-    return leads >= JUNK_MIN_LEADS and item.junk_leads * 100 > leads * JUNK_SHARE_PCT
 
 
 def _form_stalls(item: AdSetFacts, bench: Benchmark) -> bool:

@@ -244,10 +244,6 @@ class AdSetFacts:
     # See :mod:`apps.agent.selectors.recent`.
     recent: Recent = field(default_factory=Recent)
     launch_ctr_bp: int | None = None
-    # Enquiries in the window nobody can usefully call back: a number that
-    # could not be dialled, one from another country, or a repeat - see
-    # :mod:`apps.agent.selectors.junk_leads`.
-    junk_leads: int = 0
     # How often one person saw it over the newest seven days, and over the
     # seven before them, in hundredths: impressions over the people the
     # provider counted for the range. The one frequency the levels, the

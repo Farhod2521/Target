@@ -16,7 +16,6 @@ from app.modules.agent.selectors.account_reads import (
     Window,
     ads_by_adset,
     audiences_we_hold,
-    junk_by_adset,
     landing_by_adset,
     launch_ctr_by_adset,
     recent_by_adset,
@@ -94,13 +93,6 @@ def account_facts(
     week_before = week_readings(
         db, owner=owner, account=account, adset_ids=ids, before=True
     )
-    junk = junk_by_adset(
-        db,
-        owner=owner,
-        adset_ids=ids,
-        since=start_of(since, tzinfo),
-        until=end_of(until, tzinfo),
-    )
     adsets = tuple(
         replace(
             _adset(
@@ -119,7 +111,6 @@ def account_facts(
             launch_ctr_bp=launch.get(row.external_id),
             week_frequency=_frequency_of(week, row.external_id),
             prior_week_frequency=_frequency_of(week_before, row.external_id),
-            junk_leads=junk.get(row.external_id, 0),
         )
         for row in rows
     )

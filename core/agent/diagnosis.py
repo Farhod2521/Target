@@ -95,7 +95,6 @@ CAUSE_OF: Final[Mapping[Signal, Cause]] = {
     "low_click_to_lead": "landing_blocks",
     "low_arrival": "landing_blocks",
     "conversion_ranking_low": "landing_blocks",
-    "junk_numbers": "landing_blocks",
     "long_form": "landing_blocks",
     "learning_limited": "learning_limited",
 }
@@ -257,7 +256,6 @@ def _figures(*, item: AdSetFacts, bench: Benchmark) -> dict[str, Any]:
         "early_ctr_bp": item.early.link_ctr_bp,
         "late_ctr_bp": item.late.link_ctr_bp,
         "spend_share": item.spend_share if item.daily_budget_minor else None,
-        "junk_leads": item.junk_leads,
         "frequency": item.week_frequency,
         "prior_frequency": item.prior_week_frequency,
     }
