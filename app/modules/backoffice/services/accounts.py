@@ -16,15 +16,16 @@ from app.modules.accounts.services import (
 )
 from app.modules.audit.constants import EventName
 from app.modules.audit.services import emit
-from app.modules.backoffice.constants import ActionKind
+from app.modules.backoffice.constants import PASSWORD_ROLES, ActionKind
 from app.modules.backoffice.exceptions import (
     AlreadyBlocked,
     BlockReasonArchived,
     EmailMismatch,
     NotBlocked,
     PasswordRefused,
-    SuperuserOnly,
+    PasswordSetterOnly,
 )
+from app.modules.backoffice.permissions import has_role
 from app.modules.backoffice.services.journal import record
 from app.modules.billing.exceptions import ReasonRequired
 from app.modules.billing.selectors import orphaned_receipts
@@ -63,9 +64,10 @@ def set_customer_password(
     now: datetime,
 ) -> User:
     """Replace the password without the old one, and sign the customer out on
-    every device. Neither the journal nor the event holds the password."""
-    if not actor.is_superuser:
-        raise SuperuserOnly
+    every device. Support, the Owner and the superuser. Neither the journal
+    nor the event holds the password."""
+    if not has_role(db, actor, PASSWORD_ROLES):
+        raise PasswordSetterOnly
     if not reason.strip():
         raise ReasonRequired
     try:

@@ -136,9 +136,9 @@ class NotBlocked(DomainError):
         super().__init__("Bu akkaunt bloklanmagan.")
 
 
-class SuperuserOnly(DomainError):
+class PasswordSetterOnly(DomainError):
     def __init__(self) -> None:
-        super().__init__("Parolni faqat super admin o'rnata oladi.")
+        super().__init__("Parolni Support, Egasi yoki super admin o'rnata oladi.")
 
 
 class PasswordRefused(DomainError):

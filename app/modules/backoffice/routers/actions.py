@@ -24,6 +24,7 @@ from app.modules.backoffice.constants import (
     ADMIN_ROLES,
     BLOCK_ROLES,
     MONEY_ROLES,
+    PASSWORD_ROLES,
     Role,
 )
 from app.modules.backoffice.exceptions import StaffAccountGuarded
@@ -41,6 +42,7 @@ Admin = Annotated[User, Depends(staff_required(*ADMIN_ROLES))]
 Money = Annotated[User, Depends(staff_required(*MONEY_ROLES))]
 Blocker = Annotated[User, Depends(staff_required(*BLOCK_ROLES))]
 Owner = Annotated[User, Depends(staff_required(Role.OWNER))]
+PasswordSetter = Annotated[User, Depends(staff_required(*PASSWORD_ROLES))]
 
 
 class ReasonIn(BaseModel):
@@ -424,11 +426,10 @@ def remove_page_pair(
 
 @router.post("/password", responses={200: {"model": MessageOut}})
 def set_password(
-    customer_id: uuid.UUID, body: PasswordIn, db: Db, actor: Owner
+    customer_id: uuid.UUID, body: PasswordIn, db: Db, actor: PasswordSetter
 ) -> dict[str, Any]:
-    """Set the customer's password and sign them out everywhere. Superuser only."""
-    if not actor.is_superuser:
-        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    """Set the customer's password and sign them out everywhere. Support, the
+    Owner and the superuser; a member of staff's own is the Team screen's."""
     customer = _customer(db, customer_id, staff_too=False)
     if body.new_password1 != body.new_password2:
         raise InputRefused({"new_password2": "Parollar bir xil emas."})

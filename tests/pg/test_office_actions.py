@@ -458,6 +458,9 @@ def test_blocking_a_customer_stops_their_crm_logins_too(
 def test_a_set_password_signs_the_customer_out(client: TestClient, db: Session) -> None:
     customer, _ = _shop(db)
     _, owner = _staff(db, Role.OWNER, email="owner@office.test")
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+    _, sales = _staff(db, Role.SALES, email="sales@office.test")
+    _, finance = _staff(db, Role.FINANCE, email="finance@office.test")
     _, root = _staff(db, Role.OWNER, email="root@office.test", superuser=True)
     signed_in = _bearer(customer)
     assert client.get("/api/v1/account", headers=signed_in).status_code == 200
@@ -468,7 +471,8 @@ def test_a_set_password_signs_the_customer_out(client: TestClient, db: Session) 
         "reason": "Akkaunt o'g'irlangan",
     }
 
-    assert client.post(base, headers=owner, json=body).status_code == 404
+    assert client.post(base, headers=sales, json=body).status_code == 404
+    assert client.post(base, headers=finance, json=body).status_code == 404
     mismatch = client.post(base, headers=root, json=body | {"new_password2": "boshqa"})
     assert mismatch.status_code == 422
     weak = client.post(
@@ -485,6 +489,14 @@ def test_a_set_password_signs_the_customer_out(client: TestClient, db: Session) 
     assert stored is not None and check_password("Tog'-Bahor-2026", stored.password)
     assert client.get("/api/v1/account", headers=signed_in).status_code == 401
     assert _kinds(db, customer) == [ActionKind.PASSWORD_SET]
+
+    # Support and the Owner set it too.
+    for who, word in ((support, "Support-Bahor-2026"), (owner, "Owner-Bahor-2026")):
+        again = body | {"new_password1": word, "new_password2": word}
+        assert client.post(base, headers=who, json=again).status_code == 200
+        db.expire_all()
+        stored = db.get(User, customer.id)
+        assert stored is not None and check_password(word, stored.password)
 
 
 def test_deleting_a_customer_keeps_the_inviter_s_and_the_invitee_s_rows(

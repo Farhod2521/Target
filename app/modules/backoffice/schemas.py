@@ -35,7 +35,7 @@ class CanOut(BaseModel):
         "deleting."
     )
     superuser: bool = Field(
-        description="Setting a customer's password, releasing a held bill."
+        description="Releasing a held bill."
     )
     engineer: bool = Field(description="The faults console.")
     answer_support: bool = Field(description="The support chat queue.")

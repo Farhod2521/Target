@@ -26,6 +26,8 @@ MONEY_ROLES = (Role.FINANCE, Role.OWNER)
 FEEDBACK_ROLES = (Role.OWNER,)
 ANSWER_ROLES = (Role.SUPPORT, Role.OWNER)
 BLOCK_ROLES = (Role.SUPPORT, Role.OWNER)
+# Setting a customer's password (the superuser too).
+PASSWORD_ROLES = (Role.SUPPORT, Role.OWNER)
 SALES_ROLES = (Role.SALES, Role.SALES_LEAD, Role.OWNER)
 SALES_LEAD_ROLES = (Role.SALES_LEAD, Role.OWNER)
 FAULT_ROLES = (Role.ENGINEER,)
