@@ -432,6 +432,40 @@ def welcome_back(
     return card
 
 
+def come_back(
+    db: Session,
+    *,
+    setup: CrmSetup,
+    card: CrmCard,
+    lead: Lead,
+    first: CrmStage,
+    members: Sequence[CrmMember],
+    now: datetime,
+) -> CrmCard:
+    """A known telephone enquires again.
+
+    A sold card is a sale on the books: it stays sold, with its sum, and the
+    new enquiry gets a card of its own, with whoever sold to this customer
+    when they still work here. Any other card takes the new lead itself.
+    """
+    if card.stage.kind != StageKind.WON:
+        return welcome_back(db, card=card, lead=lead, first=first, now=now)
+    working = {m.user_id for m in members if m.is_active and m.user.is_active}
+    keeper = card.assignee
+    if keeper is not None and keeper.id not in working | {card.owner_id}:
+        keeper = None
+    return new_card(
+        db,
+        setup=setup,
+        lead=lead,
+        first=first,
+        members=members,
+        now=now,
+        after=card,
+        keeper=keeper,
+    )
+
+
 def new_card(
     db: Session,
     *,
@@ -440,14 +474,17 @@ def new_card(
     first: CrmStage,
     members: Sequence[CrmMember],
     now: datetime,
+    after: CrmCard | None = None,
+    keeper: User | None = None,
 ) -> CrmCard:
-    assignee = next_assignee(setup=setup, members=members)
+    assignee = keeper or next_assignee(setup=setup, members=members)
     card = CrmCard(
         **scope_of(setup).fields(),
         lead_id=lead.id,
         stage_id=first.id,
         assignee_id=assignee.id if assignee else None,
         taken_at=now if assignee else None,
+        returned=after.returned + 1 if after is not None else 0,
     )
     db.add(card)
     db.flush()
@@ -455,12 +492,14 @@ def new_card(
         db,
         card=card,
         actor=None,
-        kind=ActivityKind.ARRIVED,
+        kind=ActivityKind.RETURNED if after is not None else ActivityKind.ARRIVED,
+        text=after.stage.name if after is not None else "",
         event=EventName.CRM_CARD_PLACED,
         now=now,
     )
     if assignee is not None:
-        setup.last_assigned_id = assignee.id
+        if keeper is None:
+            setup.last_assigned_id = assignee.id
         log_card(
             db,
             card=card,
@@ -511,7 +550,15 @@ def place_lead(db: Session, *, lead_id: str) -> Placement:
     if existing is not None:
         if not is_newer(lead=lead, card=existing):
             return "already"
-        welcome_back(db, card=existing, lead=lead, first=first, now=now)
+        come_back(
+            db,
+            setup=setup,
+            card=existing,
+            lead=lead,
+            first=first,
+            members=_takers(db, scope),
+            now=now,
+        )
         db.commit()
         return "returned"
     new_card(
@@ -583,7 +630,15 @@ def add_lead(db: Session, *, viewer: Viewer, lead_id: str) -> CrmCard:
     if existing is not None:
         if not is_newer(lead=lead, card=existing):
             raise AlreadyOnBoard
-        return welcome_back(db, card=existing, lead=lead, first=first, now=now)
+        return come_back(
+            db,
+            setup=setup,
+            card=existing,
+            lead=lead,
+            first=first,
+            members=_takers(db, scope),
+            now=now,
+        )
     return new_card(
         db, setup=setup, lead=lead, first=first, members=_takers(db, scope), now=now
     )
@@ -1379,9 +1434,17 @@ def enable_crm(db: Session, *, viewer: Viewer) -> int:
             seen.add(phone)
         chosen.append(lead)
     chosen.reverse()
-    for phone, lead in returning.items():
-        welcome_back(db, card=cards[phone], lead=lead, first=first, now=now)
     members = _takers(db, scope)
+    for phone, lead in returning.items():
+        come_back(
+            db,
+            setup=setup,
+            card=cards[phone],
+            lead=lead,
+            first=first,
+            members=members,
+            now=now,
+        )
     for lead in chosen:
         assignee = next_assignee(setup=setup, members=members)
         if assignee is not None:

@@ -877,3 +877,101 @@ def test_the_leads_of_no_advert_can_be_listed_and_downloaded(
     assert file.status_code == 200
     wild = client.get("/api/v1/leads", headers=head, params={"q": "_"}).json()
     assert wild["rows"] == []
+
+
+def _asks_again(db: Session, owner: User, was: str, name: str) -> str:
+    """The telephone of lead ``was`` sends a new enquiry now; the CRM places it."""
+    from app.modules.crm import services
+
+    old = db.query(Lead).filter_by(owner_id=owner.id, leadgen_id=was).one()
+    now = utcnow()
+    again = Lead(
+        owner_id=owner.id,
+        provider=PROVIDER,
+        leadgen_id=name,
+        form_id=old.form_id,
+        campaign_external_id=old.campaign_external_id,
+        ad_external_id=old.ad_external_id,
+        phone_e164=old.phone_e164,
+        full_name=name,
+        submitted_at=now,
+        received_at=now,
+    )
+    db.add(again)
+    db.commit()
+    return services.place_lead(db, lead_id=str(again.id))
+
+
+def _card_named(board: dict[str, Any], name: str) -> tuple[dict[str, Any], str]:
+    for column in board["columns"]:
+        for card in column["cards"]:
+            if card["lead"]["full_name"] == name:
+                return card, column["stage"]["kind"]
+    raise AssertionError(name)
+
+
+def test_a_sold_customer_who_asks_again_keeps_the_sale_and_gets_a_new_card(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    board = _running(client, head)
+    sold, _ = _card_named(board, "lid0")
+    won = client.post(
+        f"{CRM}/cards/{sold['id']}/win", headers=head, json={"amount": "150"}
+    )
+    assert won.is_success
+
+    assert _asks_again(db, owner, "lid0", "yana") == "returned"
+
+    board = client.get(CRM, headers=head).json()
+    kept, where = _card_named(board, "lid0")
+    assert (kept["id"], where) == (sold["id"], "won")
+    assert (
+        next(c for c in board["columns"] if c["stage"]["kind"] == "won")["won_minor"]
+        == won.json()["won_amount_minor"]
+    )
+    new, where = _card_named(board, "yana")
+    assert where == "new"
+    assert new["id"] != sold["id"]
+    assert new["returned"] == 1
+    # The newest enquiry stands first in its column.
+    assert board["columns"][0]["cards"][0]["id"] == new["id"]
+    assert _total(board) == 4
+
+
+def test_a_refused_customer_who_asks_again_returns_on_top_of_the_first_column(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    board = _running(client, head)
+    card, _ = _card_named(board, "lid1")
+    reason = client.get(f"{CRM}/settings", headers=head).json()["reasons"][0]["id"]
+    lost = client.post(
+        f"{CRM}/cards/{card['id']}/lose", headers=head, json={"reason": reason}
+    )
+    assert lost.is_success
+
+    assert _asks_again(db, owner, "lid1", "qaytdi") == "returned"
+
+    board = client.get(CRM, headers=head).json()
+    back, where = _card_named(board, "qaytdi")
+    assert (back["id"], where, back["returned"]) == (card["id"], "new", 1)
+    assert board["columns"][0]["cards"][0]["id"] == card["id"]
+    assert _total(board) == 3
+
+
+def test_the_untaken_chip_counts_the_new_cards_nobody_holds(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    assert board["untaken"] == 3
+    card = board["columns"][0]["cards"][0]["id"]
+    assert client.post(f"{CRM}/cards/{card}/take", headers=head).is_success
+
+    after = client.get(CRM, headers=head, params={"f": "untaken"}).json()
+
+    assert (after["untaken"], _total(after)) == (2, 2)
+    assert card not in [c["id"] for c in after["columns"][0]["cards"]]

@@ -637,6 +637,7 @@ class Board:
     late: int
     today: int
     cursor: str
+    untaken: int = 0
     ads: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -703,7 +704,21 @@ def _narrowed(
         query = query.where(
             CrmCard.due_at >= start, CrmCard.due_at < end, CrmCard.closed_at.is_(None)
         )
+    elif filters.flag == Flag.UNTAKEN:
+        query = query.where(_untaken(viewer))
     return query
+
+
+def _untaken(viewer: Viewer) -> ColumnElement[bool]:
+    """A new enquiry nobody holds yet: the cards that wait for «Olish»."""
+    new_stages = select(CrmStage.id).where(
+        holds(viewer.scope, CrmStage), CrmStage.kind == StageKind.NEW
+    )
+    return and_(
+        CrmCard.assignee_id.is_(None),
+        CrmCard.closed_at.is_(None),
+        CrmCard.stage_id.in_(new_stages),
+    )
 
 
 def _on_board(*, viewer: Viewer, filters: BoardFilters, now: datetime) -> Select[Any]:
@@ -720,7 +735,15 @@ def _shown(query: Select[Any]) -> Select[Any]:
 
 def _ordered(query: Select[Any], kind: str) -> Select[Any]:
     if kind == StageKind.NEW:
-        return query.order_by(CrmCard.created_at.desc(), CrmCard.id)
+        # By when the enquiry came, not when the card was made: a customer
+        # who writes again stands at the top, not under a month of others.
+        came = (
+            select(Lead.submitted_at)
+            .where(Lead.id == CrmCard.lead_id)
+            .correlate(CrmCard)
+            .scalar_subquery()
+        )
+        return query.order_by(came.desc(), CrmCard.id)
     if kind in CLOSING_KINDS:
         return query.order_by(CrmCard.closed_at.desc(), CrmCard.id)
     return query.order_by(CrmCard.due_at, CrmCard.updated_at.desc(), CrmCard.id)
@@ -852,6 +875,7 @@ def board(
         columns=columns,
         late=late,
         today=today,
+        untaken=_count(db, open_cards.where(_untaken(viewer))),
         cursor=cursor_of(db, viewer=viewer),
         ads={key: label.title for key, label in names.items()},
     )
