@@ -423,6 +423,30 @@ def my_phone(db: Session, *, user: User) -> dict[str, Any]:
     }
 
 
+def colleagues(db: Session, *, user: User) -> list[dict[str, Any]]:
+    """Whom the reader may pass a call on to: every other active member of
+    the office who holds a number the exchange still has."""
+    connection = office_connection(db)
+    if connection is None:
+        return []
+    rows = db.execute(
+        select(PhoneExtension, User)
+        .join(User, User.id == PhoneExtension.user_id)
+        .where(
+            PhoneExtension.connection_id == connection.id,
+            PhoneExtension.is_gone.is_(False),
+            PhoneExtension.user_id != user.id,
+            User.is_staff.is_(True),
+            User.is_active.is_(True),
+        )
+        .order_by(User.full_name, User.email)
+    ).all()
+    return [
+        {"number": seat.number, "title": seat.title, "user": _person(person)}
+        for seat, person in rows
+    ]
+
+
 def sip_refused(db: Session, *, user: User) -> dict[str, Any]:
     """The exchange refused the reader's number. The passwords are read
     again: a changed one is handed over for one more try; the same one

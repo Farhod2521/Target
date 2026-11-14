@@ -42,6 +42,7 @@ from app.modules.telephony.constants import (
     Direction,
 )
 from app.modules.telephony.schemas import (
+    ColleaguesOut,
     ConnectIn,
     ExtensionIn,
     JournalOut,
@@ -151,6 +152,13 @@ def sip_refused(db: Db, caller: OnPhone) -> JSONResponse:
     once more; not enabled means stop."""
     found = services.sip_refused(db, user=caller.user)
     return JSONResponse(MyPhoneOut.model_validate(found).model_dump(), headers=NO_STORE)
+
+
+@router.get("/colleagues", responses={200: {"model": ColleaguesOut}})
+def colleagues(db: Db, caller: OnPhone) -> dict[str, Any]:
+    """Whom a call may be transferred to: the other staff with an internal
+    number. The browser phone sends the transfer to UTeL itself."""
+    return {"colleagues": services.colleagues(db, user=caller.user)}
 
 
 @router.get("/live", responses={200: {"model": LiveOut}})

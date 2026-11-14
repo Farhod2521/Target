@@ -150,6 +150,19 @@ class MyPhoneOut(BaseModel):
     rules: SipRulesOut = Field(description="How to register and retry.")
 
 
+class ColleagueOut(BaseModel):
+    number: str = Field(description="The internal number a call is transferred to.")
+    title: str = Field(description="Its name in UTeL.")
+    user: PhonePersonOut = Field(description="Who answers it.")
+
+
+class ColleaguesOut(BaseModel):
+    colleagues: list[ColleagueOut] = Field(
+        description="Everybody else who holds a number, by name. Who is busy "
+        "is in the live calls' `busy`."
+    )
+
+
 class LiveCallOut(BaseModel):
     call_id: str = Field(description="UTeL's id; the same in every event of the call.")
     direction: str
