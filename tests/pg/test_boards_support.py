@@ -196,8 +196,8 @@ def test_meta_refusals_open_a_ticket_and_the_systems_own_do_not(db: Session) -> 
     assert [r["code"] for r in ticket.reasons] == ["meta_error", "meta_error"]
     details = sorted(r["detail"] for r in ticket.reasons)
     assert details == [
-        "Amal bajarilmadi (pause): Meta refused",
-        "Reklama ishga tushmadi: Invalid parameter",
+        "Reklama ishga tushmadi: Meta rad etdi.",
+        "«To'xtatish» amali bajarilmadi: Meta rad etdi.",
     ]
     assert triggers.sweep_support(db, now=utcnow()) == 0
 

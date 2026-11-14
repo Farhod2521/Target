@@ -152,6 +152,17 @@ class CardOut(BaseModel):
     has_bill: bool = Field(
         description="Sales: the client opened a plan bill and may still pay it."
     )
+    client_denied: bool = Field(
+        False, description="Support: the client said «Yo'q», it is not solved."
+    )
+    client_replied: bool = Field(
+        False, description="Support: the client wrote back while it waited."
+    )
+    confirm_until: datetime | None = Field(
+        None,
+        description="Support, Tasdiq kutilmoqda: unanswered by then, the "
+        "ticket closes on its own.",
+    )
     renewal: CardRenewalOut | None = Field(
         None, description="Uzaytirish only: the term and the client's figures."
     )
@@ -196,7 +207,16 @@ class PlanOut(BaseModel):
     name: str
     status: str
     expires_at: datetime
+    expired: bool = Field(False, description="The term is over.")
     setup_done: bool
+
+
+class ClientTroubleOut(BaseModel):
+    kind: str
+    label: str
+    what: str
+    urgent: bool
+    since: datetime | None
 
 
 class ClientDetailOut(ClientOut):
@@ -204,6 +224,10 @@ class ClientDetailOut(ClientOut):
     language: str
     last_login: datetime | None
     plan: PlanOut | None
+    troubles: list[ClientTroubleOut] = Field(
+        default_factory=list,
+        description="Support: what is wrong with the account now, worst first.",
+    )
 
 
 class ActionOut(BaseModel):
@@ -235,14 +259,42 @@ class HistoryOut(BaseModel):
     at: datetime
 
 
+class ReasonTargetOut(BaseModel):
+    kind: str = Field(description="`launch` or `action`.")
+    id: str
+    name: str = Field(description="The campaign's name, or the change's.")
+
+
 class TicketReasonOut(BaseModel):
     code: str = Field(
         description="`setup`, `from_sales`, `meta_error`, `survey`, `idle`, "
         "`ai` (sent from the assistant's chat) or `manual` (opened in the office)."
     )
     label: str
-    detail: str
+    detail: str = Field(description="What happened, in plain words.")
     at: datetime
+    state: str = Field("open", description="`open`, or `solved` by a «Hal qilindi».")
+    solved_at: datetime | None = None
+    solved_by: str = ""
+    solved_note: str = Field("", description="How it was solved, as staff wrote.")
+    denied_at: datetime | None = Field(
+        None, description="The client said it was not solved: open again."
+    )
+    raw: str = Field("", description="The provider's own words, to quote.")
+    target: ReasonTargetOut | None = Field(
+        None, description="What the fact was about: a launch or a change."
+    )
+
+
+class ResolutionOut(BaseModel):
+    note: str
+    by: str
+    at: datetime | None
+    client: str = Field(
+        description="`waiting`: asked, no answer yet; `yes`: confirmed; "
+        "`silent`: did not answer in time."
+    )
+    count: int = Field(description="Reasons this «Hal qilindi» solved.")
 
 
 class CardDetailOut(CardOut):
@@ -251,6 +303,9 @@ class CardDetailOut(CardOut):
         description="Sales: the plan bill the client opened and may still pay."
     )
     ticket_reasons: list[TicketReasonOut] = Field(description="Support: newest first.")
+    resolution: ResolutionOut | None = Field(
+        None, description="Support: a ticket called solved, and the client's word."
+    )
     support_chat_id: str | None = Field(
         description="The client's Yordam chat, to open it from the ticket."
     )

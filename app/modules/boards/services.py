@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.common.dates import localtime
 from app.modules.accounts.models import User
+from app.modules.boards import reasons
 from app.modules.boards.access import Access, works_on
 from app.modules.boards.constants import (
     ACTION_DUE_OPTIONAL,
@@ -436,8 +437,12 @@ def _support_act(
         card.closed_at = None
         if card.manager_id is None:
             card.manager_id = user.id
+        # What the last «Hal qilindi» closed is to be worked again.
+        reasons.reopen_last(card)
         to, kind = SupportColumn.IN_PROGRESS, EventKind.REOPENED
     else:
+        # Every open reason is solved together, with who and how.
+        reasons.solve_open(card, by=user, note=note, now=now)
         to, kind = SupportColumn.CONFIRMING, EventKind.RESOLVED
     card.due_at = due
     move(

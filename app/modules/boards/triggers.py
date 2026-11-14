@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session
 from app.modules.accounts.models import User
 from app.modules.ads.constants import Delivery, LaunchStatus
 from app.modules.ads.models import Campaign, CampaignLaunch, GoogleLaunch
-from app.modules.audit.constants import ActionStatus, ActorType
+from app.modules.audit.constants import (
+    ACTION_TYPE_LABELS,
+    ActionStatus,
+    ActionType,
+    ActorType,
+)
 from app.modules.audit.models import ActionLog
 from app.modules.billing.constants import (
     DEFAULT_PLAN_CODE,
@@ -708,7 +713,11 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     launches = list(
         db.execute(
             select(
-                CampaignLaunch.id, CampaignLaunch.owner_id, CampaignLaunch.error_message
+                CampaignLaunch.id,
+                CampaignLaunch.owner_id,
+                CampaignLaunch.error_message,
+                CampaignLaunch.error_code,
+                CampaignLaunch.campaign_name,
             )
             .where(
                 CampaignLaunch.status.in_(
@@ -730,6 +739,9 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
                 ActionLog.owner_id,
                 ActionLog.action,
                 ActionLog.error_message,
+                ActionLog.error_code,
+                ActionLog.target_level,
+                ActionLog.target_external_id,
             )
             .where(
                 ActionLog.status == str(ActionStatus.FAILED),
@@ -743,30 +755,66 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         )
     )
     written = 0
-    for launch_id, owner_id, message in launches:
+    for launch_id, owner_id, message, code, name in launches:
+        head = (
+            f"«{name}» reklamasi ishga tushmadi" if name else "Reklama ishga tushmadi"
+        )
         written += raise_ticket(
             db,
             owner_id=owner_id,
             reason=TicketReason.META_ERROR,
             ref=f"launch:{launch_id}",
             now=now,
-            detail=_said("Reklama ishga tushmadi", message),
+            detail=_said(head, _plain(code)),
+            extra={
+                "raw": _cut(message),
+                "target": {"kind": "launch", "id": str(launch_id), "name": name or ""},
+            },
         )
-    for action_id, owner_id, action, message in presses:
+    for action_id, owner_id, action, message, code, level, external_id in presses:
+        label = (
+            str(ACTION_TYPE_LABELS[ActionType(action)])
+            if action in ActionType.values
+            else action
+        )
         written += raise_ticket(
             db,
             owner_id=owner_id,
             reason=TicketReason.META_ERROR,
             ref=f"action:{action_id}",
             now=now,
-            detail=_said(f"Amal bajarilmadi ({action})", message),
+            detail=_said(f"«{label}» amali bajarilmadi", _plain(code)),
+            extra={
+                "raw": _cut(message),
+                "target": {
+                    "kind": "action",
+                    "id": str(action_id),
+                    "name": label,
+                    "level": level or "",
+                    "external_id": external_id or "",
+                },
+            },
         )
     db.commit()
     return written
 
 
+def _cut(message: str | None) -> str:
+    """The provider's own words, one line, as Support may quote them."""
+    return " ".join((message or "").split())[:300]
+
+
+def _plain(code: str | None) -> str:
+    """Why Meta refused, in the words the client's own screen says it; a
+    code nobody wrote a sentence for is left to Meta's words beside it."""
+    from app.modules.ads.selectors.failures import SENTENCES
+
+    found = SENTENCES.get(code or "")
+    return str(found[0]) if found else "Meta rad etdi."
+
+
 def _said(head: str, message: str | None) -> str:
-    text = " ".join((message or "").split())[:300]
+    text = _cut(message)
     return f"{head}: {text}" if text else head
 
 

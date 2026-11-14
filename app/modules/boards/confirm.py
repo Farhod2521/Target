@@ -12,6 +12,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 from telegramkit import BotClient, Button, ButtonPress, TelegramError
 
+from app.modules.boards import reasons
 from app.modules.boards.constants import (
     CONFIRM_HOURS,
     SWEEP_BATCH,
@@ -132,6 +133,8 @@ def answer(
         db.commit()
         return SOLVED
     to = SupportColumn.IN_PROGRESS if card.manager_id else SupportColumn.NEW
+    # What was called solved is open again, marked as the client's «Yo'q».
+    reasons.reopen_last(card, denied_at=now)
     move(db, card=card, to=str(to), kind=EventKind.DENIED, now=now, body=via)
     db.commit()
     return REOPENED

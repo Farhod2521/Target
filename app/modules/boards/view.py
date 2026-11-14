@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
-from sqlalchemy import Select, and_, exists, func, or_, select
+from sqlalchemy import Select, and_, cast, exists, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.orm import Session, aliased
 
 from app.common.dates import localtime
@@ -17,6 +18,7 @@ from app.modules.billing.constants import (
     InvoiceStatus,
 )
 from app.modules.billing.models import Invoice, Subscription
+from app.modules.boards import reasons
 from app.modules.boards.access import Access
 from app.modules.boards.constants import (
     ACTION_DUE_OPTIONAL,
@@ -25,6 +27,7 @@ from app.modules.boards.constants import (
     CARD_ACTION_LABELS,
     CLIENT_SEARCH_ROWS,
     CLOSE_REASON_LABELS,
+    CONFIRM_HOURS,
     EVENT_KIND_LABELS,
     OFFER_ENDED_LABEL,
     OFFER_ENDED_REASON,
@@ -34,6 +37,7 @@ from app.modules.boards.constants import (
     SEARCH_MAX,
     SUPPORT_ACTION_LABELS,
     SUPPORT_ACTIONS,
+    SUPPORT_DONE_COLUMNS,
     TICKET_REASON_LABELS,
     TICKET_TAKE_LIMIT,
     AttemptsFilter,
@@ -119,7 +123,18 @@ def _scoped(
     if filters.reason and board == Board.RENEWAL:
         query = query.where(BoardCard.close_reason == filters.reason)
     elif filters.reason:
-        query = query.where(BoardCard.reasons.contains([{"code": filters.reason}]))
+        # A ticket about this reason now: it is open on it, or, once the
+        # ticket is done, among what it held. Solved long ago does not count.
+        open_on = func.jsonb_path_exists(
+            BoardCard.reasons,
+            cast("$[*] ? (@.code == $code && !exists(@.solved_at))", JSONPATH),
+            cast({"code": filters.reason}, JSONB),
+        )
+        done = and_(
+            BoardCard.column_code.in_(SUPPORT_DONE_COLUMNS),
+            BoardCard.reasons.contains([{"code": filters.reason}]),
+        )
+        query = query.where(or_(open_on, done))
     if board == Board.RENEWAL:
         query = _renewal_scoped(query, filters)
     if with_due and filters.due in DueFilter.values:
@@ -209,6 +224,9 @@ class Extras:
     bills: dict[uuid.UUID, Invoice]
     # card id -> what a renewal card shows (boards.renewal).
     renewal: dict[uuid.UUID, dict[str, Any]] = field(default_factory=dict)
+    # card id -> what put a ticket in its column, when the client did:
+    # ``denied`` (their «Yo'q») or ``client_replied`` (they wrote back).
+    marks: dict[uuid.UUID, str] = field(default_factory=dict)
 
 
 def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
@@ -222,8 +240,9 @@ def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
         card for card in cards if card.board in (str(Board.SALES), str(Board.RENEWAL))
     ]
     sales = [card for card in cards if card.board == str(Board.SALES)]
+    marks = _client_marks(db, cards)
     if not billed:
-        return Extras(offered={}, bills={}, renewal=renewal)
+        return Extras(offered={}, bills={}, renewal=renewal, marks=marks)
     bills: dict[uuid.UUID, Invoice] = {}
     for bill in db.scalars(
         open_bills(now)
@@ -233,7 +252,35 @@ def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
         if bill.owner_id is not None:
             bills[bill.owner_id] = bill
     offered = clocks_for(db, sales) if sales else {}
-    return Extras(offered=offered, bills=bills, renewal=renewal)
+    return Extras(offered=offered, bills=bills, renewal=renewal, marks=marks)
+
+
+_CLIENT_KINDS = (str(EventKind.DENIED), str(EventKind.CLIENT_REPLIED))
+
+
+def _client_marks(db: Session, cards: list[BoardCard]) -> dict[uuid.UUID, str]:
+    """The tickets the client themselves sent back to work: the line that
+    moved the card into the column it stands in is theirs. One query."""
+    tickets = [
+        card
+        for card in cards
+        if card.board == str(Board.SUPPORT) and card.closed_at is None
+    ]
+    if not tickets:
+        return {}
+    return {
+        card_id: kind
+        for card_id, kind in db.execute(
+            select(BoardCardEvent.card_id, BoardCardEvent.kind)
+            .join(BoardCard, BoardCard.id == BoardCardEvent.card_id)
+            .where(
+                BoardCardEvent.card_id.in_([card.id for card in tickets]),
+                BoardCardEvent.kind.in_(_CLIENT_KINDS),
+                BoardCardEvent.created_at >= BoardCard.column_since,
+                BoardCardEvent.to_column == BoardCard.column_code,
+            )
+        )
+    }
 
 
 def open_bills(at: datetime) -> Select[Any]:
@@ -270,7 +317,9 @@ def _brief_offer(
 
 def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, Any]:
     owner = card.owner
-    codes = sorted({str(item.get("code", "")) for item in card.reasons or []} - {""})
+    # What the ticket is about now, not everything it ever held.
+    codes = sorted({str(item.get("code", "")) for item in reasons.shown(card)} - {""})
+    mark = extras.marks.get(card.id, "")
     return {
         "id": str(card.id),
         "board": card.board,
@@ -295,6 +344,12 @@ def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, A
         "offer": _brief_offer(card, extras, now),
         "has_bill": card.closed_at is None and card.owner_id in extras.bills,
         "renewal": extras.renewal.get(card.id),
+        "client_denied": mark == EventKind.DENIED,
+        "client_replied": mark == EventKind.CLIENT_REPLIED,
+        "confirm_until": card.column_since + timedelta(hours=CONFIRM_HOURS)
+        if card.board == str(Board.SUPPORT)
+        and card.column_code == SupportColumn.CONFIRMING
+        else None,
         "opened_at": card.opened_at,
         "column_since": card.column_since,
         "closed_at": card.closed_at,
@@ -434,7 +489,7 @@ def _support_chat(db: Session, owner: User) -> str | None:
     return str(found) if found else None
 
 
-def _plan(db: Session, owner: User) -> dict[str, Any] | None:
+def _plan(db: Session, owner: User, *, now: datetime) -> dict[str, Any] | None:
     live = db.scalar(
         select(Subscription)
         .where(
@@ -450,8 +505,76 @@ def _plan(db: Session, owner: User) -> dict[str, Any] | None:
         "name": live.plan.name,
         "status": live.status,
         "expires_at": live.expires_at,
+        "expired": live.expires_at <= now,
         "setup_done": live.setup_completed_at is not None,
     }
+
+
+def _reason_out(item: dict[str, Any]) -> dict[str, Any]:
+    target = item.get("target") if isinstance(item.get("target"), dict) else None
+    return {
+        "code": str(item.get("code", "")),
+        "label": _reason_label(str(item.get("code", ""))),
+        "detail": str(item.get("detail", "")),
+        "at": item.get("at"),
+        "state": "open" if reasons.is_open(item) else "solved",
+        "solved_at": item.get("solved_at"),
+        "solved_by": str(item.get("solved_by", "")),
+        "solved_note": str(item.get("solved_note", "")),
+        "denied_at": item.get("denied_at"),
+        "raw": str(item.get("raw", "")),
+        "target": {
+            "kind": str(target.get("kind", "")),
+            "id": str(target.get("id", "")),
+            "name": str(target.get("name", "")),
+        }
+        if target
+        else None,
+    }
+
+
+# Where the client's answer stands, by the column a solved ticket is in.
+_ANSWERS = {
+    str(SupportColumn.CONFIRMING): "waiting",
+    str(SupportColumn.RESOLVED): "yes",
+    str(SupportColumn.CLOSED): "silent",
+}
+
+
+def _resolution(card: BoardCard) -> dict[str, Any] | None:
+    """A ticket called solved: how, by whom, and what the client said."""
+    if card.board != str(Board.SUPPORT) or card.column_code not in _ANSWERS:
+        return None
+    solved = reasons.last_round(card)
+    if not solved or reasons.open_reasons(card):
+        return None
+    first = solved[0]
+    return {
+        "note": str(first.get("solved_note", "")),
+        "by": str(first.get("solved_by", "")),
+        "at": first.get("solved_at"),
+        "client": _ANSWERS[card.column_code],
+        "count": len(solved),
+    }
+
+
+def _troubles(db: Session, card: BoardCard, *, now: datetime) -> list[dict[str, Any]]:
+    """What is wrong with the client's account right now, as the office's
+    own list names it: Support reads the state, not only the ticket."""
+    if card.board != str(Board.SUPPORT):
+        return []
+    from app.modules.backoffice.selectors.problems import problems_of
+
+    return [
+        {
+            "kind": problem.kind,
+            "label": problem.label,
+            "what": problem.what,
+            "urgent": problem.urgent,
+            "since": problem.since,
+        }
+        for problem in problems_of(db, owner_id=card.owner_id, now=now)
+    ]
 
 
 def _bill(extras: Extras, card: BoardCard) -> dict[str, Any] | None:
@@ -507,17 +630,11 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
             "role": owner.role,
             "language": owner.language,
             "last_login": owner.last_login,
-            "plan": _plan(db, owner),
+            "plan": _plan(db, owner, now=now),
+            "troubles": _troubles(db, card, now=now),
         },
-        "ticket_reasons": [
-            {
-                "code": str(item.get("code", "")),
-                "label": _reason_label(str(item.get("code", ""))),
-                "detail": str(item.get("detail", "")),
-                "at": item.get("at"),
-            }
-            for item in reversed(card.reasons or [])
-        ],
+        "ticket_reasons": [_reason_out(item) for item in reversed(card.reasons or [])],
+        "resolution": _resolution(card),
         "bill": _bill(extras, card),
         "support_chat_id": _support_chat(db, owner),
         "close_reason": card.close_reason,

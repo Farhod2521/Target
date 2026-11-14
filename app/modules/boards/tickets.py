@@ -4,6 +4,7 @@ working with the client."""
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
@@ -39,11 +40,20 @@ def raise_ticket(
     now: datetime,
     detail: str = "",
     actor: User | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> bool:
     """Put ``reason`` on the client's ticket, opening or reopening it.
     ``ref`` names the fact (a payment, a launch); the same fact twice is
     nothing. ``actor`` is who opened it by hand; a rule has none. Whether anything was written. The caller commits."""
-    item = {"code": str(reason), "ref": ref, "at": now.isoformat(), "detail": detail}
+    # ``extra``: what the office reads beside the words: the provider's own
+    # text (``raw``) and what the fact was about (``target``).
+    item = {
+        **(extra or {}),
+        "code": str(reason),
+        "ref": ref,
+        "at": now.isoformat(),
+        "detail": detail,
+    }
     card = _locked(db, owner_id)
     if card is None:
         # Two rules opening the same client's ticket at once meet the

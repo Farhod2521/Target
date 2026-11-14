@@ -437,3 +437,30 @@ Start (kodi `start` yoki «bir martalik» tarif) faqat mijozning eng birinchi xa
 tarif hisobini to'lagan yoki ofis/promo unga to'liq tarif bergan bo'lsa, Start tariflar ro'yxatida chiqmaydi va
 hisob ochilmaydi (`plan_already_bought`). Start hisobiga promo kod qo'llanmaydi (`promo_not_applicable`); sotuv
 chegirmasi ham unga tegmaydi. Hamyon balansi avvalgidek ishlatiladi.
+
+## 9. Support: sabablarning holati
+
+Mijozda bitta zayavka umrbod turadi, shuning uchun har sababning o'z holati bor (`ticket_reasons[]`):
+
+| Maydon | Ma'nosi |
+|---|---|
+| `state` | `open` yoki `solved` |
+| `solved_at`, `solved_by`, `solved_note` | qachon, kim va qanday hal qilgani («Hal qilindi» izohi) |
+| `denied_at` | mijoz «Yo'q, hal bo'lmadi» degan vaqt: sabab qayta ochiq |
+| `detail` | nima bo'lgani, sodda so'z bilan |
+| `raw` | Meta'ning o'z matni (iqtibos uchun) |
+| `target` | nima haqida: `{kind: launch|action, id, name}`; `launch`ning `id`si — mijoz kampaniyasi sahifasi |
+
+- «Hal qilindi» (`resolve`) **hamma ochiq sabablarni birga** yopadi.
+- Mijoz «Yo'q» desa yoki xodim «Qayta ochish»ni bossa, o'sha oxirgi yopilganlar qayta ochiladi.
+- Yangi sabab kelsa, eskilari hal bo'lgan holicha qoladi.
+- Kartadagi `reasons` / `reason_chips` va `reason` filtri endi faqat **hozir ochiq** sabablarni o'qiydi (yakunlangan
+  zayavkada — oxirgi yopilganlarini).
+
+Karta: `client_denied` (mijoz «Yo'q» dedi), `client_replied` (kutish paytida mijoz yozdi), `confirm_until`
+(«Tasdiq kutilmoqda»da: shu vaqtgacha javob bo'lmasa zayavka o'zi yopiladi).
+
+Karta tafsiloti: `resolution` — `{note, by, at, client: waiting|yes|silent, count}`; `client.troubles[]` — akkauntning
+hozirgi muammolari (ofisdagi «Muammolar» ro'yxati bilan bir xil); `client.plan.expired`.
+
+Migratsiya 0055 mavjud zayavkalarga shu holatni ularning o'z tarixidan yozadi.
