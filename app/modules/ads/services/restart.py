@@ -7,6 +7,7 @@ runs, and a launch whose switch-on waited past its window («Meta hozir javob
 bermadi») stayed paused for good. Nothing asked again.
 """
 
+import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Final
@@ -16,8 +17,9 @@ from sqlalchemy.orm import Session
 
 from app.modules.ads.constants import ACTION_STALE_MINUTES, LaunchStatus
 from app.modules.ads.models import CampaignLaunch, DeliveryStop
+from app.modules.ads.selectors.failures import failure_sentence
 from app.modules.ads.selectors.launched import launched_targets
-from app.modules.ads.services.creation import LATE_NOTE, switch_on
+from app.modules.ads.services.creation import LATE_NOTE, record_delivery, switch_on
 from app.modules.audit.constants import ActionStatus, ActionType, ActorType
 from app.modules.audit.models import ActionLog
 
@@ -27,6 +29,8 @@ RESTART_FOR: Final = timedelta(hours=24)
 # Past the stalled sweep, so a resume no worker took is already closed.
 SETTLED_AFTER: Final = timedelta(minutes=ACTION_STALE_MINUTES + 5)
 MAX_RESTARTS: Final = 3
+# The stamp is written in the press that queued the resume, seconds after it.
+STAMPED_WITHIN: Final = timedelta(minutes=ACTION_STALE_MINUTES)
 RESTARTS: Final = "restarts"
 
 
@@ -42,7 +46,14 @@ def restart_launches(db: Session, *, now: datetime) -> int:
     started = 0
     for launch in launches:
         targets = launched_targets(launch=launch)
-        if not targets or not restart_due(db, launch=launch, targets=targets):
+        if not targets:
+            continue
+        if gave_up(db, launch=launch, targets=targets):
+            # Asked as often as it may be and still off: the screen must not
+            # go on saying it runs.
+            record_delivery(db, launch=launch, refused=[LATE_NOTE])
+            continue
+        if not restart_due(db, launch=launch, targets=targets):
             continue
         # Counted before the try: a refusal rolls the session back.
         launch.draft = {**(launch.draft or {}), RESTARTS: restarts(launch) + 1}
@@ -71,6 +82,57 @@ def restart_due(
     if launch.delivery_started_at is None:
         return False
     return _a_resume_fell_through(db, launch=launch, ids=ids)
+
+
+def gave_up(
+    db: Session, *, launch: CampaignLaunch, targets: Sequence[tuple[str, str]]
+) -> bool:
+    """Every restart spent, «started» still written, the last resume still lost."""
+    if restarts(launch) < MAX_RESTARTS or launch.delivery_started_at is None:
+        return False
+    ids = [ref for _level, ref in targets]
+    if _someone_stepped_in(db, launch=launch, ids=ids):
+        return False
+    return _a_resume_fell_through(db, launch=launch, ids=ids)
+
+
+def note_refused_start(db: Session, *, log_id: str) -> bool:
+    """A resume Meta refused takes back the «started» a launch wrote on it.
+
+    The switch-on stamps the launch when its resumes are queued. One that
+    comes back refused for a reason of its own (an unpaid account, a blocked
+    one) left the advert paused at Meta under a screen that said «yuborildi»;
+    the sentence goes where the «Yoqish» screen reads it. A passing failure
+    is the restart sweep's. Commits when it writes.
+    """
+    try:
+        log = db.get(ActionLog, uuid.UUID(str(log_id)))
+    except ValueError:
+        return False
+    if (
+        log is None
+        or log.action != str(ActionType.RESUME)
+        or log.status != str(ActionStatus.FAILED)
+        or log.error_code in PASSING_CODES
+    ):
+        return False
+    launches = db.scalars(
+        select(CampaignLaunch)
+        .where(
+            CampaignLaunch.owner_id == log.owner_id,
+            CampaignLaunch.status == str(LaunchStatus.CREATED),
+            CampaignLaunch.delivery_started_at >= log.created_at,
+            CampaignLaunch.delivery_started_at < log.created_at + STAMPED_WITHIN,
+        )
+        .order_by(CampaignLaunch.delivery_started_at.desc())
+    ).all()
+    for launch in launches:
+        if (log.target_level, log.target_external_id) in launched_targets(
+            launch=launch
+        ):
+            record_delivery(db, launch=launch, refused=[failure_sentence(log)])
+            return True
+    return False
 
 
 def _someone_stepped_in(db: Session, *, launch: CampaignLaunch, ids: list[str]) -> bool:
@@ -121,4 +183,11 @@ def _a_resume_fell_through(
     )
 
 
-__all__ = ["MAX_RESTARTS", "restart_due", "restart_launches", "restarts"]
+__all__ = [
+    "MAX_RESTARTS",
+    "gave_up",
+    "note_refused_start",
+    "restart_due",
+    "restart_launches",
+    "restarts",
+]

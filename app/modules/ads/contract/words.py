@@ -12,7 +12,15 @@ from app.modules.ads.constants import Delivery
 from core.targeting import AudienceSketch
 
 Status = Literal[
-    "active", "learning", "pending", "rejected", "paused", "finished", "paused_above"
+    "active",
+    "learning",
+    "pending",
+    "rejected",
+    "paused",
+    "finished",
+    "paused_above",
+    "billing",
+    "unknown",
 ]
 Goal = Literal["lead", "chat", "call", "click", "profile", "view", "sub", "other"]
 Kind = Literal["lead", "chat", "call", "view", "click", "site", "profile", "sub"]
@@ -74,18 +82,34 @@ NETWORKS: Final[dict[str, tuple[str, str]]] = {
     "meta": ("M", "Meta"),
     "google": ("G", "Google"),
 }
-RUNNING: Final[frozenset[Status]] = frozenset({"active", "learning", "pending"})
+# The «Ishlayotgan» tab: everything whose own switch is on. An unpaid or
+# unread campaign stays there under its own word, where its owner looks first.
+RUNNING: Final[frozenset[Status]] = frozenset(
+    {"active", "learning", "pending", "billing", "unknown"}
+)
 # The learning phase as the cabinet draws it: hours done of this many.
 LEARNING_HOURS: Final = 72
+
+
+# Said as they are on the Meta rows: an unpaid account is not «Tekshiruvda»,
+# and its owner would wait for a review that never ends.
+OWN_WORDS: Final[dict[str, Status]] = {
+    Delivery.BILLING: "billing",
+    Delivery.UNKNOWN: "unknown",
+}
 
 
 def status_word(word: str) -> Status:
     return STATUSES.get(word, "pending")
 
 
+def row_status_word(word: str) -> Status:
+    return OWN_WORDS.get(word) or status_word(word)
+
+
 def status_of(row: Any, *, learning: bool = False) -> Status:
     """What the row draws: the badge (the worst of its adverts), else its own delivery."""
-    status = status_word(str(getattr(row, "badge", None) or row.delivery))
+    status = row_status_word(str(getattr(row, "badge", None) or row.delivery))
     if status == "active" and learning:
         return "learning"
     controls = getattr(row, "controls", None)

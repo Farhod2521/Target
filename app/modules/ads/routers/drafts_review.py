@@ -161,25 +161,40 @@ def start_delivery(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> LaunchDraf
 
 
 @router.post("/{draft_id}/create", response_model=LaunchDraft)
-def create(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> LaunchDraft:
-    """Create the campaign at the network. This is the press that spends."""
+def create(
+    draft_id: uuid.UUID, db: Db, user: CurrentUser, body: CreateIn | None = None
+) -> LaunchDraft:
+    """Create the campaign at the network. This is the press that spends.
+
+    ``confirmed`` is the owner saying Meta's identity check is done: without
+    it a connection Meta once held answers ``identity_hold_pending`` for good.
+    """
     google = google_of(db, user=user, draft_id=draft_id)
     if google is not None:
         return create_google(db, user=user, launch=google)
-    review_routes.create(draft_id, CreateIn(confirmed=False), db, user)
+    review_routes.create(draft_id, body or CreateIn(confirmed=False), db, user)
     _restart_poll(draft_id)
     return _draft(db, user, draft_id)
 
 
 @router.post("/{draft_id}/retry", response_model=LaunchDraft)
-def retry(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> LaunchDraft:
-    """«Qayta urinish»: a refused creation is created again; a proposal never written is asked again."""
+def retry(
+    draft_id: uuid.UUID, db: Db, user: CurrentUser, body: CreateIn | None = None
+) -> LaunchDraft:
+    """«Qayta urinish»: a refused creation is created again; a proposal never written is asked again.
+
+    Under Meta's identity hold the card's last step is this very press, after
+    the owner confirmed in Ads Manager: the press is their word that it is done.
+    """
     google = google_of(db, user=user, draft_id=draft_id)
     if google is not None:
         return retry_google(db, user=user, launch=google)
     state = review_routes.review_poll(draft_id, db, user, tries=0, shown="")["state"]
     if review_status(state) == "failed":
-        review_routes.create(draft_id, CreateIn(confirmed=False), db, user)
+        confirmed = bool(body and body.confirmed) or (
+            state.get("error_code") == "account_action"
+        )
+        review_routes.create(draft_id, CreateIn(confirmed=confirmed), db, user)
     else:
         review_routes.retry(draft_id, db, user)
     _restart_poll(draft_id)

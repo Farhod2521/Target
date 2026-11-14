@@ -625,3 +625,65 @@ def test_the_creation_counts_the_launchs_own_ads(
     assert shown.status_code == 200, shown.text
     assert shown.json()["status"] == "creating"
     assert shown.json()["creation"]["adsTotal"] == 2
+
+
+def _held(db: Session, draft_id: str) -> AdAccount:
+    """Meta asked the connected profile to confirm itself, and we remember it."""
+    launch = db.get(CampaignLaunch, uuid.UUID(draft_id))
+    assert launch is not None
+    account = launch.ad_account
+    account.connection.action_required_at = utcnow()
+    db.commit()
+    return account
+
+
+def _creations(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+    """Each creation asked for, with whether the hold still stood when it was."""
+    from app.modules.ads.routers import launch_review
+
+    seen: list[bool] = []
+
+    def asked(db: Session, *, launch: CampaignLaunch, business: object) -> None:
+        seen.append(launch.ad_account.connection.action_required_at is not None)
+
+    monkeypatch.setattr(launch_review.creation, "request_creation", asked)
+    return seen
+
+
+def test_retry_after_the_identity_check_is_the_owners_word_it_is_done(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, draft_id = _refused_then_rolled_back(client, db, error_code="account_action")
+    _held(db, draft_id)
+    seen = _creations(monkeypatch)
+
+    again = client.post(f"/api/v1/launch/drafts/{draft_id}/retry", headers=auth)
+
+    assert again.status_code == 200, again.text
+    assert seen == [False]
+
+
+def test_retry_of_another_refusal_leaves_the_identity_hold(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, draft_id = _refused_then_rolled_back(client, db, error_code="refused")
+    _held(db, draft_id)
+    seen = _creations(monkeypatch)
+
+    client.post(f"/api/v1/launch/drafts/{draft_id}/retry", headers=auth)
+
+    assert seen == [True]
+
+
+def test_create_takes_the_owners_confirmation(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, draft_id = _opened(client, db)
+    _held(db, draft_id)
+    seen = _creations(monkeypatch)
+    path = f"/api/v1/launch/drafts/{draft_id}/create"
+
+    client.post(path, headers=auth)
+    client.post(path, json={"confirmed": True}, headers=auth)
+
+    assert seen == [True, False]

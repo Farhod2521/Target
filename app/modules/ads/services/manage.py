@@ -898,8 +898,9 @@ LIMIT_FIELDS: dict[str, str] = {
 def apply_change(db: Session, *, log_id: str) -> str:
     """A switch, a budget, a limit or an audience, carried out."""
     from app.modules.ads.actions.executor import Write, carry_out
+    from app.modules.ads.services.restart import note_refused_start
 
-    return carry_out(
+    outcome = carry_out(
         db,
         log_id=log_id,
         kind=Write(
@@ -909,6 +910,13 @@ def apply_change(db: Session, *, log_id: str) -> str:
             finish=_finish_change,
         ),
     )
+    if outcome not in ("applied", "done"):
+        try:
+            note_refused_start(db, log_id=log_id)
+        except Exception:
+            db.rollback()
+            logger.exception("a refused start was not written on its launch")
+    return outcome
 
 
 def _check_change(db: Session, job: Any) -> str:
