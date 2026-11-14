@@ -897,6 +897,8 @@ GOOGLE_FAILURES: dict[str, Any] = {
     "google": "Google kampaniyani qabul qilmadi. Ma'lumotlarni tekshirib, qayta urinib ko'ring.",
 }
 LAPSE_DELETE_AFTER: Final = timedelta(days=3)
+# A blocked account's adverts made here: stopped at once, deleted after this.
+BLOCK_DELETE_AFTER: Final = timedelta(hours=24)
 LAPSE_LAST_WARNING: Final = timedelta(hours=48)
 LAPSE_MARK: Final = "lapse_hold"
 

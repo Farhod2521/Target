@@ -124,7 +124,26 @@ def block_user(
         },
     )
     db.flush()
+    _hold_ads(db, user=user, blocked=True)
     return user
+
+
+def _hold_ads(db: Session, *, user: User, blocked: bool) -> None:
+    """What the account launched here follows the block: stopped at once and
+    deleted at Meta a day later, given back if it is opened again in time."""
+    owner_id = str(user.id)
+
+    def send() -> None:
+        from app.modules.ads import tasks
+
+        task = (
+            tasks.hold_blocked_owner_task
+            if blocked
+            else tasks.release_unblocked_owner_task
+        )
+        task.delay(owner_id)
+
+    on_commit(db, send)
 
 
 def unblock_user(
@@ -158,6 +177,7 @@ def unblock_user(
         payload={"reason": note, **({"actor_id": str(actor.id)} if actor else {})},
     )
     db.flush()
+    _hold_ads(db, user=user, blocked=False)
     return user
 
 

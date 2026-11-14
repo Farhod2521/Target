@@ -175,6 +175,27 @@ def hold_stops(db: Session, *, hold: LapseHold) -> list[Any]:
     )
 
 
+def hold_writes(
+    db: Session, *, hold: LapseHold, actions: Iterable[str]
+) -> dict[str, list[Any]]:
+    """The hold's own resumes or deletes by object, the newest first."""
+    from app.modules.audit.models import ActionLog
+
+    payload = type_coerce(ActionLog.request_payload, JSONB)
+    found: dict[str, list[Any]] = {}
+    for log in db.scalars(
+        select(ActionLog)
+        .where(
+            ActionLog.owner_id == hold.owner_id,
+            ActionLog.action.in_([str(action) for action in actions]),
+            payload[LAPSE_MARK].astext == str(hold.id),
+        )
+        .order_by(ActionLog.created_at.desc())
+    ):
+        found.setdefault(log.target_external_id, []).append(log)
+    return found
+
+
 def stops_in_flight(stops: list[Any]) -> bool:
     from app.modules.audit.constants import ActionStatus
 

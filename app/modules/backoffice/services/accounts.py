@@ -102,9 +102,11 @@ def block_customer(
     note: str,
     now: datetime,
 ) -> User:
-    """Shut the account and sign the customer out on every device. Nothing in
-    it is touched: their ads keep running at Meta. The reason is told to the
-    customer at sign-in only when ``shown_to_user``; the note never is."""
+    """Shut the account and sign the customer out on every device. The ads
+    it launched here are stopped at Meta at once and deleted there 24 hours
+    later, unless it is opened again first; ads made elsewhere are not touched.
+    The reason is told to the customer at sign-in only when ``shown_to_user``;
+    the note never is."""
     if reason.is_archived:
         raise BlockReasonArchived
     if not customer.is_active:

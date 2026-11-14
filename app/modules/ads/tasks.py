@@ -35,8 +35,10 @@ from app.modules.ads.services import (
     apply_change,
     apply_delete,
     drop_empty_campaign,
+    hold_blocked_owner,
     note_sync_outcome,
     open_lapse_hold,
+    release_unblocked_owner,
     resume_after_lapse,
     settle_lapse,
     stop_page_hold,
@@ -283,6 +285,29 @@ def resume_after_payment_task(owner_id: str) -> str:
             return "nothing"
         started = resume_after_lapse(db, hold=hold, now=utcnow())
         return "later" if started is None else "resumed"
+
+
+@celery_app.task(queue="agent", ignore_result=True)
+def hold_blocked_owner_task(owner_id: str) -> str:
+    """A blocked account: stop what it launched here; a day later it is deleted."""
+    with task_session() as db:
+        pk = _uuid(owner_id)
+        owner = db.get(User, pk) if pk else None
+        if owner is None:
+            return "gone"
+        hold = hold_blocked_owner(db, owner=owner, now=utcnow())
+        return "held" if hold is not None else "nothing"
+
+
+@celery_app.task(queue="agent", ignore_result=True)
+def release_unblocked_owner_task(owner_id: str) -> str:
+    """The account is open again: its held adverts go back on, if it is paid."""
+    with task_session() as db:
+        pk = _uuid(owner_id)
+        owner = db.get(User, pk) if pk else None
+        if owner is None:
+            return "gone"
+        return release_unblocked_owner(db, owner=owner, now=utcnow())
 
 
 @celery_app.task(queue="agent", ignore_result=True)

@@ -84,6 +84,7 @@ from app.modules.ads.selectors.labels import (
 from app.modules.ads.selectors.lapse import (
     LapseTarget,
     hold_stops,
+    hold_writes,
     lapse_candidates,
     lapse_targets,
     last_warning_due,
@@ -262,6 +263,7 @@ __all__ = [
     "has_cooled",
     "has_ref",
     "hold_stops",
+    "hold_writes",
     "hours_to_wait",
     "in_flight",
     "is_running",

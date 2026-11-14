@@ -218,6 +218,12 @@ def test_a_let_go_page_holds_only_its_own_adverts(
     # touched; then it is deleted and the hold closed.
     assert settle_lapse(db, hold=hold, now=utcnow()) == "held"
     later = hold.delete_after + timedelta(minutes=1)
+    # The delete is asked, and the hold waits for Meta's answer to close.
+    assert settle_lapse(db, hold=hold, now=later) == "held"
+    assert hold.is_open
+    for log in db.scalars(select(ActionLog).where(ActionLog.status == "pending")):
+        log.status = "applied"
+    db.commit()
     assert settle_lapse(db, hold=hold, now=later) == "removed"
     assert hold.deleted_at is not None
     asked = {
