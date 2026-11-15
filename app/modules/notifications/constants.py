@@ -64,6 +64,8 @@ ASKED_TTL_SECONDS: Final = 15 * 60
 REPLIED_KEY: Final = "telegram:replied:{message_id}"
 COMMAND_START: Final = "start"
 COMMAND_STOP: Final = "stop"
+# The owners' figures in the staff bot, for STAFF_BOT_ADMIN_IDS only.
+COMMANDS_STATS: Final = ("stat", "statistika")
 LINK_TOKEN_TTL_SECONDS: Final = 15 * 60
 LINK_TOKEN_BYTES: Final = 12
 LINK_TOKEN_KEY: Final = "notifications:link:{token}"
@@ -147,6 +149,7 @@ __all__ = [
     "CALLBACK_WATCH_WAIT",
     "CALLBACK_WEEKLY_LIST",
     "CALLBACK_WEEKLY_PAIR",
+    "COMMANDS_STATS",
     "COMMAND_START",
     "COMMAND_STOP",
     "DAILY_PAIR_DIGEST_CHARS",

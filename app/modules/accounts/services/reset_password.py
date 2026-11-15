@@ -1,10 +1,11 @@
-"""A forgotten password, replaced through the bot.
+"""A forgotten password, replaced through the bot or the account's email.
 
-**Who may ask.** Only a Telegram chat a signed-in cabinet linked earlier.
-The bot issues the token to that chat and to nobody else, so the link proves
-what the bot's other messages already rely on: this phone is this account's.
-There is no email delivery, which is why this is the only way back in that
-does not go through the office.
+**Who may ask.** A Telegram chat a signed-in cabinet linked earlier, or
+whoever reads the account's mailbox. The token goes only to one of those two
+places, so the link proves the reader holds this phone or this address.
+The sign-in page that asks by email is answered the same whether the
+address is signed up or not, and the letter leaves from the worker, so
+neither the words nor the time taken tell which emails have accounts.
 
 **What the token is worth.** One password change on one account, within a
 quarter of an hour. It carries a fingerprint of the password it was issued
@@ -25,14 +26,18 @@ from app.common.cache import cache
 from app.common.config import settings
 from app.common.db import utcnow
 from app.common.exceptions import InputRefused
+from app.common.mail import MailNotSent, send_mail
 from app.common.passwords import PasswordInvalid, make_password, validate_password
+from app.common.routes import reverse
 from app.modules.accounts.constants import (
     RESET_TOKEN_BYTES,
     RESET_TOKEN_KEY,
     RESET_TTL_SECONDS,
 )
+from app.modules.accounts.emails import password_reset_mail
 from app.modules.accounts.exceptions import ResetLinkInvalid
 from app.modules.accounts.models import User
+from app.modules.accounts.selectors.user_by_email import user_by_email
 from app.modules.audit.constants import EventName
 from app.modules.audit.services import emit
 
@@ -104,10 +109,42 @@ def reset_password(db: Session, *, token: str, new_password: str) -> User:
     return owner
 
 
+def mail_password_reset(db: Session, *, email: str) -> bool:
+    """The new-password link to this address, when it opens an account.
+
+    Silent about an unknown or closed account: the page that asked has
+    already said "if the address is ours, a letter is on its way".
+    """
+    owner = user_by_email(db, email=email)
+    if owner is None or not owner.is_active:
+        return False
+    path = reverse("accounts:password_reset", [issue_password_reset(owner=owner)])
+    try:
+        send_mail(
+            password_reset_mail(
+                to=owner.email,
+                name=owner.full_name,
+                url=f"{settings.site_url}{path}",
+                minutes=RESET_TTL_SECONDS // 60,
+                language=owner.language,
+            )
+        )
+    except MailNotSent:
+        logger.warning("password_reset_mail_failed", extra={"owner": str(owner.id)})
+        return False
+    logger.info("password_reset_mailed", extra={"owner": str(owner.id)})
+    return True
+
+
 def _stamp(owner: User) -> str:
     """A fingerprint of the password column, never the column itself."""
     key = f"accounts.reset{settings.secret_key}".encode()
     return hmac.new(key, owner.password.encode(), hashlib.sha256).hexdigest()[:24]
 
 
-__all__ = ["issue_password_reset", "reset_password", "reset_target"]
+__all__ = [
+    "issue_password_reset",
+    "mail_password_reset",
+    "reset_password",
+    "reset_target",
+]

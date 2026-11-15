@@ -1,6 +1,7 @@
 """Bot API transport: the single place this product talks to Telegram."""
 
 import json
+import zlib
 from types import TracebackType
 from typing import Any, Final, Self
 
@@ -41,6 +42,12 @@ DOCUMENT_MAX_BYTES: Final = 50 * 1024 * 1024
 DOWNLOAD_MAX_BYTES: Final = 20 * 1024 * 1024
 
 UPLOAD_TIMEOUT_SECONDS: Final = 60.0
+
+# Bot API 10.4 widgets: the HTML's own size, and what it may weigh once
+# zlib packs it at the highest level - the second is the one that bites.
+WIDGET_HTML_MAX_BYTES: Final = 32_768
+WIDGET_PACKED_MAX_BYTES: Final = 4_096
+WIDGET_HEIGHT_RANGE: Final = (50, 600)
 
 
 class BotClient:
@@ -117,6 +124,32 @@ class BotClient:
             message_id=int(answer.get("message_id") or 0),
             chat_id=str((answer.get("chat") or {}).get("id") or chat_id),
         )
+
+    def send_widget(
+        self,
+        *,
+        chat_id: str,
+        html: str,
+        caption: str = "",
+        height: int = 0,
+        buttons: tuple[Button, ...] = (),
+    ) -> SentMessage:
+        """Post an HTML widget (Bot API 10.4): a small page drawn inside the
+        message itself, private chats only. The page has no network - every
+        figure it shows travels in ``html``. The caption is what a client too
+        old for widgets, and a screen reader, gets instead."""
+        if not widget_fits(html):
+            raise TelegramAPIError("the widget is too large")
+        payload: dict[str, Any] = {"chat_id": chat_id, "html": html}
+        if caption:
+            payload["caption"] = _fits(caption, limit=CAPTION_MAX_CHARS)
+            payload["parse_mode"] = "HTML"
+        if height:
+            low, high = WIDGET_HEIGHT_RANGE
+            payload["height"] = max(low, min(high, height))
+        if buttons:
+            payload["reply_markup"] = _keyboard(buttons)
+        return _sent(self._call("sendWidget", payload), chat_id=chat_id)
 
     def send_photo(
         self,
@@ -371,6 +404,17 @@ class BotClient:
 
         result = body.get("result")
         return result if isinstance(result, dict) else {}
+
+
+def widget_fits(html: str) -> bool:
+    """Whether Telegram takes this HTML for a widget: 1-32768 bytes, no NUL,
+    and at most 4096 bytes once zlib packs it at level 9."""
+    raw = html.encode()
+    return (
+        0 < len(raw) <= WIDGET_HTML_MAX_BYTES
+        and b"\x00" not in raw
+        and len(zlib.compress(raw, 9)) <= WIDGET_PACKED_MAX_BYTES
+    )
 
 
 def _decode(response: httpx.Response) -> dict[str, Any]:

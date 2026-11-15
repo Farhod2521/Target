@@ -38,6 +38,7 @@ from app.modules.accounts.services.register_user import (
 )
 from app.modules.accounts.services.reset_password import (
     issue_password_reset,
+    mail_password_reset,
     reset_password,
     reset_target,
 )
@@ -70,6 +71,7 @@ __all__ = [
     "issue_handoff",
     "issue_password_reset",
     "known_reason",
+    "mail_password_reset",
     "note_sign_in",
     "open_block",
     "owner_blocked_message",

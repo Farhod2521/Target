@@ -458,3 +458,12 @@ def resend_survey_task(owner_id: str, token: str) -> str:
         if owner is None:
             return "gone"
         return resend_survey_for(db, owner=owner, token=token, now=utcnow())
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def deliver_admin_report_task() -> int:
+    """Every evening: the owners' figures card in the staff bot."""
+    from app.modules.notifications.services.admin_stats import deliver_admin_report
+
+    with task_session() as db:
+        return deliver_admin_report(db, now=utcnow())

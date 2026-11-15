@@ -13,6 +13,11 @@ from app.modules.accounts.constants import (
     LOGIN_FAILURES_PER_ADDRESS,
     LOGIN_FAILURES_PER_EMAIL,
     LOGIN_WINDOW_SECONDS,
+    RESET_MAIL_ADDRESS_BUCKET,
+    RESET_MAIL_BUCKET,
+    RESET_MAIL_WINDOW_SECONDS,
+    RESET_MAILS_PER_ADDRESS,
+    RESET_MAILS_PER_EMAIL,
     SIGNUP_WINDOW_SECONDS,
     SIGNUPS_PER_ADDRESS,
 )
@@ -32,6 +37,8 @@ from app.modules.accounts.schemas import (
     NewPasswordIn,
     RefreshIn,
     ResetLinkOut,
+    ResetMailIn,
+    ResetMailOut,
     ResetTargetOut,
     SignupIn,
     TokenPair,
@@ -175,6 +182,39 @@ def reset_link() -> ResetLinkOut:
     """ "Parolni unutdingizmi?" opens the bot, which sends the link to the chat
     a signed-in cabinet linked. Empty with no bot: the page names Support."""
     return ResetLinkOut(bot_url=reset_bot_link())
+
+
+@router.post(
+    "/reset/email", response_model=ResetMailOut, status_code=status.HTTP_202_ACCEPTED
+)
+def reset_by_email(body: ResetMailIn, request: Request) -> ResetMailOut:
+    """ "Parolni unutdingizmi?" by email: the new-password link goes to the
+    address if it opens an account. The answer is the same either way, and
+    the letter leaves from the worker, so nothing here tells who is signed up.
+    """
+    email = body.email.strip().lower()
+    if not throttle.hit(
+        bucket=RESET_MAIL_ADDRESS_BUCKET,
+        key=client_address(request),
+        limit=RESET_MAILS_PER_ADDRESS,
+        window_seconds=RESET_MAIL_WINDOW_SECONDS,
+    ):
+        raise TooManyAttempts
+    if throttle.hit(
+        bucket=RESET_MAIL_BUCKET,
+        key=email,
+        limit=RESET_MAILS_PER_EMAIL,
+        window_seconds=RESET_MAIL_WINDOW_SECONDS,
+    ):
+        from app.modules.accounts.tasks import mail_password_reset_task
+
+        mail_password_reset_task.delay(email)
+    return ResetMailOut(
+        message=(
+            "Agar bu email bizda ro'yxatdan o'tgan bo'lsa, unga parolni tiklash "
+            "havolasi yuborildi. Pochtangizni (va Spam papkasini) tekshiring."
+        )
+    )
 
 
 @router.get("/reset/{token}", response_model=ResetTargetOut)

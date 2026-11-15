@@ -7,8 +7,10 @@ from telegramkit.client import (
     DOWNLOAD_MAX_BYTES,
     MESSAGE_MAX_CHARS,
     PHOTO_MAX_BYTES,
+    WIDGET_PACKED_MAX_BYTES,
     BotClient,
     message_units,
+    widget_fits,
 )
 from telegramkit.errors import (
     BotBlocked,
@@ -66,6 +68,7 @@ __all__ = [
     "MEDIA_KINDS",
     "MESSAGE_MAX_CHARS",
     "PHOTO_MAX_BYTES",
+    "WIDGET_PACKED_MAX_BYTES",
     "BotBlocked",
     "BotClient",
     "BotIdentity",
@@ -100,4 +103,5 @@ __all__ = [
     "read_update",
     "scrubbed",
     "secret_matches",
+    "widget_fits",
 ]
