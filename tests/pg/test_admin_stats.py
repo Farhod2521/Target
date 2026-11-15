@@ -1,5 +1,6 @@
-"""The owners' figures in the staff bot: /stat for the ids in the settings,
-nothing for anybody else, a widget that fits, and text when it is refused."""
+"""The owners' figures in Telegram: /admin for the ids in the settings, in
+either bot and with no cabinet linked, nothing for anybody else, a widget
+that fits, and text when it is refused."""
 
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -12,7 +13,8 @@ from telegramkit import SentMessage, TelegramAPIError, widget_fits
 
 from app.common.config import settings
 from app.common.db import utcnow
-from app.modules.notifications.services import admin_stats
+from app.modules.notifications.services import admin_stats, handle_update
+from app.modules.notifications.services import respond as respond_module
 from app.modules.notifications.services import staff_respond as staff_module
 from app.modules.notifications.services.staff_respond import handle_staff_update
 from tests.conftest import SIGNUP
@@ -40,18 +42,19 @@ def bot(monkeypatch: pytest.MonkeyPatch) -> WidgetBot:
         yield client
 
     monkeypatch.setattr(staff_module, "staff_bot", opened)
-    monkeypatch.setattr(admin_stats, "staff_bot", opened)
-    monkeypatch.setattr(admin_stats, "staff_bot_configured", lambda: True)
+    monkeypatch.setattr(respond_module, "bot", opened)
+    monkeypatch.setattr(admin_stats, "bot", opened)
+    monkeypatch.setattr(admin_stats, "is_configured", lambda: True)
     monkeypatch.setattr(settings, "staff_bot_admin_ids", [ADMIN])
     return client
 
 
-def test_an_owner_gets_the_card_with_todays_signup(
+def test_an_owner_gets_the_card_in_the_customers_bot_without_linking(
     client: TestClient, db: Session, bot: WidgetBot
 ) -> None:
     sign_up(client)
 
-    said = handle_staff_update(db, payload=_text(ADMIN, "/stat"), now=utcnow())
+    said = handle_update(db, payload=_text(ADMIN, "/admin"), now=utcnow())
 
     assert said == "widget"
     ((name, fields),) = bot.calls
@@ -61,13 +64,23 @@ def test_an_owner_gets_the_card_with_todays_signup(
     assert "<b>Bugun:</b> 1 ro'yxatdan o'tdi" in fields["caption"]
 
 
+def test_the_staff_bot_answers_an_owner_too(
+    client: TestClient, db: Session, bot: WidgetBot
+) -> None:
+    sign_up(client)
+
+    assert handle_staff_update(db, payload=_text(ADMIN, "/stat"), now=utcnow()) == (
+        "widget"
+    )
+
+
 def test_a_refused_widget_becomes_text(
     client: TestClient, db: Session, bot: WidgetBot
 ) -> None:
     sign_up(client)
     bot.refuse = True
 
-    said = handle_staff_update(db, payload=_text(ADMIN, "/stat"), now=utcnow())
+    said = handle_update(db, payload=_text(ADMIN, "/admin"), now=utcnow())
 
     assert said == "text"
     (text,) = bot.texts()
@@ -75,11 +88,11 @@ def test_a_refused_widget_becomes_text(
 
 
 def test_anybody_else_gets_no_figures(db: Session, bot: WidgetBot) -> None:
-    said = handle_staff_update(db, payload=_text("777", "/stat"), now=utcnow())
+    said = handle_update(db, payload=_text("777", "/admin"), now=utcnow())
 
-    assert said == "help"
+    assert said == "unknown"
     assert [name for name, _ in bot.calls] == ["send_message"]
-    assert "ro'yxatdan" not in bot.texts()[0]
+    assert "ro'yxatdan o'tdi" not in bot.texts()[0]
 
 
 def test_the_evening_report_goes_to_every_owner(
