@@ -8,8 +8,8 @@ every customer's name and the money, and is asked for from a phone.
 office's, and the same card goes out every evening.
 
 The card is a picture: the designed card (``assets/admin_card.png``) with
-the figures written into it by ``admin_card``, sent as a photo with the
-last payments in its caption. Telegram's in-message HTML widgets (Bot API
+the figures written into it by ``admin_card``, sent as a photo with no
+caption - the picture says it all - and the office button under it. Telegram's in-message HTML widgets (Bot API
 10.4) would have been the first choice, but Telegram closed them to
 ordinary bots on 13 November 2026 (``INPUT_MEDIA_WIDGET_NOT_ALLOWED``).
 When the picture cannot be sent, the same figures go as plain text. The
@@ -223,25 +223,6 @@ def _t(value: str) -> str:
     return escape(value, quote=False)
 
 
-def render_text(stats: Stats) -> str:
-    """The card's caption: what the picture says in one line a period, and
-    the last payments, which the picture has no room for."""
-    lines = [f"<b>📊 Admin statistika</b> · {_t(stats.stamp)}"]
-    for p in stats.periods:
-        lines.append(
-            f"<b>{_t(p.label)}:</b> {p.signups} ro'yxatdan o'tdi · "
-            f"{p.payers} obuna to'ladi · {_t(p.amount)}"
-        )
-    if stats.paid:
-        lines.append("\n<b>Oxirgi to'lovlar</b>")
-        lines += [
-            f"{_t(r.email)} — {_t(r.plan)}, "
-            f"{_t(format_minor(amount_minor=r.amount_minor, currency=r.currency))}"
-            for r in stats.paid
-        ]
-    return "\n".join(lines)
-
-
 def render_full_text(stats: Stats) -> str:
     """Everything the card shows, for when the picture cannot be sent."""
     lines = [f"<b>📊 Admin statistika</b> · {_t(stats.stamp)}"]
@@ -302,7 +283,6 @@ def send_stats(db: Session, *, client: BotClient, chat_id: str, now: datetime) -
             chat_id=chat_id,
             filename="statistika.jpg",
             content=draw_card(stats),
-            caption=render_text(stats),
             buttons=_office_button(),
         )
         return "card"
@@ -348,6 +328,5 @@ __all__ = [
     "is_admin",
     "read_stats",
     "render_full_text",
-    "render_text",
     "send_stats",
 ]

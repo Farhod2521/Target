@@ -61,7 +61,7 @@ def test_an_owner_gets_the_card_in_the_customers_bot_without_linking(
     ((name, fields),) = bot.calls
     assert name == "send_photo" and fields["chat_id"] == ADMIN
     assert fields["content"][:3] == JPEG_START
-    assert "<b>Bugun:</b> 1 ro'yxatdan o'tdi" in fields["caption"]
+    assert not fields.get("caption")
 
 
 def test_the_staff_bot_answers_an_owner_too(
