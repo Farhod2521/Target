@@ -173,7 +173,7 @@ def _command(
         try:
             return send_stats(db, client=client, chat_id=command.chat_id, now=now)
         except TelegramError as exc:
-            logger.warning("admin_stats_failed", extra={"reason": str(exc)})
+            logger.warning("admin_stats_failed: %s", exc)
             return "failed"
     if command.name == COMMAND_START:
         return _start(db, client=client, known=known, command=command, now=now)

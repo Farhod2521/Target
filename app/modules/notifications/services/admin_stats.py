@@ -433,7 +433,7 @@ def send_stats(db: Session, *, client: BotClient, chat_id: str, now: datetime) -
     except TelegramTemporaryError:
         raise
     except TelegramError as exc:
-        logger.info("admin_stats_widget_refused", extra={"reason": str(exc)})
+        logger.warning("admin_stats_widget_refused: %s", exc)
     client.send_message(
         chat_id=chat_id, text=render_full_text(stats), buttons=_office_button()
     )
@@ -463,9 +463,7 @@ def deliver_admin_report(db: Session, *, now: datetime) -> int:
                 send_stats(db, client=client, chat_id=chat_id, now=now)
                 sent += 1
             except TelegramError as exc:
-                logger.warning(
-                    "admin_report_failed", extra={"chat": chat_id, "reason": str(exc)}
-                )
+                logger.warning("admin_report_failed for %s: %s", chat_id, exc)
     return sent
 
 

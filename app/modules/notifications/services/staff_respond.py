@@ -73,7 +73,7 @@ def _command(db: Session, *, client: BotClient, command: Command, now: datetime)
         try:
             return send_stats(db, client=client, chat_id=command.chat_id, now=now)
         except TelegramError as exc:
-            logger.warning("admin_stats_failed", extra={"reason": str(exc)})
+            logger.warning("admin_stats_failed: %s", exc)
             return "failed"
     if command.name == COMMAND_STOP:
         stop_staff_chat(db, chat_id=command.chat_id)
