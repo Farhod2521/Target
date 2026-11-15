@@ -1,6 +1,6 @@
 """The owners' figures in Telegram: /admin for the ids in the settings, in
-either bot and with no cabinet linked, nothing for anybody else, a widget
-that fits, and text when it is refused."""
+either bot and with no cabinet linked, nothing for anybody else, the card
+picture, and text when the picture is refused."""
 
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -9,36 +9,37 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
-from telegramkit import SentMessage, TelegramAPIError, widget_fits
+from telegramkit import SentMessage, TelegramAPIError
 
 from app.common.config import settings
 from app.common.db import utcnow
 from app.modules.notifications.services import admin_stats, handle_update
 from app.modules.notifications.services import respond as respond_module
 from app.modules.notifications.services import staff_respond as staff_module
+from app.modules.notifications.services.admin_card import draw_card
 from app.modules.notifications.services.staff_respond import handle_staff_update
-from tests.conftest import SIGNUP
 from tests.pg.conftest import sign_up
 from tests.pg.test_office_telegram import FakeBot, _text
 
 ADMIN = "5550001"
+JPEG_START = bytes((0xFF, 0xD8, 0xFF))
 
 
-class WidgetBot(FakeBot):
+class CardBot(FakeBot):
     refuse = False
 
-    def send_widget(self, **fields: Any) -> SentMessage:
+    def send_photo(self, **fields: Any) -> SentMessage:
         if self.refuse:
-            raise TelegramAPIError("Bad Request: method not found")
-        return self._sent("send_widget", **fields)
+            raise TelegramAPIError("Bad Request: wrong file")
+        return self._sent("send_photo", **fields)
 
 
 @pytest.fixture
-def bot(monkeypatch: pytest.MonkeyPatch) -> WidgetBot:
-    client = WidgetBot()
+def bot(monkeypatch: pytest.MonkeyPatch) -> CardBot:
+    client = CardBot()
 
     @contextmanager
-    def opened() -> Iterator[WidgetBot]:
+    def opened() -> Iterator[CardBot]:
         yield client
 
     monkeypatch.setattr(staff_module, "staff_bot", opened)
@@ -50,32 +51,31 @@ def bot(monkeypatch: pytest.MonkeyPatch) -> WidgetBot:
 
 
 def test_an_owner_gets_the_card_in_the_customers_bot_without_linking(
-    client: TestClient, db: Session, bot: WidgetBot
+    client: TestClient, db: Session, bot: CardBot
 ) -> None:
     sign_up(client)
 
     said = handle_update(db, payload=_text(ADMIN, "/admin"), now=utcnow())
 
-    assert said == "widget"
+    assert said == "card"
     ((name, fields),) = bot.calls
-    assert name == "send_widget" and fields["chat_id"] == ADMIN
-    assert widget_fits(fields["html"])
-    assert SIGNUP["email"].lower() in fields["html"].lower()
+    assert name == "send_photo" and fields["chat_id"] == ADMIN
+    assert fields["content"][:3] == JPEG_START
     assert "<b>Bugun:</b> 1 ro'yxatdan o'tdi" in fields["caption"]
 
 
 def test_the_staff_bot_answers_an_owner_too(
-    client: TestClient, db: Session, bot: WidgetBot
+    client: TestClient, db: Session, bot: CardBot
 ) -> None:
     sign_up(client)
 
     assert handle_staff_update(db, payload=_text(ADMIN, "/stat"), now=utcnow()) == (
-        "widget"
+        "card"
     )
 
 
-def test_a_refused_widget_becomes_text(
-    client: TestClient, db: Session, bot: WidgetBot
+def test_a_refused_picture_becomes_text(
+    client: TestClient, db: Session, bot: CardBot
 ) -> None:
     sign_up(client)
     bot.refuse = True
@@ -87,7 +87,7 @@ def test_a_refused_widget_becomes_text(
     assert "Oxirgi ro'yxatdan o'tganlar" in text
 
 
-def test_anybody_else_gets_no_figures(db: Session, bot: WidgetBot) -> None:
+def test_anybody_else_gets_no_figures(db: Session, bot: CardBot) -> None:
     said = handle_update(db, payload=_text("777", "/admin"), now=utcnow())
 
     assert said == "unknown"
@@ -98,7 +98,7 @@ def test_anybody_else_gets_no_figures(db: Session, bot: WidgetBot) -> None:
 def test_the_evening_report_goes_to_every_owner(
     client: TestClient,
     db: Session,
-    bot: WidgetBot,
+    bot: CardBot,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     sign_up(client)
@@ -108,24 +108,22 @@ def test_the_evening_report_goes_to_every_owner(
     assert [fields["chat_id"] for _, fields in bot.calls] == [ADMIN, "5550002"]
 
 
-def test_a_long_list_is_cut_until_telegram_takes_it(
-    client: TestClient, db: Session
-) -> None:
+def test_long_names_are_drawn_without_failing(client: TestClient, db: Session) -> None:
     sign_up(client)
     stats = admin_stats.read_stats(db, now=utcnow())
-    heavy = stats.__class__(
+    long = stats.__class__(
         **{
             **{f: getattr(stats, f) for f in stats.__dataclass_fields__},
             "signups": tuple(
                 admin_stats.Signup(
                     when="01.01 10:00",
-                    name=f"Mijoz {n} " + "x" * 40,
-                    email=f"user{n}-{'y' * 30}@example.com",
-                    phone="",
+                    name=f"Mijoz {n} " + "x" * 80,
+                    email=f"user{n}-{'y' * 60}@example.com",
+                    phone="+998901234567",
                 )
-                for n in range(40)
+                for n in range(7)
             ),
         }
     )
 
-    assert widget_fits(admin_stats.fitted_widget(heavy))
+    assert draw_card(long)[:3] == JPEG_START
