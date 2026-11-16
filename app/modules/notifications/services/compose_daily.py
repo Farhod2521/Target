@@ -159,18 +159,18 @@ def _total_section(book: DayBook) -> list[str]:
     lines: list[str] = []
     for total in book.totals:
         lines.append(f"💰 {_bold(f'Jami sarf: {total.spend}')}")
-        if line := compared(book, total.before, total.change):
+        if line := compared(book, total.before):
             lines.append(line)
     return lines
 
 
-def compared(book: DayBook, before: str, change: str) -> str:
-    """«Oldingi kun: $63,32 (+94%)», or nothing with nothing to compare."""
+def compared(book: DayBook, before: str) -> str:
+    """«Oldingi kun: $63,32», or nothing with nothing to compare. No percent:
+    a bare «+35%» misled readers."""
     if not before:
         return ""
     word = "Oldingi hafta" if book.weekly else "Oldingi kun"
-    moved = f" ({change})" if change else ""
-    return f"{escaped(word)}: {_bold(before)}{escaped(moved)}"
+    return f"{escaped(word)}: {_bold(before)}"
 
 
 def _quiet_names(reports: tuple[DailyReport, ...]) -> list[str]:
