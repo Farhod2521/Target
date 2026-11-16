@@ -506,3 +506,51 @@ def test_old_open_findings_get_their_page_and_campaign_named(
     assert row.figures["campaign_name"]
     assert row.said_step == row.step  # nothing is told again
     assert fill(db) == (1, 0)
+
+
+def test_a_sent_message_is_rewritten_in_place_with_its_page(
+    client: TestClient, db: Session, queued: list, monkeypatch
+) -> None:
+    from app.common.config import settings
+    from app.modules.notifications.models import TelegramChat
+    from app.modules.notifications.services.announce_guard import announce_guard
+    from tests.pg.test_office_telegram import FakeBot
+    from tools.guard_place_telegram import _edit, sent_messages
+
+    monkeypatch.setattr(settings, "site_url", "https://targetolog.test")
+    owner, account, now, row = _warned(client, db)
+    db.add(
+        TelegramChat(owner_id=owner.id, chat_id="700", is_active=True, linked_at=now)
+    )
+    db.commit()
+    phone = FakeBot()
+    # Step 3 then step 4 sent, both before the names were kept.
+    for spend in (640, 820):
+        _today(db, owner, account, now, spend=spend, leads=1)
+        run_guard(db, owner=owner, now=now)
+        (row,) = _rows(db)
+        row.figures = {
+            k: v
+            for k, v in row.figures.items()
+            if k not in ("page_name", "campaign_name")
+        }
+        db.commit()
+        announce_guard(db, client=phone, now=now, asleep=set())
+    assert len(phone.texts()) == 2
+    sent_ids = [c[1] for c in phone.calls if c[0] == "send_message"]
+    assert sent_messages(db) == []  # nothing named yet: nothing to rewrite
+
+    (row,) = _rows(db)
+    row.figures = {**row.figures, "page_name": "Gul", "campaign_name": "Kuz"}
+    db.commit()
+    ((found, notice, chat),) = sent_messages(db)
+    assert notice.subject == f"guard:{row.id}:4"  # the present step only
+    assert _edit(phone, row=found, notice=notice, chat=chat)
+
+    (edit,) = [fields for name, fields in phone.calls if name == "edit_message_text"]
+    assert edit["chat_id"] == "700"
+    assert edit["message_id"] == notice.message_id == 102
+    assert "Sahifa: Gul" in edit["text"] or "Страница: Gul" in edit["text"]
+    assert edit["buttons"]  # the answers stay under it
+    assert len(phone.texts()) == 2  # no new message
+    assert len(sent_ids) == 2
