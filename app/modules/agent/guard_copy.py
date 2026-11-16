@@ -111,11 +111,11 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "title.ctr.warn": "По рекламе мало кликают",
         "title.cpm.warn": "Показы подорожали",
         "title.frequency.warn": "Рекламу слишком часто видят одни и те же люди",
-        "price": "Сегодня один {word}: {cost} (всего: {results}). Обычно: {usual}.",
-        "fruitless": "Сегодня потрачено {spend}, {word}: 0. Обычно один {word}: {usual}.",
-        "fruitless_days": "За последние {days} дн. потрачено {spend}, {word}: 0. Обычно один {word}: {usual}.",
+        "price": "Сегодня цена результата ({word}): {cost} (всего: {results}). Обычно: {usual}.",
+        "fruitless": "Сегодня потрачено {spend}, результатов ({word}): 0. Обычная цена результата: {usual}.",
+        "fruitless_days": "За последние {days} дн. потрачено {spend}, результатов ({word}): 0. Обычная цена результата: {usual}.",
         "site_down": "Ссылка в рекламе не открывается, люди попадают на пустую страницу.",
-        "weak_ad": "Это объявление сегодня потратило {spend}, {word}: 0. Другое объявление группы даёт результат.",
+        "weak_ad": "Это объявление сегодня потратило {spend}, результатов ({word}): 0. Другое объявление группы даёт результат.",
         "ctr": "Кликабельность (CTR) {now}%, обычно {usual}%.",
         "cpm": "1000 показов (CPM) {now}, обычно {usual}.",
         "frequency": "За 7 дней один человек видел рекламу в среднем {now} раза.",
@@ -246,13 +246,18 @@ def guard_advice(row: GuardAlert) -> str:
     return _text("advice", button=button_label(advised_of(row)))
 
 
+def _decimal(text: str) -> str:
+    """English writes its decimals with a point; the other two with a comma."""
+    return text.replace(",", ".") if _language() == "en" else text
+
+
 def _money(row: GuardAlert, amount: Any) -> str:
-    return format_minor(amount_minor=int(amount or 0), currency=row.currency)
+    return _decimal(format_minor(amount_minor=int(amount or 0), currency=row.currency))
 
 
 def _percent(basis_points: Any) -> str:
     value = int(basis_points or 0)
-    return f"{value // 100},{value % 100:02d}"
+    return _decimal(f"{value // 100},{value % 100:02d}")
 
 
 def _figures_line(row: GuardAlert) -> str:

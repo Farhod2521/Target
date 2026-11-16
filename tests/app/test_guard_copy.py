@@ -79,11 +79,16 @@ def test_the_same_rise_in_russian_and_english() -> None:
     row = _row()
     with override("ru"):
         assert guard_title(row) == "Цена выросла в 3,2 раза"
-        assert "Сегодня один лид: $6,40 (всего: 1). Обычно: $2." in guard_body(row)
+        assert (
+            "Сегодня цена результата (лид): $6,40 (всего: 1). Обычно: $2."
+            in guard_body(row)
+        )
         assert guard_advice(row) == "Совет: Снизить бюджет на 20%."
     with override("en"):
         assert guard_title(row) == "The price is 3.2× the usual"
-        assert "(1 so far). Usually: $2." in guard_body(row)
+        body = guard_body(row)
+        assert "Today one lead costs $6.40 (1 so far). Usually: $2." in body
+        assert "(CTR 0.50%, usually 1.00%)" in body
 
 
 @pytest.mark.parametrize(
