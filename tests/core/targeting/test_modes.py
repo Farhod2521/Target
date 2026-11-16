@@ -32,6 +32,7 @@ from core.targeting import (
     PresetCatalog,
     TargetingMode,
     build,
+    mode_rules,
     requires_interests,
     resolve_mode,
     sent_ages,
@@ -455,3 +456,61 @@ def test_the_card_ages_match_the_spec_the_builder_sends(
         built.targeting.get("age_min"),
         built.targeting.get("age_max"),
     )
+
+
+# --- The rules a screen draws from ----------------------------------------
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("special", ["", "housing"])
+def test_the_rules_say_what_the_builder_sends(
+    catalog: PresetCatalog,
+    answers: OnboardingAnswers,
+    business: BusinessProfile,
+    mode: TargetingMode,
+    special: str,
+) -> None:
+    """A field the rules call unused never reaches the provider, one they
+    call used does, and the upper age goes out only where they say so.
+    The screen hides what the rules hide, so the two must never part."""
+    rules = mode_rules(mode, special=bool(special))
+    built = build(
+        provider=PROVIDER,
+        answers=dataclasses.replace(
+            answers,
+            targeting_mode=mode,
+            genders=(1,),
+            age_min=30,
+            age_max=50,
+            interests=(
+                Interest(label="Restoranlar", query="Restaurants", external_id="1"),
+                Interest(
+                    label="Yangi turmush",
+                    query="Newlywed (1 year)",
+                    external_id="2",
+                    kind="life_event",
+                ),
+            ),
+        ),
+        business=dataclasses.replace(business, special_ad_category=special),
+        catalog=catalog,
+        currency="USD",
+    )
+    spec = dict(built.targeting)
+    detailed = spec.get("flexible_spec") or [{}]
+
+    assert ("interests" in detailed[0]) is (rules.interests != "unused")
+    assert ("life_events" in detailed[0]) is (rules.habits != "unused")
+    assert ("genders" in spec) is (rules.genders != "unused")
+    assert ("age_max" in spec) is rules.age.upper_sent
+    assert spec["age_min"] <= rules.age.lowest_max
+    if rules.age.fixed:
+        assert (spec["age_min"], spec["age_max"]) == (rules.age.min, rules.age.max)
+    switch_on = _switch(spec) == AUTOMATION_ON
+    assert switch_on is (rules.genders == "hint")
+    assert switch_on is (rules.include_lists == "hint")
+
+
+def test_only_the_interests_mode_refuses_a_launch_without_them() -> None:
+    assert mode_rules("interests").interests == "required"
+    assert mode_rules("automatic").interests == "unused"
+    assert mode_rules("broad").interests == "unused"
+    assert mode_rules("interests", special=True).interests == "unused"

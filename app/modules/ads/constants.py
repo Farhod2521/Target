@@ -355,7 +355,7 @@ TARGETING_MODE_LABELS = {
     TargetingMode.BROAD: "Keng - faqat hudud, yosh va jins",
 }
 TARGETING_MODE_NOTES = {
-    TargetingMode.AUTOMATIC: "Qiziqishlar yuborilmaydi - Meta kimga ko'rsatishni o'zi topadi. Hudud va eng kichik yosh o'zgarmaydi; yoshning yuqori chegarasi esa olib tashlanadi.",
+    TargetingMode.AUTOMATIC: "Qiziqishlar yuborilmaydi - Meta kimga ko'rsatishni o'zi topadi. Hudud va eng kichik yosh (25 dan oshmaydi) aniq saqlanadi; yoshning yuqori chegarasi olib tashlanadi, jins va «Ko'rsatilsin» ro'yxatlari esa Meta uchun faqat yo'l-yo'riq.",
     TargetingMode.INTERESTS: "Reklama faqat shu qiziqishlardagi odamlarga ko'rsatiladi. Tanlaganingiz - o'zgarmaydi.",
     TargetingMode.BROAD: "Qiziqishlar ishlatilmaydi. Hudud, yosh va jins aniq saqlanadi - Meta ulardan tashqariga chiqmaydi.",
 }

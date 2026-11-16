@@ -64,8 +64,13 @@ def save_audience(
     picked: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
     address: str = "",
     placement_positions: dict[str, list[str]] | None = None,
+    geo_given: bool = True,
 ) -> bool:
-    """The numbers, the mode and the geography, as corrected."""
+    """The numbers, the mode and the geography, as corrected.
+
+    ``geo_given`` false: the save named no place, so a geography nobody chose
+    stays unchosen, and the card goes on saying so.
+    """
     from app.modules.businesses.services import remember_location
 
     _require_draft(launch)
@@ -83,6 +88,7 @@ def save_audience(
         pin=pin,
         picked=list(picked),
         address=address,
+        given=geo_given,
     )
     draft_field.choose(
         draft,
@@ -128,6 +134,7 @@ def _geo_answer(
     pin: tuple[str, str],
     picked: list[dict[str, str]],
     address: str,
+    given: bool = True,
 ) -> tuple[dict[str, Any], bool]:
     """One geography answer, and whether it still needs the provider."""
     areas = picked_areas(
@@ -160,7 +167,7 @@ def _geo_answer(
         "lat": placed[0],
         "lng": placed[1],
         "country_code": business.country_code,
-        "origin": "chosen",
+        "origin": "chosen" if given else geo_field.origin_of(previous),
         "address": address,
         geo_field.PARENTS_KEY: carried.get(geo_field.PARENTS_KEY) or [],
     }

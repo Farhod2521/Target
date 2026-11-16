@@ -98,7 +98,7 @@ def check_proposal(
             business=business,
             body=_kept(body.audience, _audience_now(launch)),
             problems=problems,
-        )
+        ) | {"geo_given": bool(GEO_FIELDS & body.audience.model_fields_set)}
     if body.interests is not None:
         interests = _kept(
             body.interests,
@@ -164,6 +164,23 @@ def check_proposal(
         )
     problems.refuse()
     return answers
+
+
+# The audience fields that answer «Joy»; a save without one leaves the
+# geography as it was found, nobody having chosen it.
+GEO_FIELDS: Final = frozenset(
+    {
+        "geo_mode",
+        "places",
+        "added",
+        "picked",
+        "areas",
+        "radius_km",
+        "lat",
+        "lng",
+        "address",
+    }
+)
 
 
 def _kept[M: BaseModel](body: M, now: dict[str, Any]) -> M:

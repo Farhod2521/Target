@@ -9,6 +9,7 @@ from typing import Any, Final
 
 from app.common.contract import Money
 from app.modules.ads.contract.launch.words import LaunchStatus
+from core.targeting import mode_rules, resolve_mode, sent_ages
 
 _BUTTON: Final = "button"
 
@@ -157,6 +158,15 @@ BLOCKERS: Final[dict[str, dict[str, Any]]] = {
         "Ulanish",
         "connections",
     ),
+    "interests_missing": _notice(
+        "search",
+        "d",
+        "Qiziqish tanlanmagan",
+        "«Siz tanlagan qiziqishlar» rejimida kamida bitta qiziqish Meta'da topilgan "
+        "bo'lishi kerak. Qiziqish qo'shing yoki «Kim tanlaydi?»da boshqa variantni tanlang.",
+        "Qiziqishlar",
+        "int",
+    ),
     "places_missing": _notice(
         "users",
         "d",
@@ -285,8 +295,11 @@ def blockers(state: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"id": key, **found, "text": words}]
 
 
-def attention(state: dict[str, Any]) -> list[dict[str, Any]]:
+def attention(
+    state: dict[str, Any], found: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+    out.extend(_audience_notes(found or {}))
     posts = state.get("posts_not_promoted") or []
     if posts:
         out.append(
@@ -310,6 +323,64 @@ def attention(state: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def _audience_notes(found: dict[str, Any]) -> list[dict[str, Any]]:
+    """What the built spec dropped or widened that the owner did not ask for."""
+    if not found:
+        return []
+    out: list[dict[str, Any]] = []
+    if any(
+        note.get("reason") == "location_missing"
+        for note in found.get("adjustments") or []
+    ):
+        out.append(
+            {
+                "id": "geo_widened",
+                "icon": "users",
+                "tone": "w",
+                "title": "Hudud tanlanmagan",
+                "text": "Reklama butun mamlakat bo'ylab ko'rsatiladi. Aniq shahar "
+                "yoki xaritadagi nuqtani tanlang.",
+                "action": {"label": "Joy", "to": "geo", "style": "link"},
+            }
+        )
+    unconfirmed = [
+        name for name in found.get("unconfirmed_names") or [] if text(name).strip()
+    ]
+    if unconfirmed and _rules_of(found).interests != "unused":
+        out.append(
+            {
+                "id": "interests_unconfirmed",
+                "icon": "search",
+                "tone": "w",
+                "title": "Meta topmagan qiziqishlar",
+                "text": f"{', '.join(unconfirmed)} — Meta'da topilmadi va "
+                "reklamaga qo'shilmaydi.",
+                "action": {"label": "Qiziqishlar", "to": "int", "style": "link"},
+            }
+        )
+    return out
+
+
+def _rules_of(found: dict[str, Any]) -> Any:
+    audience = found.get("audience") or {}
+    return mode_rules(
+        resolve_mode(audience.get("mode")), special=bool(audience.get("special"))
+    )
+
+
+def _sent_age(found: dict[str, Any]) -> list[int] | None:
+    """The ages Meta is sent, not the ones typed: 65 stands for 65+."""
+    chosen = found["audience"]["chosen"]
+    low, high = number(chosen.get("age_min")), number(chosen.get("age_max"))
+    if low is None or high is None:
+        return None
+    rules = _rules_of(found)
+    if rules.age.fixed:
+        return [rules.age.min, rules.age.max]
+    low, sent_high = sent_ages(low, high, mode=rules.mode)
+    return [low or rules.age.min, sent_high or rules.age.max]
 
 
 def reach(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -347,6 +418,11 @@ def places(proposal: dict[str, Any]) -> list[str]:
     }
     named = [text(row.get("name")) for row in audience.get("geo_places") or []]
     named += [areas.get(key) or key for key in audience.get("geo_chosen_areas") or []]
+    geo = audience.get("geo") or {}
+    if text(geo.get("mode")) == "around":
+        km = number(audience["chosen"].get("radius_km")) or number(geo.get("radius_km"))
+        spot = text(geo.get("address")).strip() or "Xaritadagi nuqta"
+        return [f"{spot} · {km} km atrofida" if km else spot]
     return [name for name in named if name]
 
 
@@ -383,7 +459,6 @@ def proposal(
     launch = answer["launch"]
     chosen = found["audience"]["chosen"]
     destination = found.get("destination") or {}
-    age_min, age_max = number(chosen.get("age_min")), number(chosen.get("age_max"))
     form = found.get("lead_form")
     line: dict[str, Any] = {**goal, "by": "me"}
     if form:
@@ -424,12 +499,16 @@ def proposal(
         "audience": {
             "by": "me" if found["audience"].get("mode_source") == "owner" else "ai",
             "places": places(found),
-            "age": [age_min, age_max]
-            if age_min is not None and age_max is not None
-            else None,
-            "genders": _genders(chosen.get("genders")),
+            "age": _sent_age(found),
+            # A gender the mode never sends is not named: the card says "everyone".
+            "genders": _genders(chosen.get("genders"))
+            if _rules_of(found).genders != "unused"
+            else "all",
             "placements": text((found["audience"].get("card") or {}).get("placement")),
-            "interests": (found.get("interests") or {}).get("chosen_queries") or [],
+            # Only where the mode sends them: elsewhere they reach nobody.
+            "interests": (found.get("interests") or {}).get("chosen_queries") or []
+            if _rules_of(found).interests != "unused"
+            else [],
             "reach": reach(state),
         },
         "budget": {
@@ -444,7 +523,7 @@ def proposal(
         # typed changes are not offered back yet.
         "changes": [],
         "ads": [ad(variant) for variant in found.get("variants") or []],
-        "attention": attention(state),
+        "attention": attention(state, found),
         "blockers": blockers(state),
     }
 

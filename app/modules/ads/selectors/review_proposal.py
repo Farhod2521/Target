@@ -208,6 +208,7 @@ def _audience(
         "card": card,
         "mode": mode,
         "mode_source": draft_field.source(draft, draft_field.AUDIENCE_MODE),
+        "special": bool(special),
         "exact_age_mode": TargetingMode.INTERESTS
         if chosen_interests
         else TargetingMode.BROAD,
