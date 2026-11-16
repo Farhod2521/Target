@@ -474,3 +474,35 @@ def test_a_finding_names_its_page_and_campaign(
     assert row.figures["page_name"] == "Gul do'koni"
     assert row.figures["campaign_name"] == (campaign.name or "c_1")
     assert row.figures["group_name"] == row.name
+
+
+def test_old_open_findings_get_their_page_and_campaign_named(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.integrations.models import PageAccount
+    from tools.guard_place_backfill import fill
+
+    owner, account, now = _running(client, db)
+    page = db.scalar(select(PageAccount).where(PageAccount.owner_id == owner.id))
+    group = db.scalar(select(AdSet).where(AdSet.external_id == "s_1"))
+    assert page is not None and group is not None
+    page.name = "Gul do'koni"
+    group.promoted_object_raw = {"page_id": page.external_id}
+    db.commit()
+    _today(db, owner, account, now, spend=640, leads=1)
+    run_guard(db, owner=owner, now=now)
+    (row,) = _rows(db)
+    # As a finding written before the names were kept.
+    old = dict(row.figures)
+    old.pop("page_name")
+    old.pop("campaign_name")
+    row.figures, row.said_step = old, row.step
+    db.commit()
+
+    assert fill(db) == (1, 1)
+    db.commit()
+    (row,) = _rows(db)
+    assert row.figures["page_name"] == "Gul do'koni"
+    assert row.figures["campaign_name"]
+    assert row.said_step == row.step  # nothing is told again
+    assert fill(db) == (1, 0)
