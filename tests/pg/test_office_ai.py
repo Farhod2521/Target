@@ -175,6 +175,7 @@ def test_an_admin_asks_and_the_answer_quotes_only_what_was_read(
     token = headers["Authorization"].removeprefix("Bearer ")
     last = _frames(client.get(f"{URL}/stream/{turn['turn_id']}?token={token}").text)[-1]
     assert last["done"] is True and last["masked"] == 1
+    assert last["lookups"] == ["customers_summary"]
     assert "2 kishi" in last["html"] and "1234" not in last["html"]
     assert "[?]" in last["html"]
 
@@ -185,6 +186,8 @@ def test_an_admin_asks_and_the_answer_quotes_only_what_was_read(
     assert answer["meta"] == {"lookups": ["customers_summary"]}
     assert screen["threads"][0]["title"] == "Bugun nechta?"
     assert screen["questions_left"] == screen["questions_total"] - 1
+    assert screen["pending_turn"] is None
+    assert screen["questions_reset_at"].endswith("T00:00:00+05:00")
     assert (
         db.scalar(
             select(func.count())
@@ -289,6 +292,9 @@ def test_a_stopped_question_costs_nothing_and_the_day_has_a_ceiling(
     script = _Script()
     monkeypatch.setattr("app.modules.officeai.services.answer.claude", _claude(script))
     turn = client.post(f"{URL}/ask", json={"question": "Nega?"}, headers=headers).json()
+    # A page opened again while the answer is written finds its stream.
+    reopened = client.get(f"{URL}/threads/{turn['thread_id']}", headers=headers)
+    assert reopened.json()["pending_turn"] == turn["turn_id"]
     assert client.post(f"{URL}/stop/{turn['turn_id']}", headers=headers).json() == {
         "stopped": True
     }
@@ -304,6 +310,31 @@ def test_a_stopped_question_costs_nothing_and_the_day_has_a_ceiling(
     spent = client.post(f"{URL}/ask", json={"question": "Ikkinchi"}, headers=headers)
     assert spent.status_code == 429
     assert spent.json()["code"] == "office_ai_spent"
+
+
+def test_a_failed_answer_keeps_its_reason(
+    client: TestClient, db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from llmkit import LLMError
+
+    _member, headers = _staff(db, Role.OWNER, email="ega@office.test")
+
+    @contextmanager
+    def broken(**_: Any):  # type: ignore[no-untyped-def]
+        raise LLMError("overloaded")
+        yield
+
+    monkeypatch.setattr("app.modules.officeai.services.answer.claude", broken)
+    turn = client.post(f"{URL}/ask", json={"question": "Nega?"}, headers=headers).json()
+    payload = turn_payload(turn_id=turn["turn_id"])
+    assert payload is not None
+    answer_turn(db, turn_id=turn["turn_id"], payload=payload, now=utcnow())
+    db.commit()
+
+    screen = client.get(f"{URL}/threads/{turn['thread_id']}", headers=headers).json()
+    answer = screen["messages"][-1]
+    assert answer["status"] == "failed" and answer["meta"] == {"error": "model"}
+    assert screen["pending_turn"] is None
     assert client.post(
         f"{URL}/ask", json={"question": "   "}, headers=headers
     ).status_code in (400, 429)

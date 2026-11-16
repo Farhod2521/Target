@@ -60,6 +60,9 @@ NO_MONEY = (
     "Not available: this person does not see money. Say that money is shown "
     "to Finance and the Owner, and answer the rest."
 )
+FAILED_MODEL = "model"
+FAILED_BROKE = "broke"
+FAILED_STUCK = "stuck"
 STOPPED = "The person pressed stop. Do not look anything up; write nothing more."
 
 
@@ -171,6 +174,7 @@ def publish(
     error: str = "",
     status: str = "",
     stopped: bool = False,
+    lookups: list[str] | None = None,
 ) -> None:
     """The answer so far, as the stream's door reads it."""
     cache.set(
@@ -183,6 +187,7 @@ def publish(
             "masked": masked,
             "status": status,
             "stopped": stopped,
+            "lookups": list(lookups or ()),
             "staff_id": payload.get("staff_id", ""),
             "message_id": payload.get("message_id", ""),
             "thread_id": payload.get("thread_id", ""),
@@ -272,7 +277,7 @@ def answer_turn(
     except Exception:
         logger.exception("office ai answer broke")
         publish(turn_id, "", payload=payload, done=True, error="failed")
-        _mark_failed(db, payload=payload)
+        _mark_failed(db, payload=payload, reason=FAILED_BROKE)
         raise
     _finish(
         db,
@@ -317,7 +322,15 @@ def _finish(
     from app.modules.audit.services import record_llm_result
 
     words = text or ""
-    publish(turn_id, words, payload=payload, masked=masked, done=True, stopped=stopped)
+    publish(
+        turn_id,
+        words,
+        payload=payload,
+        masked=masked,
+        done=True,
+        stopped=stopped,
+        lookups=used,
+    )
     record_llm_result(
         db,
         owner=staff,
@@ -401,13 +414,17 @@ def _store(
         )
 
 
-def _mark_failed(db: Session, *, payload: dict[str, Any]) -> None:
+def _mark_failed(
+    db: Session, *, payload: dict[str, Any], reason: str = FAILED_MODEL
+) -> None:
+    """``meta.error`` says why: ``model`` (Claude refused or was not
+    reached), ``broke`` (our side), ``stuck`` (the worker never finished)."""
     key = _uuid(payload.get("message_id", ""))
     if key is not None:
         db.execute(
             update(OfficeAiMessage)
             .where(OfficeAiMessage.id == key)
-            .values(status=MessageStatus.FAILED)
+            .values(status=MessageStatus.FAILED, meta={"error": reason})
         )
 
 

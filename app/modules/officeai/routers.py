@@ -12,7 +12,7 @@ import asyncio
 import json
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import Db
 from app.common import tokens
 from app.common.cache import cache
+from app.common.dates import localtime
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.backoffice.constants import MONEY_ROLES, Role
@@ -37,6 +38,7 @@ from app.modules.officeai.constants import (
     STREAM_TIMEOUT_SECONDS,
     SUGGESTIONS,
     TITLE_CHARS,
+    MessageStatus,
 )
 from app.modules.officeai.models import OfficeAiMessage, OfficeAiThread
 from app.modules.officeai.selectors import threads
@@ -65,7 +67,9 @@ class MessageOut(BaseModel):
         description="Figures shown as `[?]`: no look-up returned them."
     )
     meta: dict[str, Any] = Field(
-        description="`lookups` - what was read for the answer; `stopped`."
+        description="`lookups` - names of what was read, e.g. "
+        '`["customers_summary"]`; `stopped`; on `pending`, `turn_id`; on '
+        "`failed`, `error`: `model`, `broke` or `stuck`."
     )
     created_at: datetime
 
@@ -78,7 +82,14 @@ class ScreenOut(BaseModel):
     has_earlier: bool
     suggestions: list[str] = Field(description="Questions to offer on an empty screen.")
     questions_left: int
-    questions_total: int
+    questions_total: int = Field(description="Always a real limit, never 0.")
+    questions_reset_at: datetime = Field(
+        description="When `questions_left` is full again: the next midnight, Tashkent."
+    )
+    pending_turn: str | None = Field(
+        description="The thread's answer still being written: open "
+        "`/stream/{pending_turn}` with it. Null when nothing is."
+    )
 
 
 class PageOut(BaseModel):
@@ -138,6 +149,15 @@ def _screen(db: Session, *, user: User, thread: OfficeAiThread | None) -> Any:
     rows, has_earlier = (
         threads.messages_page(db, thread=thread) if thread else ([], False)
     )
+    now = utcnow()
+    pending = next(
+        (
+            str((row.meta or {}).get("turn_id") or "") or None
+            for row in reversed(rows)
+            if row.status == MessageStatus.PENDING
+        ),
+        None,
+    )
     return jsonable_encoder(
         {
             "sees_money": _sees_money(db, user),
@@ -148,9 +168,18 @@ def _screen(db: Session, *, user: User, thread: OfficeAiThread | None) -> Any:
             "messages": [_message_row(row) for row in rows],
             "has_earlier": has_earlier,
             "suggestions": list(SUGGESTIONS),
-            "questions_left": questions_left(db, staff=user, now=utcnow()),
+            "questions_left": questions_left(db, staff=user, now=now),
             "questions_total": QUESTIONS_PER_DAY,
+            "questions_reset_at": _next_midnight(now),
+            "pending_turn": pending,
         }
+    )
+
+
+def _next_midnight(now: datetime) -> datetime:
+    local = localtime(now)
+    return (local + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
     )
 
 
@@ -261,7 +290,7 @@ async def stream(
     """Server-sent events until the answer is finished. Each frame is JSON:
     ``delta`` (append it), ``restart`` (clear, then append), ``status``
     (what is being read), and on the last ``done: true`` with ``html``,
-    ``masked`` and ``stopped``. ``error``: ``failed``, ``denied``,
+    ``masked`` (a count), ``stopped`` and ``lookups``. ``error``: ``failed``, ``denied``,
     ``timeout``."""
     viewer = _viewer(request, token)
     return StreamingResponse(
@@ -302,6 +331,7 @@ async def _frames(*, turn_id: str, viewer: str) -> Any:
                         "html": state.get("html", ""),
                         "masked": state.get("masked", 0),
                         "stopped": bool(state.get("stopped")),
+                        "lookups": list(state.get("lookups") or ()),
                     }
                 sent, last_status = len(text), status_now
                 yield _event(frame)

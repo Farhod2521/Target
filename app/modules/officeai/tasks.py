@@ -54,7 +54,9 @@ def sweep_stuck_office_answers() -> int:
                 OfficeAiMessage.created_at
                 < now - timedelta(minutes=ANSWER_STUCK_AFTER_MINUTES),
             )
-            .values(status=MessageStatus.FAILED, updated_at=now)
+            .values(
+                status=MessageStatus.FAILED, meta={"error": "stuck"}, updated_at=now
+            )
         ).rowcount  # type: ignore[attr-defined]
         db.commit()
     return int(closed or 0)

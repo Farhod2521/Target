@@ -119,6 +119,7 @@ def start_turn(
     left = questions_left(db, staff=staff, now=now)
     if left <= 0:
         raise QuestionsSpent
+    turn_id = str(uuid.uuid4())
     if thread is None:
         thread = OfficeAiThread(staff_id=staff.id, title=text[:TITLE_CHARS])
         db.add(thread)
@@ -139,6 +140,8 @@ def start_turn(
         thread_id=thread.id,
         author=Author.AI,
         status=MessageStatus.PENDING,
+        # Until it is written: a page opened again finds the stream by it.
+        meta={"turn_id": turn_id},
         # A moment after the question, so the two never sort the wrong way.
         created_at=now.replace(microsecond=min(now.microsecond + 1, 999_999)),
     )
@@ -146,7 +149,6 @@ def start_turn(
     thread.last_message_at = now
     db.flush()
     template, version = prompts().get(PROMPT_NAME)
-    turn_id = str(uuid.uuid4())
     payload: dict[str, Any] = {
         "question": text,
         "system": render(template, {}),
