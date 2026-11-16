@@ -74,6 +74,7 @@ def test_the_agent_tasks_keep_django_s_minutes() -> None:
     assert times == {
         "release_stalled_runs_task": ("13,43", "*"),
         "stop_all_fruitless": ("19,49", "*"),
+        "guard_all": ("21,51", "*"),
         "propose_all_fixes": ("15,45", "*"),
         "diagnose_all_accounts_task": ("50", "*"),
         "assess_all_outcomes": ("55", "5"),

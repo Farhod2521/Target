@@ -29,6 +29,7 @@ from app.modules.agent.services.diagnose_account import diagnose_account
 from app.modules.agent.services.propose_fixes import propose_fixes
 from app.modules.agent.services.release_stalled_runs import release_stalled_runs
 from app.modules.agent.services.run_agent import run_agent
+from app.modules.agent.services.run_guard import run_guard
 from app.modules.agent.services.stop_fruitless import stop_fruitless
 from app.modules.integrations.constants import NIGHT_AGENT_HOUR, NIGHT_DIAGNOSIS_HOUR
 from app.worker import celery_app, task_session
@@ -172,6 +173,31 @@ def stop_all_fruitless() -> int:
         owners = agent_owner_ids(db, now=utcnow()) & owners_with_launches(db)
     for owner_id in owners:
         stop_fruitless_task.delay(str(owner_id))
+    return len(owners)
+
+
+@celery_app.task(queue="agent", ignore_result=True)
+def guard_task(owner_id: str, may_stop: bool = True) -> int:
+    """One owner's half-hourly guard: today's figures against the usual
+    level. Returns how many findings were opened or moved a step."""
+    from app.modules.billing.selectors.subscription import has_live_subscription
+
+    with task_session() as db:
+        owner = _owner(db, owner_id)
+        if owner is None or not has_live_subscription(db, owner=owner):
+            return 0
+        return run_guard(db, owner=owner, now=utcnow(), may_stop=may_stop)
+
+
+@celery_app.task(queue="agent", ignore_result=True)
+def guard_all() -> int:
+    """Queue every owner with a connected account, after the half-hourly
+    figures. An owner who switched the agent off is warned and never stopped."""
+    with task_session() as db:
+        owners = owners_to_diagnose(db)
+        stopping = {str(owner_id) for owner_id in agent_owner_ids(db, now=utcnow())}
+    for owner_id in owners:
+        guard_task.delay(str(owner_id), str(owner_id) in stopping)
     return len(owners)
 
 

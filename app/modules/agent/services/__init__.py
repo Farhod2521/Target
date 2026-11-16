@@ -25,6 +25,7 @@ from app.modules.agent.services.retire_suggestions import (
     supersede_suggestions,
 )
 from app.modules.agent.services.run_agent import run_agent
+from app.modules.agent.services.run_guard import run_guard
 from app.modules.agent.services.save_policy import save_policy
 from app.modules.agent.services.stop_fruitless import stop_fruitless
 
@@ -47,6 +48,7 @@ __all__ = [
     "repair_account",
     "retire_suggestions",
     "run_agent",
+    "run_guard",
     "save_policy",
     "sent",
     "stop_fruitless",

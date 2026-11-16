@@ -310,6 +310,8 @@ FIX_NEWS_DAYS: Final = 7
 FIXES_IN_LIST: Final = 10
 AUTO_STOP_MARK: Final = "auto_stop"
 AUTO_STOP_FRESH_MINUTES: Final = 60
+# A stop the half-hourly guard made: a price, nothing back today, a page down.
+GUARD_STOP_MARK: Final = "guard_stop"
 STOPPED_SHOWN_DAYS: Final = 7
 NO_WORDS_PREFIX: Final = "no_words:"
 WORDLESS_QUIET_HOURS: Final = 24

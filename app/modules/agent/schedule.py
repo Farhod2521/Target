@@ -18,6 +18,12 @@ SCHEDULE: Final = [
         f"{TASKS}.stop_all_fruitless",
         "19,49",
     ),
+    # After the half-hourly figures (:10, :40) and the agent's own stop.
+    Periodic(
+        "Reklama qo'riqchisi: narx, natijasiz sarf, sayt",
+        f"{TASKS}.guard_all",
+        "21,51",
+    ),
     Periodic(
         "To'xtagan reklamalarga tuzatish taklifi", f"{TASKS}.propose_all_fixes", "15,45"
     ),
