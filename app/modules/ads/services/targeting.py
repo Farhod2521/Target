@@ -127,8 +127,12 @@ def build_for(
     )
 
 
-def welcome_greeting(db: Session, *, launch: CampaignLaunch, business: Business) -> str:
-    preset = goal_preset(db, launch=launch)
+def welcome_greeting(
+    db: Session, *, launch: CampaignLaunch, business: Business, goal: str = ""
+) -> str:
+    """The owner's greeting, else the catalogue's. ``goal`` is the one the
+    screen shows before it is saved; the launch's own when left out."""
+    preset = goal_preset(db, launch=launch, goal=goal)
     if preset is None or not preset.opens_chat:
         return ""
     if WELCOME_KEY in launch.answers:

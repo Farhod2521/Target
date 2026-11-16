@@ -166,7 +166,9 @@ def plan_initial(
         "link_url": telegram_link(str(launch.answers.get("link_url") or ""))
         if frame.goal == TELEGRAM_GOAL
         else launch.answers.get("link_url") or (business.website if business else ""),
-        "welcome_text": welcome_greeting(db, launch=launch, business=business)
+        "welcome_text": welcome_greeting(
+            db, launch=launch, business=business, goal=frame.goal
+        )
         if business is not None
         else "",
         "chat_channel": opening_channel(db, launch=launch, goal=frame.goal),
@@ -234,10 +236,9 @@ def check_plan(
         problems.add("goal", SAY_WHAT_YOU_NEED)
         problems.refuse()
     frame = plan_frame(db, launch=launch, user=user, goal=body.goal, now=now)
-    answers = _destination(body, frame=frame, problems=problems, with_questions=False)
+    answers = _destination(body, frame=frame, problems=problems)
     answers |= _money_and_day(body, frame=frame, problems=problems)
     problems.refuse()
-    answers["chat_questions"] = None
     answers["goal"] = bought_goal(body.goal)
     answers |= _link_kind(launch, telegram=body.goal == TELEGRAM_GOAL)
     answers["goal_text"] = words_for_goal(
@@ -325,7 +326,6 @@ def _destination(
     frame: PlanFrame,
     problems: Problems,
     asked: dict[str, bool] | None = None,
-    with_questions: bool = True,
 ) -> dict[str, Any]:
     """Each destination field the goal asks for, checked; ``None`` otherwise."""
     wanted = asked or {
@@ -350,15 +350,11 @@ def _destination(
             field="phone_number",
         )
     if wanted["chat"]:
-        answers |= _chat(
-            body, frame=frame, problems=problems, with_questions=with_questions
-        )
+        answers |= _chat(body, frame=frame, problems=problems)
     return answers
 
 
-def _chat(
-    body: PlanIn, *, frame: PlanFrame, problems: Problems, with_questions: bool = True
-) -> dict[str, Any]:
+def _chat(body: PlanIn, *, frame: PlanFrame, problems: Problems) -> dict[str, Any]:
     welcome = body.welcome_text.strip()
     if len(welcome) > MAX_GREETING_CHARS:
         problems.add(
@@ -369,7 +365,7 @@ def _chat(
         if channel or len(frame.channels) > 1:
             problems.add("chat_channel", "Odamlar qayerga yozishini tanlang.")
         channel = ""
-    questions = list(clean_questions(body.chat_questions)) if with_questions else []
+    questions = list(clean_questions(body.chat_questions))
     if len(questions) > MAX_CHAT_QUESTIONS:
         problems.add(
             "chat_questions",
