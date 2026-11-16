@@ -189,3 +189,37 @@ def test_the_owners_webhook_checks_its_secret(
 
     assert refused.status_code == 403 and taken.status_code == 200
     assert [name for name, _ in queued if name.endswith("handle_owners_bot_update")]
+
+
+def test_an_owner_is_known_by_the_env_list_or_by_the_role(
+    client: TestClient, db: Session, owners: CardBot
+) -> None:
+    """A linked staff chat counts when its person holds the Owner role or is
+    a superuser; a Support member's linked chat does not."""
+    from app.modules.backoffice.constants import Role
+    from app.modules.notifications.models import StaffChat
+    from tests.pg.test_office_actions import _staff
+
+    sign_up(client)
+    boss, _ = _staff(db, Role.OWNER, email="ega@office.test")
+    root, _ = _staff(db, email="root@office.test", superuser=True)
+    helper, _ = _staff(db, Role.SUPPORT, email="aziza@office.test")
+    for member, chat_id in ((boss, "601"), (root, "602"), (helper, "603")):
+        db.add(
+            StaffChat(
+                owner_id=member.id, chat_id=chat_id, is_active=True, linked_at=utcnow()
+            )
+        )
+    db.commit()
+
+    assert admin_stats.owner_chat_ids(db) == [ADMIN, "601", "602"]
+    assert handle_owners_update(db, payload=_text("601", "/admin"), now=utcnow()) == (
+        "card"
+    )
+    assert handle_owners_update(db, payload=_text("603", "/admin"), now=utcnow()) == (
+        "refused"
+    )
+
+    owners.calls.clear()
+    assert admin_stats.deliver_admin_report(db, now=utcnow()) == 3
+    assert [f["chat_id"] for _, f in owners.calls] == [ADMIN, "601", "602"]

@@ -1,6 +1,7 @@
 """What the owners' bot (@owners_tai_bot) does when somebody writes to it.
 
-For an id in ``STAFF_BOT_ADMIN_IDS``: ``/admin`` (``/stat``) sends the
+For an owner - an id in ``STAFF_BOT_ADMIN_IDS``, or staff with the Owner
+role (or a superuser) whose office bot is linked to this Telegram: ``/admin`` (``/stat``) sends the
 figures card, the same the 07:00 report sends; ``/start`` the card and a
 word about asking; ``/yangi`` starts a new conversation; and anything typed
 is a question for the office assistant, answered here. Anybody else gets
@@ -42,7 +43,7 @@ def handle_owners_update(db: Session, *, payload: dict[str, Any], now: datetime)
     if update.chat_type not in ("", PRIVATE_CHAT):
         return "ignored"
     with owners_bot() as client:
-        if not is_admin(update.sender.id):
+        if not is_admin(db, update.sender.id):
             _say(
                 client=client,
                 chat_id=update.chat_id,

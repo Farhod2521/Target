@@ -1,9 +1,10 @@
 """The owners' figures in Telegram: who signed up, who paid, how much, and
 what the platform and the office are doing.
 
-Who is an owner here is ``STAFF_BOT_ADMIN_IDS`` - Telegram user ids, set on
-the server, not an office role and not a linked cabinet: the card carries
-every customer's name and the money. It goes out only through the owners'
+Who is an owner here is checked two ways (``owner_chat_ids``): the Telegram
+ids in ``STAFF_BOT_ADMIN_IDS``, and the staff who linked the office bot and
+hold the Owner role or are superusers. The card carries every customer's
+name and the money. It goes out only through the owners'
 own bot (``OWNERS_BOT_TOKEN``, @owners_tai_bot), every morning at 07:00
 Tashkent time and on ``/admin`` there (``owners_respond``); the customers'
 and the office's bots no longer show it. The
@@ -60,8 +61,30 @@ SIGNUPS_SHOWN: Final = 7
 PAYMENTS_SHOWN: Final = 5
 
 
-def is_admin(sender_id: str) -> bool:
-    return bool(sender_id) and sender_id in settings.staff_bot_admin_ids
+def owner_chat_ids(db: Session) -> list[str]:
+    """Who the owners are in Telegram, two ways: the ids in
+    ``STAFF_BOT_ADMIN_IDS``, and every member of staff who linked the office
+    bot and holds the Owner role or is a superuser. A private chat's id is
+    the person's own, the same in every bot."""
+    from app.modules.backoffice.constants import Role
+    from app.modules.backoffice.permissions import has_role
+    from app.modules.notifications.models import StaffChat
+
+    found = [str(chat_id) for chat_id in settings.staff_bot_admin_ids if chat_id]
+    linked = db.execute(
+        select(StaffChat.chat_id, User)
+        .join(User, User.id == StaffChat.owner_id)
+        .where(StaffChat.is_active.is_(True), StaffChat.chat_id != "")
+        .order_by(StaffChat.linked_at)
+    ).all()
+    for chat_id, member in linked:
+        if chat_id not in found and has_role(db, member, (Role.OWNER,)):
+            found.append(str(chat_id))
+    return found
+
+
+def is_admin(db: Session, sender_id: str) -> bool:
+    return bool(sender_id) and sender_id in owner_chat_ids(db)
 
 
 # -- the figures -----------------------------------------------------------------
@@ -300,11 +323,14 @@ def send_stats(db: Session, *, client: BotClient, chat_id: str, now: datetime) -
 def deliver_admin_report(db: Session, *, now: datetime) -> int:
     """The morning card to every owner; one unreachable chat skips only itself.
     An owner who never pressed Start in @owners_tai_bot cannot be written to."""
-    if not (settings.staff_bot_admin_ids and owners_bot_configured()):
+    if not owners_bot_configured():
+        return 0
+    chat_ids = owner_chat_ids(db)
+    if not chat_ids:
         return 0
     sent = 0
     with owners_bot() as client:
-        for chat_id in settings.staff_bot_admin_ids:
+        for chat_id in chat_ids:
             try:
                 send_stats(db, client=client, chat_id=chat_id, now=now)
                 sent += 1
@@ -316,6 +342,7 @@ def deliver_admin_report(db: Session, *, now: datetime) -> int:
 __all__ = [
     "deliver_admin_report",
     "is_admin",
+    "owner_chat_ids",
     "read_stats",
     "render_full_text",
     "send_stats",
