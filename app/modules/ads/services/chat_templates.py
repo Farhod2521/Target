@@ -124,6 +124,9 @@ def delete_template(
     )
     if found is None:
         raise NotFound("Shablon topilmadi.")
+    from app.modules.ads.services.chat_template_flows import take_off_page
+
+    take_off_page(db, launch=launch, template=found)
     db.delete(found)
     db.flush()
 

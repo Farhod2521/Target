@@ -187,3 +187,154 @@ def test_templates_stay_with_their_owner_and_page(
     delete_rows(db, PageAccount.__table__, PageAccount.id == other.id)
     db.commit()
     assert db.scalar(select(ChatTemplate.name)) == "Yozgi aksiya"
+
+
+# --- The copy kept on the page for Ads Manager ------------------------------
+class _Meta:
+    """Stands in for metaads.welcome_flows: records, refuses on demand."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+        self.refuse_update = False
+        self.refuse_create: Exception | None = None
+
+    def create(self, **fields: object) -> str:
+        self.calls.append(("create", fields))
+        if self.refuse_create is not None:
+            raise self.refuse_create
+        return f"flow-{len(self.calls)}"
+
+    def update(self, **fields: object) -> None:
+        self.calls.append(("update", fields))
+        if self.refuse_update:
+            from metaads.errors import MetaAPIError
+
+            raise MetaAPIError("used in an ad", code=100)
+
+    def delete(self, **fields: object) -> None:
+        self.calls.append(("delete", fields))
+
+
+def _meta(monkeypatch, *, on: bool = True) -> _Meta:  # type: ignore[no-untyped-def]
+    from cryptography.fernet import Fernet
+
+    from app.common.config import settings
+    from app.modules.ads.services import chat_template_flows
+
+    fake = _Meta()
+    monkeypatch.setattr(settings, "encryption_key", Fernet.generate_key().decode())
+    monkeypatch.setattr(settings, "meta_ask_messaging", on)
+    monkeypatch.setattr(chat_template_flows, "create_flow", fake.create)
+    monkeypatch.setattr(chat_template_flows, "update_flow", fake.update)
+    monkeypatch.setattr(chat_template_flows, "delete_flow", fake.delete)
+    return fake
+
+
+def _scopes(db: Session, draft_id: str, scopes: list[str]) -> None:
+    """The connection's grants, and a page token that opens."""
+    from app.common.crypto import encrypt
+    from app.modules.integrations.models import ProviderConnection
+
+    launch = db.get(CampaignLaunch, uuid.UUID(draft_id))
+    assert launch is not None
+    for page in db.scalars(
+        select(PageAccount).where(PageAccount.owner_id == launch.owner_id)
+    ):
+        page.token_encrypted = encrypt("page-token")
+    for connection in db.scalars(
+        select(ProviderConnection).where(ProviderConnection.owner_id == launch.owner_id)
+    ):
+        connection.scopes = scopes
+    db.commit()
+
+
+def test_with_the_setting_off_nothing_goes_to_meta(
+    client: TestClient, db: Session, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    fake = _meta(monkeypatch, on=False)
+    auth, draft_id = _opened(client, db)
+
+    saved = client.post(_path(draft_id), json=BODY, headers=auth)
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["items"][0]["meta"] == "off"
+    assert fake.calls == []
+
+
+def test_a_saved_template_is_kept_on_the_page_rewritten_and_taken_off(
+    client: TestClient, db: Session, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    fake = _meta(monkeypatch)
+    auth, draft_id = _opened(client, db)
+    _scopes(db, draft_id, ["ads_management", "pages_messaging"])
+    path = _path(draft_id)
+
+    saved = client.post(path, json=BODY, headers=auth)
+    assert saved.status_code == 200, saved.text
+    (item,) = saved.json()["items"]
+    assert item["meta"] == "saved"
+    kind, fields = fake.calls[-1]
+    assert kind == "create"
+    assert fields["name"] == "Yozgi aksiya"
+    assert fields["text"] == "Salom! Yozing."
+    assert fields["questions"] == ("Narxi qancha?", "Yetkazib berish bormi?")
+    # Instagram only with instagram_manage_messages.
+    assert fields["platforms"] == ("messenger",)
+    row = db.get(ChatTemplate, uuid.UUID(item["id"]))
+    assert row is not None
+    db.refresh(row)
+    assert row.meta_flow_id == "flow-1"
+
+    # The same name again rewrites the flow it already has.
+    client.post(path, json=BODY | {"welcomeText": "Yangi salom"}, headers=auth)
+    kind, fields = fake.calls[-1]
+    assert kind == "update" and fields["flow_id"] == "flow-1"
+    assert fields["text"] == "Yangi salom"
+
+    # A flow an advert uses is kept by Meta: a new one is made instead.
+    fake.refuse_update = True
+    again = client.post(path, json=BODY | {"welcomeText": "Uchinchi"}, headers=auth)
+    assert again.json()["items"][0]["meta"] == "saved"
+    assert [kind for kind, _ in fake.calls[-2:]] == ["update", "create"]
+    db.refresh(row)
+    assert row.meta_flow_id == "flow-4"
+
+    gone = client.delete(f"{path}/{item['id']}", headers=auth)
+    assert gone.status_code == 200, gone.text
+    kind, fields = fake.calls[-1]
+    assert kind == "delete" and fields["flow_id"] == "flow-4"
+
+
+def test_without_pages_messaging_the_template_is_saved_here_only(
+    client: TestClient, db: Session, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    fake = _meta(monkeypatch)
+    auth, draft_id = _opened(client, db)
+    _scopes(db, draft_id, ["ads_management", "pages_manage_ads"])
+
+    saved = client.post(_path(draft_id), json=BODY, headers=auth)
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["items"][0]["meta"] == "no_permission"
+    assert fake.calls == []
+
+
+def test_a_refusal_from_meta_never_undoes_the_save(
+    client: TestClient, db: Session, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    from metaads.errors import MetaAPIError
+
+    fake = _meta(monkeypatch)
+    auth, draft_id = _opened(client, db)
+    _scopes(db, draft_id, ["pages_messaging"])
+
+    fake.refuse_create = MetaAPIError("(#200) requires pages_messaging", code=200)
+    denied = client.post(_path(draft_id), json=BODY, headers=auth)
+    assert denied.status_code == 200, denied.text
+    assert denied.json()["items"][0]["meta"] == "no_permission"
+
+    fake.refuse_create = MetaAPIError("Invalid parameter", code=100)
+    failed = client.post(_path(draft_id), json=BODY, headers=auth)
+    assert failed.status_code == 200, failed.text
+    assert failed.json()["items"][0]["meta"] == "failed"
+    assert failed.json()["items"][0]["welcomeText"] == "Salom! Yozing."

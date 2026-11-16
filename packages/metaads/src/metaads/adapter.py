@@ -184,8 +184,14 @@ from metaads.leads import fetch_lead as read_lead
 from metaads.leads import list_leads as read_leads
 from metaads.lookalikes import ratio_of as meta_ratio
 from metaads.money import META_MONEY
+from metaads.oauth import (
+    DEFAULT_SCOPES,
+    MESSAGING_SCOPES,
+    exchange_code,
+    exchange_for_long_lived,
+    inspect_token,
+)
 from metaads.oauth import authorize_url as oauth_dialog_url
-from metaads.oauth import exchange_code, exchange_for_long_lived, inspect_token
 from metaads.objects import read_ads, read_adsets, read_campaigns
 from metaads.previews import get_preview as read_preview
 from metaads.specs import (
@@ -2324,13 +2330,19 @@ class MetaConnect:
     never reads the environment.
     """
 
-    def __init__(self, *, app_id: str, app_secret: str) -> None:
+    def __init__(
+        self, *, app_id: str, app_secret: str, ask_messaging: bool = False
+    ) -> None:
         self._app_id = app_id
         self._app_secret = app_secret
+        self._ask_messaging = ask_messaging
 
     def authorize_url(self, *, redirect_uri: str, state: str) -> str:
         return oauth_dialog_url(
-            app_id=self._app_id, redirect_uri=redirect_uri, state=state
+            app_id=self._app_id,
+            redirect_uri=redirect_uri,
+            state=state,
+            scopes=DEFAULT_SCOPES + (MESSAGING_SCOPES if self._ask_messaging else ()),
         )
 
     def complete(self, *, redirect_uri: str, code: str) -> GrantDTO:
@@ -2367,7 +2379,11 @@ class MetaConnect:
 
 
 def bundle(
-    *, app_id: str = "", app_secret: str = "", conversions_test_code: str = ""
+    *,
+    app_id: str = "",
+    app_secret: str = "",
+    conversions_test_code: str = "",
+    ask_messaging: bool = False,
 ) -> ProviderBundle:
     """Everything Meta can do, in one object for the registry.
 
@@ -2384,7 +2400,9 @@ def bundle(
         audiences=MetaAudiences(),
         audience_sources=MetaAudienceSources(),
         conversions=MetaConversions(test_event_code=conversions_test_code),
-        connect=MetaConnect(app_id=app_id, app_secret=app_secret),
+        connect=MetaConnect(
+            app_id=app_id, app_secret=app_secret, ask_messaging=ask_messaging
+        ),
         # Not a port and not a call. Meta's own arithmetic for a currency's
         # smallest unit, which every budget written through the ports above
         # is denominated in and which nothing else in the project may guess

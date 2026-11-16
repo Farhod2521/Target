@@ -23,6 +23,7 @@ def register_providers() -> None:
             app_id=settings.meta_app_id,
             app_secret=settings.meta_app_secret,
             conversions_test_code=settings.meta_conversions_test_code,
+            ask_messaging=settings.meta_ask_messaging,
         ),
     )
     registry.register(

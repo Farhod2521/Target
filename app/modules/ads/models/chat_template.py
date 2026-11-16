@@ -27,3 +27,9 @@ class ChatTemplate(Base):
     questions: Mapped[Any] = mapped_column(Json, nullable=False, default=list)
     # The answer sent by itself for the question at the same place; "" for none.
     answers: Mapped[Any] = mapped_column(Json, nullable=False, default=list)
+    # The copy kept on the page as a welcome message flow, so Ads Manager
+    # offers it too (metaads.welcome_flows). "" until it was made.
+    meta_flow_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    # How the last attempt went: "" not tried (the setting is off), "saved",
+    # "no_permission" (pages_messaging not granted), "failed".
+    meta_state: Mapped[str] = mapped_column(String(16), nullable=False, default="")

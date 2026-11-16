@@ -49,6 +49,23 @@ def test_the_dialog_url_carries_the_app_id_from_the_constructor() -> None:
     assert "state=st" in url
 
 
+def test_messaging_is_asked_for_only_when_switched_on() -> None:
+    """Asked before App Review grants it, Meta drops it for everybody but
+    the app's developers - so it waits for the setting."""
+    from urllib.parse import parse_qs, urlparse
+
+    def scopes(connect: MetaConnect) -> list[str]:
+        url = connect.authorize_url(redirect_uri="https://e.com/cb/", state="st")
+        return parse_qs(urlparse(url).query)["scope"][0].split(",")
+
+    plain = scopes(MetaConnect(app_id="1", app_secret="s"))
+    asked = scopes(MetaConnect(app_id="1", app_secret="s", ask_messaging=True))
+
+    assert "pages_messaging" not in plain
+    assert asked[: len(plain)] == plain
+    assert asked[len(plain) :] == ["pages_messaging", "instagram_manage_messages"]
+
+
 def test_complete_stretches_the_token_and_names_who_approved(
     calls: list[tuple[str, dict[str, Any]]],
 ) -> None:
