@@ -404,6 +404,7 @@ class LLMPurpose(Choices):
     MONTAGE = "montage"
     BRAND_LOGO = "brand_logo"
     SURVEY = "survey"
+    OFFICE = "office_ai"
 
 
 LLM_PURPOSE_LABELS = {
@@ -418,6 +419,7 @@ LLM_PURPOSE_LABELS = {
     LLMPurpose.MONTAGE: "Video montaj",
     LLMPurpose.BRAND_LOGO: "Logo tahlili",
     LLMPurpose.SURVEY: "So'rovnoma tarjimasi",
+    LLMPurpose.OFFICE: "Ofis AI",
 }
 
 

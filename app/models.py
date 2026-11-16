@@ -18,6 +18,7 @@ from app.modules.integrations import models as integrations  # noqa: F401
 from app.modules.leads import models as leads  # noqa: F401
 from app.modules.metrics import models as metrics  # noqa: F401
 from app.modules.notifications import models as notifications  # noqa: F401
+from app.modules.officeai import models as officeai  # noqa: F401
 from app.modules.public import models as public  # noqa: F401
 from app.modules.referrals import models as referrals  # noqa: F401
 from app.modules.sales import models as sales  # noqa: F401

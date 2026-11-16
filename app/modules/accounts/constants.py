@@ -89,6 +89,8 @@ PURGE_ORDER: tuple[str, ...] = (
     "chat.ChatSession",
     "assistant.AssistantMessage",
     "assistant.AssistantSession",
+    "officeai.OfficeAiMessage",
+    "officeai.OfficeAiThread",
     "supportchat.SupportRelay",
     "supportchat.SupportAttachment",
     "supportchat.SupportMessage",

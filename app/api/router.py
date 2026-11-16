@@ -39,6 +39,7 @@ from app.modules.miniapp.routers import router as miniapp
 from app.modules.notifications.routers import router as notifications
 from app.modules.notifications.routers.actions import router as actions
 from app.modules.notifications.routers.webhooks import webhooks as telegram_webhooks
+from app.modules.officeai.routers import router as office_ai_v2
 from app.modules.onboarding.routers import router as onboarding
 from app.modules.public.routers import callbacks as public_callbacks
 from app.modules.public.routers import router as public
@@ -60,6 +61,7 @@ api_v2_router.include_router(support_ticket_v2)
 api_v2_router.include_router(office_telephony_v2)
 api_v2_router.include_router(assistant_v2)
 api_v2_router.include_router(assistant_office_v2)
+api_v2_router.include_router(office_ai_v2)
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(accounts)
