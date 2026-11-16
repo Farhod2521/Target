@@ -5,7 +5,8 @@ Who is an owner here is ``STAFF_BOT_ADMIN_IDS`` - Telegram user ids, set on
 the server, not an office role and not a linked cabinet: the card carries
 every customer's name and the money. It goes out only through the owners'
 own bot (``OWNERS_BOT_TOKEN``, @owners_tai_bot), every morning at 07:00
-Tashkent time; the customers' and the office's bots no longer show it. The
+Tashkent time and on ``/admin`` there (``owners_respond``); the customers'
+and the office's bots no longer show it. The
 first column is yesterday - at seven in the morning today has barely begun.
 
 The card is a picture: the designed card (``assets/admin_card.png``) with

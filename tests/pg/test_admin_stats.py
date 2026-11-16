@@ -14,11 +14,14 @@ from telegramkit import SentMessage, TelegramAPIError
 
 from app.common.config import settings
 from app.common.db import utcnow
+from app.modules.notifications.routers.webhooks import SECRET_HEADER
 from app.modules.notifications.schedule import SCHEDULE
 from app.modules.notifications.services import admin_stats, handle_update
+from app.modules.notifications.services import owners_respond as owners_module
 from app.modules.notifications.services import respond as respond_module
 from app.modules.notifications.services import staff_respond as staff_module
 from app.modules.notifications.services.admin_card import draw_card
+from app.modules.notifications.services.owners_respond import handle_owners_update
 from app.modules.notifications.services.staff_respond import handle_staff_update
 from tests.pg.conftest import sign_up
 from tests.pg.test_office_telegram import FakeBot, _text
@@ -49,6 +52,7 @@ def owners(monkeypatch: pytest.MonkeyPatch) -> CardBot:
     """The owners' bot; the customers' and the office's are another fake."""
     client = CardBot()
     monkeypatch.setattr(admin_stats, "owners_bot", _opened(client))
+    monkeypatch.setattr(owners_module, "owners_bot", _opened(client))
     monkeypatch.setattr(admin_stats, "owners_bot_configured", lambda: True)
     monkeypatch.setattr(settings, "staff_bot_admin_ids", [ADMIN])
     return client
@@ -143,3 +147,39 @@ def test_long_names_are_drawn_without_failing(client: TestClient, db: Session) -
     )
 
     assert draw_card(long)[:3] == JPEG_START
+
+
+def test_the_owners_bot_answers_an_owner_with_the_card(
+    client: TestClient, db: Session, owners: CardBot
+) -> None:
+    sign_up(client)
+
+    for command in ("/start", "/admin", "/stat"):
+        said = handle_owners_update(db, payload=_text(ADMIN, command), now=utcnow())
+        assert said == "card"
+    assert [name for name, _ in owners.calls] == ["send_photo"] * 3
+
+
+def test_the_owners_bot_tells_a_stranger_their_id_and_nothing_else(
+    db: Session, owners: CardBot
+) -> None:
+    said = handle_owners_update(db, payload=_text("777", "/admin"), now=utcnow())
+
+    assert said == "refused"
+    (text,) = owners.texts()
+    assert "777" in text and "ro'yxatdan o'tdi" not in text
+
+
+def test_the_owners_webhook_checks_its_secret(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, queued: list
+) -> None:
+    monkeypatch.setattr(settings, "owners_bot_token", "1:x")
+    monkeypatch.setattr(settings, "owners_bot_webhook_secret", "s3cret")
+    url = "/webhooks/telegram/owners/"
+    body = _text(ADMIN, "/admin")
+
+    refused = client.post(url, json=body, headers={SECRET_HEADER: "nope"})
+    taken = client.post(url, json=body, headers={SECRET_HEADER: "s3cret"})
+
+    assert refused.status_code == 403 and taken.status_code == 200
+    assert [name for name, _ in queued if name.endswith("handle_owners_bot_update")]

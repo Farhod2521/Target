@@ -2,6 +2,7 @@
 
     uv run python -m app.modules.notifications.setup_bot support
     uv run python -m app.modules.notifications.setup_bot customer
+    uv run python -m app.modules.notifications.setup_bot owners
 
 Run once per deployment after the bot's three settings are in .env, and
 again whenever SITE_URL or the webhook secret changes. Prints what Telegram
@@ -17,19 +18,28 @@ import sys
 from telegramkit import BotClient
 
 from app.common.config import settings
-from app.modules.notifications.constants import SUPPORT_BOT_COMMANDS
+from app.modules.notifications.constants import (
+    OWNERS_BOT_COMMANDS,
+    SUPPORT_BOT_COMMANDS,
+)
 
 PATH = "/webhooks/telegram/support/"
 CUSTOMER_PATH = "/webhooks/telegram/"
 CUSTOMER_UPDATES = ("message", "callback_query", "my_chat_member")
+OWNERS_PATH = "/webhooks/telegram/owners/"
 
 
 def main() -> int:
     which = sys.argv[1] if len(sys.argv) > 1 else ""
     if which == "customer":
         return customer()
+    if which == "owners":
+        return owners()
     if which != "support":
-        print("usage: python -m app.modules.notifications.setup_bot support|customer")
+        print(
+            "usage: python -m app.modules.notifications.setup_bot "
+            "support|customer|owners"
+        )
         return 2
     if not (
         settings.support_bot_token
@@ -85,6 +95,23 @@ def customer() -> int:
         info = client.get_webhook_info()
     print(f"@{me.username} -> {info.url}")
     print(f"allowed: {', '.join(info.allowed_updates) or '-'}")
+    print(
+        f"pending: {info.pending_update_count}, last error: {info.last_error_message or '-'}"
+    )
+    return 0
+
+
+def owners() -> int:
+    if not (settings.owners_bot_token and settings.owners_bot_webhook_secret):
+        print("OWNERS_BOT_TOKEN, OWNERS_BOT_WEBHOOK_SECRET: set both")
+        return 1
+    url = settings.site_url.rstrip("/") + OWNERS_PATH
+    with BotClient(token=settings.owners_bot_token) as client:
+        me = client.get_me()
+        client.set_webhook(url=url, secret_token=settings.owners_bot_webhook_secret)
+        client.set_my_commands(commands=OWNERS_BOT_COMMANDS)
+        info = client.get_webhook_info()
+    print(f"@{me.username} -> {info.url}")
     print(
         f"pending: {info.pending_update_count}, last error: {info.last_error_message or '-'}"
     )
