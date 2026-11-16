@@ -85,6 +85,22 @@ def staff_webhook_secret() -> str:
     return str(settings.staff_bot_webhook_secret)
 
 
+def owners_bot_configured() -> bool:
+    return bool(settings.owners_bot_token)
+
+
+@contextmanager
+def owners_bot() -> Iterator[BotClient]:
+    """The owners' report bot: it writes, it is never written to."""
+    if not owners_bot_configured():
+        raise BotNotConfigured
+    client = BotClient(token=settings.owners_bot_token)
+    try:
+        yield client
+    finally:
+        client.close()
+
+
 def support_bot_configured() -> bool:
     return bool(
         settings.support_bot_token
@@ -124,6 +140,8 @@ __all__ = [
     "bot_token",
     "deep_link",
     "is_configured",
+    "owners_bot",
+    "owners_bot_configured",
     "sends_expiry_notices",
     "sends_mandatory_notices",
     "staff_bot",

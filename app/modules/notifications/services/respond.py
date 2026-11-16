@@ -57,7 +57,6 @@ from app.modules.notifications.constants import (
     COMMAND_STOP,
     COMMAND_TODAY,
     COMMAND_WEEK,
-    COMMANDS_STATS,
     PRIVATE_CHAT,
     RESET_PAYLOAD,
     SUPPORT_WAIT_KEY,
@@ -66,7 +65,6 @@ from app.modules.notifications.constants import (
 from app.modules.notifications.exceptions import ChatTakenByAnother, LinkTokenInvalid
 from app.modules.notifications.models import TelegramChat
 from app.modules.notifications.selectors import chat_by_id
-from app.modules.notifications.services.admin_stats import is_admin, send_stats
 from app.modules.notifications.services.commands import (
     handle_daily_press,
     is_daily_press,
@@ -168,13 +166,6 @@ def _command(
         if command.name == COMMAND_START and is_lead_chat_start(command.argument):
             return lead_chat_group_start(db, client=client, command=command, now=now)
         return "ignored"
-    # The owners' figures: by Telegram id from the settings, no cabinet linked.
-    if command.name in COMMANDS_STATS and is_admin(command.sender.id):
-        try:
-            return send_stats(db, client=client, chat_id=command.chat_id, now=now)
-        except TelegramError as exc:
-            logger.warning("admin_stats_failed: %s", exc)
-            return "failed"
     if command.name == COMMAND_START:
         return _start(db, client=client, known=known, command=command, now=now)
     if command.name == COMMAND_STOP:

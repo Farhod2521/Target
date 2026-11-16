@@ -462,7 +462,7 @@ def resend_survey_task(owner_id: str, token: str) -> str:
 
 @celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_admin_report_task() -> int:
-    """Every evening: the owners' figures card in the staff bot."""
+    """Every morning at 07:00 Tashkent: the owners' card in @owners_tai_bot."""
     from app.modules.notifications.services.admin_stats import deliver_admin_report
 
     with task_session() as db:

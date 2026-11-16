@@ -221,9 +221,11 @@ class Env(BaseSettings):
     staff_bot_token: str = Field(default="", alias="STAFF_BOT_TOKEN")
     staff_bot_webhook_secret: str = Field(default="", alias="STAFF_BOT_WEBHOOK_SECRET")
     staff_bot_username: str = Field(default="", alias="STAFF_BOT_USERNAME")
-    # Telegram user ids (not usernames) that get the owner's figures in the
-    # staff bot: /stat on demand and a report every evening.
+    # Telegram user ids (not usernames) that get the owners' morning report.
     staff_bot_admin_ids: CommaList = Field(default=[], alias="STAFF_BOT_ADMIN_IDS")
+    # The owners' own bot (@owners_tai_bot): it only sends the 07:00 report,
+    # so it needs no webhook - a token is all.
+    owners_bot_token: str = Field(default="", alias="OWNERS_BOT_TOKEN")
     # The clients' support bot: what is written to it lands in the cabinet's
     # support chat, and the office's replies come back to it.
     support_bot_token: str = Field(default="", alias="SUPPORT_BOT_TOKEN")

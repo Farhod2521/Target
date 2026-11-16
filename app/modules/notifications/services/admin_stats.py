@@ -3,9 +3,10 @@ what the platform and the office are doing.
 
 Who is an owner here is ``STAFF_BOT_ADMIN_IDS`` - Telegram user ids, set on
 the server, not an office role and not a linked cabinet: the card carries
-every customer's name and the money, and is asked for from a phone.
-``/admin`` (or ``/stat``) answers in either bot, the customers' one and the
-office's, and the same card goes out every evening.
+every customer's name and the money. It goes out only through the owners'
+own bot (``OWNERS_BOT_TOKEN``, @owners_tai_bot), every morning at 07:00
+Tashkent time; the customers' and the office's bots no longer show it. The
+first column is yesterday - at seven in the morning today has barely begun.
 
 The card is a picture: the designed card (``assets/admin_card.png``) with
 the figures written into it by ``admin_card``, sent as a photo with no
@@ -18,9 +19,8 @@ disagree.
 """
 
 import logging
-from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import escape
 from typing import Final
 
@@ -49,16 +49,12 @@ from app.modules.backoffice.selectors.dashboard import (
 )
 from app.modules.billing.constants import InvoiceStatus
 from app.modules.billing.models import Invoice
-from app.modules.notifications.bot import (
-    bot,
-    is_configured,
-    staff_bot,
-    staff_bot_configured,
-)
+from app.modules.notifications.bot import owners_bot, owners_bot_configured
 
 logger = logging.getLogger(__name__)
 
-PERIODS: Final = (("today", "Bugun"), ("7", "7 kun"), ("30", "30 kun"))
+YESTERDAY: Final = "yesterday"
+PERIODS: Final = ((YESTERDAY, "Kecha"), ("7", "7 kun"), ("30", "30 kun"))
 SIGNUPS_SHOWN: Final = 7
 PAYMENTS_SHOWN: Final = 5
 
@@ -139,7 +135,11 @@ def read_stats(db: Session, *, now: datetime) -> Stats:
     people = None
     money = None
     for key, label in PERIODS:
-        window = asked_window(period=key, since=None, until=None, today=today)
+        if key == YESTERDAY:
+            day = today - timedelta(days=1)
+            window = asked_window(period="range", since=day, until=day, today=today)
+        else:
+            window = asked_window(period=key, since=None, until=None, today=today)
         money = takings(db, window=window, today=today)
         people = customers(db, window=window, now=now)
         done = activity(db, window=window)
@@ -296,24 +296,13 @@ def send_stats(db: Session, *, client: BotClient, chat_id: str, now: datetime) -
     return "text"
 
 
-def _report_bot() -> AbstractContextManager[BotClient] | None:
-    """The customers' bot when there is one - the bot the owners already
-    have open - and the office's otherwise."""
-    if is_configured():
-        return bot()
-    if staff_bot_configured():
-        return staff_bot()
-    return None
-
-
 def deliver_admin_report(db: Session, *, now: datetime) -> int:
-    """The evening card to every owner; one unreachable chat skips only itself.
-    An owner who never pressed Start in that bot cannot be written to."""
-    opened = _report_bot() if settings.staff_bot_admin_ids else None
-    if opened is None:
+    """The morning card to every owner; one unreachable chat skips only itself.
+    An owner who never pressed Start in @owners_tai_bot cannot be written to."""
+    if not (settings.staff_bot_admin_ids and owners_bot_configured()):
         return 0
     sent = 0
-    with opened as client:
+    with owners_bot() as client:
         for chat_id in settings.staff_bot_admin_ids:
             try:
                 send_stats(db, client=client, chat_id=chat_id, now=now)

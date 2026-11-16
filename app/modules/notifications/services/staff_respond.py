@@ -26,13 +26,11 @@ from app.modules.notifications.bot import staff_bot
 from app.modules.notifications.constants import (
     COMMAND_START,
     COMMAND_STOP,
-    COMMANDS_STATS,
     PRIVATE_CHAT,
 )
 from app.modules.notifications.exceptions import StaffChatTaken, StaffLinkInvalid
 from app.modules.notifications.models import StaffChat
 from app.modules.notifications.selectors import staff_chat_by_id
-from app.modules.notifications.services.admin_stats import is_admin, send_stats
 from app.modules.notifications.services.compose import escaped
 from app.modules.notifications.services.link import link_staff_chat, stop_staff_chat
 from app.modules.notifications.services.send import answer
@@ -67,14 +65,6 @@ def handle_staff_update(db: Session, *, payload: dict[str, Any], now: datetime) 
 
 
 def _command(db: Session, *, client: BotClient, command: Command, now: datetime) -> str:
-    if command.name in COMMANDS_STATS and is_admin(command.sender.id):
-        if command.chat_type not in ("", PRIVATE_CHAT):
-            return "ignored"
-        try:
-            return send_stats(db, client=client, chat_id=command.chat_id, now=now)
-        except TelegramError as exc:
-            logger.warning("admin_stats_failed: %s", exc)
-            return "failed"
     if command.name == COMMAND_STOP:
         stop_staff_chat(db, chat_id=command.chat_id)
         db.commit()
@@ -88,8 +78,6 @@ def _command(db: Session, *, client: BotClient, command: Command, now: datetime)
         return _link(db, client=client, command=command, now=now)
     known = staff_chat_by_id(db, chat_id=command.chat_id)
     text = _help(known)
-    if is_admin(command.sender.id):
-        text += "\n\nStatistika: /stat - ro'yxatdan o'tganlar, obunalar, tushum."
     _say(client=client, chat_id=command.chat_id, text=text)
     return "help"
 

@@ -48,11 +48,11 @@ SCHEDULE: Final = [
         f"{TASKS}.deliver_trouble_notices_task",
         "20",
     ),
-    # 16:00 UTC is nine in the evening in Tashkent: the day almost done.
+    # 02:00 UTC is seven in the morning in Tashkent.
     Periodic(
-        "Egalarga kunlik statistika (staff bot)",
+        "Egalarga ertalabki hisobot (owners bot)",
         f"{TASKS}.deliver_admin_report_task",
         "0",
-        "16",
+        "2",
     ),
 ]
