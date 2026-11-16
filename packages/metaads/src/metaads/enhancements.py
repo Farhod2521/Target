@@ -64,11 +64,22 @@ FEATURES: Final[tuple[str, ...]] = (
     "product_extensions",
     "reveal_details_over_time",
     "text_optimizations",
+    "text_overlay_translation",
     "text_translation",
     "translate_voiceover",
     "video_auto_crop",
     "video_filtering",
     "video_uncrop",
+)
+
+# The ones that change the language the owner wrote in. Kept back when a
+# refusal makes the full list go: Meta translating an Uzbek advert into
+# another language is the change owners notice and complain of first.
+TRANSLATIONS: Final[tuple[str, ...]] = (
+    "image_text_translation",
+    "text_overlay_translation",
+    "text_translation",
+    "translate_voiceover",
 )
 
 OPT_OUT: Final = "OPT_OUT"
@@ -78,16 +89,15 @@ MUSIC_KEY: Final = "asset_feed_spec"
 READ_FIELDS: Final = f"{FEATURES_KEY},{MUSIC_KEY}"
 
 
+def _features(names: tuple[str, ...]) -> dict[str, Any]:
+    return {
+        "creative_features_spec": {name: {"enroll_status": OPT_OUT} for name in names}
+    }
+
+
 def opted_out() -> dict[str, Any]:
     """The two blocks every new creative carries, fresh each call."""
-    return {
-        FEATURES_KEY: {
-            "creative_features_spec": {
-                name: {"enroll_status": OPT_OUT} for name in FEATURES
-            }
-        },
-        MUSIC_KEY: {"audios": []},
-    }
+    return {FEATURES_KEY: _features(FEATURES), MUSIC_KEY: {"audios": []}}
 
 
 def still_on(row: Mapping[str, Any]) -> list[str]:
@@ -123,14 +133,22 @@ def post_creative(
     added here, so no caller can make a creative without them.
 
     A refusal is answered by sending the creative again with less: first
-    without the music block, then without either. Meta's refusals do not
-    always name the field ("Invalid parameter"), so the fallback does not
-    wait to be told which block it was. The last attempt is the creative
-    exactly as it was sent before these blocks existed, so its refusal - the
-    one raised - is the one the creative would have had anyway.
+    without the music block, then with only the translations turned down
+    (one feature the account or the creative kind does not take refuses the
+    whole list, and the language is the change not to lose with it), then
+    without either. Meta's refusals do not always name the field ("Invalid
+    parameter"), so the fallback does not wait to be told which block it
+    was. The last attempt is the creative exactly as it was sent before
+    these blocks existed, so its refusal - the one raised - is the one the
+    creative would have had anyway.
     """
     full = opted_out()
-    attempts = (full, {FEATURES_KEY: full[FEATURES_KEY]}, {})
+    attempts = (
+        full,
+        {FEATURES_KEY: full[FEATURES_KEY]},
+        {FEATURES_KEY: _features(TRANSLATIONS)},
+        {},
+    )
     for number, choices in enumerate(attempts):
         try:
             payload = post_object(
@@ -157,12 +175,21 @@ def post_creative(
             logger.warning(
                 "creative %s made without %s",
                 created,
-                sorted(set(full) - set(choices)),
+                _left_out(full, choices),
             )
         if choices:
             _check(created, token=token, client=client)
         return created
     raise AssertionError("unreachable: the last attempt returns or raises")
+
+
+def _left_out(full: dict[str, Any], choices: dict[str, Any]) -> list[str]:
+    """What the made creative went without: a block, or the features of one."""
+    gone = sorted(set(full) - set(choices))
+    if FEATURES_KEY in choices:
+        kept = set(choices[FEATURES_KEY]["creative_features_spec"])
+        gone += sorted(set(FEATURES) - kept)
+    return gone
 
 
 def _check(creative_id: str, *, token: str, client: GraphClient | None) -> None:
@@ -184,6 +211,7 @@ __all__ = [
     "FEATURES_KEY",
     "MUSIC_KEY",
     "OPT_OUT",
+    "TRANSLATIONS",
     "opted_out",
     "post_creative",
     "still_on",

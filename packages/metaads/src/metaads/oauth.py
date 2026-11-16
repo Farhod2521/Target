@@ -78,6 +78,18 @@ INSTAGRAM_SCOPE: Final = "instagram_basic"
 
 OPTIONAL_SCOPES: Final = (INSTAGRAM_SCOPE,)
 
+# Asked for only once the app holds them from App Review, and never
+# required: they let a chat advert's saved greeting be kept on the page as a
+# welcome message flow, so Ads Manager offers it too (see
+# ``metaads.welcome_flows``). Asked for before the review passes, Meta drops
+# them for everybody but the app's own developers.
+#
+#   pages_messaging            keep a greeting on the page
+#   instagram_manage_messages  offer it on Instagram as well
+PAGES_MESSAGING_SCOPE: Final = "pages_messaging"
+INSTAGRAM_MESSAGES_SCOPE: Final = "instagram_manage_messages"
+MESSAGING_SCOPES: Final = (PAGES_MESSAGING_SCOPE, INSTAGRAM_MESSAGES_SCOPE)
+
 # What the consent dialog asks for: both lists, once. Asking twice is what
 # a staged approach costs - see above.
 DEFAULT_SCOPES: Final = REQUIRED_SCOPES + OPTIONAL_SCOPES

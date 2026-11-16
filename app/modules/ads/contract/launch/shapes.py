@@ -667,6 +667,13 @@ class ChatTemplate(Camel):
     welcome_text: str
     chat_questions: list[str]
     chat_answers: list[str]
+    meta: Literal["saved", "no_permission", "failed", "off"] = Field(
+        "off",
+        description="The copy kept on the Facebook page for Ads Manager: "
+        "`saved` it is there (Message template → Partner App); "
+        "`no_permission` the connection lacks pages_messaging - reconnect; "
+        "`failed` Meta refused, saved here only; `off` not kept there.",
+    )
 
 
 class ChatTemplates(Camel):

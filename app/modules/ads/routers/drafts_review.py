@@ -69,7 +69,7 @@ from app.modules.ads.routers.launch_review import CreateIn
 from app.modules.ads.selectors.media_step import chosen_assets
 from app.modules.ads.selectors.review_proposal import launch_country
 from app.modules.ads.selectors.variants import launch_variants
-from app.modules.ads.services import chat_templates
+from app.modules.ads.services import chat_template_flows, chat_templates
 from app.modules.ads.services.audience_search import launch_interests
 from app.modules.ads.services.locations import place_query, search_places
 
@@ -499,6 +499,13 @@ TEMPLATE_FIELDS: Final[dict[str, str]] = {
 }
 
 
+_META_STATES = {
+    chat_template_flows.SAVED: "saved",
+    chat_template_flows.NO_PERMISSION: "no_permission",
+    chat_template_flows.FAILED: "failed",
+}
+
+
 def _templates(db: Session, launch: CampaignLaunch) -> ChatTemplates:
     return ChatTemplates(
         items=[
@@ -506,6 +513,7 @@ def _templates(db: Session, launch: CampaignLaunch) -> ChatTemplates:
                 id=str(row.id),
                 name=row.name,
                 welcome_text=row.welcome_text,
+                meta=_META_STATES.get(row.meta_state, "off"),
                 chat_questions=[str(question) for question in row.questions or []],
                 chat_answers=[str(reply) for reply in row.answers or []],
             )
@@ -532,7 +540,7 @@ def save_chat_template(
     already there is written over. Answers the list read again."""
     launch = writable_launch(db, user=user, launch_id=draft_id)
     try:
-        committed(
+        saved = committed(
             db,
             lambda: chat_templates.save_template(
                 db,
@@ -545,6 +553,8 @@ def save_chat_template(
         )
     except InputRefused as refusal:
         raise renamed(refusal, TEMPLATE_FIELDS) from refusal
+    # After the save is committed: the copy on the page never undoes it.
+    chat_template_flows.keep_on_page(db, launch=launch, template=saved)
     return _templates(db, launch)
 
 

@@ -84,6 +84,9 @@ class Env(BaseSettings):
     )
     meta_app_id: str = Field(default="", alias="META_APP_ID")
     meta_app_secret: str = Field(default="", alias="META_APP_SECRET")
+    # On once App Review grants pages_messaging: the connect dialog asks for
+    # it, and a saved chat template is kept on the page for Ads Manager too.
+    meta_ask_messaging: bool = Field(default=False, alias="META_ASK_MESSAGING")
     meta_webhook_verify_token: str = Field(
         default="", alias="META_WEBHOOK_VERIFY_TOKEN"
     )
