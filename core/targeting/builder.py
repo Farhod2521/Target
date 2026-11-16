@@ -56,6 +56,7 @@ def build(
     link: str = "",
     welcome: str = "",
     questions: tuple[str, ...] = (),
+    replies: tuple[str, ...] = (),
     phone: str = "",
 ) -> BuiltTargeting:
     """The spec for one campaign, ready to be reviewed or sent."""
@@ -160,6 +161,7 @@ def build(
         welcome_text=welcome,
         autofill_text=preset.autofill_message,
         welcome_questions=questions if welcome and preset.opens_chat else (),
+        welcome_answers=replies if welcome and preset.opens_chat else (),
         currency=currency,
         special_ad_categories=_categories(business),
         special_ad_category_countries=_category_countries(

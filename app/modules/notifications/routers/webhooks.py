@@ -22,6 +22,8 @@ from telegramkit import secret_matches
 
 from app.modules.notifications.bot import (
     is_configured,
+    owners_bot_answers,
+    owners_webhook_secret,
     staff_bot_configured,
     staff_webhook_secret,
     support_bot_configured,
@@ -64,6 +66,23 @@ async def staff_telegram_webhook(request: Request) -> Response:
     payload = _payload(await request.body())
     if payload:
         handle_staff_telegram_update.delay(payload)
+    return JSONResponse({"ok": True})
+
+
+@webhooks.post("/webhooks/telegram/owners/", include_in_schema=False)
+async def owners_telegram_webhook(request: Request) -> Response:
+    """The owners' bot's: the same checks, its own secret and worker."""
+    from app.modules.notifications.tasks import handle_owners_bot_update
+
+    if not owners_bot_answers() or not secret_matches(
+        header=request.headers.get(SECRET_HEADER, ""),
+        expected=owners_webhook_secret(),
+    ):
+        logger.warning("owners telegram webhook refused: secret did not match")
+        return Response(status_code=status.HTTP_403_FORBIDDEN)
+    payload = _payload(await request.body())
+    if payload:
+        handle_owners_bot_update.delay(payload)
     return JSONResponse({"ok": True})
 
 

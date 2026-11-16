@@ -5,16 +5,23 @@ from sqlalchemy.orm import Session
 from app.common.presets import goals_for, offered_goals
 from app.modules.ads.constants import LEGACY_PLAN_DESTINATIONS, ChatChannel
 from app.modules.ads.models import CampaignLaunch
+from app.modules.ads.selectors.telegram import bought_goal, with_telegram
 from app.modules.businesses.models import Business
 from core.targeting import DEFAULT_CHAT_CHANNEL, Preset, campaign_type
 
 
 def legacy_plan_goals(*, provider: str, category: str) -> tuple[Preset, ...]:
-    """The goals the first step without the three questions offers."""
-    return tuple(
-        preset
-        for preset in offered_goals(provider=provider, category=category)
-        if preset.sends_to in LEGACY_PLAN_DESTINATIONS
+    """The goals the first step without the three questions offers.
+
+    «Telegramga o'tsin» is the step's own: the catalogue has no such goal,
+    and the launch keeps the visit it is bought as (``selectors/telegram``).
+    """
+    return with_telegram(
+        tuple(
+            preset
+            for preset in offered_goals(provider=provider, category=category)
+            if preset.sends_to in LEGACY_PLAN_DESTINATIONS
+        )
     )
 
 
@@ -35,7 +42,7 @@ def goal_preset(
     db: Session, *, launch: CampaignLaunch, goal: str = ""
 ) -> Preset | None:
     """The catalogue entry behind the goal this launch answered."""
-    chosen = goal or str(launch.answers.get("goal", ""))
+    chosen = bought_goal(goal or str(launch.answers.get("goal", "")))
     if not chosen:
         return None
     category = launch_category(db, launch=launch)

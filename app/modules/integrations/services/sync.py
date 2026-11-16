@@ -37,6 +37,9 @@ from metaads.accounts import (
     create_ad_account as make_ad_account,
 )
 from metaads.accounts import (
+    create_business_pixel as make_business_pixel,
+)
+from metaads.accounts import (
     create_pixel as make_pixel,
 )
 from metaads.dto import AdAccountDTO, PageDTO, PixelDTO
@@ -416,9 +419,22 @@ def create_pixel(db: Session, *, account: AdAccount, name: str) -> PixelAccount:
     if token is None:
         raise PixelNotCreated
     try:
-        external_id = make_pixel(
-            account_id=account.external_id, name=name, token=token, dry_run=False
-        )
+        try:
+            external_id = make_pixel(
+                account_id=account.external_id, name=name, token=token, dry_run=False
+            )
+        except MetaAPIError as exc:
+            # The account has made its one pixel; its portfolio may make more.
+            if exc.code not in PIXEL_THERE_CODES or not account.business_external_id:
+                raise
+            logger.info("pixel via portfolio for %s: %s", account.external_id, exc)
+            external_id = make_business_pixel(
+                business_id=account.business_external_id,
+                account_id=account.external_id,
+                name=name,
+                token=token,
+                dry_run=False,
+            )
     except MetaAPIError as exc:
         logger.info("pixel not made on %s: %s", account.external_id, exc)
         if exc.code in PIXEL_THERE_CODES:

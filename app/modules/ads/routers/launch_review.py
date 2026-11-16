@@ -44,7 +44,11 @@ from app.modules.ads.services.advanced import rename_campaign
 from app.modules.ads.services.locations import request_parents_if_unchecked
 from app.modules.ads.services.manage import start_delivery
 from app.modules.ads.services.save_proposal import save_proposal
-from app.modules.ads.services.targeting import welcome_greeting, welcome_questions
+from app.modules.ads.services.targeting import (
+    welcome_answers,
+    welcome_greeting,
+    welcome_questions,
+)
 from app.modules.businesses.selectors import business_for_page
 from app.modules.integrations.services.connect import confirm_action_taken
 from app.modules.integrations.services.sync import refresh_targets_if_stale
@@ -97,7 +101,10 @@ def _review(
         )
         answer["proposal"] = proposal_view(
             db, launch=launch, business=business, now=now, greeting=greeting
-        ) | {"chat_questions": list(welcome_questions(db, launch=launch))}
+        ) | {
+            "chat_questions": list(welcome_questions(db, launch=launch)),
+            "chat_answers": list(welcome_answers(db, launch=launch)),
+        }
         answer["writes_copy"] = bool(variants_needing_words(db, launch=launch))
     return encoded(answer)
 

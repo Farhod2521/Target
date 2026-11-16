@@ -3,6 +3,7 @@ from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -15,6 +16,7 @@ from app.modules.crm.constants import (
     CLOSED_DAYS_ON_BOARD,
     CLOSING_KINDS,
     LOST_REASONS_SHOWN,
+    Distribution,
     Flag,
     SeatKind,
     SetupState,
@@ -588,6 +590,8 @@ class BoardFilters:
     member: str = ""
     ad: str = ""
     flag: str = ""
+    # The reader's own time zone (IANA), so «Bugun» ends at their midnight.
+    zone: str = ""
 
     def as_params(self) -> dict[str, str]:
         pairs = {"q": self.query, "m": self.member, "ad": self.ad, "f": self.flag}
@@ -597,8 +601,17 @@ class BoardFilters:
 NO_FILTERS = BoardFilters()
 
 
+def zone_or_none(name: str) -> str:
+    """The name when it is a time zone this server knows, else none."""
+    try:
+        ZoneInfo(name)
+    except (KeyError, ValueError, OSError):
+        return ""
+    return name
+
+
 def read_filters(
-    *, q: str = "", m: str = "", ad: str = "", f: str = ""
+    *, q: str = "", m: str = "", ad: str = "", f: str = "", tz: str = ""
 ) -> BoardFilters:
     # PostgreSQL refuses a NUL in a string, so it cannot match anything anyway.
     return BoardFilters(
@@ -606,6 +619,7 @@ def read_filters(
         member=m.replace("\x00", "")[:40],
         ad=ad.replace("\x00", "")[:64],
         flag=f if f in {item.value for item in Flag} else "",
+        zone=zone_or_none(tz),
     )
 
 
@@ -637,6 +651,7 @@ class Board:
     late: int
     today: int
     cursor: str
+    untaken: int = 0
     ads: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -651,11 +666,25 @@ def _visible(viewer: Viewer) -> ColumnElement[bool]:
     new_stages = select(CrmStage.id).where(
         holds(viewer.scope, CrmStage), CrmStage.kind == StageKind.NEW
     )
+    # «Men o'zim beraman»: the owner hands every card out, so a manager sees
+    # no card that is not theirs yet, and has nothing to «Olish».
+    handed_out = (
+        select(CrmSetup.id)
+        .where(
+            holds(viewer.scope, CrmSetup),
+            CrmSetup.distribution == Distribution.MANUAL,
+        )
+        .exists()
+    )
     return and_(
         mine,
         or_(
             CrmCard.assignee_id == viewer.user.id,
-            and_(CrmCard.assignee_id.is_(None), CrmCard.stage_id.in_(new_stages)),
+            and_(
+                CrmCard.assignee_id.is_(None),
+                CrmCard.stage_id.in_(new_stages),
+                ~handed_out,
+            ),
         ),
     )
 
@@ -664,9 +693,17 @@ def visible_cards(viewer: Viewer) -> Select[tuple[CrmCard]]:
     return select(CrmCard).where(_visible(viewer))
 
 
-def _today(now: datetime) -> tuple[datetime, datetime]:
-    start = localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
-    return start, start + timedelta(days=1)
+def _today(now: datetime, zone: str = "") -> tuple[datetime, datetime]:
+    """From now to the reader's midnight: what is still to do today.
+
+    A time already passed today is late, not «today», so the two chips
+    never count one card twice.
+    """
+    start = localtime(now, zone).replace(hour=0, minute=0, second=0, microsecond=0)
+    return now, start + timedelta(days=1)
+
+
+_PHONE_DRESS = str.maketrans("", "", " +-()")
 
 
 def _narrowed(
@@ -676,11 +713,12 @@ def _narrowed(
         query = query.join(Lead, Lead.id == CrmCard.lead_id)
     if filters.query:
         term = filters.query
+        # A phone is typed with spaces, dashes or brackets; only its digits are
+        # looked for. ``%`` and ``_`` are letters here, not wildcards.
+        digits = term.translate(_PHONE_DRESS)
+        named = Lead.full_name.icontains(term, autoescape=True)
         query = query.where(
-            or_(
-                Lead.full_name.icontains(term),
-                Lead.phone_e164.icontains(term.replace(" ", "")),
-            )
+            or_(named, Lead.phone_e164.contains(digits)) if digits.isdigit() else named
         )
     if filters.member and viewer.is_owner:
         if filters.member == "none":
@@ -695,11 +733,25 @@ def _narrowed(
     if filters.flag == Flag.LATE:
         query = query.where(CrmCard.due_at < now, CrmCard.closed_at.is_(None))
     elif filters.flag == Flag.TODAY:
-        start, end = _today(now)
+        start, end = _today(now, filters.zone)
         query = query.where(
             CrmCard.due_at >= start, CrmCard.due_at < end, CrmCard.closed_at.is_(None)
         )
+    elif filters.flag == Flag.UNTAKEN:
+        query = query.where(_untaken(viewer))
     return query
+
+
+def _untaken(viewer: Viewer) -> ColumnElement[bool]:
+    """A new enquiry nobody holds yet: the cards that wait for «Olish»."""
+    new_stages = select(CrmStage.id).where(
+        holds(viewer.scope, CrmStage), CrmStage.kind == StageKind.NEW
+    )
+    return and_(
+        CrmCard.assignee_id.is_(None),
+        CrmCard.closed_at.is_(None),
+        CrmCard.stage_id.in_(new_stages),
+    )
 
 
 def _on_board(*, viewer: Viewer, filters: BoardFilters, now: datetime) -> Select[Any]:
@@ -716,7 +768,15 @@ def _shown(query: Select[Any]) -> Select[Any]:
 
 def _ordered(query: Select[Any], kind: str) -> Select[Any]:
     if kind == StageKind.NEW:
-        return query.order_by(CrmCard.created_at.desc(), CrmCard.id)
+        # By when the enquiry came, not when the card was made: a customer
+        # who writes again stands at the top, not under a month of others.
+        came = (
+            select(Lead.submitted_at)
+            .where(Lead.id == CrmCard.lead_id)
+            .correlate(CrmCard)
+            .scalar_subquery()
+        )
+        return query.order_by(came.desc(), CrmCard.id)
     if kind in CLOSING_KINDS:
         return query.order_by(CrmCard.closed_at.desc(), CrmCard.id)
     return query.order_by(CrmCard.due_at, CrmCard.updated_at.desc(), CrmCard.id)
@@ -832,8 +892,15 @@ def board(
         for card in column.cards
         if card.lead.ad_external_id
     }
-    open_cards = visible_cards(viewer).where(CrmCard.closed_at.is_(None))
-    start, end = _today(now)
+    # The two chips count under the search, advert and manager chosen, so a
+    # chip never promises more cards than pressing it shows.
+    open_cards = _narrowed(
+        visible_cards(viewer),
+        filters=replace(filters, flag=""),
+        viewer=viewer,
+        now=now,
+    ).where(CrmCard.closed_at.is_(None))
+    start, end = _today(now, filters.zone)
     late = _count(db, open_cards.where(CrmCard.due_at < now))
     today = _count(db, open_cards.where(CrmCard.due_at >= start, CrmCard.due_at < end))
     names = ad_labels(db, owner=viewer.owner, external_ids=ad_ids)
@@ -841,6 +908,7 @@ def board(
         columns=columns,
         late=late,
         today=today,
+        untaken=_count(db, open_cards.where(_untaken(viewer))),
         cursor=cursor_of(db, viewer=viewer),
         ads={key: label.title for key, label in names.items()},
     )

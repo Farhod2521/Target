@@ -28,12 +28,14 @@ from typing import Any
 
 from adskit import ProviderName
 
-from core.agent import AccountFacts, AdSetFacts, Policy, scan
+from core.agent import AccountFacts, AdSetFacts, Policy
 from core.agent.rules import (
     BROKEN_PICTURE,
     CODES,
     DORMANT,
+    EVERY_RULE,
     EXPENSIVE,
+    FAULT_RULES,
     IDLE,
     JUNK,
     NARROW_AUDIENCE,
@@ -49,6 +51,7 @@ from core.agent.rules import (
     WINNING,
 )
 from core.metrics import LEAD_GOALS, Totals, counts_leads
+from tests.core.agent.every_rule import scan
 from tests.core.agent.pace import at_week_pace
 
 META = ProviderName("meta")
@@ -165,8 +168,8 @@ def test_every_rule_declares_whether_it_needs_leads() -> None:
     """The declaration is required at registration, which is the whole
     mechanism: a rule added in the next block has to answer this before it
     can be in the table at all."""
-    assert {rule.code for rule in RULES} == PRICED | ANY_GOAL
-    assert {rule.code for rule in RULES if rule.needs_leads} == set()
+    assert {rule.code for rule in EVERY_RULE} == PRICED | ANY_GOAL
+    assert {rule.code for rule in EVERY_RULE if rule.needs_leads} == set()
 
 
 def test_the_codes_are_derived_from_the_table_and_not_written_twice() -> None:
@@ -178,8 +181,18 @@ def test_the_quality_rule_is_asleep_while_the_mark_is_off() -> None:
     code stays known - older rows carry it - and nothing new is found by it.
     So does the wider audience for a tired one: the frequency message is
     that group's one answer."""
-    assert DORMANT == (JUNK, SATURATED)
-    assert not {JUNK, SATURATED} & {rule.code for rule in RULES}
+    assert DORMANT[:2] == (JUNK, SATURATED)
+    assert not set(DORMANT) & {rule.code for rule in RULES}
+
+
+def test_the_guard_s_four_are_asleep_and_still_in_the_table() -> None:
+    """The half-hourly guard answers the same money the same day; the
+    nightly card about it would be a second voice. Their codes stay known
+    and their place in the table is kept for the tests that prove them."""
+    retired = {rule.code for rule in EVERY_RULE if rule.retired}
+    assert retired == {"wasting", "expensive", "weak_ad", "site_down"}
+    assert retired <= set(DORMANT)
+    assert "site_down" not in FAULT_RULES
 
 
 def test_no_price_rule_fires_on_a_result_nothing_counts() -> None:

@@ -32,6 +32,7 @@ from app.modules.notifications.constants import (
     CALLBACK_WEEKLY_LIST,
     CALLBACK_WEEKLY_PAIR,
     DAILY_PAIR_DIGEST_CHARS,
+    GUARD_CALLBACKS,
     REJECTION_DIGEST_CHARS,
 )
 
@@ -55,6 +56,7 @@ ACTIONS: Final = frozenset(
         CALLBACK_FREQUENCY_FINE,
         CALLBACK_PRICE_PAUSE,
         CALLBACK_PRICE_WATCH,
+        *GUARD_CALLBACKS.values(),
         *PAUSE_ACTIONS,
         *WATCH_ACTIONS,
     }

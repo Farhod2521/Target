@@ -65,6 +65,16 @@ class ResetLinkOut(BaseModel):
     bot_url: str
 
 
+class ResetMailIn(BaseModel):
+    email: EmailStr
+
+
+class ResetMailOut(BaseModel):
+    """The same words whether the address is signed up or not."""
+
+    message: str
+
+
 class ResetTargetOut(BaseModel):
     """The account a live new-password link replaces the password of."""
 

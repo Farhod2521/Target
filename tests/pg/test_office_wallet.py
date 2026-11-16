@@ -428,6 +428,7 @@ def test_a_payout_recorded_by_hand_shows_in_the_history(
             Role.OWNER,
             [
                 "home",
+                "ai",
                 "clients",
                 "payments",
                 "promo",

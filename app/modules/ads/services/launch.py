@@ -20,6 +20,7 @@ from app.modules.ads.constants import (
     BUDGET_SHARING,
     CALL_TO_ACTION,
     CAMPAIGN_TYPE,
+    CHAT_ANSWERS,
     CHAT_QUESTIONS,
     CHAT_QUESTIONS_READING,
     CONVERSION_EVENT,
@@ -57,6 +58,7 @@ from app.modules.ads.selectors.launches import (
     stranded_refs,
 )
 from app.modules.ads.selectors.quality import proposals_written
+from app.modules.ads.selectors.telegram import LINK_KIND
 from app.modules.ads.trace import LaunchTrace
 from app.modules.audit.constants import EventName
 
@@ -75,6 +77,7 @@ ANSWER_KEYS = frozenset(
         "daily_budget_minor",
         "max_result_cost_minor",
         "link_url",
+        LINK_KIND,
         "welcome_text",
         "chat_channel",
         "phone_number",
@@ -87,6 +90,7 @@ ANSWER_KEYS = frozenset(
         "goal_text",
         "goal_reading",
         CHAT_QUESTIONS,
+        CHAT_ANSWERS,
         CHAT_QUESTIONS_READING,
         CAMPAIGN_TYPE,
         CONVERSION_EVENT,
@@ -101,7 +105,8 @@ ANSWER_KEYS = frozenset(
         BUDGET_SHARING,
     }
 )
-INVALIDATING = frozenset({"goal", "offer_text", "goal_text"})
+# A visit turned from a site to Telegram is another advert: its words are written again.
+INVALIDATING = frozenset({"goal", "offer_text", "goal_text", LINK_KIND})
 
 
 # -- the gate --------------------------------------------------------------------------

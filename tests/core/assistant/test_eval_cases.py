@@ -1,4 +1,4 @@
-"""The live cases themselves: they load, they cover the plan's seven
+"""The live cases themselves: they load, they cover the planned
 situations, and the marks catch what they are for - checked here against
 scripted answers, since the real model cannot run in a suite."""
 
@@ -13,10 +13,12 @@ PLANNED = {
     "leads-not-arriving",
     "off-topic",
     "wants-an-operator",
+    "advert-not-created",
+    "built-in-ads-manager",
 }
 
 
-def test_the_seven_situations_are_all_cases() -> None:
+def test_the_planned_situations_are_all_cases() -> None:
     cases = load()
     assert {case.id for case in cases} == PLANNED
     for case in cases:

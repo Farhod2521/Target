@@ -576,3 +576,86 @@ def price_creative(alert_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, 
     if not advert or campaign is None:
         raise NotFound("Bu guruhda reklama topilmadi.")
     return {"external_id": advert, "campaign_id": str(campaign)}
+
+
+# -- buttons under one of the guard's findings -----------------------------------------
+
+
+GUARD_SAID = {
+    "uz": {
+        "pause": "To'xtatish so'rovi yuborildi.",
+        "pause_ad": "Reklamani to'xtatish so'rovi yuborildi.",
+        "resume": "Qayta yoqish so'rovi yuborildi.",
+        "budget_down": "Byudjetni kamaytirish so'rovi yuborildi.",
+        "leave": "Saqlandi. Narx yana oshsa, xabar beraman.",
+        "keep_off": "Saqlandi. Guruh to'xtatilgan holda qoladi.",
+    },
+    "ru": {
+        "pause": "Запрос на остановку отправлен.",
+        "pause_ad": "Запрос на остановку объявления отправлен.",
+        "resume": "Запрос на включение отправлен.",
+        "budget_down": "Запрос на снижение бюджета отправлен.",
+        "leave": "Сохранено. Если цена вырастет ещё, я сообщу.",
+        "keep_off": "Сохранено. Группа останется выключенной.",
+    },
+    "en": {
+        "pause": "The pause was requested.",
+        "pause_ad": "The advert's pause was requested.",
+        "resume": "The switch-on was requested.",
+        "budget_down": "The lower budget was requested.",
+        "leave": "Saved. If the price goes up further, I will tell you.",
+        "keep_off": "Saved. The group stays off.",
+    },
+}
+
+
+def guard_said(answer: str) -> str:
+    """What a press is answered with, in the reader's language."""
+    from app.common.i18n import DEFAULT, get_language
+
+    words = GUARD_SAID.get(get_language(), GUARD_SAID[DEFAULT])
+    return words.get(answer, "")
+
+
+@router.get("/guard/{alert_id}/creative", response_model=FrequencyCreative)
+def guard_creative(alert_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, str]:
+    """«Kreativ qo'shish»: the advert whose copy window opens."""
+    from app.modules.agent.models import GuardAlert
+    from app.modules.agent.selectors.frequency import creative_target
+
+    row = db.scalar(
+        select(GuardAlert).where(
+            GuardAlert.owner_id == user.id, GuardAlert.id == alert_id
+        )
+    )
+    if row is None:
+        raise NotFound("Bu guruhda reklama topilmadi.")
+    advert = (
+        row.external_id
+        if row.level == "ad"
+        else creative_target(db, owner=user, adset_id=row.adset_external_id)
+    )
+    campaign = db.scalar(
+        select(AdSet.campaign_id).where(
+            AdSet.owner_id == user.id, AdSet.external_id == row.adset_external_id
+        )
+    )
+    if not advert or campaign is None:
+        raise NotFound("Bu guruhda reklama topilmadi.")
+    return {"external_id": advert, "campaign_id": str(campaign)}
+
+
+@router.post("/guard/{alert_id}/{answer}")
+def guard_answer(
+    alert_id: uuid.UUID, answer: str, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    """One answer to a finding: stop, lower the budget, leave, switch back on."""
+    from app.modules.agent.services.answer_guard import answer_guard
+
+    try:
+        answer_guard(db, user=user, alert_id=str(alert_id), answer=answer, now=utcnow())
+    except DomainError:
+        db.rollback()
+        raise
+    db.commit()
+    return _answered(db, user, guard_said(answer))

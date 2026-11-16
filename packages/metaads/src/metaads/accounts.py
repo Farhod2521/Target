@@ -402,6 +402,39 @@ def create_pixel(
     return str(answer["id"])
 
 
+def create_business_pixel(
+    *,
+    business_id: str,
+    account_id: str,
+    name: str,
+    token: str,
+    client: GraphClient | None = None,
+    dry_run: bool = True,
+) -> str:
+    """Make a pixel in the account's portfolio and share it with the account.
+
+    The way to a second pixel: Meta lets an ad account make one pixel of its
+    own (``6200``/``6202`` after that), while a portfolio may own many. The
+    new pixel is useless to the account until shared, so the share is part
+    of the make. Returns its id; "" in a dry run.
+    """
+    if dry_run:
+        return ""
+    graph = client or GraphClient(token=token)
+    try:
+        answer = graph.post(f"{business_id}/adspixels", name=name)
+        pixel_id = str(answer["id"])
+        graph.post(
+            f"{pixel_id}/shared_accounts",
+            account_id=account_id.removeprefix("act_"),
+            business=business_id,
+        )
+    finally:
+        if client is None:
+            graph.close()
+    return pixel_id
+
+
 # How far back Meta will answer for a pixel's own figures. Seven days, and
 # it is the provider's window rather than a choice: asking for a month
 # returns the same week, silently, so a caller that believed otherwise

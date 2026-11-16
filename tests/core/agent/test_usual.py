@@ -9,12 +9,13 @@ from dataclasses import replace
 
 from adskit import ProviderName
 
-from core.agent import AccountFacts, AdSetFacts, Policy, scan
+from core.agent import AccountFacts, AdSetFacts, Policy
 from core.agent.benchmark import Benchmark
 from core.agent.funnel import Funnel
 from core.agent.rules import WASTING
 from core.agent.usual import MIN_USUAL_DAYS, DayFigures, Usual, usual_level
 from core.metrics import Totals
+from tests.core.agent.every_rule import scan
 
 POLICY = Policy()
 

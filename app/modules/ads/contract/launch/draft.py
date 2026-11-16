@@ -279,6 +279,7 @@ def draft(
         ),
         "welcome_text": answer("welcome_text", plan.get("welcome_text") or ""),
         "chat_questions": answer("chat_questions", plan.get("chat_questions") or []),
+        "chat_answers": answer("chat_answers", plan.get("chat_answers") or []),
         "lead_form": lead_form_choice(plan.get("lead_form")),
         "areas": [],
         "page": {
@@ -328,6 +329,7 @@ def plan_in(plan: dict[str, Any], tapped: dict[str, Any], method: str | None) ->
         chat_channel=tapped.get("chat_channel", plan.get("chat_channel") or ""),
         welcome_text=tapped.get("welcome_text", plan.get("welcome_text") or ""),
         chat_questions=tapped.get("chat_questions", plan.get("chat_questions") or []),
+        chat_answers=tapped.get("chat_answers", plan.get("chat_answers") or []),
         start_day=tapped.get("start", plan.get("start_day") or "today"),
     )
 

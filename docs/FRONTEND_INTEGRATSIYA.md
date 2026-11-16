@@ -93,6 +93,32 @@ POST /api/v1/auth/login
 
 → `{"access_token", "refresh_token", "token_type": "bearer"}`
 
+### Parolni unutdingizmi? (email orqali)
+
+Kirish sahifasida «Parolni unutdingizmi?» → email so'raladigan oyna.
+
+```http
+POST /api/v1/auth/reset/email
+{"email": "ali@example.com"}
+```
+
+`202` → `{"message"}`. Javob email ro'yxatdan o'tgan-o'tmaganidan qat'i nazar
+**bir xil** — `message` ni o'zicha ko'rsating («havola yuborildi, pochtani va
+Spam'ni tekshiring»). Bitta email'ga soatiga 3 tagacha xat ketadi, ortig'i
+jim o'tkaziladi. Bitta qurilmadan juda ko'p so'rov — `429`.
+
+Xatdagi havola: `https://targetolog.ai/accounts/reset/<token>/` — Telegram
+bot yuboradigan havola bilan **bir xil sahifa**, yangi sahifa kerak emas:
+
+| | |
+|---|---|
+| Sahifa ochilganda | `GET /api/v1/auth/reset/{token}` → `{"email"}`; o'lik havola → `reset_link_invalid` |
+| «Saqlash» | `POST /api/v1/auth/reset/{token}` `{"new_password1", "new_password2"}` → token juftligi (darhol kirgan holda kabinetga) |
+
+Havola **15 daqiqa** va **bir marta** ishlaydi. Telegram bot orqali tiklash
+(`GET /api/v1/auth/reset` → `bot_url`) ham qoladi — oynada ikkinchi yo'l
+sifatida «Telegram orqali» tugmasini ko'rsatsa bo'ladi.
+
 ### Tokenlar
 
 | Token | Muddat |

@@ -616,6 +616,8 @@ MAX_GOAL_POLLS: Final = 20
 GOAL_PENDING_SECONDS: Final = 120
 GOAL_READINGS_PER_HOUR: Final = 30
 CHAT_QUESTIONS: Final = "chat_questions"
+# The answer sent by itself for the question at the same place; "" for none.
+CHAT_ANSWERS: Final = "chat_answers"
 CHAT_QUESTIONS_READING: Final = "chat_questions_reading"
 CHAT_QUESTIONS_PENDING: Final = "pending"
 CHAT_QUESTIONS_DONE: Final = "done"
@@ -629,12 +631,14 @@ GOAL_HINTS: Final[dict[str, Any]] = {
     "calls": "Odam reklamadagi tugmani bosib, sizga qo'ng'iroq qiladi.",
     "views": "Reklama ko'proq odamga ko'rsatiladi. Ariza kutilmaydi.",
     "traffic": "Odam reklamani bosib, saytingizga o'tadi.",
+    "telegram": "Odam reklamani bosib, Telegram kanalingiz, guruhingiz yoki botingizga o'tadi.",
     "site_leads": "Odam saytingizga o'tib, ariza qoldiradi. Saytda Meta pikseli kerak.",
 }
 GOAL_PHRASES: Final[tuple[tuple[str, Any], ...]] = (
     ("leads", "Raqamini qoldirsin"),
     ("messages", "Instagram'da yozsin"),
     ("calls", "Menga qo'ng'iroq qilsin"),
+    ("telegram", "Telegram kanalimga o'tsin"),
 )
 MESSAGES_PHRASE_WITHOUT_INSTAGRAM: Final = "Menga yozsin"
 GOAL_EXAMPLES: Final[dict[str, Any]] = {

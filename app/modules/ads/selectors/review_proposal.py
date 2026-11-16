@@ -397,6 +397,7 @@ def _destination(
         else "",
         "welcome_text": greeting if opens_chat else "",
         "chat_questions": list(launch.answers.get("chat_questions") or []),
+        "chat_answers": list(launch.answers.get("chat_answers") or []),
         "phone": destination_phone(launch=launch, business=business)
         if preset is not None and preset.needs_phone and business is not None
         else "",
@@ -424,7 +425,12 @@ def _lead_form(
     draft = launch.draft or {}
     page = launch_page(db, launch=launch)
     forms = (
-        usable_forms(db, owner=launch.owner, page=page)
+        usable_forms(
+            db,
+            owner=launch.owner,
+            page=page,
+            keep=launch.lead_form_external_id,
+        )
         if page is not None
         else FormChoices(options=(), hidden=0)
     )

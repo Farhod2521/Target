@@ -36,6 +36,7 @@ from core.targeting import (
     OnboardingAnswers,
     PresetCatalog,
     build,
+    clean_answered,
     clean_questions,
     fallback,
     suggested_greeting,
@@ -237,6 +238,7 @@ def _built(
     link: str = "",
     channel: str = DEFAULT_CHAT_CHANNEL,
     questions: tuple[str, ...] = (),
+    replies: tuple[str, ...] = (),
 ):
     return build(
         provider=PROVIDER,
@@ -254,6 +256,7 @@ def _built(
         link=link,
         welcome=welcome,
         questions=questions,
+        replies=replies,
     )
 
 
@@ -370,6 +373,25 @@ def test_the_owners_questions_are_trimmed_and_kept_once() -> None:
         "Narxi qancha?",
         "Bormi?",
     )
+
+
+def test_an_answer_stays_with_its_question_when_rows_are_dropped() -> None:
+    assert clean_answered(
+        ["", " Narxi  qancha? ", "narxi qancha?", "Bormi?", "Manzil?"],
+        ["yo'q", " 100 ming ", "boshqa", ""],
+    ) == (("Narxi qancha?", "Bormi?", "Manzil?"), ("100 ming", "", ""))
+
+
+def test_the_answers_are_carried_with_the_questions() -> None:
+    built = _built(
+        "restaurant",
+        "messages",
+        welcome="Salom!",
+        questions=("Bormi?",),
+        replies=("Bor",),
+    )
+    assert built.welcome_answers == ("Bor",)
+    assert _built("restaurant", "messages", replies=("Bor",)).welcome_answers == ()
 
 
 def test_the_questions_are_carried_beside_the_greeting() -> None:

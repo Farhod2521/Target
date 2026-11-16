@@ -139,7 +139,10 @@ def watch(group: WatchedGroup) -> Watch | None:
         return None
     if group.spend_minor <= 0:
         return _unstarted(group)
-    return _quiet(group)
+    # Money going with nothing back is the half-hourly guard's to say, once
+    # and with a stop behind it (``core.agent.guard``); «wait, it has not
+    # brought anything yet» beside that was a second voice. See :func:`quiet`.
+    return None
 
 
 def moved_budget(
@@ -160,7 +163,9 @@ def _unstarted(group: WatchedGroup) -> Watch:
     return Watch(stage="idle", moves=("wait",), advised="wait")
 
 
-def _quiet(group: WatchedGroup) -> Watch | None:
+def quiet(group: WatchedGroup) -> Watch | None:
+    """The stage :func:`watch` no longer raises, kept for the rows and the
+    messages already written under it."""
     budget = group.daily_budget_minor
     if group.results is None or group.results > 0 or not budget:
         return None
@@ -193,5 +198,6 @@ __all__ = [
     "Watch",
     "WatchedGroup",
     "moved_budget",
+    "quiet",
     "watch",
 ]

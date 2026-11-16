@@ -201,6 +201,17 @@ Tugmalar: javob berish, rad etish, tugatish, ovozni o'chirish (`mute`), ushlab t
 raqam terish (`sendDTMF`), boshqa nomerga o'tkazish (`refer('sip:102@domain')`).
 Konsolga yozing: `UA start`, `REGISTERED`, `INVITE keldi`, `chiquvchi → progress → javob / FAILED`.
 
+**Kimga o'tkazish.** `GET /api/v2/office/telephony/colleagues` — nomeri bor boshqa faol xodimlar
+(o'quvchining o'zi yo'q, UTeL'dan o'chgan nomerlar yo'q), ism bo'yicha:
+
+```json
+{ "colleagues": [ { "number": "102", "title": "Support", "user": { "id": "…", "name": "…", "email": "…" } } ] }
+```
+
+Ro'yxat «O'tkazish» ochilganda o'qiladi; kim gaplashayotgani jonli holatning `busy` ro'yxatidan olinadi.
+Xodim tanlansa nomer maydonga tushadi, o'tkazish alohida tugma bilan tasdiqlanadi. `refer` rad etilsa
+(`requestFailed`) yoki narigi nomer olmasa (`failed`) — «O'tkazib bo'lmadi» xabari, qo'ng'iroq xodimda qoladi.
+
 ## 4. Jonli holat
 
 ### 4.1. Socket

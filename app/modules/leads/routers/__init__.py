@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from metaads import PROVIDER
 from metaads.webhooks import leadgen_notices, verification_challenge, verify_signature
 from pydantic import BaseModel, Field
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
@@ -129,7 +130,7 @@ def _live(
     after: str,
 ) -> dict[str, Any]:
     from app.modules.ads.selectors import ad_labels
-    from app.modules.crm.services import crm_open, is_running, lead_places
+    from app.modules.crm.services import lead_places
 
     listing = selectors.page_of_leads(
         db, owner=user, filters=filters, number=page, scope=shown.leads
@@ -139,7 +140,7 @@ def _live(
         owner=user,
         external_ids=[lead.ad_external_id for lead in listing.rows] + [filters.ad],
     )
-    crm_on = crm_open(db, owner=user) and is_running(db, owner=user)
+    crm_on = _crm_here(db, user)
     places = (
         lead_places(db, owner=user, lead_ids=[lead.id for lead in listing.rows])
         if crm_on
@@ -278,16 +279,29 @@ def lead_export(
     ad: str = AD_Q,
     adset: str = ADSET_Q,
     q: str = SEARCH_Q,
+    days: int | None = Query(
+        None,
+        description="Only the last 7, 30 or 90 days, as the by-advert report "
+        "counts them; empty for every lead.",
+    ),
+    tz: str = Query(
+        "",
+        description="The reader's time zone (IANA): the file's times are in it. "
+        "Empty or unknown: the office's.",
+    ),
 ) -> Response:
     from app.modules.ads.selectors import ad_labels, campaign_names
+    from app.modules.crm.selectors import zone_or_none
+    from app.modules.metrics.selectors import SOURCE_PERIODS
+    from app.modules.metrics.selectors.lead_sources import period_start
 
     filters = read_filters(verdict=verdict, ad=ad, adset=adset, q=q)
-    leads = selectors.leads_to_export(
-        db,
-        owner=user,
-        filters=filters,
-        scope=selectors.shown_page(db, owner=user).leads,
-    )
+    scope = selectors.shown_page(db, owner=user).leads
+    if days in SOURCE_PERIODS:
+        since = period_start(db, owner=user, days=days)
+        if since is not None:
+            scope = and_(scope, Lead.submitted_at >= since)
+    leads = selectors.leads_to_export(db, owner=user, filters=filters, scope=scope)
     if not leads:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, detail="Yuklab olish uchun lid yo'q."
@@ -301,9 +315,10 @@ def lead_export(
         campaign_names=campaign_names(
             db, owner=user, external_ids=[lead.campaign_external_id for lead in leads]
         ),
+        zone=zone_or_none(tz),
     )
     content = workbook(sheet="Mijozlar", columns=sheet.columns, rows=sheet.rows)
-    name = f"mijozlar-{localtime(utcnow()):%Y-%m-%d}.xlsx"
+    name = f"mijozlar-{localtime(utcnow(), zone_or_none(tz)):%Y-%m-%d}.xlsx"
     headers = {"Content-Disposition": f'attachment; filename="{name}"'}
     if sheet.truncated:
         headers["X-Truncated"] = str(len(sheet))
@@ -339,12 +354,39 @@ def lead_detail(pk: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
     label = ad_labels(db, owner=user, external_ids=[lead.ad_external_id]).get(
         lead.ad_external_id
     )
-    return lead_out(lead, label=label) | {
+    return lead_out(lead, label=label, place=_place(db, user, lead)) | {
         "answer_rows": [asdict(row) for row in selectors.answer_rows(lead=lead)],
         "statuses": [
             {"value": k, "label": v} for k, v in OUTCOME_STATUS_LABELS.items()
         ],
     }
+
+
+def _crm_here(db: Session, user: User) -> bool:
+    """Whether the pair on screen runs a CRM.
+
+    Of this pair, not of any: with the CRM on for another page only, the
+    list would offer «CRM'ga qo'shish» and every press would be refused.
+    """
+    from app.modules.crm import selectors as crm
+    from app.modules.crm.constants import SetupState
+
+    if not crm.crm_open(owner=user):
+        return False
+    viewer = crm.viewer_for(db, user=user)
+    if viewer.pair is None:
+        return False
+    setup = crm.setup_of(db, scope=viewer.scope)
+    return setup is not None and setup.state == SetupState.ON
+
+
+def _place(db: Session, user: User, lead: Lead) -> Any:
+    """Where the lead stands on the CRM board, as the list says it."""
+    from app.modules.crm.services import lead_places
+
+    if not _crm_here(db, user):
+        return None
+    return lead_places(db, owner=user, lead_ids=[lead.id]).get(str(lead.id))
 
 
 class VerdictIn(BaseModel):
@@ -373,7 +415,7 @@ def verdict(
     )
     if lead is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
-    return lead_out(lead)
+    return lead_out(lead, place=_place(db, user, lead))
 
 
 @webhooks.get("/webhooks/meta/leads/", include_in_schema=False)

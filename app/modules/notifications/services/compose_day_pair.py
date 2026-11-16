@@ -168,7 +168,7 @@ def _money_lines(book: DayBook, report: DailyReport) -> list[str]:
     if report.spend_minor <= 0:
         return [] if report.other_currency else [_italic("Sarf bo'lmagan")]
     lines = [f"💰 {_bold(f'Jami sarf: {report.spend}')}"]
-    if line := compared(book, report.before, report.change):
+    if line := compared(book, report.before):
         lines.append(line)
     if report.here and report.elsewhere:
         lines.append(_row("Platformadan", report.here))

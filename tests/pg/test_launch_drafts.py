@@ -687,3 +687,75 @@ def test_create_takes_the_owners_confirmation(
     client.post(path, json={"confirmed": True}, headers=auth)
 
     assert seen == [True, False]
+
+
+def test_a_chat_adverts_questions_are_saved_with_the_plan(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, draft_id = _opened(client, db)
+    path = f"/api/v1/launch/drafts/{draft_id}"
+    first = client.get(path, headers=auth).json()
+    if "chat" not in first["offeredGoals"]:
+        pytest.skip("no chat goal offered to this business")
+    questions = ["Narxi qancha?", "Yetkazib berish bormi?"]
+    # The catalogue's greeting comes with the goal, before anything is saved.
+    tapped = client.patch(path, json={"goal": "chat"}, headers=auth).json()
+    assert tapped["welcomeText"]
+
+    went = client.patch(
+        path,
+        json={
+            "goal": "chat",
+            "chatChannel": "messenger",
+            "welcomeText": "Salom! Yozing.",
+            "chatQuestions": questions,
+            "chatAnswers": ["", " Ha, shahar bo'ylab bepul. "],
+            "dailyBudget": first["minBudget"] | {"minor": 500},
+            "step": "media",
+        },
+        headers=auth,
+    )
+
+    assert went.status_code == 200, went.text
+    launch = db.get(CampaignLaunch, uuid.UUID(draft_id))
+    assert launch is not None
+    db.refresh(launch)
+    assert launch.answers["welcome_text"] == "Salom! Yozing."
+    assert launch.answers["chat_questions"] == questions
+    assert launch.answers["chat_answers"] == ["", "Ha, shahar bo'ylab bepul."]
+    read = client.get(path, headers=auth).json()
+    assert read["chatQuestions"] == questions
+    assert read["chatAnswers"] == ["", "Ha, shahar bo'ylab bepul."]
+    # What is built for Meta carries each answer beside its question.
+    from app.modules.ads.services.targeting import build_for
+    from app.modules.businesses.selectors import business_for_page
+
+    business = business_for_page(db, owner=launch.owner, page=launch.page)
+    built = build_for(db, launch=launch, business=business)
+    assert built.welcome_questions == tuple(questions)
+    assert built.welcome_answers == ("", "Ha, shahar bo'ylab bepul.")
+
+
+def test_a_chat_answer_too_long_is_refused_under_its_own_field(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    auth, draft_id = _opened(client, db)
+    path = f"/api/v1/launch/drafts/{draft_id}"
+    first = client.get(path, headers=auth).json()
+    if "chat" not in first["offeredGoals"]:
+        pytest.skip("no chat goal offered to this business")
+    went = client.patch(
+        path,
+        json={
+            "goal": "chat",
+            "chatChannel": "messenger",
+            "welcomeText": "Salom! Yozing.",
+            "chatQuestions": ["Narxi qancha?", "Bormi?"],
+            "chatAnswers": ["a" * 301],
+            "dailyBudget": first["minBudget"] | {"minor": 500},
+            "step": "media",
+        },
+        headers=auth,
+    )
+    assert went.status_code == 422, went.text
+    assert "chatAnswers" in went.json()["problems"]

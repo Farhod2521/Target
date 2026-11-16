@@ -36,6 +36,7 @@ from app.modules.notifications.selectors.inbox_agent import checkup_items
 from app.modules.notifications.selectors.inbox_cabinet import cabinet_items
 from app.modules.notifications.selectors.inbox_diagnoses import diagnosis_items
 from app.modules.notifications.selectors.inbox_frequency import frequency_items
+from app.modules.notifications.selectors.inbox_guard import guard_items
 from app.modules.notifications.selectors.inbox_leads import (
     lead_gap_items,
     stuck_sweep_items,
@@ -98,6 +99,7 @@ def page_inbox(
                 *stop_items(db, owner=owner, view=view),
                 *meta_items(db, owner=owner, accounts=view.accounts),
                 *watch_items(db, owner=owner, view=view, now=now),
+                *guard_items(db, owner=owner, view=view, now=now),
                 *price_items(db, owner=owner, view=view, now=now),
                 *frequency_items(db, owner=owner, view=view, now=now),
                 *refusal_items(db, owner=owner, view=view, now=now),

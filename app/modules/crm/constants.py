@@ -136,9 +136,14 @@ ACTIVITY_KIND_LABELS = {
 class Flag(Choices):
     LATE = "late"
     TODAY = "today"
+    UNTAKEN = "untaken"
 
 
-FLAG_LABELS = {Flag.LATE: "Muddat o'tgan", Flag.TODAY: "Bugun"}
+FLAG_LABELS = {
+    Flag.LATE: "Muddat o'tgan",
+    Flag.TODAY: "Bugun",
+    Flag.UNTAKEN: "Olinmagan",
+}
 COLORS: Final = (
     "#0A64E0",
     "#7C6CFF",

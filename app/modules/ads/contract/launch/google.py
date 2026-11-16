@@ -193,6 +193,7 @@ def draft(
         "chat_channel": "messenger",
         "welcome_text": "",
         "chat_questions": [],
+        "chat_answers": [],
         "lead_form": None,
         "areas": areas,
         "page": {"has_instagram": False, "pixel": None, "region": region or "UZ"},

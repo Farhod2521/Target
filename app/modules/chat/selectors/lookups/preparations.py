@@ -7,9 +7,16 @@ from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
 from app.modules.ads.constants import LaunchStatus, LaunchStep
+from app.modules.ads.contract.launch.failures import Guide, guide_for
 from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.selectors.page_boundary import PageScope
-from app.modules.chat.selectors.lookups.common import named, section, trimmed, window
+from app.modules.chat.selectors.lookups.common import (
+    named,
+    ready_fix,
+    section,
+    trimmed,
+    window,
+)
 from core.chat.lookup_arguments import Window
 from core.chat.lookups import PREPARATION_ROWS
 from core.chat.preparations import trouble_of
@@ -47,6 +54,7 @@ def preparations(
     )
     if len(mine) > PREPARATION_ROWS:
         out.append(f"- and {len(mine) - PREPARATION_ROWS} older ones")
+    out += _fixes(mine[:PREPARATION_ROWS])
     return "\n".join(out)
 
 
@@ -77,11 +85,38 @@ def _line(launch: CampaignLaunch) -> str:
         parts.append(
             trouble_of(launch.error_code, provider_said=_provider_said(launch))
         )
+        parts.append(f"ready fix: {_guide(launch).code}")
     elif launch.status == LaunchStatus.CREATED:
         parts.append(
             "switched on" if launch.delivery_started_at else _not_started(launch)
         )
     return ", ".join(parts)
+
+
+def _guide(launch: CampaignLaunch) -> Guide:
+    """The help base's own answer for this refusal - what the «Reklamani
+    yaratib bo'lmadi» sheet shows."""
+    detail = launch.error_detail if isinstance(launch.error_detail, dict) else {}
+    return guide_for(
+        launch.error_code,
+        position=detail.get("position"),
+        page=(launch.page.name or "") if launch.page is not None else "",
+        detail=_provider_said(launch),
+    )
+
+
+def _fixes(launches: list[CampaignLaunch]) -> list[str]:
+    """The ready fix for each refusal in the list, once per code: the
+    steps are copied to the person, not composed."""
+    seen: dict[str, Guide] = {}
+    for launch in launches:
+        if launch.status in (LaunchStatus.FAILED, LaunchStatus.ROLLED_BACK):
+            guide = _guide(launch)
+            seen.setdefault(guide.code, guide)
+    out: list[str] = []
+    for guide in seen.values():
+        out += ["", *ready_fix(code=guide.code, cause=guide.cause, steps=guide.steps)]
+    return out
 
 
 def _name(launch: CampaignLaunch) -> str:

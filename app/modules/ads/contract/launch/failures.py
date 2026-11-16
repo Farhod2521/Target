@@ -598,4 +598,64 @@ def failure(
     }
 
 
-__all__ = ["failure", "made_text"]
+@dataclass(frozen=True)
+class Guide:
+    """One refusal's ready answer, for a reader with no sheet in front of
+    them: the assistant's chat."""
+
+    code: str
+    title: str
+    cause: str
+    steps: tuple[str, ...]
+
+
+_BUDGET_LOW: Final = Guide(
+    code="budget_low",
+    title="Kunlik byudjet Meta minimumidan kam",
+    cause="Kunlik byudjet Meta shu maqsad uchun so'raydigan eng kam summadan past.",
+    steps=(
+        "«Reklamani yaratib bo'lmadi» sahifasida «Byudjetni … qilish» tugmasini bosing — byudjet minimumga ko'tariladi.",
+        "Boshqa summa kerak bo'lsa, «Reja» qadamida kunlik byudjetni o'zingiz yozing — sahifada ko'rsatilgan minimumdan kam bo'lmasin.",
+        "Byudjetni o'zgartirgach, «Reklamani yaratib bo'lmadi» sahifasida «Qayta urinish» ni bosing.",
+    ),
+)
+
+
+def guide_for(
+    error_code: str | None, *, position: Any = None, page: str = "", detail: str = ""
+) -> Guide:
+    """The ready answer for one refused creation. A code the help base does
+    not know gets the general checks, with what the network wrote as cause."""
+    code = failure_code_of(error_code)
+    if code == "budget_low":
+        return _BUDGET_LOW
+    if isinstance(position, str) and position.strip().isdigit():
+        position = int(position)
+    found = _help(
+        code,
+        Context(
+            ad=position + 1 if isinstance(position, int) else None,
+            page=page,
+            budget="",
+            min="",
+            detail=detail,
+        ),
+    )
+    return Guide(
+        code=code,
+        title=found["title"],
+        cause=found["guide"]["cause"],
+        steps=tuple(found["guide"]["steps"]),
+    )
+
+
+def guides() -> tuple[Guide, ...]:
+    """Every ready answer the help base holds, one per code."""
+    from typing import get_args
+
+    return tuple(
+        guide_for(code) for code in get_args(LaunchErrorCode) if code != "other"
+    )
+
+
+__all__ = ["Guide", "failure", "guide_for", "guides", "made_text"]

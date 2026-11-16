@@ -42,10 +42,12 @@ from core.targeting.campaign_types import (
     types_for,
 )
 from core.targeting.chat import (
+    MAX_ANSWER_CHARS,
     MAX_AUTOFILL_CHARS,
     MAX_CHAT_QUESTIONS,
     MAX_GREETING_CHARS,
     MAX_QUESTION_CHARS,
+    clean_answered,
     clean_questions,
     suggested_greeting,
 )
@@ -208,6 +210,7 @@ __all__ = [
     "INCLUDE_KEY",
     "MALE",
     "MAX_AGE",
+    "MAX_ANSWER_CHARS",
     "MAX_AUTOFILL_CHARS",
     "MAX_CHAT_QUESTIONS",
     "MAX_GREETING_CHARS",
@@ -292,6 +295,7 @@ __all__ = [
     "cap_fits",
     "changed",
     "choices_for",
+    "clean_answered",
     "clean_questions",
     "clean_tags",
     "closed_by",

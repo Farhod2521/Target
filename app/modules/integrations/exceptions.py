@@ -287,7 +287,11 @@ class PixelRehearsed(DomainError):
 
 class PixelAlreadyThere(DomainError):
     def __init__(self) -> None:
-        super().__init__("Bu akkauntda piksel allaqachon bor. Ro'yxatdan tanlang.")
+        super().__init__(
+            "Meta bu akkauntda yangi piksel yaratishga ruxsat bermadi: akkauntda "
+            "piksel allaqachon bor. Ro'yxatdan mavjudini tanlang yoki yangisini "
+            "Events Manager'da yarating."
+        )
 
 
 class PixelNotAllowed(DomainError):

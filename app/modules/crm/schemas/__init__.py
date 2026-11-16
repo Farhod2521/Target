@@ -130,6 +130,9 @@ class BoardOut(PairsOut):
     columns: list[ColumnOut] | None = None
     late: int | None = Field(None, description="Cards whose due time has passed.")
     today: int | None = Field(None, description="Cards due today.")
+    untaken: int | None = Field(
+        None, description="New cards nobody holds yet: they wait for «Olish»."
+    )
     cursor: str | None = Field(None, description="Send to `GET /crm/pulse`.")
     filters: BoardFilters | None = None
     pixel_state: str | None = Field(

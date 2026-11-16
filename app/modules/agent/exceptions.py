@@ -55,3 +55,15 @@ class PriceAlertGone(DomainError):
         super().__init__(
             message or "Bu ogohlantirish endi dolzarb emas. Ro'yxatni yangilang."
         )
+
+
+class GuardAlertGone(DomainError):
+    def __init__(self, message: str = "") -> None:
+        super().__init__(
+            message or "Bu ogohlantirish endi dolzarb emas. Ro'yxatni yangilang."
+        )
+
+
+class GuardAnswerUnknown(DomainError):
+    def __init__(self, message: str = "") -> None:
+        super().__init__(message or "Bu ogohlantirishga bunday javob yo'q.")

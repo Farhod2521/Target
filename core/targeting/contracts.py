@@ -141,6 +141,9 @@ class BuiltTargeting:
     welcome_text: str = ""
     autofill_text: str = ""
     welcome_questions: tuple[str, ...] = ()
+    # The answer sent when the question at the same place is tapped; ``""``
+    # where the business answers itself.
+    welcome_answers: tuple[str, ...] = ()
     phone_number: str = ""
     campaign_type: str = ""
     url_tags: str = ""

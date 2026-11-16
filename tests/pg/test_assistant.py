@@ -237,7 +237,10 @@ def test_a_ticket_is_prepared_pressed_and_lands_on_the_board_and_in_support(
     sent = db.scalar(select(SupportMessage))
     assert sent is not None and sent.source == "ai_chat"
     assert "Kartadan pul yechildi" in sent.body
-    assert "Mijoz savoli: Pulim yechildi" in sent.body
+    # The purpose and the facts - not the conversation.
+    assert "Maqsad: Kartadan pul yechildi, tarif ochilmadi." in sent.body
+    assert "Mijoz savoli" not in sent.body and "AI javobi" not in sent.body
+    assert "Tugma orqali yuboring" not in sent.body
     assert "• Tarif: faol" in sent.body
     assert any(name.endswith("deliver_support_question_task") for name, _ in queued)
     card = db.scalar(select(BoardCard).where(BoardCard.owner_id == owner.id))
@@ -278,6 +281,28 @@ def test_a_ticket_is_prepared_pressed_and_lands_on_the_board_and_in_support(
     db.commit()
     state = client.get(f"{URL}/buttons/{answer['id']}/{ticket['key']}", headers=headers)
     assert state.json()["state"] == "working"
+
+    # Solved after it was sent, and the card is open again for another
+    # request: this button still says solved.
+    from app.modules.boards.models import BoardCardEvent
+
+    db.add(
+        BoardCardEvent(
+            card_id=card.id,
+            owner_id=owner.id,
+            kind="resolved",
+            created_at=utcnow() + timedelta(minutes=1),
+        )
+    )
+    card.column_code = "new"
+    db.commit()
+    state = client.get(f"{URL}/buttons/{answer['id']}/{ticket['key']}", headers=headers)
+    assert state.json()["state"] == "done"
+    db.execute(
+        BoardCardEvent.__table__.delete().where(BoardCardEvent.kind == "resolved")
+    )
+    card.column_code = "in_progress"
+    db.commit()
 
     # The assistant reads the person's reply next time.
     later = _Script(words=["Yaxshi."])
@@ -356,6 +381,26 @@ def test_a_client_with_no_plan_reaches_a_person_and_not_the_ai(
     thread = _thread(client, headers, sent.json()["session_id"])
     assert [m["to_support"] for m in thread["messages"]] == [True]
     assert thread["mode"] == "support"
+
+    # Words for a person are a request on Support's board, opened once: a
+    # second message adds to the same request.
+    card = db.scalar(select(BoardCard).where(BoardCard.owner_id == owner.id))
+    assert card is not None and card.column_code == "new"
+    assert [reason["code"] for reason in card.reasons] == ["ai"]
+    assert card.reasons[0]["detail"] == "To'lov o'tmayapti"
+    more = client.post(f"{URL}/support", data={"body": "Yana urindim"}, headers=headers)
+    assert more.status_code == 201, more.text
+    db.expire_all()
+    assert len(card.reasons) == 1
+
+    # Solved, and the client writes again: the request is open again.
+    card.column_code = "resolved"
+    db.commit()
+    again = client.post(f"{URL}/support", data={"body": "Yana chiqdi"}, headers=headers)
+    assert again.status_code == 201, again.text
+    db.expire_all()
+    assert card.column_code == "new"
+    assert [reason["detail"] for reason in card.reasons][-1] == "Yana chiqdi"
 
 
 def test_the_composer_goes_back_to_the_ai_when_the_person_is_done(
@@ -574,6 +619,34 @@ def test_the_office_writes_an_article_and_the_assistant_finds_it(
     pk = made.json()["id"]
     assert client.delete(f"{url}/{pk}", headers=office).status_code == 204
     assert db.scalar(select(HelpArticle.id)) is None
+
+
+def test_a_lesson_the_answer_names_comes_as_a_card(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A video lesson the search returned and the answer names by its title
+    rides the answer as ``lessons``; one it only read about does not."""
+    from app.modules.tutorials.models import Tutorial
+    from core.assistant.tools import HelpSearch
+
+    named = Tutorial(title="Biznes akkaunt va reklama akkaunti ochish", is_active=True)
+    other = Tutorial(title="Reklama akkauntiga karta ulash", is_active=True)
+    db.add_all([named, other])
+    db.commit()
+    headers, _owner = _with_plan(client, db)
+    script = _Script(
+        calls=[("help_search", HelpSearch(query="biznes akkaunt ochish ulash"))],
+        words=["«Biznes akkaunt va reklama akkaunti ochish» ", "darsini ko'ring."],
+    )
+    turn = _ask(client, db, headers, monkeypatch, script, question="Akkaunt ochish")
+
+    assert f"## {named.title} (a video lesson" in script.seen[0]
+    assert f"## {other.title} (a video lesson" in script.seen[0]
+    answer = _thread(client, headers, turn["session_id"])["messages"][1]
+    assert answer["meta"]["lessons"] == [{"id": str(named.id), "title": named.title}]
+
+    stream = client.get(f"{URL}/stream/{turn['turn_id']}", headers=headers)
+    assert _frames(stream.text)[-1]["lessons"] == answer["meta"]["lessons"]
 
 
 def test_account_health_reads_an_open_bill(client: TestClient, db: Session) -> None:

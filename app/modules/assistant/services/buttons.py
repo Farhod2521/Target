@@ -22,7 +22,6 @@ from app.common.exceptions import DomainError
 from app.common.throttle import hit
 from app.modules.accounts.models import User
 from app.modules.assistant.constants import (
-    TICKET_ANSWER_CHARS,
     TICKET_BUCKET,
     TICKETS_PER_DAY,
     Author,
@@ -122,7 +121,7 @@ def drawn(db: Session, *, owner: User, item: dict[str, Any], now: datetime) -> P
     if state == ButtonState.DISMISSED:
         return Pressed(kind=kind, key=key, state=state, text=DISMISSED_WORDS)
     if kind == ButtonKind.TICKET:
-        return _ticket_state(db, owner=owner, key=key)
+        return _ticket_state(db, owner=owner, item=item)
     if kind == ButtonKind.CHANGE:
         return _change_state(db, owner=owner, item=item)
     if kind == ButtonKind.OFFER:
@@ -144,20 +143,17 @@ def buttons_of(
     return shown
 
 
-def ticket_text(*, question: str, summary: str, checked: list[str], answer: str) -> str:
-    """What Support reads: the problem, what was checked, what was said."""
+def ticket_text(*, question: str, summary: str, checked: list[str]) -> str:
+    """What Support reads: what the client needs from them, and the facts
+    that bear on it. Not the conversation: neither the assistant's answer
+    nor the client's words are copied - the request says its purpose. The
+    client's own words stand in only when no purpose was written."""
+    purpose = " ".join(summary.split()) or " ".join(question.split())
     parts = [TICKET_HEADER, ""]
-    if summary:
-        parts += [summary, ""]
-    if question:
-        parts += [f"Mijoz savoli: {question}", ""]
+    if purpose:
+        parts += [f"Maqsad: {purpose}", ""]
     if checked:
-        parts += ["AI tekshirdi:", *(f"• {line}" for line in checked), ""]
-    said = " ".join(answer.split())
-    if said:
-        if len(said) > TICKET_ANSWER_CHARS:
-            said = said[: TICKET_ANSWER_CHARS - 1].rstrip() + "…"
-        parts.append(f"AI javobi: {said}")
+        parts += ["Tekshirilgan:", *(f"• {line}" for line in checked)]
     return "\n".join(parts).strip()[:MAX_BODY_CHARS]
 
 
@@ -226,7 +222,6 @@ def _send_ticket(
         question=_question_of(db, row=row),
         summary=str(item.get("summary", "")),
         checked=[str(line) for line in item.get("checked", ())],
-        answer=row.text,
     )
     thread = db.get(AssistantSession, row.session_id)
     _write(db, row, index, state=ButtonState.SENT, sent_at=now.isoformat())
@@ -259,34 +254,58 @@ def _send_ticket(
     )
 
 
-def _ticket_state(db: Session, *, owner: User, key: str) -> Pressed:
-    """The board's column, in the three words the button shows."""
-    from app.modules.boards.constants import Board, SupportColumn
-    from app.modules.boards.models import BoardCard
+def _ticket_state(db: Session, *, owner: User, item: dict[str, Any]) -> Pressed:
+    """Where this request has got to, in the three words the button shows.
 
-    column = db.scalar(
-        select(BoardCard.column_code).where(
-            BoardCard.board == str(Board.SUPPORT), BoardCard.owner_id == owner.id
+    A client has one card on Support's board, reopened for each new request,
+    so the card's column alone would show an old button the state of the
+    newest request. A request is solved once the card was resolved or closed
+    after it was sent, whatever the card is open for now.
+    """
+    from app.modules.boards.constants import Board, EventKind, SupportColumn
+    from app.modules.boards.models import BoardCard, BoardCardEvent
+
+    key = str(item.get("key", ""))
+
+    def at(state: str, text: str) -> Pressed:
+        return Pressed(kind=ButtonKind.TICKET, key=key, state=state, text=text)
+
+    card = db.scalar(
+        select(BoardCard).where(
+            BoardCard.board == str(Board.SUPPORT),
+            BoardCard.owner_id == owner.id,
+            BoardCard.term_ends_at.is_(None),
         )
     )
-    if column in (SupportColumn.RESOLVED, SupportColumn.CLOSED):
-        return Pressed(
-            kind=ButtonKind.TICKET, key=key, state=ButtonState.DONE, text=RESOLVED_WORDS
+    if card is None:
+        return at(ButtonState.SENT, SENT_WORDS)
+    if card.column_code in (SupportColumn.RESOLVED, SupportColumn.CLOSED):
+        return at(ButtonState.DONE, RESOLVED_WORDS)
+    sent_at = _moment(item.get("sent_at"))
+    if sent_at is not None and db.scalar(
+        select(BoardCardEvent.id)
+        .where(
+            BoardCardEvent.card_id == card.id,
+            BoardCardEvent.kind.in_((EventKind.RESOLVED, EventKind.CLOSED)),
+            BoardCardEvent.created_at > sent_at,
         )
-    if column in (
+        .limit(1)
+    ):
+        return at(ButtonState.DONE, RESOLVED_WORDS)
+    if card.column_code in (
         SupportColumn.IN_PROGRESS,
         SupportColumn.DEVELOPER,
         SupportColumn.CONFIRMING,
     ):
-        return Pressed(
-            kind=ButtonKind.TICKET,
-            key=key,
-            state=ButtonState.WORKING,
-            text=WORKING_TICKET,
-        )
-    return Pressed(
-        kind=ButtonKind.TICKET, key=key, state=ButtonState.SENT, text=SENT_WORDS
-    )
+        return at(ButtonState.WORKING, WORKING_TICKET)
+    return at(ButtonState.SENT, SENT_WORDS)
+
+
+def _moment(raw: Any) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(raw)) if raw else None
+    except ValueError:
+        return None
 
 
 def _confirm_change(

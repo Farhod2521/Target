@@ -27,4 +27,9 @@ What makes an answer trustworthy is still not the prompt: figures pass
 `core/chat/choices.py`, a change and a ticket are carried out by the
 product only when their button is pressed.
 
+`v2` adds what a look-up's "Ready fix" is and that it is copied, not
+composed; that a code finds its own fix in `help_search`; the product's
+name in the person's language («Targetolog AI», never "mahsulot"); and
+correct spelling.
+
 Run the live cases after every change: `python -m tools.assistant_eval`.

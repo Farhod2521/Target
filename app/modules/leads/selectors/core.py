@@ -97,9 +97,15 @@ class LeadFilters:
 
 NO_FILTERS: Final = LeadFilters()
 
+# What the by-advert report sends for its «Reklama aniqlanmagan» row: the
+# leads that name no advert at all.
+NO_AD: Final = "none"
+
 
 def narrow(query: Select[tuple[Lead]], *, filters: LeadFilters) -> Select[tuple[Lead]]:
-    if filters.ad:
+    if filters.ad == NO_AD:
+        query = query.where(Lead.ad_external_id == "")
+    elif filters.ad:
         query = query.where(Lead.ad_external_id == filters.ad)
     if filters.adset:
         query = query.where(Lead.adset_external_id == filters.adset)
@@ -115,9 +121,9 @@ def narrow(query: Select[tuple[Lead]], *, filters: LeadFilters) -> Select[tuple[
 def _matching(text: str) -> ColumnElement[bool]:
     text = text.strip()
     matched = or_(
-        Lead.full_name.icontains(text),
-        Lead.email.icontains(text),
-        Lead.city.icontains(text),
+        Lead.full_name.icontains(text, autoescape=True),
+        Lead.email.icontains(text, autoescape=True),
+        Lead.city.icontains(text, autoescape=True),
     )
     digits = _NOT_DIGITS.sub("", text)
     if len(digits) >= SEARCH_DIGITS:

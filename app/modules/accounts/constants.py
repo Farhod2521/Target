@@ -89,6 +89,8 @@ PURGE_ORDER: tuple[str, ...] = (
     "chat.ChatSession",
     "assistant.AssistantMessage",
     "assistant.AssistantSession",
+    "officeai.OfficeAiMessage",
+    "officeai.OfficeAiThread",
     "supportchat.SupportRelay",
     "supportchat.SupportAttachment",
     "supportchat.SupportMessage",
@@ -169,6 +171,13 @@ HANDOFF_TOKEN_KEY: Final = "accounts:handoff:{token}"
 RESET_TTL_SECONDS: Final = 15 * 60
 RESET_TOKEN_BYTES: Final = 32
 RESET_TOKEN_KEY: Final = "accounts:reset:{token}"
+# "Parolni unutdingizmi?" by email: how often one address and one machine
+# may ask. Generous enough for a mistyped address, too tight to mail-bomb.
+RESET_MAILS_PER_EMAIL: Final = 3
+RESET_MAILS_PER_ADDRESS: Final = 20
+RESET_MAIL_WINDOW_SECONDS: Final = 60 * 60
+RESET_MAIL_BUCKET: Final = "accounts:reset-mail:email"
+RESET_MAIL_ADDRESS_BUCKET: Final = "accounts:reset-mail:address"
 REGISTERED_PIXEL_KEY: Final = "accounts:registered_pixel"
 
 

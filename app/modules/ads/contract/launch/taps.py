@@ -32,6 +32,7 @@ PLAN_KEYS: Final = (
     "chat_channel",
     "welcome_text",
     "chat_questions",
+    "chat_answers",
 )
 
 

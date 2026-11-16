@@ -276,10 +276,21 @@ def welcome_message(spec: CreativeSpec) -> str:
         text=spec.welcome_text,
         autofill=spec.autofill_text,
         questions=spec.welcome_questions,
+        answers=spec.welcome_answers,
     )
 
 
-def greeting(*, text: str, autofill: str = "", questions: tuple[str, ...] = ()) -> str:
+def _answer(answers: tuple[str, ...], place: int) -> str:
+    return answers[place].strip() if place < len(answers) else ""
+
+
+def greeting(
+    *,
+    text: str,
+    autofill: str = "",
+    questions: tuple[str, ...] = (),
+    answers: tuple[str, ...] = (),
+) -> str:
     """The greeting itself, for whichever creative carries it.
 
     Its own function because two shapes send the same JSON in two places:
@@ -293,13 +304,19 @@ def greeting(*, text: str, autofill: str = "", questions: tuple[str, ...] = ()) 
     # Questions replace the pre-typed line rather than joining it: the
     # welcome screen takes one ``customer_action_type``, and a customer
     # offered both would see a box already filled under buttons that fill
-    # it again. Each goes as a title alone - the answer is the business's
-    # to type in the thread, not a canned reply.
+    # it again. A question goes as a title alone unless an answer was
+    # written for its place: then Meta sends that answer by itself when the
+    # question is tapped (``response``, as Ads Manager writes it and
+    # :mod:`metaads.welcome` reads it back).
     message: dict[str, Any] = {"text": text}
     action = _WELCOME_ACTION
     if questions:
         action = _QUESTIONS_ACTION
-        message["ice_breakers"] = [{"title": question} for question in questions]
+        message["ice_breakers"] = [
+            {"title": question}
+            | ({"response": answer} if (answer := _answer(answers, place)) else {})
+            for place, question in enumerate(questions)
+        ]
         message["quick_replies"] = []
     elif autofill:
         message["autofill_message"] = {"content": autofill}

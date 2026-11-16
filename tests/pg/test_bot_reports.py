@@ -668,7 +668,9 @@ def test_the_day_before_is_beside_the_total_and_not_beside_today_so_far(
     assert report.before and book.totals[0].before
     assert report.change == book.totals[0].change
     assert report.change.startswith("+") and report.change.endswith("%")
-    assert "Oldingi kun" in pair_message(book=book, report=report).text
+    text = pair_message(book=book, report=report).text
+    assert "Oldingi kun" in text
+    assert report.change not in text, "the percent misled readers"
 
     today = daily_book(db, owner=user, now=MORNING, day=YESTERDAY + timedelta(days=1))
     assert all(not report.before for report in today.reports)

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.backoffice.constants import Role
 from app.modules.telephony.models import PhoneExtension
-from app.modules.telephony.schemas import MyPhoneOut, TelephonyOut
+from app.modules.telephony.schemas import ColleaguesOut, MyPhoneOut, TelephonyOut
 from tests.pg.test_boards_me import _staff
 from tests.pg.test_telephony_calls import office  # noqa: F401
 from tests.pg.test_telephony_settings import exchange  # noqa: F401
@@ -154,3 +154,43 @@ def test_a_number_utel_dropped_gives_no_phone(
     office["exchange"].numbers = [("102", "Op 2", "p102")]
     client.post(f"{URL}/sync", headers=office["boss"])
     assert _me(client, office["seller"]).reason == "no_extension"
+
+
+def test_a_call_is_passed_on_to_the_others_who_hold_a_number(
+    client: TestClient,
+    db: Session,
+    office: dict[str, Any],  # noqa: F811
+) -> None:
+    def others(head: dict[str, str]) -> list[tuple[str, str]]:
+        answer = client.get(f"{URL}/colleagues", headers=head)
+        assert answer.status_code == 200, answer.text
+        found = ColleaguesOut.model_validate(answer.json()).colleagues
+        return [(one.number, one.user.email) for one in found]
+
+    # Never oneself; the lead holds no number and sees both.
+    assert others(office["seller"]) == [("102", "yordam@office.test")]
+    assert others(office["helper"]) == [("101", "sotuv@office.test")]
+    assert sorted(others(office["lead"])) == [
+        ("101", "sotuv@office.test"),
+        ("102", "yordam@office.test"),
+    ]
+    # No password of anybody's number leaves here.
+    raw = client.get(f"{URL}/colleagues", headers=office["seller"]).text
+    assert "p101" not in raw and "p102" not in raw
+
+    # A number freed, one UTeL dropped, a person switched off: none is offered.
+    seat = db.scalar(select(PhoneExtension).where(PhoneExtension.number == "102"))
+    assert seat is not None
+    seat.is_gone = True
+    db.commit()
+    assert others(office["seller"]) == []
+    seat.is_gone = False
+    office["people"]["yordam@office.test"].is_active = False
+    db.commit()
+    assert others(office["seller"]) == []
+
+    outsider = _staff(db, "moliya2@office.test", Role.FINANCE)
+    assert client.get(f"{URL}/colleagues", headers=outsider).status_code == 404
+    assert client.get(f"{URL}/colleagues").status_code == 401
+    client.delete(f"{URL}/connection", headers=office["boss"])
+    assert others(office["seller"]) == []

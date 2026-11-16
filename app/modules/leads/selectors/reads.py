@@ -689,15 +689,30 @@ def _collecting(*, owner: User, page: PageAccount) -> Select[tuple[LeadForm]]:
 
 
 def usable_forms(
-    db: Session, *, owner: User, page: PageAccount, limit: int | None = PICKER_FORMS
+    db: Session,
+    *,
+    owner: User,
+    page: PageAccount,
+    limit: int | None = PICKER_FORMS,
+    keep: str = "",
 ) -> FormChoices:
+    """The page's collecting forms, a fold of them when ``limit`` is set.
+
+    ``keep`` is the form already chosen: it is always among the options, or a
+    page with more forms than the fold would show its choice as a new form.
+    """
     offered = _collecting(owner=owner, page=page)
     rows = list(db.scalars(offered if limit is None else offered.limit(limit + 1)))
     if limit is None or len(rows) <= limit:
         return FormChoices(options=tuple(form_card(row) for row in rows), hidden=0)
+    shown = rows[:limit]
+    if keep and all(row.external_id != keep for row in shown):
+        chosen = collecting_form(db, owner=owner, page=page, external_id=keep)
+        if chosen is not None:
+            shown = [chosen, *shown]
     return FormChoices(
-        options=tuple(form_card(row) for row in rows[:limit]),
-        hidden=_count(db, offered) - limit,
+        options=tuple(form_card(row) for row in shown),
+        hidden=_count(db, offered) - len(shown),
     )
 
 
@@ -1464,7 +1479,9 @@ def lead_sheet(
     leads: Sequence[Lead],
     ad_names: Mapping[str, str] | None = None,
     campaign_names: Mapping[str, str] | None = None,
+    zone: str = "",
 ) -> LeadSheet:
+    """``zone``: the reader's time zone, so the file shows the times the list does."""
     ad_names = ad_names or {}
     campaign_names = campaign_names or {}
     kept = list(leads[:EXPORT_LIMIT])
@@ -1501,7 +1518,7 @@ def lead_sheet(
                 lead.phone_e164,
                 lead.email,
                 lead.city,
-                localtime(lead.submitted_at).strftime(TIME_FORMAT),
+                localtime(lead.submitted_at, zone).strftime(TIME_FORMAT),
                 str(OUTCOME_STATUS_LABELS.get(verdict, "")) if verdict else "",
                 ad_names.get(lead.ad_external_id, lead.ad_external_id),
                 campaign_names.get(

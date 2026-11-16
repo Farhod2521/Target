@@ -18,6 +18,12 @@ SCHEDULE: Final = [
         f"{TASKS}.stop_all_fruitless",
         "19,49",
     ),
+    # After the half-hourly figures (:10, :40) and the agent's own stop.
+    Periodic(
+        "Reklama qo'riqchisi: narx, natijasiz sarf, sayt",
+        f"{TASKS}.guard_all",
+        "21,51",
+    ),
     Periodic(
         "To'xtagan reklamalarga tuzatish taklifi", f"{TASKS}.propose_all_fixes", "15,45"
     ),
@@ -29,7 +35,7 @@ SCHEDULE: Final = [
         "5",
     ),
     Periodic("Agentni ishga tushirish", f"{TASKS}.run_all_agents", "0"),
-    # Django's notifications.deliver_frequency_alerts_task minute; each
-    # owner's check queues the Telegram message after it.
-    Periodic("Chastota darajalari", f"{TASKS}.check_all_frequency", "5"),
+    # «Chastota darajalari» (the morning's price rises and frequency levels,
+    # ``check_all_frequency``) is no longer scheduled: the half-hourly guard
+    # says both the same day. The task stays for a run by hand.
 ]

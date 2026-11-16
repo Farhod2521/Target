@@ -78,6 +78,10 @@ from app.modules.notifications.services.frequency_press import (
     handle_frequency_press,
     is_frequency_press,
 )
+from app.modules.notifications.services.guard_press import (
+    handle_guard_press,
+    is_guard_press,
+)
 from app.modules.notifications.services.link import link_chat, stop_chat
 from app.modules.notifications.services.password_reset import answer_reset_request
 from app.modules.notifications.services.price_press import (
@@ -133,6 +137,8 @@ def handle_update(db: Session, *, payload: dict[str, Any], now: datetime) -> str
                 return handle_frequency_press(db, client=client, press=update, now=now)
             if is_price_press(update.data):
                 return handle_price_press(db, client=client, press=update, now=now)
+            if is_guard_press(update.data):
+                return handle_guard_press(db, client=client, press=update, now=now)
             answer(
                 client=client,
                 query_id=update.query_id,

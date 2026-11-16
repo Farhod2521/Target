@@ -21,6 +21,7 @@ class NoticeKind(Choices):
     SURVEY = "survey"
     FREQUENCY = "frequency"
     STOP = "stop"
+    GUARD = "guard"
 
 
 NOTICE_KIND_LABELS = {
@@ -40,6 +41,7 @@ NOTICE_KIND_LABELS = {
     NoticeKind.FEEDBACK: "Fikrga javob",
     NoticeKind.SURVEY: "So'rovnoma",
     NoticeKind.FREQUENCY: "Chastota ogohlantirishi",
+    NoticeKind.GUARD: "Reklama qo'riqchisi",
     NoticeKind.STOP: "Reklama to'xtadi",
 }
 NOTICES_WITHOUT_SUBSCRIPTION: Final = frozenset(
@@ -96,6 +98,23 @@ CALLBACK_FREQUENCY_FINE: Final = "fw"
 # TZ 1.5: «Reklamani to'xtatish» and «Kuzataman» under a price rise.
 CALLBACK_PRICE_PAUSE: Final = "np"
 CALLBACK_PRICE_WATCH: Final = "nw"
+# The guard's findings: one code an answer, the finding's id after it.
+CALLBACK_GUARD_PAUSE: Final = "gp"
+CALLBACK_GUARD_BUDGET: Final = "gb"
+CALLBACK_GUARD_LEAVE: Final = "gl"
+CALLBACK_GUARD_RESUME: Final = "gr"
+CALLBACK_GUARD_KEEP_OFF: Final = "gk"
+CALLBACK_GUARD_PAUSE_AD: Final = "ga"
+GUARD_CALLBACKS: Final[dict[str, str]] = {
+    "pause": CALLBACK_GUARD_PAUSE,
+    "budget_down": CALLBACK_GUARD_BUDGET,
+    "leave": CALLBACK_GUARD_LEAVE,
+    "resume": CALLBACK_GUARD_RESUME,
+    "keep_off": CALLBACK_GUARD_KEEP_OFF,
+    "pause_ad": CALLBACK_GUARD_PAUSE_AD,
+}
+# How many of the guard's warnings one sweep sends an owner; a stop is always said.
+MAX_GUARD_WARNINGS_PER_SWEEP: Final = 3
 CALLBACK_SUPPORT_SEND: Final = "sy"
 CALLBACK_SUPPORT_DROP: Final = "sn"
 SUPPORT_CONFIRM_KEY: Final = "notifications:support-confirm:{token}"
@@ -200,6 +219,10 @@ SUPPORT_BOT_SEEN_TTL_SECONDS: Final = 24 * 60 * 60
 SUPPORT_BOT_GUEST_SENT_KEY: Final = "notifications:support-bot-guest-sent:{message_id}"
 # A client's first words after a quiet stretch are answered «qabul qilindi».
 SUPPORT_BOT_ACK_AFTER_SECONDS: Final = 30 * 60
+OWNERS_BOT_COMMANDS: Final = (
+    ("admin", "Statistika"),
+    ("yangi", "Ofis AI: yangi suhbat"),
+)
 SUPPORT_BOT_COMMANDS: Final = (
     ("start", "Boshlash"),
     ("yordam", "Bot qanday ishlaydi"),

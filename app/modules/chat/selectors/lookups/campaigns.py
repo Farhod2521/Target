@@ -14,6 +14,8 @@ from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.chat.selectors.briefs import delivery_label, group_digest
 from app.modules.chat.selectors.lookups.common import (
     in_subscription,
+    issue_fixes,
+    issue_tag,
     money,
     named,
     origin,
@@ -129,19 +131,34 @@ def campaign_details(
         ),
     ]
     if campaign.issue_summary:
-        lines.append(f"- provider says: {campaign.issue_summary}")
+        lines.append(f"- provider says: {campaign.issue_summary}{issue_tag(campaign)}")
+    # Everything with an issue, so each known one gets its ready fix once.
+    troubled: list[Any] = [campaign]
     lines += [
         "",
         *_groups(
-            db, owner=owner, campaign=campaign, since=since, until=until, scope=scope
+            db,
+            owner=owner,
+            campaign=campaign,
+            since=since,
+            until=until,
+            scope=scope,
+            troubled=troubled,
         ),
     ]
     lines += [
         "",
         *_adverts(
-            db, owner=owner, campaign=campaign, since=since, until=until, scope=scope
+            db,
+            owner=owner,
+            campaign=campaign,
+            since=since,
+            until=until,
+            scope=scope,
+            troubled=troubled,
         ),
     ]
+    lines += issue_fixes(troubled)
     return "\n".join(lines)
 
 
@@ -153,6 +170,7 @@ def _groups(
     since: date,
     until: date,
     scope: PageScope,
+    troubled: list[Any],
 ) -> list[str]:
     groups = (
         list(
@@ -191,7 +209,8 @@ def _groups(
             if row.daily_budget_minor
             else ""
         )
-        rows.append(f"{line} [id {row.external_id}{budget}]")
+        troubled.append(row)
+        rows.append(f"{line} [id {row.external_id}{budget}{issue_tag(row)}]")
     return section("Ad groups", rows, empty="no ad groups mirrored yet")
 
 
@@ -203,6 +222,7 @@ def _adverts(
     since: date,
     until: date,
     scope: PageScope,
+    troubled: list[Any],
 ) -> list[str]:
     adverts = (
         list(
@@ -252,7 +272,10 @@ def _adverts(
             f"{named(row.adset.name, row.adset.external_id)} - " + ", ".join(parts)
         )
         if row.issue_summary:
-            line += f", provider says: {row.issue_summary}"
+            line += f", provider says: {row.issue_summary}{issue_tag(row)}"
+        if row.delivery == Delivery.REJECTED:
+            line += ", refused - its ready fix is in `ad_details`"
+        troubled.append(row)
         rows.append(line)
     return section("Adverts", rows, empty="no adverts mirrored yet")
 

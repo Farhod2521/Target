@@ -26,6 +26,7 @@ from app.modules.integrations.models import AdAccount
 from app.modules.metrics.models import MetricsDaily
 from app.modules.metrics.selectors.facts import cabinet_where
 from core.agent.auto_stop import Fruitless
+from core.agent.guard import WAIT_HOURS
 from core.metrics import Outcome, heard_leads
 
 
@@ -116,6 +117,8 @@ def _account_candidates(
             )
         )
         if kind_of(row.optimization_goal_raw, row.promoted_object_raw) in TODAY_KINDS
+        # Nothing is judged in a group's first day - the guard's rule too.
+        and now - born[row.external_id] >= timedelta(hours=WAIT_HOURS)
     ]
     if not groups:
         return []

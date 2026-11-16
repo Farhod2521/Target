@@ -17,6 +17,7 @@ from app.modules.ads import geo as geo_field
 from app.modules.ads.constants import (
     ATTRIBUTION,
     CAMPAIGN_TYPE,
+    CHAT_ANSWERS,
     CHAT_QUESTIONS,
     CONVERSION_EVENT,
     FREQUENCY_CAP,
@@ -74,7 +75,7 @@ from core.targeting import (
     QualityLeads,
     TargetingMode,
     build,
-    clean_questions,
+    clean_answered,
     daily_floor,
     fallback,
     suggested_greeting,
@@ -123,12 +124,17 @@ def build_for(
         link=destination_link(launch=launch, business=business),
         welcome=welcome_greeting(db, launch=launch, business=business),
         questions=welcome_questions(db, launch=launch),
+        replies=welcome_answers(db, launch=launch),
         phone=destination_phone(launch=launch, business=business),
     )
 
 
-def welcome_greeting(db: Session, *, launch: CampaignLaunch, business: Business) -> str:
-    preset = goal_preset(db, launch=launch)
+def welcome_greeting(
+    db: Session, *, launch: CampaignLaunch, business: Business, goal: str = ""
+) -> str:
+    """The owner's greeting, else the catalogue's. ``goal`` is the one the
+    screen shows before it is saved; the launch's own when left out."""
+    preset = goal_preset(db, launch=launch, goal=goal)
     if preset is None or not preset.opens_chat:
         return ""
     if WELCOME_KEY in launch.answers:
@@ -140,8 +146,25 @@ def welcome_questions(db: Session, *, launch: CampaignLaunch) -> tuple[str, ...]
     preset = goal_preset(db, launch=launch)
     if preset is None or not preset.opens_chat:
         return ()
+    return _asked(launch)[0]
+
+
+def welcome_answers(db: Session, *, launch: CampaignLaunch) -> tuple[str, ...]:
+    """The answer sent by itself for each of :func:`welcome_questions`, place
+    for place; ``""`` where the business answers itself."""
+    preset = goal_preset(db, launch=launch)
+    if preset is None or not preset.opens_chat:
+        return ()
+    return _asked(launch)[1]
+
+
+def _asked(launch: CampaignLaunch) -> tuple[tuple[str, ...], tuple[str, ...]]:
     raw = launch.answers.get(CHAT_QUESTIONS) or []
-    return clean_questions(raw if isinstance(raw, list) else [])
+    replies = launch.answers.get(CHAT_ANSWERS) or []
+    return clean_answered(
+        raw if isinstance(raw, list) else [],
+        replies if isinstance(replies, list) else [],
+    )
 
 
 def minimum_budget(*, ad_account: AdAccount, optimization_goal: str = "") -> int:

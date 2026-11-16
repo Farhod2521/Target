@@ -77,7 +77,8 @@ def _command(db: Session, *, client: BotClient, command: Command, now: datetime)
     if command.name == COMMAND_START and command.argument:
         return _link(db, client=client, command=command, now=now)
     known = staff_chat_by_id(db, chat_id=command.chat_id)
-    _say(client=client, chat_id=command.chat_id, text=_help(known))
+    text = _help(known)
+    _say(client=client, chat_id=command.chat_id, text=text)
     return "help"
 
 

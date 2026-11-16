@@ -126,6 +126,17 @@ def handle_staff_telegram_update(payload: dict[str, Any]) -> str:
 
 
 @celery_app.task(queue="webhooks", ignore_result=True)
+def handle_owners_bot_update(payload: dict[str, Any]) -> str:
+    """One delivery to the owners' bot, acted on."""
+    from app.modules.notifications.services.owners_respond import (
+        handle_owners_update,
+    )
+
+    with task_session() as db:
+        return handle_owners_update(db, payload=payload, now=utcnow())
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
 def handle_support_bot_update(payload: dict[str, Any]) -> str:
     """One delivery to the support bot, acted on."""
     with task_session() as db:
@@ -458,3 +469,12 @@ def resend_survey_task(owner_id: str, token: str) -> str:
         if owner is None:
             return "gone"
         return resend_survey_for(db, owner=owner, token=token, now=utcnow())
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def deliver_admin_report_task() -> int:
+    """Every morning at 07:00 Tashkent: the owners' card in @owners_tai_bot."""
+    from app.modules.notifications.services.admin_stats import deliver_admin_report
+
+    with task_session() as db:
+        return deliver_admin_report(db, now=utcnow())

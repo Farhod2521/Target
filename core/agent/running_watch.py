@@ -114,7 +114,9 @@ class Running:
 
 def running_watch(group: WatchedGroup, facts: Running) -> Watch | None:
     """What to say about a group past its first week, or nothing."""
-    return _stalled(group, facts) or _dry(group, facts) or _cheaper(group, facts)
+    # Days without a result are the half-hourly guard's to add up and to
+    # stop for (``core.agent.guard``); see :func:`dry` for what was said here.
+    return _stalled(group, facts) or _cheaper(group, facts)
 
 
 def _stalled(group: WatchedGroup, facts: Running) -> Watch | None:
@@ -133,7 +135,9 @@ def _stalled(group: WatchedGroup, facts: Running) -> Watch | None:
     )
 
 
-def _dry(group: WatchedGroup, facts: Running) -> Watch | None:
+def dry(group: WatchedGroup, facts: Running) -> Watch | None:
+    """The stage :func:`running_watch` no longer raises, kept for the rows
+    and the messages already written under it."""
     if group.results is None or group.results > 0:
         return None
     step = max((days for days in DRY_STEPS if days <= facts.dry_days), default=0)
@@ -232,5 +236,6 @@ __all__ = [
     "SPENT_UP_PCT",
     "Running",
     "Tally",
+    "dry",
     "running_watch",
 ]

@@ -59,7 +59,12 @@ from pydantic import Field, field_validator, model_validator
 from metaads.client import GraphClient
 from metaads.dto_base import MetaDTO
 from metaads.enhancements import post_creative
-from metaads.specs import CTA_NO_BUTTON, MAX_WELCOME_QUESTIONS, checked_questions
+from metaads.specs import (
+    CTA_NO_BUTTON,
+    MAX_WELCOME_QUESTIONS,
+    checked_answers,
+    checked_questions,
+)
 from metaads.stories import greeting
 from metaads.writing import fake_id, graph_client
 
@@ -139,6 +144,17 @@ class BoostSpec(MetaDTO):
     def _questions_fit(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return checked_questions(value)
 
+    # What is answered by itself when the question at the same place is
+    # tapped; ``""`` leaves that one to the business.
+    welcome_answers: tuple[str, ...] = Field(
+        default=(), max_length=MAX_WELCOME_QUESTIONS
+    )
+
+    @field_validator("welcome_answers")
+    @classmethod
+    def _answers_fit(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return checked_answers(value)
+
     @model_validator(mode="after")
     def _a_button_needs_a_link(self) -> "BoostSpec":
         """Refuse here rather than at Meta, for the reason every validator
@@ -179,6 +195,7 @@ def boost_payload(spec: BoostSpec) -> dict[str, Any]:
         text=spec.welcome_text,
         autofill=spec.autofill_text,
         questions=spec.welcome_questions,
+        answers=spec.welcome_answers,
     )
     if welcome:
         payload["page_welcome_message"] = welcome

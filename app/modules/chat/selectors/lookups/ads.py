@@ -16,6 +16,7 @@ from app.modules.chat.selectors.lookups.common import (
     money,
     named,
     origin,
+    ready_fix,
     refused,
     trimmed,
     window,
@@ -185,16 +186,30 @@ def _figures(
 
 
 def _refusals(ad: Ad) -> list[str]:
-    """Why the provider turned the advert down, per policy it named."""
-    feedback = ad.review_feedback if isinstance(ad.review_feedback, dict) else {}
-    overall = feedback.get("overall")
-    if not isinstance(overall, dict):
-        return []
-    return [
-        f"- refused under {trimmed(policy, 80)}: {trimmed(reason, 300)}"
-        for policy, reason in overall.items()
-        if reason
-    ]
+    """Why the provider turned the advert down - every policy it named, on
+    every placement - and the help base's ready fix for it."""
+    from app.modules.ads.selectors.failures import feedback_text
+    from app.modules.ads.selectors.rejections import rejection_of
+
+    lines: list[str] = []
+    seen: set[str] = set()
+    for said in feedback_text(ad.review_feedback).splitlines():
+        policy, _, reason = said.partition(": ")
+        if not reason or said in seen:
+            continue
+        seen.add(said)
+        lines.append(f"- refused under {trimmed(policy, 80)}: {trimmed(reason, 300)}")
+    found = rejection_of(ad)
+    if found is not None and found.get("steps"):
+        lines += [
+            "",
+            *ready_fix(
+                code=str(found.get("title") or "refused advert"),
+                cause=str(found.get("cause") or ""),
+                steps=list(found["steps"]),
+            ),
+        ]
+    return lines
 
 
 __all__ = ["ad_details"]

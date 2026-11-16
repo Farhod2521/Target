@@ -48,6 +48,19 @@ def _label(choices: type, value: str) -> str:
         return value
 
 
+def _why_failed(row: ActionLog) -> str:
+    """The screen's own sentence for a change that did not go through, what
+    Meta wrote for the advertiser, and the ready steps when there are any."""
+    from app.modules.ads.selectors.failures import failure_sentence, guide_of
+
+    said = trimmed(failure_sentence(row), NOTE_CHARS * 2)
+    _cause, steps = guide_of(row.error_code)
+    if not steps:
+        return said
+    listed = " ".join(f"{index}) {step}" for index, step in enumerate(steps, start=1))
+    return f"{said} Ready fix: {listed}"
+
+
 def recent_changes(
     db: Session, *, owner: User, arguments: Window, scope: PageScope, now: datetime
 ) -> str:
@@ -83,6 +96,8 @@ def recent_changes(
             line += ", a test run that changed nothing at the provider"
         if row.reason:
             line += f", note: {trimmed(row.reason, NOTE_CHARS)}"
+        if row.status == ActionStatus.FAILED:
+            line += f", why it failed: {_why_failed(row)}"
         lines.append(line)
     return "\n".join(
         section(f"Changes in the last {arguments.days} days", lines, empty="no changes")

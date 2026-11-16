@@ -232,6 +232,7 @@ def creative_spec(
         welcome_text=built.welcome_text,
         autofill_text=built.autofill_text,
         welcome_questions=built.welcome_questions,
+        welcome_answers=built.welcome_answers,
         url_tags=built.url_tags,
     )
 
@@ -270,6 +271,7 @@ def boost_spec(
         welcome_text=built.welcome_text,
         autofill_text=built.autofill_text,
         welcome_questions=built.welcome_questions,
+        welcome_answers=built.welcome_answers,
     )
 
 

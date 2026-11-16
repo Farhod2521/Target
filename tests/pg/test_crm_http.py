@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from metaads import PROVIDER
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.common import tokens
@@ -15,6 +16,7 @@ from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.ads.models import CampaignLaunch
 from app.modules.billing.models import Plan, Subscription
+from app.modules.crm.models import CrmCard
 from app.modules.integrations.models import (
     AdAccount,
     PageAccount,
@@ -270,6 +272,13 @@ def test_a_manager_is_sent_to_the_board(client: TestClient, db: Session) -> None
         headers=head,
         json={"assignee": ""},
     )
+
+    # «Men o'zim beraman» (the lone owner's setting): nothing waits for a manager.
+    assert client.get(f"{CRM}/nav", headers=signed_in).json()["attention"] == 0
+    claim = client.post(
+        f"{CRM}/settings/distribution", headers=head, json={"distribution": "claim"}
+    )
+    assert claim.status_code == 200
 
     nav = client.get(f"{CRM}/nav", headers=signed_in).json()
 
@@ -663,6 +672,48 @@ def test_a_pixel_made_here_is_chosen_and_named_after_the_page(
     assert client.get(CRM, headers=head).json()["pixel_state"] == "ready"
 
 
+def test_a_second_pixel_is_made_in_the_portfolio_and_chosen(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from metaads.errors import MetaAPIError
+
+    from app.modules.integrations.services import sync
+
+    _no_rehearsal(monkeypatch)
+    owner = _owner(db)
+    _pixels(db, owner, "px_old")
+    db.execute(
+        update(AdAccount)
+        .where(AdAccount.owner_id == owner.id)
+        .values(business_external_id="b1")
+    )
+    db.commit()
+    asked: dict[str, Any] = {}
+
+    def refused(**_: Any) -> str:
+        raise MetaAPIError("one only", code=6200)
+
+    def made(**kwargs: Any) -> str:
+        asked.update(kwargs)
+        return "px_new"
+
+    monkeypatch.setattr(sync, "make_pixel", refused)
+    monkeypatch.setattr(sync, "make_business_pixel", made)
+    head = _auth(owner)
+    _running(client, head)
+    client.post(f"{CRM}/settings/pixel", headers=head, json={"external_id": "px_old"})
+
+    answer = client.post(f"{CRM}/settings/pixel/create", headers=head)
+
+    assert answer.status_code == 200
+    assert answer.json()["meta"]["selected"] == "px_new"
+    assert {p["external_id"] for p in answer.json()["meta"]["pixels"]} == {
+        "px_old",
+        "px_new",
+    }
+    assert (asked["business_id"], asked["account_id"]) == ("b1", "act_1")
+
+
 def test_a_rehearsal_makes_no_pixel(
     client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -757,3 +808,341 @@ def test_the_board_reads_leads_once_not_once_per_card(
     assert {c["lead"]["ad_external_id"] for c in page.json()["cards"]} == {"ad_1"}
     lead_reads = [sql for sql in seen if sql.startswith("SELECT leads.id")]
     assert len(lead_reads) == 2, lead_reads
+
+
+def test_an_opened_lead_says_where_it_stands_on_the_board_as_the_list_does(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    _running(client, head)
+
+    rows = client.get("/api/v1/leads", headers=head).json()["rows"]
+    placed = next(row for row in rows if row["place"])
+
+    one = client.get(f"/api/v1/leads/{placed['id']}", headers=head)
+
+    assert one.status_code == 200
+    assert one.json()["place"] == placed["place"]
+
+
+def _total(board: dict[str, Any]) -> int:
+    return sum(column["total"] for column in board["columns"])
+
+
+def test_a_phone_is_found_however_it_is_typed_and_a_wildcard_is_a_letter(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    assert _total(_running(client, head)) == 3
+
+    def found(q: str) -> int:
+        return _total(client.get(CRM, headers=head, params={"q": q}).json())
+
+    assert found("90 000 00 01") == 1
+    assert found("90-000-00-01") == 1
+    assert found("+998 (90) 000-00-02") == 1
+    assert found("lid1") == 1
+    # A name with a figure in it is not a phone: «lid 9» is nobody here.
+    assert found("lid 9") == 0
+    assert found("_") == 0
+    assert found("%") == 0
+
+
+def test_the_chips_count_under_the_search_they_stand_beside(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    for card in board["columns"][0]["cards"]:
+        due = client.post(
+            f"{CRM}/cards/{card['id']}/due", headers=head, json={"due": LATER}
+        )
+        assert due.is_success
+    db.execute(update(CrmCard).values(due_at=utcnow() - timedelta(hours=1)))
+    db.commit()
+
+    assert client.get(CRM, headers=head).json()["late"] == 3
+    narrowed = client.get(CRM, headers=head, params={"q": "lid1"}).json()
+    assert narrowed["late"] == 1
+    pressed = client.get(CRM, headers=head, params={"q": "lid1", "f": "late"}).json()
+    assert (pressed["late"], _total(pressed)) == (1, 1)
+
+
+def test_the_leads_of_no_advert_can_be_listed_and_downloaded(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    one = db.query(Lead).filter_by(owner_id=owner.id, leadgen_id="lid0").one()
+    one.ad_external_id = ""
+    db.commit()
+
+    rows = client.get("/api/v1/leads", headers=head, params={"ad": "none"}).json()
+    file = client.get("/api/v1/leads/export", headers=head, params={"ad": "none"})
+
+    assert [row["full_name"] for row in rows["rows"]] == ["lid0"]
+    assert file.status_code == 200
+    wild = client.get("/api/v1/leads", headers=head, params={"q": "_"}).json()
+    assert wild["rows"] == []
+
+
+def _asks_again(db: Session, owner: User, was: str, name: str) -> str:
+    """The telephone of lead ``was`` sends a new enquiry now; the CRM places it."""
+    from app.modules.crm import services
+
+    old = db.query(Lead).filter_by(owner_id=owner.id, leadgen_id=was).one()
+    now = utcnow()
+    again = Lead(
+        owner_id=owner.id,
+        provider=PROVIDER,
+        leadgen_id=name,
+        form_id=old.form_id,
+        campaign_external_id=old.campaign_external_id,
+        ad_external_id=old.ad_external_id,
+        phone_e164=old.phone_e164,
+        full_name=name,
+        submitted_at=now,
+        received_at=now,
+    )
+    db.add(again)
+    db.commit()
+    return services.place_lead(db, lead_id=str(again.id))
+
+
+def _card_named(board: dict[str, Any], name: str) -> tuple[dict[str, Any], str]:
+    for column in board["columns"]:
+        for card in column["cards"]:
+            if card["lead"]["full_name"] == name:
+                return card, column["stage"]["kind"]
+    raise AssertionError(name)
+
+
+def test_a_sold_customer_who_asks_again_keeps_the_sale_and_gets_a_new_card(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    board = _running(client, head)
+    sold, _ = _card_named(board, "lid0")
+    won = client.post(
+        f"{CRM}/cards/{sold['id']}/win", headers=head, json={"amount": "150"}
+    )
+    assert won.is_success
+
+    assert _asks_again(db, owner, "lid0", "yana") == "returned"
+
+    board = client.get(CRM, headers=head).json()
+    kept, where = _card_named(board, "lid0")
+    assert (kept["id"], where) == (sold["id"], "won")
+    assert (
+        next(c for c in board["columns"] if c["stage"]["kind"] == "won")["won_minor"]
+        == won.json()["won_amount_minor"]
+    )
+    new, where = _card_named(board, "yana")
+    assert where == "new"
+    assert new["id"] != sold["id"]
+    assert new["returned"] == 1
+    # The newest enquiry stands first in its column.
+    assert board["columns"][0]["cards"][0]["id"] == new["id"]
+    assert _total(board) == 4
+
+
+def test_a_refused_customer_who_asks_again_returns_on_top_of_the_first_column(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    board = _running(client, head)
+    card, _ = _card_named(board, "lid1")
+    reason = client.get(f"{CRM}/settings", headers=head).json()["reasons"][0]["id"]
+    lost = client.post(
+        f"{CRM}/cards/{card['id']}/lose", headers=head, json={"reason": reason}
+    )
+    assert lost.is_success
+
+    assert _asks_again(db, owner, "lid1", "qaytdi") == "returned"
+
+    board = client.get(CRM, headers=head).json()
+    back, where = _card_named(board, "qaytdi")
+    assert (back["id"], where, back["returned"]) == (card["id"], "new", 1)
+    assert board["columns"][0]["cards"][0]["id"] == card["id"]
+    assert _total(board) == 3
+
+
+def test_the_untaken_chip_counts_the_new_cards_nobody_holds(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    assert board["untaken"] == 3
+    card = board["columns"][0]["cards"][0]["id"]
+    assert client.post(f"{CRM}/cards/{card}/take", headers=head).is_success
+
+    after = client.get(CRM, headers=head, params={"f": "untaken"}).json()
+
+    assert (after["untaken"], _total(after)) == (2, 2)
+    assert card not in [c["id"] for c in after["columns"][0]["cards"]]
+
+
+def test_a_file_of_seven_days_holds_seven_days(client: TestClient, db: Session) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    db.execute(
+        update(Lead)
+        .where(Lead.owner_id == owner.id)
+        .values(submitted_at=utcnow() - timedelta(days=20))
+    )
+    db.commit()
+
+    def file(**params: Any) -> int:
+        answer = client.get("/api/v1/leads/export", headers=head, params=params)
+        return answer.status_code
+
+    assert file() == 200
+    assert file(days=30) == 200
+    # Nothing came in the last week, so there is nothing to download.
+    assert file(days=7) == 404
+
+
+def test_the_leads_list_offers_the_crm_only_where_this_pair_runs_one(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    assert client.get("/api/v1/leads", headers=head).json()["crm_on"] is False
+
+    _running(client, head)
+
+    assert client.get("/api/v1/leads", headers=head).json()["crm_on"] is True
+
+
+def test_when_the_owner_hands_cards_out_a_manager_sees_and_takes_only_their_own(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    member, signed_in = _member(client, head, "qol@example.com")
+    client.post(
+        f"{CRM}/password",
+        headers=signed_in,
+        json={"password": PASSWORD + "1", "again": PASSWORD + "1"},
+    )
+    first, second = (card["id"] for card in board["columns"][0]["cards"][:2])
+    given = client.post(
+        f"{CRM}/cards/{first}/assign",
+        headers=head,
+        json={"assignee": member["user"]["id"]},
+    )
+    assert given.is_success
+
+    seen = client.get(CRM, headers=signed_in).json()
+
+    assert (seen["untaken"], _total(seen)) == (0, 1)
+    assert client.post(f"{CRM}/cards/{second}/take", headers=signed_in).status_code in (
+        403,
+        404,
+    )
+    assert client.get(CRM, headers=head).json()["untaken"] == 2
+
+
+def test_the_statistics_count_one_cohort_the_leads_that_came_in_the_period(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    board = _running(client, head)
+    sold, _ = _card_named(board, "lid0")
+    refused, _ = _card_named(board, "lid1")
+    reason = client.get(f"{CRM}/settings", headers=head).json()["reasons"][0]
+    assert client.post(f"{CRM}/cards/{sold['id']}/take", headers=head).is_success
+    assert client.post(
+        f"{CRM}/cards/{sold['id']}/win", headers=head, json={"amount": "150"}
+    ).is_success
+    assert client.post(
+        f"{CRM}/cards/{refused['id']}/lose", headers=head, json={"reason": reason["id"]}
+    ).is_success
+
+    stats = client.get(f"{CRM}/stats", headers=head, params={"period": "7"}).json()
+
+    totals = stats["totals"]
+    assert stats["state"] == "on"
+    assert (stats["range"]["days"], len(stats["daily"]["days"])) == (7, 7)
+    assert (totals["leads"], totals["won"], totals["lost"]) == (3, 1, 1)
+    assert (totals["taken"], totals["open"]) == (1, 1)
+    assert totals["conversion_pct"] == 33.3
+    assert totals["revenue_minor"] == totals["avg_deal_minor"] > 0
+    # Taken two hours after the enquiry came.
+    assert 115 <= totals["first_response_min"] <= 125
+    assert sum(stats["daily"]["leads"]) == 3
+    assert sum(stats["daily"]["won"]) == 1
+    funnel = {row["stage"]["kind"]: row["count"] for row in stats["funnel"]}
+    assert (funnel["new"], funnel["won"], funnel["lost"]) == (3, 1, 1)
+    # Every working column was passed by the sold card.
+    assert {
+        row["count"] for row in stats["funnel"] if row["stage"]["kind"] == "open"
+    } == {1}
+    assert stats["reasons"] == [{"name": reason["name"], "count": 1, "pct": 100}]
+    assert [(ad["id"], ad["leads"], ad["won"]) for ad in stats["ads"]] == [
+        ("ad_1", 3, 1)
+    ]
+    # The owner holds both cards they closed: the sold one and the refused one.
+    assert [(m["leads"], m["won"]) for m in stats["managers"]] == [(2, 1)]
+
+    # Leads that came before the days asked for are not this period's.
+    db.execute(
+        update(Lead)
+        .where(Lead.owner_id == owner.id)
+        .values(submitted_at=utcnow() - timedelta(days=10))
+    )
+    db.commit()
+    week = client.get(f"{CRM}/stats", headers=head, params={"period": "7"}).json()
+    month = client.get(f"{CRM}/stats", headers=head, params={"period": "30"}).json()
+    assert (week["totals"]["leads"], week["totals"]["won"]) == (0, 0)
+    assert week["totals"]["open"] == 1
+    assert month["totals"]["leads"] == 3
+
+
+def test_a_manager_has_no_statistics(client: TestClient, db: Session) -> None:
+    head = _auth(_owner(db))
+    _running(client, head)
+    _, signed_in = _member(client, head, "stat@example.com")
+    client.post(
+        f"{CRM}/password",
+        headers=signed_in,
+        json={"password": PASSWORD + "1", "again": PASSWORD + "1"},
+    )
+
+    assert client.get(f"{CRM}/stats", headers=signed_in).status_code == 404
+
+
+def test_today_is_what_is_still_to_do_and_ends_at_the_readers_midnight(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    cards = [card["id"] for card in board["columns"][0]["cards"]]
+    for card in cards:
+        assert client.post(
+            f"{CRM}/cards/{card}/due", headers=head, json={"due": LATER}
+        ).is_success
+    now = utcnow()
+
+    def due(card: str, at: Any) -> None:
+        db.execute(update(CrmCard).where(CrmCard.id == card).values(due_at=at))
+
+    due(cards[0], now - timedelta(minutes=5))
+    due(cards[1], now + timedelta(minutes=5))
+    due(cards[2], now + timedelta(hours=30))
+    db.commit()
+
+    # Kiritimati is 14 hours ahead and Pago Pago 11 behind: five minutes from
+    # now is today on any clock, thirty hours from now on none.
+    for zone in ("", "Pacific/Kiritimati", "Pacific/Pago_Pago", "No/Such_Zone"):
+        seen = client.get(CRM, headers=head, params={"tz": zone}).json()
+        assert seen["late"] == 1, zone
+        assert seen["today"] in (0, 1), zone
+    pressed = client.get(CRM, headers=head, params={"f": "today"}).json()
+    assert _total(pressed) == pressed["today"]
+    file = client.get(
+        "/api/v1/leads/export", headers=head, params={"tz": "Pacific/Kiritimati"}
+    )
+    assert file.status_code == 200

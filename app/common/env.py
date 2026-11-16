@@ -221,6 +221,14 @@ class Env(BaseSettings):
     staff_bot_token: str = Field(default="", alias="STAFF_BOT_TOKEN")
     staff_bot_webhook_secret: str = Field(default="", alias="STAFF_BOT_WEBHOOK_SECRET")
     staff_bot_username: str = Field(default="", alias="STAFF_BOT_USERNAME")
+    # Telegram user ids (not usernames) that get the owners' morning report.
+    staff_bot_admin_ids: CommaList = Field(default=[], alias="STAFF_BOT_ADMIN_IDS")
+    # The owners' own bot (@owners_tai_bot): the 07:00 report, and the card
+    # on /admin. The token alone sends the report; answering needs the secret.
+    owners_bot_token: str = Field(default="", alias="OWNERS_BOT_TOKEN")
+    owners_bot_webhook_secret: str = Field(
+        default="", alias="OWNERS_BOT_WEBHOOK_SECRET"
+    )
     # The clients' support bot: what is written to it lands in the cabinet's
     # support chat, and the office's replies come back to it.
     support_bot_token: str = Field(default="", alias="SUPPORT_BOT_TOKEN")
@@ -315,6 +323,7 @@ class Env(BaseSettings):
         "launch_goal_picker_v2_users",
         "google_ads_users",
         "chatgpt_ads_users",
+        "staff_bot_admin_ids",
         mode="before",
     )(_split_csv)
     _normalise_site_url = field_validator("site_url", mode="before")(_strip_site_url)

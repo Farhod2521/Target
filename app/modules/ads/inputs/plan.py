@@ -19,6 +19,7 @@ from app.common.presets import goal_label, offered_goals
 from app.modules.accounts.models import User
 from app.modules.ads.constants import (
     CAMPAIGN_TYPE,
+    CHAT_ANSWERS,
     CHAT_QUESTIONS,
     CLOSED_REASONS,
     GOAL_TEXT_MAX,
@@ -48,11 +49,24 @@ from app.modules.ads.selectors.goals import (
 from app.modules.ads.selectors.launches import last_daily_budget
 from app.modules.ads.selectors.plan_picker import account_facts, words_for_row
 from app.modules.ads.selectors.schedule import offered_days
+from app.modules.ads.selectors.telegram import (
+    LINK_KIND,
+    NOT_TELEGRAM,
+    TELEGRAM_GOAL,
+    bought_goal,
+    is_telegram,
+    telegram_link,
+)
 from app.modules.ads.services.readings import visible_rows
 from app.modules.ads.services.targeting import minimum_budget, welcome_greeting
 from app.modules.businesses.models import Business
 from app.modules.businesses.selectors import business_for_page
-from core.targeting import MAX_CHAT_QUESTIONS, MAX_GREETING_CHARS, clean_questions
+from core.targeting import (
+    MAX_ANSWER_CHARS,
+    MAX_CHAT_QUESTIONS,
+    MAX_GREETING_CHARS,
+    clean_answered,
+)
 from core.targeting.compat import (
     Offer,
     closed_by,
@@ -71,6 +85,7 @@ ASKED_BY = {
     "chat_channel": "chat",
     "welcome_text": "chat",
     "chat_questions": "chat",
+    "chat_answers": "chat",
 }
 
 
@@ -90,6 +105,10 @@ class PlanIn(BaseModel):
     chat_channel: str = ""
     welcome_text: str = ""
     chat_questions: list[str] = Field(default_factory=list)
+    chat_answers: list[str] = Field(
+        default_factory=list,
+        description="The answer sent by itself for the question at the same place.",
+    )
     start_day: Literal["today", "tomorrow"] = START_TODAY
 
 
@@ -153,13 +172,19 @@ def plan_initial(
         "daily_budget": to_major(
             amount_minor=(budget or frame.min_daily_minor) or None, places=frame.places
         ),
-        "link_url": launch.answers.get("link_url")
-        or (business.website if business else ""),
-        "welcome_text": welcome_greeting(db, launch=launch, business=business)
+        # The business's site is no answer to «Telegramga o'tsin»: only a
+        # Telegram address already given opens in its box.
+        "link_url": telegram_link(str(launch.answers.get("link_url") or ""))
+        if frame.goal == TELEGRAM_GOAL
+        else launch.answers.get("link_url") or (business.website if business else ""),
+        "welcome_text": welcome_greeting(
+            db, launch=launch, business=business, goal=frame.goal
+        )
         if business is not None
         else "",
         "chat_channel": opening_channel(db, launch=launch, goal=frame.goal),
         "chat_questions": list(launch.answers.get(CHAT_QUESTIONS) or []),
+        "chat_answers": list(launch.answers.get(CHAT_ANSWERS) or []),
         "start_day": START_TOMORROW
         if launch.start_date == frame.days[1]
         else START_TODAY,
@@ -223,11 +248,11 @@ def check_plan(
         problems.add("goal", SAY_WHAT_YOU_NEED)
         problems.refuse()
     frame = plan_frame(db, launch=launch, user=user, goal=body.goal, now=now)
-    answers = _destination(body, frame=frame, problems=problems, with_questions=False)
+    answers = _destination(body, frame=frame, problems=problems)
     answers |= _money_and_day(body, frame=frame, problems=problems)
     problems.refuse()
-    answers["chat_questions"] = None
-    answers["goal"] = body.goal
+    answers["goal"] = bought_goal(body.goal)
+    answers |= _link_kind(launch, telegram=body.goal == TELEGRAM_GOAL)
     answers["goal_text"] = words_for_goal(
         launch=launch, goal=body.goal, words=body.goal_text, mode=body.goal_mode
     )
@@ -268,12 +293,25 @@ def _check_rows(
     answers |= _money_and_day(body, frame=frame, problems=problems)
     problems.refuse(hints=_hints(body, problems=problems))
     answers["goal"] = row.goal
+    answers |= _link_kind(launch, telegram=False)
     answers["goal_text"] = words_for_row(
         launch=launch, row=row, words=body.goal_text, mode=body.goal_mode
     )
     if not campaign_type_locked(launch=launch):
         answers[CAMPAIGN_TYPE] = row.key
     return answers
+
+
+def _link_kind(launch: CampaignLaunch, *, telegram: bool) -> dict[str, Any]:
+    """Where the visit's link leads, and the kind a visit to Telegram is bought as.
+
+    A launch leaving Telegram drops the kind Telegram fixed, so its site is
+    bought by the goal's own default again.
+    """
+    if telegram:
+        return {LINK_KIND: TELEGRAM_GOAL}
+    leaving = {CAMPAIGN_TYPE: ""} if is_telegram(launch) else {}
+    return {LINK_KIND: ""} | leaving
 
 
 def _hints(body: PlanIn, *, problems: Problems) -> dict[str, str]:
@@ -300,7 +338,6 @@ def _destination(
     frame: PlanFrame,
     problems: Problems,
     asked: dict[str, bool] | None = None,
-    with_questions: bool = True,
 ) -> dict[str, Any]:
     """Each destination field the goal asks for, checked; ``None`` otherwise."""
     wanted = asked or {
@@ -309,7 +346,11 @@ def _destination(
         "chat": frame.opens_chat,
     }
     answers: dict[str, Any] = dict.fromkeys(ASKED_BY)
-    if wanted["link"]:
+    if wanted["link"] and frame.goal == TELEGRAM_GOAL:
+        answers["link_url"] = telegram_link(body.link_url)
+        if not answers["link_url"]:
+            problems.add("link_url", NOT_TELEGRAM)
+    elif wanted["link"]:
         answers["link_url"] = own_site(
             body.link_url, problems=problems, field="link_url"
         )
@@ -321,15 +362,11 @@ def _destination(
             field="phone_number",
         )
     if wanted["chat"]:
-        answers |= _chat(
-            body, frame=frame, problems=problems, with_questions=with_questions
-        )
+        answers |= _chat(body, frame=frame, problems=problems)
     return answers
 
 
-def _chat(
-    body: PlanIn, *, frame: PlanFrame, problems: Problems, with_questions: bool = True
-) -> dict[str, Any]:
+def _chat(body: PlanIn, *, frame: PlanFrame, problems: Problems) -> dict[str, Any]:
     welcome = body.welcome_text.strip()
     if len(welcome) > MAX_GREETING_CHARS:
         problems.add(
@@ -340,7 +377,8 @@ def _chat(
         if channel or len(frame.channels) > 1:
             problems.add("chat_channel", "Odamlar qayerga yozishini tanlang.")
         channel = ""
-    questions = list(clean_questions(body.chat_questions)) if with_questions else []
+    kept, replies = clean_answered(body.chat_questions, body.chat_answers)
+    questions = list(kept)
     if len(questions) > MAX_CHAT_QUESTIONS:
         problems.add(
             "chat_questions",
@@ -355,10 +393,15 @@ def _chat(
             "chat_questions",
             "Savollar bilan birga «Suhbat qanday boshlansin?» ham yozing.",
         )
+    if any(len(reply) > MAX_ANSWER_CHARS for reply in replies):
+        problems.add(
+            "chat_answers", f"Har bir avto javob {MAX_ANSWER_CHARS} belgidan oshmasin."
+        )
     return {
         "welcome_text": welcome,
         "chat_channel": channel or None,
         "chat_questions": questions,
+        "chat_answers": list(replies) if any(replies) else [],
     }
 
 

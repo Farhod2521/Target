@@ -126,6 +126,8 @@ ALLOWED_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "chat": frozenset({"chat", "order"}),
     "phone": frozenset({"call", "order"}),
     "website": frozenset({"site", "order", "form"}),
+    # The tap opens Telegram: «havola orqali o'ting», «yozing», «buyurtma bering».
+    "telegram": frozenset({"site", "chat", "order"}),
     "store": frozenset({"order", "call", "site"}),
     "nothing": frozenset(ACTIONS),
 }

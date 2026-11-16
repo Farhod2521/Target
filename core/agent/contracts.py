@@ -90,7 +90,7 @@ class Policy:
     # an ad set in its scaling stage waits longer - see
     # ``core.strategy.lifecycle.cooldown_hours``, which takes this as its
     # lower bound.
-    cooldown_hours: int = 48
+    cooldown_hours: int = 24
     # How old an object must be before anything at all is judged about it.
     # Age, not evidence: ``min_days`` counts days that actually spent, and
     # this counts hours since the thing started existing. An ad set

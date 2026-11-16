@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db, current_user
 from app.common import throttle
+from app.common.config import settings
 from app.common.db import get_db, utcnow
 from app.modules.accounts.models import User
 from app.modules.crm import selectors, services
@@ -61,7 +62,14 @@ SEARCH_Q = Query("", description="Search name or phone; first 80 characters are 
 MEMBER_Q = Query("", description="Only cards of this member (user id).")
 AD_Q = Query("", description="Only cards from this advert (Meta ad id).")
 FLAG_Q = Query(
-    "", description="`late` (due time passed) or `today` (due today); empty for all."
+    "",
+    description="`late` (due time passed), `today` (due today) or `untaken` "
+    "(a new card nobody holds); empty for all.",
+)
+ZONE_Q = Query(
+    "",
+    description="The reader's time zone (IANA, e.g. `Asia/Tashkent`): «Bugun» ends "
+    "at their midnight. Empty or unknown: the office's.",
 )
 PAIR_Q = Query(
     "",
@@ -244,6 +252,103 @@ def nav(db: Db, user: CurrentUser, pair: str = PAIR_Q) -> dict[str, Any]:
     return {"url": "/app/crm/", "attention": count}
 
 
+@router.get("/stats")
+def stats(
+    db: Db,
+    viewer: Viewer = Depends(owner_viewer),
+    period: str = Query("", description="`today`, `7`, `30` or `90`; default 30."),
+    since: str = Query("", description="First day (ISO), with `until`."),
+    until: str = Query("", description="Last day (ISO), with `since`."),
+) -> dict[str, Any]:
+    """What this pair's CRM did with the leads that came in the period."""
+    from app.modules.ads.selectors import ad_labels
+    from app.modules.crm.selectors.stats import share
+    from app.modules.crm.selectors.stats import stats as read_stats
+
+    found = read_stats(
+        db, viewer=viewer, period=period, since=since, until=until, now=utcnow()
+    )
+    total = found.totals
+    names = ad_labels(
+        db, owner=viewer.owner, external_ids=[key for key, _ in found.ads]
+    )
+    return {
+        "state": found.state,
+        "range": {
+            "since": found.range.since.isoformat(),
+            "until": found.range.until.isoformat(),
+            "today": found.range.today.isoformat(),
+            "earliest": found.range.earliest.isoformat(),
+            "time_zone": settings.office_timezone,
+            "days": found.range.days,
+        },
+        "currency": found.currency,
+        "totals": {
+            "leads": total.leads,
+            "taken": total.taken,
+            "qualified": total.qualified,
+            "won": total.won,
+            "lost": total.lost,
+            "open": found.open,
+            "late": found.late,
+            "revenue_minor": total.revenue_minor,
+            "avg_deal_minor": (
+                round(total.revenue_minor / total.won) if total.won else None
+            ),
+            "conversion_pct": total.conversion_pct,
+            "qualified_pct": (share(total.qualified, total.leads)),
+            "first_response_min": total.first_response_min,
+            "leads_delta_pct": found.leads_delta_pct,
+            "revenue_delta_pct": found.revenue_delta_pct,
+        },
+        "funnel": [
+            {
+                "stage": stage_out(stage),
+                "count": count,
+                "pct": share(count, total.leads),
+            }
+            for stage, count in found.funnel
+        ],
+        "daily": {
+            "days": [day.isoformat() for day in found.days],
+            "leads": found.daily_leads,
+            "won": found.daily_won,
+        },
+        "managers": [
+            {
+                "user": _user(user),
+                "leads": tally.leads,
+                "won": tally.won,
+                "revenue_minor": tally.revenue_minor,
+                "conversion_pct": tally.conversion_pct,
+                "first_response_min": tally.first_response_min,
+                "late": late,
+            }
+            for user, tally, late in found.managers
+        ],
+        "ads": [
+            {
+                "id": key,
+                "name": names[key].title if key in names else key,
+                "leads": tally.leads,
+                "qualified": tally.qualified,
+                "won": tally.won,
+                "revenue_minor": tally.revenue_minor,
+                "conversion_pct": tally.conversion_pct,
+            }
+            for key, tally in found.ads
+        ],
+        "reasons": [
+            {
+                "name": name,
+                "count": count,
+                "pct": round(count / total.lost * 100) if total.lost else 0,
+            }
+            for name, count in found.reasons
+        ],
+    }
+
+
 @router.get("", responses={200: {"model": BoardOut}})
 def board(
     db: Db,
@@ -252,6 +357,7 @@ def board(
     m: str = MEMBER_Q,
     ad: str = AD_Q,
     f: str = FLAG_Q,
+    tz: str = ZONE_Q,
 ) -> dict[str, Any]:
     if viewer.pair is None:
         return {"setup_needed": False, "no_pair": True} | pairs_out(viewer)
@@ -262,7 +368,7 @@ def board(
             "step": setup.step if setup else 1,
         } | pairs_out(viewer)
     now = utcnow()
-    filters = selectors.read_filters(q=q, m=m, ad=ad, f=f)
+    filters = selectors.read_filters(q=q, m=m, ad=ad, f=f, tz=tz)
     found = selectors.board(db, viewer=viewer, filters=filters, now=now)
     return pairs_out(viewer) | {
         "setup_needed": False,
@@ -272,6 +378,7 @@ def board(
         "columns": [column_out(column, found.ads) for column in found.columns],
         "late": found.late,
         "today": found.today,
+        "untaken": found.untaken,
         "cursor": found.cursor,
         "filters": asdict(filters),
         "members": team_out(db, viewer),
@@ -314,11 +421,12 @@ def column(
     m: str = MEMBER_Q,
     ad: str = AD_Q,
     f: str = FLAG_Q,
+    tz: str = ZONE_Q,
 ) -> dict[str, Any]:
     found = selectors.column_page(
         db,
         viewer=viewer,
-        filters=selectors.read_filters(q=q, m=m, ad=ad, f=f),
+        filters=selectors.read_filters(q=q, m=m, ad=ad, f=f, tz=tz),
         stage_id=str(pk),
         start=start,
         now=utcnow(),

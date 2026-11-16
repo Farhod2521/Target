@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import date
 
 from core.agent.launch_watch import WatchedGroup, moved_budget
-from core.agent.running_watch import Running, Tally, running_watch
+from core.agent.running_watch import Running, Tally, dry, running_watch
 
 BUDGET = 100_000
 USUAL = 20_000
@@ -87,7 +87,7 @@ def test_a_shared_budget_is_not_offered_from_one_group() -> None:
 
 
 def test_three_dry_days_worth_a_result_are_said_and_waited() -> None:
-    found = running_watch(_group(), _facts(dry_days=3, dry_spend_minor=USUAL))
+    found = dry(_group(), _facts(dry_days=3, dry_spend_minor=USUAL))
     assert found is not None
     assert (found.stage, found.advised) == ("dry", "wait")
     # The spell is named by the results so far, which hold still while it
@@ -96,7 +96,7 @@ def test_three_dry_days_worth_a_result_are_said_and_waited() -> None:
 
 
 def test_three_dry_days_worth_three_results_are_advised_paused() -> None:
-    found = running_watch(_group(), _facts(dry_days=3, dry_spend_minor=3 * USUAL))
+    found = dry(_group(), _facts(dry_days=3, dry_spend_minor=3 * USUAL))
     assert found is not None
     assert found.advised == "pause"
 
@@ -104,7 +104,7 @@ def test_three_dry_days_worth_three_results_are_advised_paused() -> None:
 def test_a_long_spell_is_paused_only_on_three_results_worth() -> None:
     """The brief decides nothing under three results' usual price, however
     many days the spell has run."""
-    found = running_watch(_group(), _facts(dry_days=9, dry_spend_minor=USUAL))
+    found = dry(_group(), _facts(dry_days=9, dry_spend_minor=USUAL))
     assert found is not None
     assert (found.advised, found.tag) == ("wait", "7:40")
 
@@ -116,8 +116,8 @@ def test_dry_days_too_cheap_to_have_bought_one_say_nothing() -> None:
 
 def test_without_any_price_the_budget_is_the_bar() -> None:
     facts = _facts(dry_days=3, expected_cost_minor=None)
-    assert running_watch(_group(), replace(facts, dry_spend_minor=BUDGET)) is None
-    found = running_watch(_group(), replace(facts, dry_spend_minor=BUDGET * 3 // 2))
+    assert dry(_group(), replace(facts, dry_spend_minor=BUDGET)) is None
+    found = dry(_group(), replace(facts, dry_spend_minor=BUDGET * 3 // 2))
     assert found is not None
     assert found.stage == "dry"
 
@@ -129,7 +129,7 @@ def test_a_result_today_ends_the_dry_spell() -> None:
 
 def test_a_learning_group_three_days_dry_is_waited_for() -> None:
     facts = _facts(dry_days=3, dry_spend_minor=5 * USUAL)
-    found = running_watch(_group(learning=True), facts)
+    found = dry(_group(learning=True), facts)
     assert found is not None
     assert found.advised == "wait"
 
