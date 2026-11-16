@@ -8,6 +8,7 @@ import uuid
 from typing import Any, Final
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
+from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
 from app.common import throttle
@@ -29,6 +30,9 @@ from app.modules.ads.contract.launch.forms import (
 from app.modules.ads.contract.launch.review import REGENERATE, review_status
 from app.modules.ads.contract.launch.shapes import (
     ChatQuestionReading,
+    ChatTemplate,
+    ChatTemplateIn,
+    ChatTemplates,
     DepthIn,
     ExistingForm,
     FormVariant,
@@ -41,6 +45,7 @@ from app.modules.ads.contract.launch.shapes import (
 )
 from app.modules.ads.exceptions import NothingToCleanUp
 from app.modules.ads.inputs.media import MediaContinueIn
+from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.routers import launch as plan_routes
 from app.modules.ads.routers import launch_forms as form_routes
 from app.modules.ads.routers import launch_media as media_routes
@@ -57,11 +62,13 @@ from app.modules.ads.routers.drafts_google import (
     google_of,
     retry_google,
 )
+from app.modules.ads.routers.launch_common import committed, writable_launch
 from app.modules.ads.routers.launch_forms import AutoIn
 from app.modules.ads.routers.launch_review import CreateIn
 from app.modules.ads.selectors.media_step import chosen_assets
 from app.modules.ads.selectors.review_proposal import launch_country
 from app.modules.ads.selectors.variants import launch_variants
+from app.modules.ads.services import chat_templates
 from app.modules.ads.services.locations import place_query, search_places
 
 router = APIRouter(prefix="/launch/drafts", tags=["launch"])
@@ -453,6 +460,79 @@ def ask_chat_questions(
     kept.counted(taps, "chat", 0)
     kept.write(draft_id, taps)
     return ChatQuestionReading.model_validate(chat_reading(answer))
+
+
+# ---- chat templates on the plan ----
+
+# A template refusal's fields, as the plan screen names them.
+TEMPLATE_FIELDS: Final[dict[str, str]] = {
+    "welcome_text": "welcomeText",
+    "chat_questions": "chatQuestions",
+    "chat_answers": "chatAnswers",
+}
+
+
+def _templates(db: Session, launch: CampaignLaunch) -> ChatTemplates:
+    return ChatTemplates(
+        items=[
+            ChatTemplate(
+                id=str(row.id),
+                name=row.name,
+                welcome_text=row.welcome_text,
+                chat_questions=[str(question) for question in row.questions or []],
+                chat_answers=[str(reply) for reply in row.answers or []],
+            )
+            for row in chat_templates.templates_for(db, launch=launch)
+        ],
+        max_items=chat_templates.MAX_TEMPLATES,
+        max_name_chars=chat_templates.MAX_NAME_CHARS,
+    )
+
+
+@router.get("/{draft_id}/chat-templates", response_model=ChatTemplates)
+def list_chat_templates(
+    draft_id: uuid.UUID, db: Db, user: CurrentUser
+) -> ChatTemplates:
+    """The greetings and questions kept under a name for this advert's page."""
+    return _templates(db, launch_of(db, user=user, draft_id=draft_id))
+
+
+@router.post("/{draft_id}/chat-templates", response_model=ChatTemplates)
+def save_chat_template(
+    draft_id: uuid.UUID, body: ChatTemplateIn, db: Db, user: CurrentUser
+) -> ChatTemplates:
+    """«Shablon qilib saqlash»: keep what the boxes hold under a name. A name
+    already there is written over. Answers the list read again."""
+    launch = writable_launch(db, user=user, launch_id=draft_id)
+    try:
+        committed(
+            db,
+            lambda: chat_templates.save_template(
+                db,
+                launch=launch,
+                name=body.name,
+                welcome_text=body.welcome_text,
+                questions=body.chat_questions,
+                answers=body.chat_answers,
+            ),
+        )
+    except InputRefused as refusal:
+        raise renamed(refusal, TEMPLATE_FIELDS) from refusal
+    return _templates(db, launch)
+
+
+@router.delete("/{draft_id}/chat-templates/{template_id}", response_model=ChatTemplates)
+def delete_chat_template(
+    draft_id: uuid.UUID, template_id: uuid.UUID, db: Db, user: CurrentUser
+) -> ChatTemplates:
+    launch = launch_of(db, user=user, draft_id=draft_id)
+    committed(
+        db,
+        lambda: chat_templates.delete_template(
+            db, launch=launch, template_id=template_id
+        ),
+    )
+    return _templates(db, launch)
 
 
 __all__ = ["router"]

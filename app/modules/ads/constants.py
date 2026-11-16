@@ -616,6 +616,8 @@ MAX_GOAL_POLLS: Final = 20
 GOAL_PENDING_SECONDS: Final = 120
 GOAL_READINGS_PER_HOUR: Final = 30
 CHAT_QUESTIONS: Final = "chat_questions"
+# The answer sent by itself for the question at the same place; "" for none.
+CHAT_ANSWERS: Final = "chat_answers"
 CHAT_QUESTIONS_READING: Final = "chat_questions_reading"
 CHAT_QUESTIONS_PENDING: Final = "pending"
 CHAT_QUESTIONS_DONE: Final = "done"

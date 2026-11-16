@@ -241,6 +241,7 @@ class DestinationOut(Shape):
     chat_channel_label: str
     welcome_text: str
     chat_questions: list[str]
+    chat_answers: list[str] = Field(default_factory=list)
     phone: str
     profile: str
     promotes_post: bool
@@ -335,6 +336,7 @@ class ProposalOut(Shape):
     )
     advice: ProposalAdviceOut
     chat_questions: list[str]
+    chat_answers: list[str] = Field(default_factory=list)
 
 
 class ReviewOut(Shape):

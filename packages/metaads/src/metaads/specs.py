@@ -47,6 +47,9 @@ CTA_NO_BUTTON: Final = "NO_BUTTON"
 # Meta's own page-level questions take, and the most asked for here.
 MAX_QUESTION_CHARS: Final = 80
 MAX_WELCOME_QUESTIONS: Final = 4
+# The answer sent by itself when a question is tapped (``response`` beside
+# the ``title``). Meta documents no ceiling for it; the greeting's is kept.
+MAX_ANSWER_CHARS: Final = 300
 
 
 def checked_questions(questions: tuple[str, ...]) -> tuple[str, ...]:
@@ -63,6 +66,16 @@ def checked_questions(questions: tuple[str, ...]) -> tuple[str, ...]:
                 f"a welcome question is at most {MAX_QUESTION_CHARS} characters"
             )
     return questions
+
+
+def checked_answers(answers: tuple[str, ...]) -> tuple[str, ...]:
+    """The answers beside the questions, place for place; blank is none."""
+    for answer in answers:
+        if len(answer) > MAX_ANSWER_CHARS:
+            raise ValueError(
+                f"a welcome answer is at most {MAX_ANSWER_CHARS} characters"
+            )
+    return answers
 
 
 # The scheme a dialable number is written with inside the button. Meta's
@@ -384,6 +397,17 @@ class CreativeSpec(MetaDTO):
     @classmethod
     def _questions_fit(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return checked_questions(value)
+
+    # What is answered by itself when the question at the same place is
+    # tapped; ``""`` leaves that one to the business.
+    welcome_answers: tuple[str, ...] = Field(
+        default=(), max_length=MAX_WELCOME_QUESTIONS
+    )
+
+    @field_validator("welcome_answers")
+    @classmethod
+    def _answers_fit(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return checked_answers(value)
 
     # Runs the ad under the business's Instagram account as well. Empty is
     # the normal case - most advertisers here have a page and nothing else.

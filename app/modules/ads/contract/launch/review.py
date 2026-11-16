@@ -407,6 +407,9 @@ def proposal(
         line["chat"] = {
             "channel": channel,
             "questions": len(destination.get("chat_questions") or []),
+            "answers": sum(
+                1 for reply in destination.get("chat_answers") or [] if text(reply)
+            ),
         }
     if goal.get("method") == "website" and destination.get("link"):
         line["site"] = destination["link"]

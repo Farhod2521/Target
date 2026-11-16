@@ -67,6 +67,7 @@ PLAN_FIELDS: Final[dict[str, str]] = {
     "chat_channel": "chatChannel",
     "welcome_text": "welcomeText",
     "chat_questions": "chatQuestions",
+    "chat_answers": "chatAnswers",
     "start_day": "start",
 }
 # The goal reading is asked and then read until written: so long, so often.
