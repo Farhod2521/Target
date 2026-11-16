@@ -56,6 +56,8 @@ WAIT_HOURS: Final = 24
 CTR_LOW_PCT: Final = 70
 CPM_HIGH_PCT: Final = 150
 CONVERSION_LOW_PCT: Final = 70
+# A rate is said only once the price is this far up, in percent of usual.
+RATE_PRICE_PCT: Final = 150
 # Showings before a rate of today's means anything.
 MIN_RATE_IMPRESSIONS: Final = 1_000
 # Frequency over seven days, in hundredths.
@@ -317,15 +319,33 @@ def _weak_ads(group: GroupToday) -> list[Finding]:
 
 def _rates(group: GroupToday) -> list[Finding]:
     """The click rate, the showings' price and the frequency - at most one,
-    the first of them, since each asks for the same look at the advert."""
+    the first of them, since each asks for the same look at the advert.
+
+    A rate is said only while the price is already going up with it. On any
+    one day a tenth of all groups sit under 70 % of their usual click rate
+    and cost what they always cost; that is a day, not a problem.
+    """
+    if group.frequency is not None and group.frequency >= FREQUENCY_BAR:
+        return [_rate(group, "frequency", "add_creative")]
+    if not _price_is_climbing(group):
+        return []
     why = causes(group)
     if "ctr" in why:
         return [_rate(group, "ctr", "add_creative")]
-    if group.frequency is not None and group.frequency >= FREQUENCY_BAR:
-        return [_rate(group, "frequency", "add_creative")]
     if "cpm" in why and group.impressions >= MIN_RATE_IMPRESSIONS:
         return [_rate(group, "cpm", "leave")]
     return []
+
+
+def _price_is_climbing(group: GroupToday) -> bool:
+    """One and a half usual prices for a result - or a usual price's worth
+    gone with none yet. Under three, where the price has its own message."""
+    usual = group.usual.cost_minor
+    if not usual:
+        return False
+    if group.results <= 0:
+        return group.spend_minor >= usual
+    return price_times(group) >= RATE_PRICE_PCT
 
 
 def _rate(group: GroupToday, kind: Kind, advice: Advice) -> Finding:

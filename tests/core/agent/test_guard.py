@@ -211,16 +211,26 @@ def test_a_small_share_is_not_the_weak_advert() -> None:
 # -- rates -------------------------------------------------------------------------------
 
 
-def test_a_fallen_click_rate_asks_for_a_creative() -> None:
-    group = _group(spend_minor=150, results=2, impressions=1_000, link_clicks=6)
+def test_a_fallen_click_rate_with_a_climbing_price_asks_for_a_creative() -> None:
+    # 0.6 % against 1 %, and a result at 1.6 usual prices.
+    group = _group(spend_minor=160, results=1, impressions=1_000, link_clicks=6)
     found = _one(group)
     assert (found.kind, found.advice) == ("ctr", "add_creative")
 
 
+def test_a_fallen_click_rate_at_the_usual_price_is_only_a_day() -> None:
+    group = _group(spend_minor=150, results=2, impressions=1_000, link_clicks=6)
+    assert judge(group) == []
+
+
+def test_a_fallen_click_rate_with_a_usual_price_gone_and_nothing_back() -> None:
+    group = _group(spend_minor=100, results=0, impressions=1_000, link_clicks=6)
+    assert _one(group).kind == "ctr"
+
+
 def test_too_few_showings_say_nothing_about_a_rate() -> None:
-    assert (
-        judge(_group(spend_minor=50, results=1, impressions=999, link_clicks=1)) == []
-    )
+    group = _group(spend_minor=160, results=1, impressions=999, link_clicks=1)
+    assert judge(group) == []
 
 
 def test_frequency_past_three() -> None:
@@ -228,8 +238,9 @@ def test_frequency_past_three() -> None:
     assert judge(_group(frequency=299)) == []
 
 
-def test_dear_showings_alone_are_left() -> None:
-    group = _group(spend_minor=400, results=5, impressions=1_000, link_clicks=10)
+def test_dear_showings_with_a_climbing_price_are_left() -> None:
+    # CPM 400 against 200, the usual 1 % clicking, a result at twice usual.
+    group = _group(spend_minor=400, results=2, impressions=1_000, link_clicks=10)
     found = _one(group)
     assert (found.kind, found.advice) == ("cpm", "leave")
 
