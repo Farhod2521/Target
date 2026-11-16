@@ -18,6 +18,7 @@ from metaads.enhancements import (
     FEATURES,
     FEATURES_KEY,
     MUSIC_KEY,
+    TRANSLATIONS,
     opted_out,
     still_on,
 )
@@ -148,8 +149,34 @@ def test_a_refusal_is_answered_without_the_music_first(
     ]
 
 
-def test_then_without_either(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_then_with_only_the_translations_turned_down(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """One feature Meta will not take refuses the whole list; the language
+    the owner wrote in is still kept from being translated."""
     seen = answering(monkeypatch, refusals=2)
+
+    with caplog.at_level(logging.WARNING, logger="metaads.enhancements"):
+        made = create_creative(
+            account_id="act_1", spec=CREATIVE, token="t", dry_run=False
+        )
+
+    posts = [each for each in seen if each.method == "POST"]
+    assert made == "777"
+    assert blocks(posts[-1]) == {FEATURES_KEY}
+    features = json.loads(posted(posts[-1])[FEATURES_KEY])["creative_features_spec"]
+    assert set(features) == set(TRANSLATIONS)
+    assert {value["enroll_status"] for value in features.values()} == {"OPT_OUT"}
+    assert "image_touchups" in caplog.text
+
+
+def test_every_translation_is_a_feature_turned_down() -> None:
+    assert set(TRANSLATIONS) <= set(FEATURES)
+    assert "text_overlay_translation" in TRANSLATIONS
+
+
+def test_then_without_either(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = answering(monkeypatch, refusals=3)
 
     made = create_creative(account_id="act_1", spec=CREATIVE, token="t", dry_run=False)
 
@@ -160,14 +187,14 @@ def test_then_without_either(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_the_last_refusal_is_the_one_raised(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Three refusals: the third was the creative with neither block - the
+    """Four refusals: the fourth was the creative with neither block - the
     request this product sent before them - and its refusal is the answer."""
-    seen = answering(monkeypatch, refusals=3)
+    seen = answering(monkeypatch, refusals=4)
 
-    with pytest.raises(MetaAPIError, match="Invalid parameter 3"):
+    with pytest.raises(MetaAPIError, match="Invalid parameter 4"):
         create_creative(account_id="act_1", spec=CREATIVE, token="t", dry_run=False)
 
-    assert len([each for each in seen if each.method == "POST"]) == 3
+    assert len([each for each in seen if each.method == "POST"]) == 4
 
 
 def test_a_creative_made_with_less_is_logged(
