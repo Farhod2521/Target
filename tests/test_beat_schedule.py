@@ -43,7 +43,7 @@ def test_the_ads_tasks_keep_django_s_minutes() -> None:
         "restart_launches_task": ("8,18,28,38,48,58", "*"),
         "sweep_abandoned_uploads_task": ("6,36", "*"),
         "sweep_lapsed_subscriptions": ("5,20,35,50", "*"),
-        "check_all_sites_task": ("25", "3"),
+        "check_all_sites_task": ("25", "*"),
     }
 
 
@@ -79,7 +79,6 @@ def test_the_agent_tasks_keep_django_s_minutes() -> None:
         "diagnose_all_accounts_task": ("50", "*"),
         "assess_all_outcomes": ("55", "5"),
         "run_all_agents": ("0", "*"),
-        "check_all_frequency": ("5", "*"),
     }
 
 

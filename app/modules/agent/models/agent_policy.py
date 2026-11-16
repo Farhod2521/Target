@@ -22,7 +22,7 @@ class AgentPolicy(Base):
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     self_repair: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     window_days: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=7)
-    cooldown_hours: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=48)
+    cooldown_hours: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=24)
     max_per_run: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=3)
     budget_step_pct: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=20)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

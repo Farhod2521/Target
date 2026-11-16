@@ -37,11 +37,17 @@ _URGENT: Final = frozenset({"price", "fruitless", "site_down"})
 
 
 def open_guard_alerts(db: Session, *, owner: User) -> list[GuardAlert]:
-    """The owner's open findings, the dearest first."""
+    """The owner's open findings still waiting for an answer, the dearest
+    first. One answered - left for now, or given a lower budget - stays open
+    for the guard to watch and comes back here only at its next step."""
     return list(
         db.scalars(
             select(GuardAlert)
-            .where(GuardAlert.owner_id == owner.id, GuardAlert.closed_at.is_(None))
+            .where(
+                GuardAlert.owner_id == owner.id,
+                GuardAlert.closed_at.is_(None),
+                GuardAlert.answer == "",
+            )
             .order_by(GuardAlert.times.desc(), GuardAlert.created_at)
         )
     )

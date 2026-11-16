@@ -25,6 +25,11 @@ def stop_fruitless(db: Session, *, owner: User, now: datetime) -> int:
     """Stop every group past its bar. Returns how many were stopped. Commits."""
     stopped = 0
     for found in stop_candidates(db, owner=owner, now=now):
+        if found.group.usual_cost_minor:
+            # A group with a usual price is the half-hourly guard's: three
+            # usual prices gone since the last result, said in its words.
+            # This rule is left the groups nothing has a price for yet.
+            continue
         if not must_stop(found.group, small=_small(found.currency)):
             continue
         try:

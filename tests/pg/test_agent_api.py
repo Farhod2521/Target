@@ -225,8 +225,10 @@ def test_the_readers_over_a_launched_group_with_figures(
     assert facts.adsets[0].week_frequency is not None
     state = strategy_state(db, owner=user, account=account, policy=Policy(), now=now)
     assert state.adsets
+    # Days with nothing back are the half-hourly guard's to say; the watch
+    # has no line of its own about them any more.
     watch = watched_groups(db, owner=user, accounts=[account], now=now)
-    assert [row.adset_id for row in watch] == ["s_1"]
+    assert watch == []
     stops = stop_candidates(db, owner=user, now=now)
     assert [row.group.adset_id for row in stops] == ["s_1"]
     assert stops[0].group.spend_minor > 0 and stops[0].results_ever == 0

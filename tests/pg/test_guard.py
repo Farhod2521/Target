@@ -20,6 +20,7 @@ from app.modules.audit.models import ActionLog
 from app.modules.billing.services import start_trial
 from app.modules.integrations.models import AdAccount
 from app.modules.metrics.models import MetricsDaily
+from app.modules.notifications.selectors.inbox_guard import open_guard_alerts
 from tests.pg.conftest import sign_up
 from tests.pg.test_cabinet_flows import _cabinet
 
@@ -304,12 +305,16 @@ def test_leave_is_written_down_and_the_next_step_still_comes(
     (row,) = _rows(db)
     assert (row.answer, row.closed_at) == ("leave", None)
     assert _pauses(db) == []
+    # Answered: off the cabinet's list until the price goes a step further.
+    assert open_guard_alerts(db, owner=owner) == []
 
     _today(db, owner, account, now, spend=700, leads=1)
     assert run_guard(db, owner=owner, now=now) == 0
     _today(db, owner, account, now, spend=820, leads=1)
     assert run_guard(db, owner=owner, now=now) == 1
-    assert _rows(db)[0].step == 4
+    (row,) = _rows(db)
+    assert (row.step, row.answer) == (4, "")
+    assert [found.id for found in open_guard_alerts(db, owner=owner)] == [row.id]
 
 
 def test_pause_asks_the_provider_once_and_closes_the_finding(

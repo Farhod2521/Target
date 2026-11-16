@@ -200,6 +200,9 @@ def _one(
             created_at=now,
         )
         db.add(row)
+    # A new step is a new question: the answer given to the last one - «leave
+    # it for now», a lower budget - does not answer this one.
+    row.answer, row.answered_at = "", None
     row.name = _name(item, finding)
     row.action = action
     row.advice = advice

@@ -50,7 +50,7 @@ SCHEDULE: Final = [
         f"{TASKS}.sweep_lapsed_subscriptions",
         "5,20,35,50",
     ),
-    Periodic(
-        "Reklama saytlarini tekshirish", f"{TASKS}.check_all_sites_task", "25", "3"
-    ),
+    # Hourly since the guard stops a group whose page does not open: a look
+    # a night old is no ground for that, nor for leaving it running.
+    Periodic("Reklama saytlarini tekshirish", f"{TASKS}.check_all_sites_task", "25"),
 ]
