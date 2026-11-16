@@ -87,7 +87,7 @@ def test_a_goal_typed_as_spaces_is_refused_before_the_model_is_asked(
     assert len(queued) == before
 
 
-def test_the_older_step_does_not_refuse_chat_questions_it_never_saves(
+def test_the_older_step_checks_the_chat_questions_it_saves(
     client: TestClient, db: Session
 ) -> None:
     auth, launch_id, _user = _opened(client, db)
@@ -102,11 +102,16 @@ def test_the_older_step_does_not_refuse_chat_questions_it_never_saves(
 
     answer = client.post(
         f"/api/v1/launch/{launch_id}/plan",
-        json={"goal": "messages", "chat_questions": ["savol"] * 9},
+        json={
+            "goal": "messages",
+            "welcome_text": "Salom!",
+            "chat_questions": [f"savol {n}?" for n in range(9)],
+        },
         headers=auth,
     )
 
-    assert "chat_questions" not in answer.json().get("problems", {})
+    assert answer.status_code == 422, answer.text
+    assert "chat_questions" in answer.json()["problems"]
 
 
 def test_a_refused_start_names_its_reason(client: TestClient, db: Session) -> None:
