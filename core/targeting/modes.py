@@ -1,6 +1,7 @@
 """What each of the three audience modes does to a spec."""
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Final, Literal, get_args
 
 from core.targeting.adjustments import Adjustment
@@ -74,6 +75,72 @@ def fit_automatic_ages(spec: dict[str, Any], notes: list[Adjustment]) -> None:
         )
 
 
+FieldUse = Literal["exact", "hint", "unused", "required"]
+"""What a mode does with one audience field, for a screen to draw from.
+
+``exact``: sent and kept to. ``hint``: sent, but the provider may reach
+beyond it. ``unused``: never sent in this mode, so not shown. ``required``:
+sent and kept to, and the launch is refused without one.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class AgeRule:
+    """The ages a screen may offer under one mode."""
+
+    min: int = 18
+    max: int = 65
+    lowest_max: int = 65
+    upper_sent: bool = True
+    fixed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ModeRules:
+    """One mode, field by field, as the spec builder treats it."""
+
+    mode: TargetingMode
+    interests: FieldUse
+    habits: FieldUse
+    genders: FieldUse
+    include_lists: FieldUse
+    age: AgeRule
+
+
+def mode_rules(mode: TargetingMode, *, special: bool = False) -> ModeRules:
+    """What ``build`` does with each field in ``mode``; one truth for both.
+
+    A special ad category is built with the switch off and without genders
+    or detailed targeting (``validators.SPECIAL_FORBIDDEN``), whatever mode
+    was stored, so every mode reads the same there.
+    """
+    if special:
+        return ModeRules(
+            mode=mode,
+            interests="unused",
+            habits="unused",
+            genders="unused",
+            include_lists="exact",
+            age=AgeRule(min=18, max=65, fixed=True),
+        )
+    detailed: FieldUse = "unused"
+    if wants_interests(mode):
+        detailed = "required" if requires_interests(mode) else "exact"
+    automatic = mode == "automatic"
+    return ModeRules(
+        mode=mode,
+        interests=detailed,
+        habits="exact" if wants_interests(mode) else "unused",
+        # Under the switch the provider reads both as suggestions only.
+        genders="hint" if automatic else "exact",
+        include_lists="hint" if automatic else "exact",
+        age=AgeRule(
+            lowest_max=AUTOMATIC_MAX_AGE_MIN if automatic else 65,
+            upper_sent=not automatic,
+        ),
+    )
+
+
 def resolve_mode(value: object) -> TargetingMode:
     """A stored mode, or the default for a missing or unknown one."""
     return value if value in MODES else DEFAULT_TARGETING_MODE
@@ -97,10 +164,14 @@ __all__ = [
     "AUTOMATION_OFF",
     "AUTOMATION_ON",
     "MODES",
+    "AgeRule",
+    "FieldUse",
+    "ModeRules",
     "automation",
     "fit",
     "fit_automatic_ages",
     "is_automatic",
+    "mode_rules",
     "requires_interests",
     "resolve_mode",
     "sent_ages",

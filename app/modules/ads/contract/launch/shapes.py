@@ -18,6 +18,7 @@ from app.modules.ads.contract.launch.words import (
 from core.targeting import MAX_RADIUS_KM, MIN_RADIUS_KM
 
 By = Literal["ai", "me"]
+Who = Literal["auto", "interests", "broad"]
 ChatChannel = Literal["messenger", "instagram"]
 EditSection = Literal[
     "aud", "geo", "int", "hab", "reach", "ads", "form", "adv", "budget"
@@ -389,7 +390,7 @@ class EditPositionOptions(Camel):
 
 
 class EditAudience(Camel):
-    who: Literal["auto", "interests", "broad"]
+    who: Who
     apps: Literal["auto", "fbig", "instagram", "facebook"]
     # Left out on save: the positions stay as they are.
     positions: EditPositions | None = None
@@ -404,6 +405,58 @@ class EditAudience(Camel):
     ai_age: list[int]
     genders: list[Literal["m", "f"]]
     lists: list[AudienceList]
+
+
+FieldUse = Literal["exact", "hint", "unused", "required"]
+
+
+class AgeRuleOut(Camel):
+    """The ages the «Yosh» card may offer under one mode."""
+
+    min: int
+    max: int
+    lowest_max: int = Field(
+        description="The highest «dan» Meta keeps; 25 under «Meta o'zi topadi»."
+    )
+    upper_sent: bool = Field(
+        description="False: no upper age is sent, Meta reads it as 65+; "
+        "the «gacha» half is not offered."
+    )
+    fixed: bool = Field(description="True: 18-65 and nothing else; not editable.")
+
+
+class ModeFields(Camel):
+    """Per field: `exact` kept to, `hint` Meta may reach beyond it, `unused` never
+    sent (the section or control is not shown), `required` the launch is refused
+    without one (an included own list counts instead)."""
+
+    interests: FieldUse
+    habits: FieldUse
+    genders: FieldUse
+    include_lists: FieldUse
+
+
+class ModeRule(Camel):
+    value: Who
+    title: str
+    note: str
+    fields: ModeFields
+    age: AgeRuleOut
+
+
+class AudienceRules(Camel):
+    """Read only: what each «Kim tanlaydi?» answer does, so the screen draws the
+    sections from it and keeps no default, badge or limit of its own."""
+
+    default: Who = Field(description="The mode a launch gets when nobody chooses.")
+    recommended: Who | None = Field(
+        description="Marked «Tavsiya»; none for a special ad category."
+    )
+    recommended_note: str = ""
+    locked: bool = Field(
+        description="A special ad category: the one mode is shown, no choice."
+    )
+    modes: list[ModeRule]
 
 
 class Place(Camel):
@@ -531,6 +584,7 @@ class ProposalEdit(Camel):
     )
     adv: list[AdvRow]
     budget: EditBudget | None = None
+    rules: AudienceRules | None = Field(None, description="Read only; ignored on save.")
 
 
 class FormVariant(Camel):
@@ -723,12 +777,15 @@ class UploadDone(Camel):
 
 
 __all__ = [
+    "AgeRuleOut",
     "Area",
+    "AudienceRules",
     "ChatQuestionReading",
     "DepthIn",
     "DraftPatch",
     "DraftStart",
     "ExistingForm",
+    "FieldUse",
     "FormVariant",
     "GoalPress",
     "GoogleWords",
@@ -739,7 +796,10 @@ __all__ = [
     "MediaLibrary",
     "MediaPage",
     "MediaPlay",
+    "ModeFields",
+    "ModeRule",
     "NameIn",
     "ProposalEdit",
     "UploadDone",
+    "Who",
 ]

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.common.cache import cache
 from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.exceptions import PlaceSearchFailed
-from app.modules.ads.models import AdSet, Campaign
+from app.modules.ads.models import AdSet, Campaign, CampaignLaunch
 from app.modules.ads.services.access import target_account_and_token
 from app.modules.ads.services.interests import sized
 from core.targeting.revise import Detail
@@ -59,9 +59,35 @@ def search_detail(
 ) -> list[dict[str, Any]]:
     """Interests, behaviours and life events a person may pick for this word."""
 
+    return _detail(
+        provider=campaign.provider, token_of=lambda: _token(campaign), query=query
+    )
+
+
+def launch_interests(
+    db: Session, *, launch: CampaignLaunch, query: str
+) -> list[dict[str, Any]]:
+    """The interests a launch's «Qiziqishlar» may take for this word.
+
+    Interests only: the tab's names are confirmed against the interest
+    catalogue at save, and a behaviour picked here would never be found there.
+    """
+    from app.modules.ads.services.access import launch_account_and_token
+
+    rows = _detail(
+        provider=launch.provider,
+        token_of=lambda: launch_account_and_token(db, launch=launch)[1],
+        query=query,
+    )
+    return [row for row in rows if row["kind"] == DETAIL_KEYS["interest"]]
+
+
+def _detail(
+    *, provider: str, token_of: Callable[[], str], query: str
+) -> list[dict[str, Any]]:
     def ask() -> list[dict[str, Any]]:
-        found = registry.get(campaign.provider).audiences.search_detail(
-            query=query, token=_token(campaign)
+        found = registry.get(provider).audiences.search_detail(
+            query=query, token=token_of()
         )
         return [
             {
@@ -76,7 +102,7 @@ def search_detail(
             if row.kind in DETAIL_KEYS
         ]
 
-    return _searched(lambda: _kept(_key("detail", campaign.provider, query), ask))
+    return _searched(lambda: _kept(_key("detail", provider, query), ask))
 
 
 def search_locales(*, campaign: Campaign, query: str) -> list[dict[str, Any]]:

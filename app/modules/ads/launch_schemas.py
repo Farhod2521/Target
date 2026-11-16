@@ -155,6 +155,11 @@ class ProposalAudienceOut(Shape):
     card: AudienceSummary
     mode: str
     mode_source: str = Field(description="`ai` or `owner`.")
+    special: bool = Field(
+        default=False,
+        description="A special ad category: no mode to choose, genders and "
+        "detailed targeting are never sent.",
+    )
     exact_age_mode: str
     automatic_max_age_min: int
     automatic_age_max: int

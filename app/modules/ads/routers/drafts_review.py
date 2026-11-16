@@ -43,6 +43,7 @@ from app.modules.ads.contract.launch.shapes import (
     PlaceFound,
     ProposalEdit,
 )
+from app.modules.ads.contract.shapes import DetailFound
 from app.modules.ads.exceptions import NothingToCleanUp
 from app.modules.ads.inputs.media import MediaContinueIn
 from app.modules.ads.models import CampaignLaunch
@@ -69,6 +70,7 @@ from app.modules.ads.selectors.media_step import chosen_assets
 from app.modules.ads.selectors.review_proposal import launch_country
 from app.modules.ads.selectors.variants import launch_variants
 from app.modules.ads.services import chat_templates
+from app.modules.ads.services.audience_search import launch_interests
 from app.modules.ads.services.locations import place_query, search_places
 
 router = APIRouter(prefix="/launch/drafts", tags=["launch"])
@@ -265,6 +267,31 @@ def save_edit(
     except InputRefused as refusal:
         raise editor_refusal(refusal, edit, answer) from None
     return _draft(db, user, draft_id)
+
+
+@router.get("/{draft_id}/interests", response_model=list[DetailFound])
+def interest_search(
+    draft_id: uuid.UUID,
+    db: Db,
+    user: CurrentUser,
+    q: str = Query("", max_length=MAX_GEO_SEARCH),
+) -> list[dict[str, Any]]:
+    """«Qiziqishlar»: Meta's own interests for a word, so a name picked is one it knows."""
+    launch = launch_of(db, user=user, draft_id=draft_id)
+    query = place_query(q)
+    if not query:
+        return []
+    if not throttle.hit(
+        bucket=GEO_SEARCH_BUCKET,
+        key=str(user.id),
+        limit=GEO_SEARCHES_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Juda ko'p urinish. Birozdan keyin qayta urinib ko'ring.",
+        )
+    return launch_interests(db, launch=launch, query=query)
 
 
 @router.get("/{draft_id}/locations", response_model=list[PlaceFound])

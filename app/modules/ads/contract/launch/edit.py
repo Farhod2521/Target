@@ -11,10 +11,22 @@ from typing import Any, Final
 from pydantic import ValidationError
 
 from app.common.exceptions import InputRefused
-from app.modules.ads.constants import MAX_GEO_PLACES, PLACEMENT_POSITION_LABELS
+from app.modules.ads.constants import (
+    MAX_GEO_PLACES,
+    PLACEMENT_POSITION_LABELS,
+    TARGETING_MODE_LABELS,
+    TARGETING_MODE_NOTES,
+    TargetingMode,
+)
 from app.modules.ads.contract.launch.review import ad, number, text
 from app.modules.ads.inputs.proposal_body import ProposalIn
-from core.targeting import MAX_RADIUS_KM, MIN_RADIUS_KM
+from core.targeting import (
+    DEFAULT_TARGETING_MODE,
+    MAX_RADIUS_KM,
+    MIN_RADIUS_KM,
+    mode_rules,
+    resolve_mode,
+)
 from core.targeting.placements import (
     OFFERED_POSITIONS,
     POSITION_NEEDS,
@@ -474,6 +486,44 @@ def _seven_days(count: object) -> str:
     return "" if count is None else f"7 kunda {count} ta"
 
 
+def _rules(audience: dict[str, Any], advice: dict[str, Any]) -> dict[str, Any]:
+    """«Kim tanlaydi?», answer by answer, as the spec builder treats each field."""
+    special = bool(audience.get("special"))
+    current = resolve_mode(audience.get("mode"))
+    shown = (current,) if special else tuple(WHO_IN)
+    recommended = advice.get("audience") or {}
+    wanted = text(recommended.get("value"))
+
+    def rule(mode: str) -> dict[str, Any]:
+        found = mode_rules(resolve_mode(mode), special=special)
+        return {
+            "value": WHO_IN[mode],
+            "title": str(TARGETING_MODE_LABELS[TargetingMode(mode)]),
+            "note": str(TARGETING_MODE_NOTES[TargetingMode(mode)]),
+            "fields": {
+                "interests": found.interests,
+                "habits": found.habits,
+                "genders": found.genders,
+                "include_lists": found.include_lists,
+            },
+            "age": {
+                "min": found.age.min,
+                "max": found.age.max,
+                "lowest_max": found.age.lowest_max,
+                "upper_sent": found.age.upper_sent,
+                "fixed": found.age.fixed,
+            },
+        }
+
+    return {
+        "default": WHO_IN[DEFAULT_TARGETING_MODE],
+        "recommended": None if special or wanted not in WHO_IN else WHO_IN[wanted],
+        "recommended_note": "" if special else text(recommended.get("note")),
+        "locked": special,
+        "modes": [rule(mode) for mode in shown],
+    }
+
+
 def edit_from(answer: dict[str, Any]) -> dict[str, Any]:
     """The editor's tabs, from the review."""
     found = answer.get("proposal")
@@ -559,6 +609,7 @@ def edit_from(answer: dict[str, Any]) -> dict[str, Any]:
         "form": _form(found.get("lead_form")),
         "adv": _advanced(found),
         "budget": found["advanced"]["budget"],
+        "rules": _rules(audience, advice),
     }
 
 

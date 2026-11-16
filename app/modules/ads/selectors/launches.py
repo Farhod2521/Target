@@ -44,7 +44,8 @@ from app.modules.ads.selectors.launch_page import launch_page
 from app.modules.ads.selectors.variants import launch_variants
 from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
 from app.modules.integrations.models import AdAccount, PageAccount
-from core.targeting import daily_floor
+from core.targeting import daily_floor, requires_interests, resolve_mode
+from core.targeting.audiences import INCLUDE_KEY
 
 LAUNCH_GEO_LOOKBACK: Final = 5
 OPEN_STATUSES = (
@@ -232,6 +233,21 @@ def _unusable(variant: LaunchCreative) -> bool:
     return asset is None or asset.kind == MediaKind.POST or asset.is_eligible is False
 
 
+def _interests_missing(launch: CampaignLaunch, *, business: Any) -> bool:
+    """The interests mode with nothing in the built spec to aim at.
+
+    The same test ``core.targeting.gate`` refuses the launch on, read from the
+    spec as it was last built, so the button says it before it is pressed.
+    """
+    if business is None or business.special_ad_category:
+        return False
+    audience = draft_field.chosen(launch.draft, DraftSection.AUDIENCE) or {}
+    if not requires_interests(resolve_mode(audience.get("targeting_mode"))):
+        return False
+    spec = launch.targeting or {}
+    return not spec.get("flexible_spec") and not spec.get(INCLUDE_KEY)
+
+
 def launch_blocker(db: Session, *, launch: CampaignLaunch) -> str:
     """Which precondition the create button would be refused on, or ``""``."""
     from app.modules.billing.selectors.subscription import may_prepare
@@ -254,6 +270,9 @@ def launch_blocker(db: Session, *, launch: CampaignLaunch) -> str:
         return "permissions"
     if geo_field.unresolved(draft_field.chosen(launch.draft, DraftSection.AUDIENCE)):
         return "places_missing"
+    business = business_for_page(db, owner=owner, page=launch.page)
+    if _interests_missing(launch, business=business):
+        return "interests_missing"
     variants = launch_variants(db, launch=launch)
     if not variants:
         return "media_missing"
@@ -262,7 +281,6 @@ def launch_blocker(db: Session, *, launch: CampaignLaunch) -> str:
     if missing_copy(db, launch=launch):
         return "copy_missing"
     preset = goal_preset(db, launch=launch)
-    business = business_for_page(db, owner=owner, page=launch.page)
     if (
         preset is not None
         and preset.needs_link
