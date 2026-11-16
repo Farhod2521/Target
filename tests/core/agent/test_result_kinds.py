@@ -19,12 +19,12 @@ from core.agent import (
     Policy,
     Recent,
     assess,
-    scan,
 )
 from core.agent.benchmark import benchmark, benchmarks, lead_cost
 from core.agent.funnel import Funnel
 from core.agent.rules import EXPENSIVE, IDLE, STARVED, WASTING, WINNING
 from core.metrics import Totals
+from tests.core.agent.every_rule import scan
 from tests.core.agent.pace import at_week_pace
 
 META = ProviderName("meta")

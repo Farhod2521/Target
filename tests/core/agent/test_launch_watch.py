@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.agent.launch_watch import WatchedGroup, moved_budget, watch
+from core.agent.launch_watch import WatchedGroup, moved_budget, quiet, watch
 
 BUDGET = 100_000
 
@@ -64,7 +64,7 @@ def test_a_blocked_group_is_left_to_the_line_naming_its_cause() -> None:
 
 
 def test_half_a_budget_for_nothing_at_a_day_is_a_word_not_a_change() -> None:
-    found = watch(_group(hours=24, spend_minor=BUDGET // 2))
+    found = quiet(_group(hours=24, spend_minor=BUDGET // 2))
     assert found is not None
     assert (found.stage, found.moves) == ("quiet", ("wait",))
 
@@ -90,17 +90,17 @@ def test_with_no_usual_price_the_showings_decide() -> None:
     shown = _group(
         hours=72, spend_minor=BUDGET * 3 // 2, impressions=1_000, link_clicks=30
     )
-    assert watch(shown) is None
+    assert quiet(shown) is None
     barely = _group(
         hours=72, spend_minor=BUDGET * 3 // 2, impressions=1_000, link_clicks=29
     )
-    found = watch(barely)
+    found = quiet(barely)
     assert found is not None
     assert (found.stage, found.advised) == ("quiet", "wait")
 
 
 def test_three_days_with_little_spent_stays_a_word() -> None:
-    found = watch(_group(hours=80, spend_minor=BUDGET))
+    found = quiet(_group(hours=80, spend_minor=BUDGET))
     assert found is not None
     assert found.stage == "quiet"
 
@@ -121,3 +121,10 @@ def test_budget_moves_by_half_either_way() -> None:
     assert moved_budget(budget_minor=BUDGET, move="budget_up") == 150_000
     assert moved_budget(budget_minor=BUDGET, move="budget_down") == 50_000
     assert moved_budget(budget_minor=1, move="budget_down") == 1
+
+
+def test_money_with_nothing_back_is_left_to_the_guard() -> None:
+    """The half-hourly guard says it, once, with a stop behind it."""
+    spent = _group(hours=30.0, spend_minor=BUDGET // 2, results=0)
+    assert quiet(spent) is not None
+    assert watch(spent) is None

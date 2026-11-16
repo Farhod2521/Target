@@ -10,9 +10,10 @@ from typing import Any
 
 from adskit import ProviderName
 
-from core.agent import AccountFacts, AdSetFacts, Policy, Recent, find, holds, scan
-from core.agent.rules import EXPENSIVE, IDLE, STARVED, WASTING, WINNING
+from core.agent import AccountFacts, AdSetFacts, Policy, Recent, find, holds
+from core.agent.rules import EVERY_RULE, EXPENSIVE, IDLE, STARVED, WASTING, WINNING
 from core.metrics import Totals
+from tests.core.agent.every_rule import scan
 from tests.core.agent.pace import at_week_pace
 
 META = ProviderName("meta")
@@ -479,7 +480,7 @@ def test_the_cap_keeps_the_ones_about_the_most_money() -> None:
     )
     account = _account(small, large, middle)
 
-    kept = find(account=account, policy=Policy(max_per_run=2))
+    kept = find(account=account, policy=Policy(max_per_run=2), rules=EVERY_RULE)
 
     assert [item.ref.id for item in kept] == ["large", "middle"]
 

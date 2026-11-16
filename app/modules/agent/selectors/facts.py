@@ -205,10 +205,22 @@ def _age_cells(cuts: dict[str, tuple[SegmentFigures, ...]]) -> SegmentComparison
 
 
 def _stopped_by_agent(db: Session, *, owner: User) -> set[str]:
-    """Objects whose most recent landed change was a stop we proposed."""
-    latest: dict[str, tuple[str, str]] = {}
+    """Objects whose most recent landed change was a stop we proposed.
+
+    Not a stop the agent made by itself - for nothing back, a price or a
+    page that is down. Those carry their own line with its own way back, and
+    a card proposing to switch the same group on again would argue with it.
+    """
+    from app.modules.agent.constants import AUTO_STOP_MARK, GUARD_STOP_MARK
+
+    latest: dict[str, tuple[str, str, bool]] = {}
     rows = db.execute(
-        select(ActionLog.target_external_id, ActionLog.action, ActionLog.actor_type)
+        select(
+            ActionLog.target_external_id,
+            ActionLog.action,
+            ActionLog.actor_type,
+            ActionLog.request_payload,
+        )
         .where(
             ActionLog.owner_id == owner.id,
             ActionLog.target_level == LEVEL,
@@ -217,12 +229,13 @@ def _stopped_by_agent(db: Session, *, owner: User) -> set[str]:
         )
         .order_by(ActionLog.created_at.desc())
     )
-    for external_id, action, actor in rows:
-        latest.setdefault(external_id, (action, actor))
+    for external_id, action, actor, payload in rows:
+        by_itself = bool({AUTO_STOP_MARK, GUARD_STOP_MARK} & set(payload or {}))
+        latest.setdefault(external_id, (action, actor, by_itself))
     return {
         external_id
-        for external_id, (action, actor) in latest.items()
-        if action == ActionType.PAUSE and actor == ActorType.AGENT
+        for external_id, (action, actor, by_itself) in latest.items()
+        if action == ActionType.PAUSE and actor == ActorType.AGENT and not by_itself
     }
 
 

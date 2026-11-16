@@ -17,10 +17,11 @@ from typing import Any
 
 from adskit import ProviderName
 
-from core.agent import AccountFacts, AdFacts, AdSetFacts, Policy, scan
+from core.agent import AccountFacts, AdFacts, AdSetFacts, Policy
 from core.agent.rules import WASTING, WEAK_AD, weak_ad
 from core.agent.rules.creative import MIN_LIVE_ADS
 from core.metrics import SegmentFigures, Totals
+from tests.core.agent.every_rule import scan
 
 META = ProviderName("meta")
 POLICY = Policy()

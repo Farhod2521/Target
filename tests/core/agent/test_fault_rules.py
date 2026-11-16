@@ -17,10 +17,10 @@ from core.agent import (
     LibraryImage,
     Policy,
     find,
-    scan,
 )
 from core.agent.rules import BROKEN_PICTURE, REFUSED_AD, SITE_DOWN
 from core.metrics import SegmentFigures, Totals
+from tests.core.agent.every_rule import scan
 
 META = ProviderName("meta")
 POLICY = Policy(max_per_run=0)

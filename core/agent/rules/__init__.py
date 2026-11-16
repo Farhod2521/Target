@@ -37,7 +37,7 @@ never shown the subject of, and the next one written has to answer the
 question before it can be added to the table at all.
 """
 
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -127,6 +127,12 @@ class Rule:
     # shown, not by a line inside it - see
     # :meth:`core.agent.AccountFacts.only_ours`.
     our_campaigns_only: bool = False
+    # Asleep: kept in the table for the order it had and for the tests that
+    # still prove what it does, and never run by a scan of its own accord.
+    # Since the half-hourly guard (``core.agent.guard``) four of them are:
+    # the guard answers the same money the same day, by stopping or warning
+    # at once, and a card the next morning would be a second voice about it.
+    retired: bool = False
 
 
 # Every rule, in the order they are asked. The order decides nothing -
@@ -146,20 +152,20 @@ class Rule:
 # impressions, no breakdown rows and no reach are not ambiguous. They are
 # absence, the values arrive empty, and a rule handed an empty value finds
 # nothing. The safe direction is already inside the data.
-RULES: tuple[Rule, ...] = (
+EVERY_RULE: tuple[Rule, ...] = (
     # The three that price a result, each against its own kind: a lead group
     # by its leads, a chat group by its conversations - see
     # ``core.agent.rules.money``. Not ``needs_leads`` any more: the kind a
     # group is judged by is decided per group, and a kind nothing counts is
     # never judged.
-    Rule(code=WASTING, run=wasting, needs_leads=False),
+    Rule(code=WASTING, run=wasting, needs_leads=False, retired=True),
     # The one rule the provider could not have written divides by a verdict
     # only the advertiser gives - the quality mark on a lead - and the mark
     # is switched off (CLAUDE.md, CPQL). Left registered it would read the
     # marks made before that, and stop a campaign on a verdict nobody can
     # give any more. It comes back with the mark; ``junk`` is kept for it.
     # Rule(code=JUNK, run=junk, needs_leads=True),
-    Rule(code=EXPENSIVE, run=expensive, needs_leads=False),
+    Rule(code=EXPENSIVE, run=expensive, needs_leads=False, retired=True),
     Rule(code=WINNING, run=winning, needs_leads=False),
     # Not a cost. "Could not spend its budget" is answered by the spend
     # and the allowance, and an awareness campaign can be starved of
@@ -185,7 +191,7 @@ RULES: tuple[Rule, ...] = (
     # The same cut one level down, and the same reason it needs no flag:
     # a goal the provider counts no leads for has no earning rate, every
     # advert falls to ``thin``, and nothing is proposed.
-    Rule(code=WEAK_AD, run=weak_ad, needs_leads=False),
+    Rule(code=WEAK_AD, run=weak_ad, needs_leads=False, retired=True),
     # The other answer to an advert nobody looks at: a new picture rather
     # than a stop. It sees the whole account, because the diagnosis it rests
     # on compares every group with all of it - and it keeps to campaigns
@@ -227,16 +233,18 @@ RULES: tuple[Rule, ...] = (
     ),
     # A page the adverts send people to does not open: stop the money until
     # it does.
-    Rule(code=SITE_DOWN, run=site_down, needs_leads=False, uncapped=True),
+    Rule(code=SITE_DOWN, run=site_down, needs_leads=False, uncapped=True, retired=True),
 )
+
+# What a scan runs: the table without the rules that sleep.
+RULES: tuple[Rule, ...] = tuple(rule for rule in EVERY_RULE if not rule.retired)
+
 
 # The rules about something the provider has stopped. They need no window
 # and no agent switched on: what they report is already costing money, and
 # they are asked the moment a sync brings the fault in - see
 # ``apps.agent.services.propose_fixes``.
-FAULT_RULES: frozenset[str] = frozenset(
-    {PROVIDER_STOPPED, BROKEN_PICTURE, REFUSED_AD, SITE_DOWN}
-)
+FAULT_RULES: frozenset[str] = frozenset({PROVIDER_STOPPED, BROKEN_PICTURE, REFUSED_AD})
 
 # Which rules the nightly cap does not apply to. Derived from the table
 # above rather than written out again, the same bargain :data:`CODES`
@@ -252,7 +260,11 @@ UNCAPPED: frozenset[str] = frozenset(rule.code for rule in RULES if rule.uncappe
 # A rule taken out of the table while what it divides by is switched off
 # keeps its code here: rows it wrote before are still read, and a sentence
 # for them is still owed. See :data:`DORMANT`.
-DORMANT: tuple[str, ...] = (JUNK, SATURATED)
+DORMANT: tuple[str, ...] = (
+    JUNK,
+    SATURATED,
+    *(rule.code for rule in EVERY_RULE if rule.retired),
+)
 CODES: tuple[str, ...] = tuple(rule.code for rule in RULES) + DORMANT
 
 
@@ -262,8 +274,12 @@ def scan(
     policy: Policy,
     blocked: Collection[str] = (),
     refused: Collection[tuple[str, str]] = (),
+    rules: Sequence[Rule] | None = None,
 ) -> list[Finding]:
     """Everything the rules notice, ranked and uncapped.
+
+    ``rules`` is the table to run, :data:`RULES` unless a caller names
+    another - :data:`EVERY_RULE` is how a rule that sleeps is still proven.
 
     **One finding per object.** Two rules can fire on the same ad set - a
     starved one that has also spent more than its leads justify - and two
@@ -303,7 +319,7 @@ def scan(
     ours = account.only_ours()
     on_leads_and_ours = on_leads.only_ours()
 
-    for rule in RULES:
+    for rule in RULES if rules is None else rules:
         subject = _subject(
             rule=rule,
             account=account,
@@ -391,6 +407,7 @@ def find(
     policy: Policy,
     blocked: Collection[str] = (),
     refused: Collection[tuple[str, str]] = (),
+    rules: Sequence[Rule] | None = None,
 ) -> list[Finding]:
     """What one night is allowed to propose: the top of :func:`scan`.
 
@@ -413,7 +430,13 @@ def find(
     the position.
     """
     return cap(
-        scan(account=account, policy=policy, blocked=blocked, refused=refused),
+        scan(
+            account=account,
+            policy=policy,
+            blocked=blocked,
+            refused=refused,
+            rules=rules,
+        ),
         policy=policy,
     )
 
@@ -463,6 +486,7 @@ __all__ = [
     "BROKEN_PICTURE",
     "CODES",
     "DORMANT",
+    "EVERY_RULE",
     "EXPENSIVE",
     "FAULT_RULES",
     "IDLE",
