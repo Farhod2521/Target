@@ -19,6 +19,7 @@ from app.common.presets import goal_label, offered_goals
 from app.modules.accounts.models import User
 from app.modules.ads.constants import (
     CAMPAIGN_TYPE,
+    CHAT_ANSWERS,
     CHAT_QUESTIONS,
     CLOSED_REASONS,
     GOAL_TEXT_MAX,
@@ -60,7 +61,12 @@ from app.modules.ads.services.readings import visible_rows
 from app.modules.ads.services.targeting import minimum_budget, welcome_greeting
 from app.modules.businesses.models import Business
 from app.modules.businesses.selectors import business_for_page
-from core.targeting import MAX_CHAT_QUESTIONS, MAX_GREETING_CHARS, clean_questions
+from core.targeting import (
+    MAX_ANSWER_CHARS,
+    MAX_CHAT_QUESTIONS,
+    MAX_GREETING_CHARS,
+    clean_answered,
+)
 from core.targeting.compat import (
     Offer,
     closed_by,
@@ -79,6 +85,7 @@ ASKED_BY = {
     "chat_channel": "chat",
     "welcome_text": "chat",
     "chat_questions": "chat",
+    "chat_answers": "chat",
 }
 
 
@@ -98,6 +105,10 @@ class PlanIn(BaseModel):
     chat_channel: str = ""
     welcome_text: str = ""
     chat_questions: list[str] = Field(default_factory=list)
+    chat_answers: list[str] = Field(
+        default_factory=list,
+        description="The answer sent by itself for the question at the same place.",
+    )
     start_day: Literal["today", "tomorrow"] = START_TODAY
 
 
@@ -173,6 +184,7 @@ def plan_initial(
         else "",
         "chat_channel": opening_channel(db, launch=launch, goal=frame.goal),
         "chat_questions": list(launch.answers.get(CHAT_QUESTIONS) or []),
+        "chat_answers": list(launch.answers.get(CHAT_ANSWERS) or []),
         "start_day": START_TOMORROW
         if launch.start_date == frame.days[1]
         else START_TODAY,
@@ -365,7 +377,8 @@ def _chat(body: PlanIn, *, frame: PlanFrame, problems: Problems) -> dict[str, An
         if channel or len(frame.channels) > 1:
             problems.add("chat_channel", "Odamlar qayerga yozishini tanlang.")
         channel = ""
-    questions = list(clean_questions(body.chat_questions))
+    kept, replies = clean_answered(body.chat_questions, body.chat_answers)
+    questions = list(kept)
     if len(questions) > MAX_CHAT_QUESTIONS:
         problems.add(
             "chat_questions",
@@ -380,10 +393,15 @@ def _chat(body: PlanIn, *, frame: PlanFrame, problems: Problems) -> dict[str, An
             "chat_questions",
             "Savollar bilan birga «Suhbat qanday boshlansin?» ham yozing.",
         )
+    if any(len(reply) > MAX_ANSWER_CHARS for reply in replies):
+        problems.add(
+            "chat_answers", f"Har bir avto javob {MAX_ANSWER_CHARS} belgidan oshmasin."
+        )
     return {
         "welcome_text": welcome,
         "chat_channel": channel or None,
         "chat_questions": questions,
+        "chat_answers": list(replies) if any(replies) else [],
     }
 
 

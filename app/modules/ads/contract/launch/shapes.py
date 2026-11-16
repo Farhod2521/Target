@@ -120,6 +120,7 @@ class GoalForm(Camel):
 class GoalChat(Camel):
     channel: ChatChannel
     questions: int
+    answers: int = Field(0, description="How many of them answer by themselves.")
 
 
 class ProposalGoal(Camel):
@@ -307,6 +308,10 @@ class LaunchDraft(Camel):
     chat_channel: ChatChannel
     welcome_text: str
     chat_questions: list[str]
+    chat_answers: list[str] = Field(
+        description="The answer sent by itself for the question at the same place; "
+        '"" where the business answers itself. Empty when none was written.'
+    )
     lead_form: LeadFormChoice | None
     areas: list[str]
     page: DraftPage
@@ -343,6 +348,7 @@ class DraftPatch(Camel):
     chat_channel: ChatChannel | None = None
     welcome_text: str | None = None
     chat_questions: list[str] | None = None
+    chat_answers: list[str] | None = None
     areas: list[str] | None = None
 
 
@@ -597,6 +603,29 @@ class DepthIn(Camel):
 class ChatQuestionReading(Camel):
     state: Literal["idle", "pending", "done", "failed"]
     questions: list[str]
+
+
+class ChatTemplate(Camel):
+    """A greeting and its ready questions, kept under a name."""
+
+    id: str
+    name: str
+    welcome_text: str
+    chat_questions: list[str]
+    chat_answers: list[str]
+
+
+class ChatTemplates(Camel):
+    items: list[ChatTemplate] = Field(description="The one saved last first.")
+    max_items: int
+    max_name_chars: int
+
+
+class ChatTemplateIn(Camel):
+    name: str = ""
+    welcome_text: str = ""
+    chat_questions: list[str] = Field(default_factory=list, max_length=20)
+    chat_answers: list[str] = Field(default_factory=list, max_length=20)
 
 
 class MediaAsset(Camel):

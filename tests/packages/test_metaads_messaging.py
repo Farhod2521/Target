@@ -317,6 +317,35 @@ def test_questions_replace_the_pretyped_line() -> None:
     }
 
 
+def test_an_answer_goes_beside_its_question_and_a_blank_one_does_not() -> None:
+    """``response`` is what Meta sends by itself when the question is
+    tapped; a question with none stays the business's to answer."""
+    spec = a_spec(
+        welcome_text=GREETING,
+        welcome_questions=QUESTIONS[:2],
+        welcome_answers=(" 100 ming so'm ", "  "),
+    )
+    sent = json.loads(welcome_message(spec))
+
+    assert sent["text_format"]["message"]["ice_breakers"] == [
+        {"title": QUESTIONS[0], "response": "100 ming so'm"},
+        {"title": QUESTIONS[1]},
+    ]
+    boosted = boost_payload(
+        a_boost(
+            welcome_text=GREETING,
+            welcome_questions=QUESTIONS[:2],
+            welcome_answers=(" 100 ming so'm ", "  "),
+        )
+    )
+    assert boosted["page_welcome_message"] == welcome_message(spec)
+
+
+def test_an_answer_too_long_is_refused_here() -> None:
+    with pytest.raises(ValueError):
+        a_spec(welcome_questions=QUESTIONS[:1], welcome_answers=("x" * 301,))
+
+
 def test_no_questions_keeps_the_pretyped_line() -> None:
     sent = json.loads(
         welcome_message(a_spec(welcome_text=GREETING, autofill_text=AUTOFILL))
