@@ -35,6 +35,7 @@ from typing import Final, Literal
 
 from core.agent.sufficiency import SPEND_MULTIPLE
 from core.metrics import formulas
+from core.metrics.arithmetic import basis_points_or_none
 
 Kind = Literal["site_down", "fruitless", "price", "weak_ad", "ctr", "cpm", "frequency"]
 Action = Literal["warn", "stop"]
@@ -183,8 +184,10 @@ def causes(group: GroupToday) -> tuple[Cause, ...]:
         found.append("cpm")
     measured = group.impressions >= MIN_RATE_IMPRESSIONS
     if measured and usual.link_ctr_bp:
-        ctr_bp = group.link_clicks * 10_000 // group.impressions
-        if ctr_bp * 100 <= usual.link_ctr_bp * CTR_LOW_PCT:
+        ctr_bp = basis_points_or_none(
+            formulas.ctr(group.link_clicks, group.impressions)
+        )
+        if ctr_bp is not None and ctr_bp * 100 <= usual.link_ctr_bp * CTR_LOW_PCT:
             found.append("ctr")
     if _conversion_fell(group):
         found.append("conversion")

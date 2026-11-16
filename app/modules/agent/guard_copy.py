@@ -11,6 +11,8 @@ from typing import Any, Final
 from app.common.i18n import DEFAULT, get_language
 from app.common.money import format_minor
 from app.modules.agent.models import GuardAlert
+from core.metrics import formulas
+from core.metrics.arithmetic import basis_points_or_none
 
 # What one result is called, by the group's result.
 WORDS: Final[dict[str, dict[str, str]]] = {
@@ -259,7 +261,7 @@ def _figures_line(row: GuardAlert) -> str:
     usual = _money(row, figures.get("usual_cost_minor"))
     word = word_of(row)
     if row.kind == "price":
-        cost = _money(row, spend // results if results else spend)
+        cost = _money(row, formulas.cost_per_result(spend, results) or spend)
         return _text("price", word=word, cost=cost, results=results, usual=usual)
     if row.kind == "fruitless":
         return _text("fruitless", spend=_money(row, spend), word=word, usual=usual)
@@ -286,11 +288,10 @@ def _figures_line(row: GuardAlert) -> str:
 def _rates(figures: dict[str, Any]) -> tuple[int, int]:
     """Today's click rate in basis points and the price of a thousand showings."""
     shown = int(figures.get("impressions") or 0)
-    if shown <= 0:
-        return 0, 0
-    clicks = int(figures.get("link_clicks") or 0)
+    clicked = int(figures.get("link_clicks") or 0)
     spend = int(figures.get("group_spend_minor") or figures.get("spend_minor") or 0)
-    return clicks * 10_000 // shown, spend * 1000 // shown
+    rate = basis_points_or_none(formulas.ctr(clicked, shown))
+    return rate or 0, int(formulas.cpm(spend, shown) or 0)
 
 
 def _causes_line(row: GuardAlert) -> str:
