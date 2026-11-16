@@ -47,6 +47,18 @@ ANSWER_STUCK_AFTER_MINUTES: Final = 20
 
 LOOKING_DEFAULT: Final = "Ma'lumotlarni o'qiyapman…"
 
+# The same assistant in @owners_tai_bot. A chat keeps answering in one
+# thread until it has been quiet this long, or /yangi starts another.
+TELEGRAM_THREAD_KEY: Final = "officeai:telegram:thread:{chat_id}"
+TELEGRAM_THREAD_TTL_SECONDS: Final = 6 * 60 * 60
+# Telegram takes 4096 characters a message; room is left for the tags.
+TELEGRAM_CHUNK_CHARS: Final = 3800
+TELEGRAM_THINKING: Final = "⏳ Ma'lumotlarni o'qiyapman…"
+TELEGRAM_CHANNEL: Final = (
+    "- Channel: Telegram. No tables: short lines and lists, **bold** for "
+    "the key figure."
+)
+
 # What the empty screen offers to ask, for a first question.
 SUGGESTIONS: Final[tuple[str, ...]] = (
     "Bugun nechta odam ro'yxatdan o'tdi?",

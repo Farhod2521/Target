@@ -17,19 +17,19 @@ Base URL: `https://api.targetolog.ai/api/v2`. Token: `Authorization: Bearer <acc
 
 ## Kimga ochiq
 
-| Rol | Kira oladimi | Pul haqidagi savollar |
-|---|---|---|
-| Owner (Egasi) | Ha | Ha |
-| Finance (Moliya) | Ha | Ha |
-| Support | Ha | Yo'q — AI "pul faqat Moliya va Egasiga ko'rinadi" deydi |
-| Superuser | Ha | Ha |
-| Sales, Engineer va boshqalar | Yo'q — 404 | — |
+| Rol | Kira oladimi |
+|---|---|
+| Owner (Egasi) | Ha, pul ma'lumotlari bilan |
+| Superuser | Ha, pul ma'lumotlari bilan |
+| Support, Finance, Sales, Engineer va boshqalar | Yo'q — 404 |
 
-Bu dashboard bilan bir xil qoida: pulni dashboardda kim ko'rsa, AI'da ham
-o'sha ko'radi.
+**Menyuda ko'rsatish:** `GET /api/v1/office/me` javobida `superuser: true`
+bo'lsa yoki `roles` ichida `value: "Owner"` bo'lsa, «AI yordamchi» bandini
+ko'rsating. Boshqalarga bu bandni ko'rsatmang.
 
-**Menyuda ko'rsatish:** `GET /api/v1/office/me` → `sections` ichida
-`"home"` bo'lsa (Support, Finance, Owner), «AI yordamchi» bandini ko'rsating.
+Xuddi shu AI Telegram'dagi `@owners_tai_bot` da ham ishlaydi: `.env` dagi
+`STAFF_BOT_ADMIN_IDS` ro'yxatidagi odamlar botga oddiy matn yozsa, AI
+javob beradi. `/yangi` buyrug'i yangi suhbat boshlaydi.
 
 Har kim **faqat o'z suhbatlarini** ko'radi. Birovning suhbatini ochish 404 qaytaradi.
 

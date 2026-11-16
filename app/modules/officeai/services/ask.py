@@ -106,9 +106,11 @@ def start_turn(
     thread: OfficeAiThread | None,
     sees_money: bool,
     now: datetime,
+    channel: str = "",
 ) -> Turn:
     """Write the question and an empty answer, and leave the turn for a
-    worker. Nothing is sent to the model here."""
+    worker. Nothing is sent to the model here. ``channel`` is a line for the
+    prompt about where the answer will be read, when it is not the site."""
     from llmkit import render
 
     text = " ".join(question.split())[:MAX_QUESTION_CHARS]
@@ -148,7 +150,14 @@ def start_turn(
     payload: dict[str, Any] = {
         "question": text,
         "system": render(template, {}),
-        "system_tail": _asker(db, staff=staff, sees_money=sees_money, now=now),
+        "system_tail": "\n".join(
+            part
+            for part in (
+                _asker(db, staff=staff, sees_money=sees_money, now=now),
+                channel,
+            )
+            if part
+        ),
         "history": said,
         "quoted": sorted(figures_in(" ".join([text, *(w for _r, w in said)]))),
         "staff_id": str(staff.id),

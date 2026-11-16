@@ -200,7 +200,10 @@ SUPPORT_BOT_SEEN_TTL_SECONDS: Final = 24 * 60 * 60
 SUPPORT_BOT_GUEST_SENT_KEY: Final = "notifications:support-bot-guest-sent:{message_id}"
 # A client's first words after a quiet stretch are answered «qabul qilindi».
 SUPPORT_BOT_ACK_AFTER_SECONDS: Final = 30 * 60
-OWNERS_BOT_COMMANDS: Final = (("admin", "Statistika"),)
+OWNERS_BOT_COMMANDS: Final = (
+    ("admin", "Statistika"),
+    ("yangi", "Ofis AI: yangi suhbat"),
+)
 SUPPORT_BOT_COMMANDS: Final = (
     ("start", "Boshlash"),
     ("yordam", "Bot qanday ishlaydi"),

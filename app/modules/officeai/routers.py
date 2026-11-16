@@ -1,8 +1,8 @@
 """The office assistant's HTTP surface, under ``/api/v2/office/ai``.
 
-Support, Finance and the Owner open it - the dashboard's readers - and a
-superuser. The money look-ups are offered only to Finance and the Owner, as
-on the dashboard. Each person sees only their own threads.
+Only the Owner and a superuser open it. Each person sees only their own
+threads. The same assistant answers the owners in @owners_tai_bot
+(``services.telegram``).
 
 A question goes to ``POST /ask``; its answer is read from
 ``GET /stream/{turn_id}`` as server-sent events.
@@ -27,7 +27,7 @@ from app.common import tokens
 from app.common.cache import cache
 from app.common.db import utcnow
 from app.modules.accounts.models import User
-from app.modules.backoffice.constants import ADMIN_ROLES, MONEY_ROLES
+from app.modules.backoffice.constants import MONEY_ROLES, Role
 from app.modules.backoffice.permissions import has_role, staff_required
 from app.modules.officeai.constants import (
     MAX_QUESTION_CHARS,
@@ -42,7 +42,7 @@ from app.modules.officeai.models import OfficeAiMessage, OfficeAiThread
 from app.modules.officeai.selectors import threads
 
 router = APIRouter(prefix="/office/ai", tags=["office ai"])
-Admin = Annotated[User, Depends(staff_required(*ADMIN_ROLES))]
+Admin = Annotated[User, Depends(staff_required(Role.OWNER))]
 
 
 class ThreadOut(BaseModel):

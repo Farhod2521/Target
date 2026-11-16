@@ -157,7 +157,13 @@ def test_the_owners_bot_answers_an_owner_with_the_card(
     for command in ("/start", "/admin", "/stat"):
         said = handle_owners_update(db, payload=_text(ADMIN, command), now=utcnow())
         assert said == "card"
-    assert [name for name, _ in owners.calls] == ["send_photo"] * 3
+    assert [name for name, _ in owners.calls] == [
+        "send_photo",
+        "send_message",
+        "send_photo",
+        "send_photo",
+    ]
+    assert "ofis AI" in owners.texts()[0]
 
 
 def test_the_owners_bot_tells_a_stranger_their_id_and_nothing_else(

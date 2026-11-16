@@ -21,6 +21,19 @@ def answer_office_turn(turn_id: str) -> None:
         db.commit()
 
 
+@celery_app.task(queue="chat", ignore_result=True)
+def answer_office_turn_in_telegram(turn_id: str, chat_id: str, notice_id: int) -> str:
+    """The same answer, written into the owners' bot instead of a stream."""
+    from app.modules.officeai.services.telegram import answer_in_telegram
+
+    with task_session() as db:
+        said = answer_in_telegram(
+            db, turn_id=turn_id, chat_id=chat_id, notice_id=notice_id, now=utcnow()
+        )
+        db.commit()
+        return said
+
+
 @celery_app.task(queue="sync", ignore_result=True)
 def sweep_stuck_office_answers() -> int:
     """An answer whose worker died would stay "pending" for ever."""
