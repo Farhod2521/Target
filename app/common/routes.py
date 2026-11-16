@@ -82,6 +82,7 @@ ROUTES: dict[str, str] = {
     "agent:frequency_creative": "/app/agent/chastota/<uuid:alert_id>/kreativ/",
     "agent:frequency_fine": "/app/agent/chastota/<uuid:alert_id>/yaxshi/",
     "agent:price_creative": "/app/agent/narx/<uuid:alert_id>/kreativ/",
+    "agent:guard_creative": "/app/agent/qoriqchi/<uuid:alert_id>/kreativ/",
     "agent:history": "/app/agent/tarix/",
     "agent:home": "/app/agent/",
     "agent:new_ad": "/app/agent/<uuid:pk>/yangi-reklama/",

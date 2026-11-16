@@ -67,6 +67,10 @@ from app.modules.notifications.services.announce_account import (
     announce_lapse,
     announce_troubles,
 )
+from app.modules.notifications.services.announce_guard import (
+    announce_guard,
+    owners_with_findings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +89,10 @@ def deliver_notices(db: Session, *, now: datetime) -> int:
     judged = owners_with_fresh_outcomes(db, now=now)
     refused = owners_with_rejected_ads(db)
     launching = owners_with_launches(db)
-    asleep = _asleep(db, owner_ids={*proposing, *judged, *launching}, now=now)
+    guarded = owners_with_findings(db)
+    asleep = _asleep(
+        db, owner_ids={*proposing, *judged, *launching, *guarded}, now=now
+    )
 
     sent = 0
     with bot() as client:
@@ -103,6 +110,7 @@ def deliver_notices(db: Session, *, now: datetime) -> int:
             db, client=client, now=now, launching=launching, asleep=asleep
         )
         sent += announce_stops(db, client=client, now=now)
+        sent += announce_guard(db, client=client, now=now, asleep=asleep)
         sent += _announce_broken_connections(db, client=client, now=now)
         sent += _announce_action_required(db, client=client, now=now)
 

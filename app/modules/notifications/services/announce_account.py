@@ -38,6 +38,7 @@ from app.modules.notifications.selectors.inbox import (
     not_left,
     page_inbox,
 )
+from app.modules.notifications.selectors.inbox_guard import is_guard_key
 from app.modules.notifications.selectors.inbox_page import inbox_pages
 from app.modules.notifications.services.announce import tell
 from app.modules.notifications.services.compose import (
@@ -147,7 +148,7 @@ def announce_troubles(
     sent = 0
     with override(chat.owner.language):
         for item, page in _lines(db, owner=chat.owner, now=now):
-            if item.kind in SPOKEN_FOR:
+            if item.kind in SPOKEN_FOR or is_guard_key(item.key):
                 continue
             if sent >= MAX_TROUBLES_PER_SWEEP:
                 break

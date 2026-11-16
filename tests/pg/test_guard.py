@@ -278,3 +278,152 @@ def test_switched_back_on_the_group_is_counted_from_the_stop(
     _today(db, owner, account, now, spend=1_200, leads=0)
     assert run_guard(db, owner=owner, now=now) == 1
     assert len(_pauses(db)) == 2
+
+
+# -- the answers, the cabinet's line and the phone's message ------------------------------
+
+
+def _warned(
+    client: TestClient, db: Session
+) -> tuple[User, AdAccount, datetime, GuardAlert]:
+    owner, account, now = _running(client, db)
+    _today(db, owner, account, now, spend=640, leads=1)
+    run_guard(db, owner=owner, now=now)
+    (row,) = _rows(db)
+    return owner, account, now, row
+
+
+def test_leave_is_written_down_and_the_next_step_still_comes(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.agent.services.answer_guard import answer_guard
+
+    owner, account, now, row = _warned(client, db)
+    answer_guard(db, user=owner, alert_id=str(row.id), answer="leave", now=now)
+    db.commit()
+    (row,) = _rows(db)
+    assert (row.answer, row.closed_at) == ("leave", None)
+    assert _pauses(db) == []
+
+    _today(db, owner, account, now, spend=700, leads=1)
+    assert run_guard(db, owner=owner, now=now) == 0
+    _today(db, owner, account, now, spend=820, leads=1)
+    assert run_guard(db, owner=owner, now=now) == 1
+    assert _rows(db)[0].step == 4
+
+
+def test_pause_asks_the_provider_once_and_closes_the_finding(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    import pytest
+
+    from app.modules.agent.exceptions import GuardAlertGone
+    from app.modules.agent.services.answer_guard import answer_guard
+
+    owner, _account, now, row = _warned(client, db)
+    answer_guard(db, user=owner, alert_id=str(row.id), answer="pause", now=now)
+    db.commit()
+    (row,) = _rows(db)
+    assert row.answer == "pause" and row.closed_at is not None
+    assert row.baseline["spend_minor"] == 640
+    assert len(_pauses(db)) == 1
+    with pytest.raises(GuardAlertGone):
+        answer_guard(db, user=owner, alert_id=str(row.id), answer="pause", now=now)
+
+
+def test_the_budget_goes_down_a_fifth(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.agent.services.answer_guard import answer_guard
+
+    owner, _account, now, row = _warned(client, db)
+    answer_guard(db, user=owner, alert_id=str(row.id), answer="budget_down", now=now)
+    db.commit()
+    (log,) = db.scalars(
+        select(ActionLog).where(ActionLog.action != str(ActionType.PAUSE))
+    ).all()
+    assert "budget" in str(log.action).lower()
+    assert 4_000 in (log.request_payload or {}).values()
+    assert _rows(db)[0].closed_at is None
+
+
+def test_an_answer_the_finding_does_not_offer_is_refused(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    import pytest
+
+    from app.modules.agent.exceptions import GuardAnswerUnknown
+    from app.modules.agent.services.answer_guard import answer_guard
+
+    owner, _account, now, row = _warned(client, db)
+    with pytest.raises(GuardAnswerUnknown):
+        answer_guard(db, user=owner, alert_id=str(row.id), answer="resume", now=now)
+
+
+def test_the_phone_is_told_each_step_once(
+    client: TestClient, db: Session, queued: list, monkeypatch
+) -> None:
+    from app.common.config import settings
+    from app.modules.notifications.models import TelegramChat, TelegramNotice
+    from app.modules.notifications.services.announce_guard import announce_guard
+    from tests.pg.test_office_telegram import FakeBot
+
+    monkeypatch.setattr(settings, "site_url", "https://targetolog.test")
+    owner, account, now, row = _warned(client, db)
+    db.add(
+        TelegramChat(owner_id=owner.id, chat_id="700", is_active=True, linked_at=now)
+    )
+    db.commit()
+    phone = FakeBot()
+
+    assert announce_guard(db, client=phone, now=now, asleep=set()) == 1
+    assert announce_guard(db, client=phone, now=now, asleep=set()) == 0
+    (text,) = phone.texts()
+    assert "Narx 3,2 baravar qimmatlashdi" in text or "выросла в 3,2 раза" in text
+    (row,) = _rows(db)
+    assert row.said_step == 3 and row.telegram_sent_at is not None
+
+    _today(db, owner, account, now, spend=820, leads=1)
+    run_guard(db, owner=owner, now=now)
+    assert announce_guard(db, client=phone, now=now, asleep=set()) == 1
+    assert len(phone.texts()) == 2
+    subjects = set(db.scalars(select(TelegramNotice.subject)))
+    assert subjects == {f"guard:{row.id}:3", f"guard:{row.id}:4"}
+
+
+def test_a_warning_waits_for_the_morning_and_a_stop_does_not(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.notifications.models import TelegramChat
+    from app.modules.notifications.services.announce_guard import announce_guard
+    from tests.pg.test_office_telegram import FakeBot
+
+    owner, account, now, _row = _warned(client, db)
+    db.add(
+        TelegramChat(owner_id=owner.id, chat_id="700", is_active=True, linked_at=now)
+    )
+    db.commit()
+    phone = FakeBot()
+    asleep = {str(owner.id)}
+
+    assert announce_guard(db, client=phone, now=now, asleep=asleep) == 0
+    _today(db, owner, account, now, spend=1_010, leads=1)
+    run_guard(db, owner=owner, now=now)
+    assert announce_guard(db, client=phone, now=now, asleep=asleep) == 1
+    (text,) = phone.texts()
+    assert "To'xtatdim" in text or "Остановил" in text
+
+
+def test_the_cabinet_draws_the_finding_with_its_advised_answer(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.notifications.selectors.inbox_guard import guard_item
+
+    _owner, _account, _now, row = _warned(client, db)
+    item = guard_item(row)
+    assert item.key == f"guard:{row.id}:3"
+    assert (item.kind, item.level) == ("price", "urgent")
+    assert [action.href.rsplit("/", 1)[1] for action in item.actions] == [
+        "pause", "budget_down", "leave",
+    ]  # fmt: skip
+    assert sum(action.advised for action in item.actions) == 1
