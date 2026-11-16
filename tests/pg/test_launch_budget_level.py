@@ -82,7 +82,7 @@ def test_left_alone_each_group_holds_its_budget(
     }
     assert BUDGET_LEVEL not in (launch.answers or {})
     campaign, adset = _specs(db, launch)
-    assert campaign.name.endswith(" · ABO #1")
+    assert " - ABO - " in campaign.name
     assert campaign.daily_budget_minor == 0
     assert campaign.bid_strategy == ""
     assert campaign_budget_minor(launch=launch) is None
@@ -101,7 +101,7 @@ def test_the_owner_moves_it_to_the_campaign(
     assert shown["level"] == "campaign"
     assert shown["defaultLevel"] == "adset"
     campaign, adset = _specs(db, launch)
-    assert campaign.name.endswith(" · CBO #1")
+    assert " - CBO - " in campaign.name
     assert campaign.daily_budget_minor == launch.daily_budget_minor > 0
     assert campaign.bid_strategy == "LOWEST_COST_WITHOUT_CAP"
     assert adset.daily_budget_minor == 0
@@ -118,7 +118,7 @@ def test_the_owner_moves_it_to_the_groups_with_sharing_and_back(
     assert launch.answers[BUDGET_LEVEL] == "adset"
     assert launch.answers[BUDGET_SHARING] is True
     campaign, adset = _specs(db, launch)
-    assert campaign.name.endswith(" · ABO #1")
+    assert " - ABO - " in campaign.name
     assert campaign.daily_budget_minor == 0
     assert campaign.budget_sharing is True
     assert campaign.bid_strategy == "LOWEST_COST_WITHOUT_CAP"

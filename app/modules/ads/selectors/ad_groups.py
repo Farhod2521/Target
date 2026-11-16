@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.ads import groups as group_field
@@ -11,6 +12,7 @@ from app.modules.ads.naming import adset_name
 from app.modules.ads.selectors.budget_level import held_by_campaign
 from app.modules.ads.selectors.variants import launch_variants
 from app.modules.businesses.models import Business
+from app.modules.integrations.models import CustomAudience
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,9 +78,18 @@ def arrangement(
     """How this launch's adverts are spread over groups, right now."""
     rows = launch_variants(db, launch=launch) if variants is None else list(variants)
     stored = list(launch.ad_groups or [])
+    lookalikes = _lookalikes(db, launch=launch) if business is not None else set()
     if stored:
-        return _as_arranged(launch=launch, business=business, rows=rows, stored=stored)
-    return _as_default(launch=launch, business=business, rows=rows)
+        return _as_arranged(
+            launch=launch,
+            business=business,
+            rows=rows,
+            stored=stored,
+            lookalikes=lookalikes,
+        )
+    return _as_default(
+        launch=launch, business=business, rows=rows, lookalikes=lookalikes
+    )
 
 
 def underfunded(
@@ -103,6 +114,7 @@ def _as_arranged(
     business: Business | None,
     rows: list[LaunchCreative],
     stored: list[Any],
+    lookalikes: set[str],
 ) -> Arrangement:
     saved = group_field.read(stored)
     buckets: list[list[LaunchCreative]] = [[] for _unused in saved]
@@ -115,7 +127,11 @@ def _as_arranged(
                 position=index,
                 name=str(item.get(group_field.NAME) or "")
                 or _generated(
-                    launch=launch, business=business, index=index, of=len(saved)
+                    launch=launch,
+                    business=business,
+                    index=index,
+                    of=len(saved),
+                    lookalikes=lookalikes,
                 ),
                 named=bool(item.get(group_field.NAME)),
                 daily_budget_minor=int(item.get(group_field.BUDGET) or 0),
@@ -128,13 +144,23 @@ def _as_arranged(
 
 
 def _as_default(
-    *, launch: CampaignLaunch, business: Business | None, rows: list[LaunchCreative]
+    *,
+    launch: CampaignLaunch,
+    business: Business | None,
+    rows: list[LaunchCreative],
+    lookalikes: set[str],
 ) -> Arrangement:
     return Arrangement(
         groups=(
             GroupCard(
                 position=0,
-                name=_generated(launch=launch, business=business, index=0, of=1),
+                name=_generated(
+                    launch=launch,
+                    business=business,
+                    index=0,
+                    of=1,
+                    lookalikes=lookalikes,
+                ),
                 named=False,
                 daily_budget_minor=int(launch.daily_budget_minor or 0),
                 variants=tuple(rows),
@@ -145,8 +171,34 @@ def _as_default(
 
 
 def _generated(
-    *, launch: CampaignLaunch, business: Business | None, index: int, of: int
+    *,
+    launch: CampaignLaunch,
+    business: Business | None,
+    index: int,
+    of: int,
+    lookalikes: set[str],
 ) -> str:
     if business is None:
         return ""
-    return adset_name(launch=launch, business=business, position=index, of=of)
+    return adset_name(
+        launch=launch, business=business, position=index, of=of, lookalikes=lookalikes
+    )
+
+
+def _lookalikes(db: Session, *, launch: CampaignLaunch) -> set[str]:
+    """Which of the audiences this launch takes in are lookalikes."""
+    spec = launch.targeting if isinstance(launch.targeting, dict) else {}
+    ids = [
+        str(item["id"])
+        for item in spec.get("custom_audiences") or []
+        if isinstance(item, dict) and item.get("id")
+    ]
+    if not ids:
+        return set()
+    rows = db.scalars(
+        select(CustomAudience).where(
+            CustomAudience.owner_id == launch.owner_id,
+            CustomAudience.external_id.in_(ids),
+        )
+    )
+    return {row.external_id for row in rows if row.is_lookalike}

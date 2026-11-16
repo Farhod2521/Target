@@ -89,13 +89,20 @@ def campaign_spec(
 
 
 def goal_campaign_spec(
-    *, launch: CampaignLaunch, business: Business, built: BuiltTargeting, number: int
+    *,
+    launch: CampaignLaunch,
+    business: Business,
+    built: BuiltTargeting,
+    number: int,
+    page_name: str = "",
 ) -> CampaignSpec:
     """The campaign a page's launches for one goal share, paused."""
     sharing = shares_budget(launch=launch)
     budget = campaign_budget_minor(launch=launch)
     return CampaignSpec(
-        name=naming.goal_campaign_name(launch=launch, business=business, number=number),
+        name=naming.goal_campaign_name(
+            launch=launch, business=business, page_name=page_name
+        ),
         objective=built.objective,
         special_ad_categories=built.special_ad_categories,
         special_ad_category_country=built.special_ad_category_countries,

@@ -39,7 +39,6 @@ from app.modules.ads.selectors.budget_level import budget_level, campaign_budget
 from app.modules.ads.selectors.media import post_account
 from app.modules.ads.selectors.schedule import (
     effective_ad_name,
-    effective_campaign_name,
     end_time_for,
     start_time_for,
 )
@@ -125,7 +124,11 @@ def run_sequence(
         token=token,
         dry_run=dry_run,
         spec_for=lambda number: meta_specs.goal_campaign_spec(
-            launch=launch, business=business, built=built, number=number
+            launch=launch,
+            business=business,
+            built=built,
+            number=number,
+            page_name=page.name,
         ),
         make=lambda spec: _new_campaign(
             db,
@@ -263,9 +266,7 @@ def _adsets(
             page_id=page.external_id,
             start_time=start_time,
             end_time=end_time,
-            name=_adset_name(
-                group=group, launch=launch, business=business, of=len(built_groups)
-            ),
+            name=group.name,
             daily_budget_minor=group.daily_budget_minor,
         )
         watch.inputs("spec", adset_spec.model_dump())
@@ -371,14 +372,6 @@ def _send_adset(
         return launcher.create_adset(
             account=account_ref, spec=spec, token=token, dry_run=dry_run
         )
-
-
-def _adset_name(
-    *, group: GroupCard, launch: CampaignLaunch, business: Business, of: int
-) -> str:
-    if group.named or of > 1:
-        return group.name
-    return effective_campaign_name(launch=launch, business=business) or group.name
 
 
 def _new_campaign(
