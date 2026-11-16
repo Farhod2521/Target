@@ -24,6 +24,7 @@ from app.modules.agent.guard_copy import (
     buttons_of,
     guard_advice,
     guard_body,
+    guard_place,
     guard_title,
 )
 from app.modules.agent.models import GuardAlert
@@ -128,12 +129,9 @@ def _announce(
 
 
 def guard_message(row: GuardAlert) -> str:
-    """The title, what it is about, the figures and cause, and the advice."""
-    figures = row.figures or {}
-    group = str(figures.get("group_name") or "")
-    lines = [_bold(guard_title(row)), escaped(f"«{row.name}»")]
-    if row.level == "ad" and group and group != row.name:
-        lines.append(escaped(f"({group})"))
+    """The title, where it sits, the figures and cause, and the advice."""
+    lines = [_bold(guard_title(row)), ""]
+    lines += [escaped(f"{label}: {name}") for label, name in guard_place(row)]
     lines += ["", escaped(guard_body(row))]
     if row.action != STOP:
         lines += ["", escaped(guard_advice(row))]

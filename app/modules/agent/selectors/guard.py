@@ -31,7 +31,7 @@ from app.modules.agent.selectors.same_day import (
     kind_of,
 )
 from app.modules.agent.selectors.window import start_of
-from app.modules.integrations.models import AdAccount
+from app.modules.integrations.models import AdAccount, PageAccount
 from app.modules.metrics.constants import MetricLevel
 from app.modules.metrics.models import MetricsDaily
 from app.modules.metrics.selectors.facts import cabinet_where
@@ -59,6 +59,10 @@ class Guarded:
     day: date
     # The pages of its adverts that did not open at the last look.
     down_urls: tuple[str, ...] = ()
+    # Where it sits, for the owner to find it: the Facebook page it speaks
+    # for and its campaign, by name.
+    page_name: str = ""
+    campaign_name: str = ""
 
     @property
     def currency(self) -> str:
@@ -115,6 +119,7 @@ def guarded_groups(
     landings = landing_by_adset(db, owner=owner, account=account)
     weeks = week_readings(db, owner=owner, account=account, adset_ids=ids)
     adverts = _adverts(db, owner=owner, account=account, kinds=kinds, today=today)
+    page_names = _page_names(db, owner=owner, adset_ids=ids)
     found: list[Guarded] = []
     for row, kind in rows:
         figures = sums.get(row.external_id, {})
@@ -169,9 +174,34 @@ def guarded_groups(
                 kind=kind,
                 day=today,
                 down_urls=tuple(landing.down_urls) if landing is not None else (),
+                page_name=page_names.get(row.external_id, ""),
+                campaign_name=(
+                    (row.campaign.name or row.campaign.external_id)
+                    if row.campaign is not None
+                    else ""
+                ),
             )
         )
     return found
+
+
+def _page_names(db: Session, *, owner: User, adset_ids: list[str]) -> dict[str, str]:
+    """``{group: its Facebook page's name}``; the page's id where the page is
+    not one of the owner's connected ones, nothing where none is known."""
+    from app.modules.ads.selectors.pages import pages_by_adset
+
+    pages = pages_by_adset(db, owner=owner, adset_ids=adset_ids)
+    if not pages:
+        return {}
+    names = dict(
+        db.execute(
+            select(PageAccount.external_id, PageAccount.name).where(
+                PageAccount.owner_id == owner.id,
+                PageAccount.external_id.in_(set(pages.values())),
+            )
+        ).all()
+    )
+    return {group: names.get(page) or page for group, page in pages.items()}
 
 
 def _hours(row: AdSet, *, born: Mapping[str, datetime], now: datetime) -> float | None:

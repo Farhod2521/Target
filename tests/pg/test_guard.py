@@ -450,3 +450,27 @@ def test_a_small_budget_is_stopped_for_its_dry_days_together(
     assert (row.kind, row.action) == ("fruitless", "stop")
     assert row.figures["dry_days"] == 4
     assert row.figures["dry_spend_minor"] == 790
+
+
+def test_a_finding_names_its_page_and_campaign(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.ads.models import Campaign
+    from app.modules.integrations.models import PageAccount
+
+    owner, account, now = _running(client, db)
+    page = db.scalar(select(PageAccount).where(PageAccount.owner_id == owner.id))
+    group = db.scalar(select(AdSet).where(AdSet.external_id == "s_1"))
+    assert page is not None and group is not None
+    page.name = "Gul do'koni"
+    group.promoted_object_raw = {"page_id": page.external_id}
+    campaign = db.scalar(select(Campaign).where(Campaign.external_id == "c_1"))
+    assert campaign is not None
+    db.commit()
+
+    _today(db, owner, account, now, spend=640, leads=1)
+    assert run_guard(db, owner=owner, now=now) == 1
+    (row,) = _rows(db)
+    assert row.figures["page_name"] == "Gul do'koni"
+    assert row.figures["campaign_name"] == (campaign.name or "c_1")
+    assert row.figures["group_name"] == row.name

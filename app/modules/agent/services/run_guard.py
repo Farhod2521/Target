@@ -283,6 +283,8 @@ def _figures(item: Guarded, finding: Finding) -> dict[str, Any]:
         "usual_source": group.usual.source,
         "causes": list(finding.causes),
         "group_name": item.name,
+        "campaign_name": item.campaign_name,
+        "page_name": item.page_name,
         "learning": group.learning,
         "ours": group.ours,
         "own_budget": group.own_budget,

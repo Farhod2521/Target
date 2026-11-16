@@ -16,6 +16,7 @@ from app.modules.agent.guard_copy import (
     buttons_of,
     guard_advice,
     guard_body,
+    guard_place,
     guard_title,
 )
 from app.modules.agent.models import GuardAlert
@@ -98,6 +99,7 @@ def guard_item(row: GuardAlert) -> InboxItem:
                 id=row.external_id,
             ),
             name=row.name,
+            place=guard_place(row),
         ),
         actions=tuple(
             ItemAction(

@@ -7,12 +7,14 @@ import pytest
 from app.common.i18n import override
 from app.modules.agent.guard_copy import (
     BUTTONS,
+    PLACES,
     TEXTS,
     WORDS,
     advised_of,
     buttons_of,
     guard_advice,
     guard_body,
+    guard_place,
     guard_title,
     times_of,
 )
@@ -139,3 +141,70 @@ def test_money_with_nothing_back() -> None:
     with override("uz"):
         assert guard_title(row) == "To'xtatdim: natija yo'q"
         assert "Bugun $6 sarflandi, lid: 0. Odatda bitta lid: $2." in guard_body(row)
+
+
+def test_where_a_group_sits_is_named_top_down() -> None:
+    row = _row(
+        figures={"page_name": "Gul do'koni", "campaign_name": "Kuz aksiya"},
+        name="Toshkent 25-45",
+    )
+    with override("uz"):
+        assert guard_place(row) == (
+            ("Sahifa", "Gul do'koni"),
+            ("Kampaniya", "Kuz aksiya"),
+            ("Guruh", "Toshkent 25-45"),
+        )
+    with override("ru"):
+        assert [label for label, _ in guard_place(row)] == [
+            "Страница",
+            "Кампания",
+            "Группа",
+        ]
+
+
+def test_an_advert_finding_names_its_group_and_itself() -> None:
+    row = _row(
+        level="ad",
+        kind="weak_ad",
+        name="Video 2",
+        figures={"page_name": "P", "campaign_name": "C", "group_name": "G"},
+    )
+    with override("en"):
+        assert guard_place(row) == (
+            ("Page", "P"),
+            ("Campaign", "C"),
+            ("Ad set", "G"),
+            ("Ad", "Video 2"),
+        )
+
+
+def test_an_unknown_page_is_left_out_not_made_up() -> None:
+    with override("uz"):
+        assert guard_place(_row(figures={"campaign_name": "C"})) == (
+            ("Kampaniya", "C"),
+            ("Guruh", "Guruh"),
+        )
+
+
+def test_every_language_labels_every_place() -> None:
+    assert set(PLACES) == {"uz", "ru", "en"}
+    assert PLACES["uz"].keys() == PLACES["ru"].keys() == PLACES["en"].keys()
+
+
+def test_the_phone_message_names_page_campaign_and_group() -> None:
+    from app.modules.notifications.selectors.inbox_guard import guard_item
+    from app.modules.notifications.services.announce_guard import guard_message
+
+    row = _row(
+        provider="meta",
+        external_id="1",
+        figures={**_row().figures, "page_name": "Gul", "campaign_name": "Kuz"},
+    )
+    with override("uz"):
+        text = guard_message(row)
+        assert "Sahifa: Gul" in text
+        assert "Kampaniya: Kuz" in text
+        assert "Guruh: Guruh" in text
+        item = guard_item(row)
+    assert item.subject is not None
+    assert item.subject.place[0] == ("Sahifa", "Gul")

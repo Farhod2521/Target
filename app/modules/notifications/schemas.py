@@ -59,12 +59,22 @@ class PreferencesOut(MessageOut):
 # -- the actions screen ---------------------------------------------------------------
 
 
+class PlaceOut(BaseModel):
+    label: str = Field(description="«Sahifa», «Kampaniya», «Guruh», «Reklama».")
+    name: str
+
+
 class SubjectOut(BaseModel):
     provider: str
     level: str = Field(description="`campaign`, `adset` or `ad`.")
     id: str = Field(description="The provider's id of the object.")
     name: str
     code: str = Field(description="The provider's own code for a fault, if any.")
+    place: list[PlaceOut] = Field(
+        default_factory=list,
+        description="Where it sits, from the top down: page, campaign, group, "
+        "advert. Empty where the line names only the object.",
+    )
 
 
 class ItemActionOut(BaseModel):

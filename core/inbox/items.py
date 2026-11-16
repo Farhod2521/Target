@@ -97,6 +97,9 @@ class Subject:
     ref: ExternalRef
     name: str = ""
     code: str = ""
+    # Where it sits, from the top down: ``(label, name)`` - page, campaign,
+    # group, advert. Empty where the line names only the object.
+    place: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

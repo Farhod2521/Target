@@ -70,6 +70,23 @@ BUTTONS: Final[dict[str, dict[str, str]]] = {
     },
 }
 
+# The labels of where a finding sits, from the top down.
+PLACES: Final[dict[str, dict[str, str]]] = {
+    "uz": {
+        "page": "Sahifa",
+        "campaign": "Kampaniya",
+        "adset": "Guruh",
+        "ad": "Reklama",
+    },
+    "ru": {
+        "page": "Страница",
+        "campaign": "Кампания",
+        "adset": "Группа",
+        "ad": "Объявление",
+    },
+    "en": {"page": "Page", "campaign": "Campaign", "adset": "Ad set", "ad": "Ad"},
+}
+
 TEXTS: Final[dict[str, dict[str, str]]] = {
     "uz": {
         "title.price.warn": "Narx {times} baravar qimmatlashdi",
@@ -224,6 +241,21 @@ def times_of(times: int) -> str:
     return number
 
 
+def guard_place(row: GuardAlert) -> tuple[tuple[str, str], ...]:
+    """Where the finding sits - page, campaign, group, and the advert where
+    it is about one - as ``(label, name)``, the unknown ones left out."""
+    figures = row.figures or {}
+    labels = PLACES[_language()]
+    on_ad = row.level == "ad"
+    found = (
+        ("page", str(figures.get("page_name") or "")),
+        ("campaign", str(figures.get("campaign_name") or "")),
+        ("adset", str(figures.get("group_name") or "") if on_ad else row.name),
+        ("ad", row.name if on_ad else ""),
+    )
+    return tuple((labels[level], name) for level, name in found if name)
+
+
 def guard_title(row: GuardAlert) -> str:
     return _text(f"title.{row.kind}.{row.action}", times=times_of(row.times))
 
@@ -344,6 +376,7 @@ def _causes_line(row: GuardAlert) -> str:
 
 __all__ = [
     "BUTTONS",
+    "PLACES",
     "TEXTS",
     "WORDS",
     "advised_of",
@@ -351,6 +384,7 @@ __all__ = [
     "buttons_of",
     "guard_advice",
     "guard_body",
+    "guard_place",
     "guard_title",
     "times_of",
     "word_of",

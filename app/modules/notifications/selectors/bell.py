@@ -133,6 +133,7 @@ def item_to_dict(item: InboxItem) -> dict[str, Any]:
             "id": subject.ref.id,
             "name": subject.name,
             "code": subject.code,
+            "place": [{"label": label, "name": name} for label, name in subject.place],
         }
         if subject is not None
         else None,
@@ -169,6 +170,10 @@ def item_from_dict(raw: dict[str, Any]) -> InboxItem:
             ),
             name=subject.get("name", ""),
             code=subject.get("code", ""),
+            place=tuple(
+                (str(spot.get("label", "")), str(spot.get("name", "")))
+                for spot in subject.get("place") or ()
+            ),
         )
         if subject
         else None,
