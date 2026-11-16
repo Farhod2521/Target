@@ -84,6 +84,7 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "title.frequency.warn": "Reklama bir xil odamlarga ko'p ko'rsatilyapti",
         "price": "Bugun bitta {word}: {cost} ({results} ta). Odatda: {usual}.",
         "fruitless": "Bugun {spend} sarflandi, {word}: 0. Odatda bitta {word}: {usual}.",
+        "fruitless_days": "Oxirgi {days} kunda {spend} sarflandi, {word}: 0. Odatda bitta {word}: {usual}.",
         "site_down": "Reklamadagi havola ochilmayapti, odamlar bo'sh sahifaga tushyapti.",
         "weak_ad": "Bu reklama bugun {spend} sarfladi, {word}: 0. Guruhdagi boshqa reklama natija beryapti.",
         "ctr": "Bosish ulushi (CTR) {now}%, odatda {usual}%.",
@@ -112,6 +113,7 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "title.frequency.warn": "Рекламу слишком часто видят одни и те же люди",
         "price": "Сегодня один {word}: {cost} (всего: {results}). Обычно: {usual}.",
         "fruitless": "Сегодня потрачено {spend}, {word}: 0. Обычно один {word}: {usual}.",
+        "fruitless_days": "За последние {days} дн. потрачено {spend}, {word}: 0. Обычно один {word}: {usual}.",
         "site_down": "Ссылка в рекламе не открывается, люди попадают на пустую страницу.",
         "weak_ad": "Это объявление сегодня потратило {spend}, {word}: 0. Другое объявление группы даёт результат.",
         "ctr": "Кликабельность (CTR) {now}%, обычно {usual}%.",
@@ -140,6 +142,7 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "title.frequency.warn": "The same people see the advert too often",
         "price": "Today one {word} costs {cost} ({results} so far). Usually: {usual}.",
         "fruitless": "Today {spend} was spent, {word}: 0. Usually one {word} costs {usual}.",
+        "fruitless_days": "Over the last {days} days {spend} was spent, {word}: 0. Usually one {word} costs {usual}.",
         "site_down": "The advert's link does not open: people land on an empty page.",
         "weak_ad": "This advert spent {spend} today, {word}: 0. Another advert of the group brings results.",
         "ctr": "Click rate (CTR) {now}%, usually {usual}%.",
@@ -264,6 +267,16 @@ def _figures_line(row: GuardAlert) -> str:
         cost = _money(row, formulas.cost_per_result(spend, results) or spend)
         return _text("price", word=word, cost=cost, results=results, usual=usual)
     if row.kind == "fruitless":
+        days = int(figures.get("dry_days") or 1)
+        gone = max(spend, int(figures.get("dry_spend_minor") or 0))
+        if days > 1:
+            return _text(
+                "fruitless_days",
+                days=days,
+                spend=_money(row, gone),
+                word=word,
+                usual=usual,
+            )
         return _text("fruitless", spend=_money(row, spend), word=word, usual=usual)
     if row.kind == "weak_ad":
         return _text("weak_ad", spend=_money(row, spend), word=word)

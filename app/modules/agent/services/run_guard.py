@@ -269,6 +269,8 @@ def _figures(item: Guarded, finding: Finding) -> dict[str, Any]:
         "spend_minor": spend,
         "results": results,
         "group_spend_minor": group.spend_minor,
+        "dry_spend_minor": group.dry_spend_minor,
+        "dry_days": group.dry_days,
         "impressions": group.impressions,
         "link_clicks": group.link_clicks,
         "frequency": group.frequency,

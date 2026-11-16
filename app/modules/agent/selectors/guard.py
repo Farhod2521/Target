@@ -109,7 +109,8 @@ def guarded_groups(
     born = switched_on(db, owner=owner, account=account)
     sums = adset_sums(db, owner=owner, account=account, since=today, until=today)
     heard = counts_by_adset(db, owner=owner, since=start_of(today, tzinfo), until=now)
-    own = _own_usuals(db, owner=owner, account=account, kinds=kinds, today=today)
+    history = _days(db, owner=owner, account=account, kinds=kinds, today=today)
+    own = _own_usuals(history)
     fallback = group_usuals(db, owner=owner, account=account, adset_ids=ids)
     landings = landing_by_adset(db, owner=owner, account=account)
     weeks = week_readings(db, owner=owner, account=account, adset_ids=ids)
@@ -131,6 +132,17 @@ def guarded_groups(
         usual = own.get(row.external_id) or _account_usual(
             fallback(row.external_id, kind)
         )
+        dry_spend, dry_days = _dry(
+            history.get(row.external_id, {}),
+            today=today,
+            spent_today=counted["spend_minor"],
+            results_today=counted["results"],
+            since=_dry_floor(
+                born.get(row.external_id) or row.start_time,
+                (baselines or {}).get(row.external_id),
+                tzinfo=tzinfo,
+            ),
+        )
         week = weeks.get(row.external_id)
         landing = landings.get(row.external_id)
         found.append(
@@ -145,6 +157,8 @@ def guarded_groups(
                     frequency=week.frequency if week is not None else None,
                     usual=usual,
                     ads=tuple(adverts.get(row.external_id, ())),
+                    dry_spend_minor=dry_spend,
+                    dry_days=dry_days,
                     **counted,
                 ),
                 account=account,
@@ -211,15 +225,18 @@ _DAY_COLUMNS: Final = (
 )
 
 
-def _own_usuals(
+DRY_DAYS: Final = 7
+
+
+def _days(
     db: Session,
     *,
     owner: User,
     account: AdAccount,
     kinds: Mapping[str, Outcome],
     today: date,
-) -> dict[str, Usual]:
-    """``{group: its own fortnight's middle day}``, for those that have one."""
+) -> dict[str, dict[date, DayFigures]]:
+    """``{group: {finished day: its figures}}`` over the last fortnight."""
     m = MetricsDaily
     rows = db.execute(
         select(
@@ -235,20 +252,23 @@ def _own_usuals(
         )
         .group_by(m.adset_external_id, m.date)
     ).mappings()
-    days: dict[str, list[DayFigures]] = defaultdict(list)
+    days: dict[str, dict[date, DayFigures]] = defaultdict(dict)
     for row in rows:
         figures = {column: int(row[column] or 0) for column in _DAY_COLUMNS}
-        days[row["adset_external_id"]].append(
-            DayFigures(
-                spend_minor=figures["spend_minor"],
-                impressions=figures["impressions"],
-                link_clicks=figures["inline_link_clicks"],
-                results=_reported(kinds[row["adset_external_id"]], figures),
-            )
+        days[row["adset_external_id"]][row["date"]] = DayFigures(
+            spend_minor=figures["spend_minor"],
+            impressions=figures["impressions"],
+            link_clicks=figures["inline_link_clicks"],
+            results=_reported(kinds[row["adset_external_id"]], figures),
         )
+    return days
+
+
+def _own_usuals(history: Mapping[str, Mapping[date, DayFigures]]) -> dict[str, Usual]:
+    """``{group: its own fortnight's middle day}``, for those that have one."""
     found: dict[str, Usual] = {}
-    for adset_id, group_days in days.items():
-        usual = usual_level(group_days)
+    for adset_id, group_days in history.items():
+        usual = usual_level(list(group_days.values()))
         if usual.cost_minor:
             found[adset_id] = Usual(
                 cost_minor=usual.cost_minor,
@@ -257,6 +277,50 @@ def _own_usuals(
                 source="own",
             )
     return found
+
+
+def _dry_floor(
+    started: datetime | None, baseline: Mapping[str, Any] | None, *, tzinfo: Any
+) -> date | None:
+    """The first day a dry spell may count: the day after the switch-on, and
+    never a day a stop of ours already answered for."""
+    floor = (
+        started.astimezone(tzinfo).date() + timedelta(days=1)
+        if started is not None
+        else None
+    )
+    stopped = str((baseline or {}).get("day") or "")
+    if stopped:
+        after = date.fromisoformat(stopped) + timedelta(days=1)
+        floor = max(floor, after) if floor is not None else after
+    return floor
+
+
+def _dry(
+    days: Mapping[date, DayFigures],
+    *,
+    today: date,
+    spent_today: int,
+    results_today: int,
+    since: date | None,
+) -> tuple[int, int]:
+    """The money gone since the last result, and over how many days: today,
+    then back day by day while a day brought nothing, a week at most."""
+    if results_today > 0:
+        return 0, 1
+    spent, counted = spent_today, 1
+    for back in range(1, DRY_DAYS):
+        day = today - timedelta(days=back)
+        if since is not None and day < since:
+            break
+        figures = days.get(day)
+        if figures is None or figures.spend_minor <= 0:
+            continue
+        if figures.results > 0:
+            break
+        spent += figures.spend_minor
+        counted = back + 1
+    return spent, counted
 
 
 def _adverts(

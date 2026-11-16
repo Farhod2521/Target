@@ -6,7 +6,7 @@ one usual level (see :class:`Usual`) each time today's figures are read, and
 the answer is a short list of findings: a warning, or a stop.
 
 **What stops, and only what was launched from here.** One result costing
-five usual prices; three usual prices gone today with nothing back; the page
+five usual prices; three usual prices gone since the last result with nothing back; the page
 the advert sends people to not opening. A group built in Ads Manager gets
 the same finding as a warning: its owner did not hand it over.
 
@@ -118,6 +118,11 @@ class GroupToday:
     frequency: int | None = None
     usual: Usual = field(default_factory=Usual)
     ads: tuple[AdToday, ...] = ()
+    # The money gone since the last result, today's included, over at most
+    # a week - and how many days that is. A small budget never spends three
+    # usual prices in one day, and is no less fruitless for it.
+    dry_spend_minor: int = 0
+    dry_days: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,7 +247,8 @@ def _money(group: GroupToday) -> Finding | None:
     if not usual:
         return None
     if group.results <= 0:
-        if group.spend_minor < SPEND_MULTIPLE * usual:
+        gone = max(group.spend_minor, group.dry_spend_minor)
+        if gone < SPEND_MULTIPLE * usual:
             return None
         action = _stop_or_warn(group)
         return Finding(
@@ -250,7 +256,7 @@ def _money(group: GroupToday) -> Finding | None:
             action=action,
             advice="keep_off" if action == "stop" else "pause",
             adset_id=group.adset_id,
-            times=group.spend_minor * 100 // usual,
+            times=gone * 100 // usual,
             causes=causes(group),
         )
     times = price_times(group)

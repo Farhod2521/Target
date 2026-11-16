@@ -427,3 +427,21 @@ def test_the_cabinet_draws_the_finding_with_its_advised_answer(
         "pause", "budget_down", "leave",
     ]  # fmt: skip
     assert sum(action.advised for action in item.actions) == 1
+
+
+def test_a_small_budget_is_stopped_for_its_dry_days_together(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    owner, account, now = _running(client, db)
+    # A result five days ago at the usual price, then $2.50 a day for nothing.
+    for back in (1, 2, 3):
+        _figures(
+            db, owner=owner, account=account, back=back, spend=250, leads=0, now=now
+        )
+    _today(db, owner, account, now, spend=40, leads=0)
+
+    assert run_guard(db, owner=owner, now=now) == 1
+    (row,) = _rows(db)
+    assert (row.kind, row.action) == ("fruitless", "stop")
+    assert row.figures["dry_days"] == 4
+    assert row.figures["dry_spend_minor"] == 790

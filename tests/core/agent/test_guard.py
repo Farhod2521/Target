@@ -97,6 +97,13 @@ def test_less_than_three_with_nothing_back_waits() -> None:
     assert judge(_group(spend_minor=299, results=0)) == []
 
 
+def test_a_small_budget_s_dry_days_add_up() -> None:
+    # 80 today, 310 since the last result four days ago.
+    found = _one(_group(spend_minor=80, results=0, dry_spend_minor=310, dry_days=4))
+    assert (found.kind, found.action, found.times) == ("fruitless", "stop", 310)
+    assert judge(_group(spend_minor=80, dry_spend_minor=290, dry_days=4)) == []
+
+
 def test_nothing_back_stops_a_learning_group_too() -> None:
     assert _one(_group(spend_minor=300, learning=True)).action == "stop"
 
