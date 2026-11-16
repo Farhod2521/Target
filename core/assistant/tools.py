@@ -31,8 +31,11 @@ class HelpSearch(Arguments):
         min_length=2,
         max_length=160,
         description=(
-            "The problem in a few plain words, in the person's language - "
-            "what does not work, or what they are trying to do."
+            "The problem in a few plain words - what does not work, or what "
+            "they are trying to do. Write it in Uzbek whatever language the "
+            "person writes in: the fixes are written in Uzbek. When a "
+            "look-up gave a code - 'page_terms', or Meta's number such as "
+            "'1885316' - send that code alone: a code finds its own fix."
         ),
     )
 
@@ -44,18 +47,24 @@ class TicketDraft(Arguments):
         min_length=10,
         max_length=600,
         description=(
-            "The problem in two or three sentences, in the person's language, "
-            "written for the Support specialist who has not seen this "
-            "conversation: what is wrong, since when, what the person wants."
+            "The purpose of the request, in one or two sentences, in the "
+            "person's language: what exactly the Support specialist has to "
+            "do or find out for this client, and about which object (the "
+            "campaign's, bill's or page's name). Written as a task, not as "
+            "a story: never retell the conversation, never say what you "
+            "answered or guessed earlier, never 'the client asked for an "
+            "operator' when the conversation shows what they need."
         ),
     )
     checked: list[str] = Field(
         default_factory=list,
         max_length=8,
         description=(
-            "What you already checked and what each showed, one short line "
-            "each - 'Tarif: faol, 12 kun qoldi', 'Facebook ulanishi: uzilgan'. "
-            "Only what a look-up actually returned."
+            "The facts a look-up returned that bear on this request, one "
+            "short line each, five at most - 'Tarif: faol, 12 kun qoldi', "
+            "'Facebook ulanishi: uzilgan'. Leave out a check that has "
+            "nothing to do with the request. Only what a look-up actually "
+            "returned."
         ),
     )
 
@@ -82,9 +91,12 @@ NEW_TOOLS: Final[tuple[Tool, ...]] = (
         HELP_TOOL,
         HelpSearch,
         "Search the product's known problems and their step-by-step fixes,",
-        "its video lessons, and the fixes for Meta's refusals. Call it when",
-        "the person asks how to do something in the product or how to fix",
-        "something, before answering from memory.",
+        "its video lessons, and the ready fixes for Meta's errors: an advert",
+        "that was not created, an advert Meta refused or will not run, a",
+        "change Meta did not take. Call it when the person asks how to do",
+        "something in the product or how to fix something, before answering",
+        "from memory. Not needed when a look-up's result already carries a",
+        "'Ready fix' for the problem.",
     ),
     _tool(
         TICKET_TOOL,
@@ -120,7 +132,8 @@ READING: Final[dict[str, str]] = {
         "Never add two kinds together, and compare a price only with a "
         "price of the same kind. A line marked 'built in Ads Manager, not "
         "by this product' is answered when asked about and never added to "
-        "this product's totals."
+        "this product's totals. Said to the person it is a campaign "
+        "«Ads Manager'da yaratilgan» - never 'not this product'."
     ),
     "campaign_details": (
         "How to read this: it says whether the campaign or its ad groups "
@@ -129,7 +142,12 @@ READING: Final[dict[str, str]] = {
         "it, never replace it or add one. Rates after spend and result are "
         "the last 7 days - say 'oxirgi 7 kunda' with each. 'switched off' is "
         "not a fault and gets no fix. 'still learning': a change now starts "
-        "the learning over."
+        "the learning over. 'Meta code N' on a line means Meta will not "
+        "run it for a reason the product has a written answer for: the "
+        "'Ready fix' for that code is under the lists - say its cause in "
+        "one sentence and give its steps as they are, in order. Never say "
+        "the code itself to the person. An advert marked 'refused' has its "
+        "ready fix in `ad_details`."
     ),
     "audience_details": (
         "How to read this: say first what the settings add up to - narrow "
@@ -150,7 +168,9 @@ READING: Final[dict[str, str]] = {
         "usual or less is not 'ignored'. When an advert is ignored the fix "
         "is a new picture or video in the library, not new words. Never "
         "write or suggest advert copy - except to name the rule a refused "
-        "advert's text breaks."
+        "advert's text breaks. A 'Ready fix' block is the product's own "
+        "written answer for this advert: say its cause in one sentence and "
+        "give its steps as they are, in order, as a numbered list."
     ),
     "daily_figures": (
         "How to read this: one line a day. The latest day is still being "
@@ -170,7 +190,9 @@ READING: Final[dict[str, str]] = {
     "recent_changes": (
         "How to read this: 'by' says who made each change - the owner, the "
         "agent or the product - and whether it went through. A refused "
-        "change changed nothing."
+        "change changed nothing. 'why it failed' is the screen's own "
+        "sentence for it, with what Meta wrote; a 'Ready fix' after it is "
+        "the steps to give, as they are."
     ),
     "agent_proposals": (
         "How to read this: 'cause' is the diagnosis a proposal was made "
@@ -186,7 +208,13 @@ READING: Final[dict[str, str]] = {
     "preparations": (
         "How to read this: a campaign prepared here may never have reached "
         "Meta. For one that stopped, the reason is given in words - say "
-        "that reason, not a guess."
+        "that reason, not a guess. Each stopped line names its 'ready "
+        "fix', and the fix itself is under the list: the product's own "
+        "written answer. Say its cause in one sentence and give its steps "
+        "as they are, in order, as a numbered list - add none, drop none. "
+        "The buttons its steps name are on the «Reklamani yaratib "
+        "bo'lmadi» sheet, which opens from that campaign on Reklama: say "
+        "so first. Do not call `help_search` for a problem that has one."
     ),
     HEALTH_TOOL: (
         "How to read this: every line is a fact the product has stored, "
@@ -203,7 +231,12 @@ READING: Final[dict[str, str]] = {
         "them in the same order, in the person's language, as a numbered "
         "list; add nothing that is not there. 'nothing found' means there "
         "is no written fix - say what you know from the account's state, "
-        "and prepare a ticket if that does not solve it."
+        "and prepare a ticket if that does not solve it. A result marked "
+        "'a video lesson' is a video the person can watch: name it by its "
+        "exact title, as it is written here, in «» - the page then shows "
+        "it under your answer as a card that opens the video. So do not "
+        "write steps for finding it in Darsliklar, and do not correct or "
+        "shorten its title."
     ),
 }
 

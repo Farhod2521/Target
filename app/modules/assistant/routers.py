@@ -84,7 +84,8 @@ class MessageOut(BaseModel):
     meta: dict[str, Any] = Field(
         description="`author` (a person's first name) on a `staff` row; `quote` on a "
         "question that replied to a waiting-list line; `stopped: true` on an answer "
-        "the client stopped."
+        "the client stopped; `lessons` on an answer that names video lessons - "
+        "`[{id, title}]`, each drawn as a card that opens `/tutorials/{id}`."
     )
     to_support: bool = Field(description="A client's words that went to a person.")
     support: dict[str, Any] | None = Field(
@@ -474,7 +475,8 @@ async def stream(
     Each frame is JSON: ``delta`` (what was written since the last frame -
     append it), ``status`` (what is being looked at, while nothing is being
     written), and on the last one ``done: true`` with ``html`` (the whole
-    answer, drawn), ``buttons`` and ``replies``. ``error`` is ``failed``,
+    answer, drawn), ``buttons``, ``replies`` and ``lessons`` (the video
+    lessons the answer names, ``[{id, title}]``). ``error`` is ``failed``,
     ``denied`` or ``timeout``."""
     viewer = _viewer(request, token)
     return StreamingResponse(
@@ -518,6 +520,7 @@ async def _frames(*, turn_id: str, viewer: str) -> Any:
                         "masked": state.get("masked", 0),
                         "buttons": state.get("buttons", []),
                         "replies": state.get("replies", []),
+                        "lessons": state.get("lessons", []),
                         "stopped": bool(state.get("stopped")),
                     }
                 sent, last_status = len(text), status_now

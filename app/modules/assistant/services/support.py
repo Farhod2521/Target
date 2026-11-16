@@ -126,7 +126,46 @@ def write_to_support(
         raise LookupError("support message has no assistant row")
     found = db.get(AssistantSession, row.session_id)
     assert found is not None
+    _open_ticket(db, owner=owner, message=sent, words=row.text, now=now)
     return Written(session=found, message=row, support_message=sent)
+
+
+def _open_ticket(
+    db: Session, *, owner: User, message: Any, words: str, now: datetime
+) -> None:
+    """Words for a person are a request on Support's board, not only a line
+    in a chat: somebody is given it and it is counted. A client whose
+    request is already open adds to it by writing; one with none, or with a
+    solved one, opens it with these words. A failure here never costs the
+    message: it is stored already."""
+    from app.modules.boards.constants import SUPPORT_DONE_COLUMNS, Board, TicketReason
+    from app.modules.boards.models import BoardCard
+    from app.modules.boards.tickets import raise_ticket
+
+    try:
+        column = db.scalar(
+            select(BoardCard.column_code).where(
+                BoardCard.board == str(Board.SUPPORT),
+                BoardCard.owner_id == owner.id,
+                BoardCard.term_ends_at.is_(None),
+            )
+        )
+        if column is not None and column not in SUPPORT_DONE_COLUMNS:
+            return
+        raise_ticket(
+            db,
+            owner_id=owner.id,
+            reason=TicketReason.AI,
+            ref=f"ai-chat:{message.id}",
+            now=now,
+            detail=" ".join(words.split())[:500],
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "assistant_support_ticket_failed", extra={"message_id": str(message.id)}
+        )
 
 
 def on_stored(db: Session, *, message: Any, now: datetime) -> None:

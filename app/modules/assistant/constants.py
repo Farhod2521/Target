@@ -95,8 +95,8 @@ POLL_SECONDS: Final = 0.12
 TICKET_BUCKET: Final = "assistant-ticket"
 TICKETS_PER_DAY: Final = 5
 TICKET_SUMMARY_CHARS: Final = 600
-TICKET_CHECKED_ITEMS: Final = 8
-TICKET_ANSWER_CHARS: Final = 600
+# Only the facts that bear on the request, not every check that was made.
+TICKET_CHECKED_ITEMS: Final = 5
 
 # How much of an earlier support chat is brought into a new thread.
 IMPORT_ROWS: Final = 100

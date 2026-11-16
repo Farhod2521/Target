@@ -125,6 +125,9 @@ class Desk:
     halt: Halt | None = None
     changes: list[dict[str, Any]] = field(default_factory=list)
     tickets: list[dict[str, Any]] = field(default_factory=list)
+    # Video lessons a search returned, by id: the ones the answer names
+    # are drawn as cards that open them.
+    lessons: dict[str, str] = field(default_factory=dict)
     _scope: PageScope | None = None
     _counted: PageScope | None = None
 
@@ -182,13 +185,17 @@ class Desk:
         )
 
     def _help(self, call: ToolCall) -> ToolOutput:
-        from app.modules.assistant.selectors.help import help_search
+        from app.modules.assistant.selectors.help import help_found, help_text
 
-        text = help_search(
+        found = help_found(
             self.db,
             query=str(getattr(call.arguments, "query", "")),
             language=self.language,
         )
+        for item in found:
+            if item.lesson_id:
+                self.lessons[item.lesson_id] = item.problem
+        text = help_text(found)
         self.gate.allow(figures_in(text))
         return ToolOutput(text=with_reading(HELP_TOOL, text))
 
@@ -304,7 +311,7 @@ def answer_turn(
     except Exception:
         logger.exception("assistant answer broke")
         publish(turn_id, "", payload=payload, done=True, error="failed")
-        _mark_failed(db, payload=payload)
+        mark_failed(db, payload=payload)
         raise
     _finish(
         db,
@@ -366,6 +373,7 @@ def publish(
     buttons: list[dict[str, Any]] | None = None,
     replies: list[str] | None = None,
     stopped: bool = False,
+    lessons: list[dict[str, str]] | None = None,
 ) -> None:
     """The answer so far, as the stream's door reads it. ``html`` is drawn
     once, with the last frame: the page writes ``delta`` as it arrives."""
@@ -384,6 +392,7 @@ def publish(
             "buttons": buttons or [],
             "replies": replies or [],
             "stopped": stopped,
+            "lessons": lessons or [],
         },
         TURN_TTL_SECONDS,
     )
@@ -496,6 +505,7 @@ def _finish(
         text, replies = f"{text}…\n\n**{CUT_SHORT}**", [str(CARRY_ON)]
     if desk.tickets and desk.owner is None:
         _keep_for_guest(turn_id, payload=payload, ticket=desk.tickets[0], answer=text)
+    lessons = named_lessons(text, found=desk.lessons)
     publish(
         turn_id,
         text,
@@ -504,6 +514,7 @@ def _finish(
         done=True,
         buttons=buttons,
         replies=replies,
+        lessons=lessons,
     )
     record_llm_result(
         db,
@@ -522,7 +533,28 @@ def _finish(
         buttons=buttons,
         replies=replies,
         now=now,
+        lessons=lessons,
     )
+
+
+def named_lessons(text: str, *, found: dict[str, str]) -> list[dict[str, str]]:
+    """The lessons this answer names, of the ones a search returned: each is
+    drawn under the answer as a card that opens the video. One the model
+    read about and did not recommend gets no card."""
+    said = _plain(text)
+    return [
+        {"id": pk, "title": title}
+        for pk, title in found.items()
+        if title.strip() and _plain(title) in said
+    ]
+
+
+def _plain(words: str) -> str:
+    """Words as they compare: one case, one apostrophe, single spaces."""
+    folded = words.casefold()
+    for mark in "‘’ʻʼ`":
+        folded = folded.replace(mark, "'")
+    return " ".join(folded.split())
 
 
 def _keep_for_guest(
@@ -567,6 +599,7 @@ def _store(
     replies: list[str],
     now: datetime,
     stopped: bool = False,
+    lessons: list[dict[str, str]] | None = None,
 ) -> None:
     """Fill in the row that was created empty when the question arrived."""
     key = _uuid(payload.get("message_id", ""))
@@ -590,7 +623,11 @@ def _store(
             masked_figures=gate.masked if gate is not None else 0,
             buttons=buttons,
             replies=replies,
-            meta={**(meta or {}), "stopped": True} if stopped else (meta or {}),
+            meta={
+                **(meta or {}),
+                **({"stopped": True} if stopped else {}),
+                **({"lessons": lessons} if lessons else {}),
+            },
             updated_at=now,
         )
     )
@@ -621,10 +658,11 @@ def _fail(
         related_type=RELATED_TYPE,
         related_id=payload.get("message_id", ""),
     )
-    _mark_failed(db, payload=payload)
+    mark_failed(db, payload=payload)
 
 
-def _mark_failed(db: Session, *, payload: dict[str, Any]) -> None:
+def mark_failed(db: Session, *, payload: dict[str, Any]) -> None:
+    """The answer's row will not be filled: the page stops waiting for it."""
     key = _uuid(payload.get("message_id", ""))
     if key is not None:
         db.execute(
@@ -634,4 +672,4 @@ def _mark_failed(db: Session, *, payload: dict[str, Any]) -> None:
         )
 
 
-__all__ = ["Desk", "answer_turn", "publish"]
+__all__ = ["Desk", "answer_turn", "mark_failed", "publish"]

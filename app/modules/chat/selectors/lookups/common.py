@@ -106,6 +106,62 @@ def section(title: str, rows: list[str], *, empty: str) -> list[str]:
     return [f"## {title}", *(rows or [f"- {empty}"])]
 
 
+def ready_fix(
+    *, code: str, cause: str, steps: tuple[str, ...] | list[str]
+) -> list[str]:
+    """One written answer of the help base, as a block the model copies:
+    the cause, then the steps in order. Never composed by the model."""
+    lines = [f"## Ready fix: {code}", f"Cause: {cause}"]
+    lines += [
+        # Written for a dialog that shows Meta's words under the steps; in
+        # a chat there is no "below".
+        f"{index}. {str(step).replace('Pastda Meta yozgan', 'Meta yozgan')}"
+        for index, step in enumerate(steps, start=1)
+    ]
+    return lines
+
+
+def issue_tag(row: Any) -> str:
+    """``, Meta code N`` for an object Meta will not run for a reason the
+    help base has a written answer for; nothing otherwise."""
+    code = _known_code(row)
+    return f", Meta code {code}" if code else ""
+
+
+def issue_fixes(rows: Iterable[Any]) -> list[str]:
+    """The help base's ready fix for each known Meta code these objects
+    carry, once per answer: the steps are copied, not composed."""
+    from app.modules.ads.selectors.delivery_issues import TROUBLES
+
+    blocks: list[str] = []
+    seen: set[int] = set()
+    for row in rows:
+        code = _known_code(row)
+        if not code or id(TROUBLES[code]) in seen:
+            continue
+        trouble = TROUBLES[code]
+        seen.add(id(trouble))
+        blocks += [
+            "",
+            *ready_fix(
+                code=f"Meta code {code} - {trouble.title}",
+                cause=trouble.cause,
+                steps=trouble.steps,
+            ),
+        ]
+    return blocks
+
+
+def _known_code(row: Any) -> str:
+    from app.modules.ads.selectors.delivery_issues import TROUBLES
+
+    if getattr(row, "provider", "meta") != "meta":
+        return ""
+    return next(
+        (str(code) for code in (row.issue_codes or ()) if str(code) in TROUBLES), ""
+    )
+
+
 def trimmed(text: str, limit: int) -> str:
     """One line, no longer than ``limit``."""
     flat = " ".join(str(text).split())
@@ -152,12 +208,15 @@ __all__ = [
     "elsewhere",
     "figure_sums",
     "in_subscription",
+    "issue_fixes",
+    "issue_tag",
     "money",
     "named",
     "names_by_level",
     "origin",
     "outside",
     "page_currency",
+    "ready_fix",
     "refused",
     "section",
     "subscribed_accounts",

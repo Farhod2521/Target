@@ -242,6 +242,93 @@ def test_context_and_every_lookup(client: TestClient, db: Session) -> None:
     selectors.weekly_report(db, owner=owner, now=now)
 
 
+def test_a_meta_error_comes_with_the_products_ready_fix(
+    client: TestClient, db: Session
+) -> None:
+    """A refused creation, a refused advert and a change that did not go
+    through each arrive with the steps the screens show - copied, not left
+    for the model to compose."""
+    from app.modules.audit.models import ActionLog
+
+    sign_up(client)
+    owner, account, page = _account(db)
+    _mirror(db, owner, account, page)
+    now = utcnow()
+    db.add(
+        CampaignLaunch(
+            owner_id=owner.id,
+            ad_account_id=account.id,
+            page_id=page.id,
+            provider=PROVIDER,
+            status="failed",
+            error_code="page_terms",
+            error_detail={"message": "Lead Ads Terms of Service not accepted"},
+        )
+    )
+    ad = db.scalar(select(Ad).where(Ad.external_id == "a_1"))
+    assert ad is not None
+    ad.delivery = "rejected"
+    ad.review_feedback = {
+        "overall": {"Personal attributes": "The text speaks about the body."},
+        "by_placement": {"instagram": {"Misleading claims": "Promises a result."}},
+    }
+    db.add(
+        ActionLog(
+            owner_id=owner.id,
+            target_provider=PROVIDER,
+            target_level="campaign",
+            target_external_id="c_1",
+            actor_type="user",
+            action="pause",
+            status="failed",
+            error_code="payment_missing",
+            idempotency_key="k-failed-1",
+        )
+    )
+    db.commit()
+    described, _counted = asked_scopes(db, owner=owner)
+
+    def read(name: str, value: Any) -> str:
+        return answer_lookup(
+            db, owner=owner, name=name, arguments=value, scope=described, now=now
+        )
+
+    prepared = read("preparations", args.Window())
+    assert "ready fix: page_terms" in prepared
+    assert "Meta said: Lead Ads Terms of Service not accepted" in prepared
+    assert "## Ready fix: page_terms" in prepared
+    assert "1. «Shartlarni ochish» tugmasini bosing" in prepared
+
+    advert = read("ad_details", args.AdLookup(ad_id="a_1"))
+    assert "refused under Personal attributes" in advert
+    # A policy named for one placement only is not lost.
+    assert "refused under Misleading claims" in advert
+    assert "## Ready fix: Meta reklamani rad etdi" in advert
+    assert "Pastda" not in advert
+
+    # Meta will not run the group, and its code has a written answer: the
+    # campaign's own look-up carries it, once.
+    group = db.scalar(select(AdSet).where(AdSet.external_id == "s_1"))
+    assert group is not None
+    group.issue_codes = ["1885316"]
+    group.issue_summary = "Ad account is disabled"
+    db.commit()
+    campaign = read("campaign_details", args.CampaignLookup(campaign_id="c_1"))
+    assert "Meta code 1885316" in campaign
+    assert (
+        campaign.count("## Ready fix: Meta code 1885316 - Reklama akkaunti faol emas")
+        == 1
+    )
+    assert "1. «Account Quality» sahifasida cheklov sababini o'qing." in campaign
+    assert "refused - its ready fix is in `ad_details`" in campaign
+
+    changes = read("recent_changes", args.Window())
+    assert (
+        "why it failed: Reklama akkauntida ishlaydigan to'lov kartasi yo'q." in changes
+    )
+    assert "Ready fix: 1) To'lov sahifasini oching." in changes
+
+
 @dataclass
 class _Stream:
     pieces: list[str]

@@ -10,14 +10,22 @@ from app.worker import celery_app, task_session
 
 @celery_app.task(queue="chat", ignore_result=True)
 def answer_assistant_turn(turn_id: str) -> None:
-    from app.modules.assistant.services.answer import answer_turn
+    from app.modules.assistant.services.answer import answer_turn, mark_failed
     from app.modules.assistant.services.ask import turn_payload
 
     payload = turn_payload(turn_id=turn_id)
     if payload is None:
         return
     with task_session() as db:
-        answer_turn(db, turn_id=turn_id, payload=payload, now=utcnow())
+        try:
+            answer_turn(db, turn_id=turn_id, payload=payload, now=utcnow())
+        except Exception:
+            # The row is closed now, not by the sweep twenty minutes on:
+            # whatever the answer had written is dropped with the rollback.
+            db.rollback()
+            mark_failed(db, payload=payload)
+            db.commit()
+            raise
         db.commit()
 
 

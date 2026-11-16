@@ -72,7 +72,6 @@ def send_guest_ticket(
                 question=str(kept.get("question", "")),
                 summary=str(kept.get("summary", "")),
                 checked=[str(line) for line in kept.get("checked", ())],
-                answer=str(kept.get("answer", "")),
             ),
             address=address,
             now=now,
