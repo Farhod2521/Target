@@ -176,9 +176,10 @@ def test_three_then_four_are_said_once_each_and_five_stops(
     assert row.action_log_id == log.id
     assert row.baseline["spend_minor"] == 1_010
 
-    # While the stop is on its way nothing is asked twice.
+    # While the stop is on its way nothing is asked twice, and it stays said.
     assert run_guard(db, owner=owner, now=now) == 0
     assert len(_pauses(db)) == 1
+    assert _rows(db)[0].closed_at is None
 
 
 def test_a_rise_that_eases_closes_and_a_new_one_is_a_new_row(

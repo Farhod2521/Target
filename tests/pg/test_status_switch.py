@@ -15,7 +15,11 @@ from app.modules.ads import actions, selectors
 from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.exceptions import AlreadyInState
 from app.modules.ads.models import Ad, AdSet, Campaign, CampaignLaunch
-from app.modules.ads.selectors.delivery import ADS_OFF, ALL_GROUPS_OFF
+from app.modules.ads.selectors.delivery import (
+    ADS_OFF,
+    ALL_GROUPS_OFF,
+    CAMPAIGN_ADS_OFF,
+)
 from app.modules.ads.services.manage import _landed
 from app.modules.audit.constants import ActionType, ActorType
 from app.modules.audit.models import ActionLog
@@ -29,7 +33,9 @@ def _paid(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def _group(db: Session, owner: User, campaign: Campaign, ref: str, **state: str) -> AdSet:
+def _group(
+    db: Session, owner: User, campaign: Campaign, ref: str, **state: str
+) -> AdSet:
     row = AdSet(
         owner_id=owner.id,
         provider=PROVIDER,
@@ -298,7 +304,11 @@ def test_a_group_with_one_advert_starts_it_and_several_are_the_owners(
     db.commit()
     plan = _plan(db, owner, campaign)
     assert plan.targets == [("campaign", "c_1"), ("adset", "s_1")]
-    assert plan.notes == [ADS_OFF.format(name="Guruh")]
+    assert plan.notes == [CAMPAIGN_ADS_OFF]
+    adset_plan = selectors.resume_plan(
+        db, owner=owner, target=db.get(AdSet, group.id), level=ManagedLevel.ADSET
+    )
+    assert adset_plan.notes == [ADS_OFF.format(name="Guruh")]
 
 
 def test_ads_are_counted_in_their_own_group(db: Session) -> None:

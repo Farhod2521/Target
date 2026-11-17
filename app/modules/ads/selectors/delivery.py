@@ -96,6 +96,10 @@ ADS_OFF = (
     "«{name}» guruhidagi reklamalarning hammasi o'chiq. "
     "Kerakli reklamani o'zingiz yoqing."
 )
+# A campaign's one group is not shown: its adverts are the campaign's.
+CAMPAIGN_ADS_OFF = (
+    "Kampaniyadagi reklamalarning hammasi o'chiq. Kerakli reklamani o'zingiz yoqing."
+)
 
 
 def resume_plan(db: Session, *, owner: User, target: Any, level: str) -> ResumePlan:
@@ -131,7 +135,9 @@ def resume_plan(db: Session, *, owner: User, target: Any, level: str) -> ResumeP
     for group in running:
         ads, silent = _ads_on(group, waiting=waiting)
         targets += [(ManagedLevel.AD, str(row.external_id)) for row in ads]
-        if silent:
+        if silent and level == ManagedLevel.CAMPAIGN and len(groups) == 1:
+            notes.append(CAMPAIGN_ADS_OFF)
+        elif silent:
             notes.append(ADS_OFF.format(name=group.name or group.external_id))
     return ResumePlan(targets=list(dict.fromkeys(targets)), notes=notes)
 

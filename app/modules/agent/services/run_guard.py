@@ -21,14 +21,14 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.exceptions import DomainError
 from app.modules.accounts.models import User
 from app.modules.ads import actions
 from app.modules.ads.constants import ManagedLevel
-from app.modules.ads.services.manage import Origin, switch_of
+from app.modules.ads.services.manage import FOR_ADSET, Origin, switch_of
 from app.modules.agent.constants import GUARD_STOP_MARK
 from app.modules.agent.models import GuardAlert
 from app.modules.agent.selectors.guard import (
@@ -95,6 +95,9 @@ def _account(
         (row.external_id, row.kind): row for row in rows if row.closed_at is None
     }
     for key, row in open_rows.items():
+        if row.adset_external_id in pausing:
+            # The mirror says it runs until the stop lands: not over yet.
+            continue
         if key not in findings and _over(row, by_group=by_group, now=now):
             row.closed_at = now
     db.flush()
@@ -130,17 +133,28 @@ def _being_paused(db: Session, *, owner: User, adset_ids: list[str]) -> set[str]
     run, and a second request would only be refused."""
     if not adset_ids:
         return set()
-    return set(
-        db.scalars(
-            select(ActionLog.target_external_id).where(
-                ActionLog.owner_id == owner.id,
-                ActionLog.action == str(ActionType.PAUSE),
-                ActionLog.target_level == ManagedLevel.ADSET,
-                ActionLog.target_external_id.in_(adset_ids),
-                ActionLog.status == ActionStatus.PENDING,
-            )
+    rows = db.execute(
+        select(ActionLog.target_external_id, ActionLog.request_payload).where(
+            ActionLog.owner_id == owner.id,
+            ActionLog.action == str(ActionType.PAUSE),
+            or_(
+                and_(
+                    ActionLog.target_level == ManagedLevel.ADSET,
+                    ActionLog.target_external_id.in_(adset_ids),
+                ),
+                # A campaign's one group is stopped on its campaign.
+                and_(
+                    ActionLog.target_level == ManagedLevel.CAMPAIGN,
+                    ActionLog.request_payload[FOR_ADSET].as_string().in_(adset_ids),
+                ),
+            ),
+            ActionLog.status == ActionStatus.PENDING,
         )
     )
+    return {
+        str((payload or {}).get(FOR_ADSET) or external_id)
+        for external_id, payload in rows
+    }
 
 
 def _over(row: GuardAlert, *, by_group: Mapping[str, Guarded], now: datetime) -> bool:
