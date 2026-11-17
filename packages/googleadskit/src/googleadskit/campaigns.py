@@ -71,7 +71,7 @@ PROVIDER: Final = ProviderName("google")
 _CAMPAIGN_FIELDS: Final = (
     "campaign.resource_name, campaign.name, campaign.status, "
     "campaign.primary_status, campaign.advertising_channel_type, "
-    "campaign.primary_status_reasons, campaign.start_date, "
+    "campaign.primary_status_reasons, "
     "campaign_budget.resource_name, campaign_budget.amount_micros, "
     "campaign_budget.explicitly_shared, customer.currency_code"
 )
