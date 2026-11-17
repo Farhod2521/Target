@@ -41,6 +41,7 @@ from app.modules.boards.exceptions import (
     CardNotFound,
     ClientNotFound,
     ClientPaid,
+    ContactReasonRequired,
     DueInvalid,
     DuePast,
     DueRequired,
@@ -52,7 +53,7 @@ from app.modules.boards.exceptions import (
     TakeLimit,
     TicketHeld,
 )
-from app.modules.boards.models import BoardCard, BoardCardEvent
+from app.modules.boards.models import BoardCard, BoardCardEvent, ContactReason
 from app.modules.boards.offer import OFFERED_REF
 
 
@@ -100,6 +101,9 @@ def move(
     before = card.column_code
     card.column_code = to
     card.column_since = now
+    if to != SupportColumn.UNREACHABLE:
+        # The reason belongs to the column: gone when the ticket leaves it.
+        card.unreachable_reason_id = None
     if (
         card.board == Board.SUPPORT
         and card.chat_taken_at is not None
@@ -306,6 +310,7 @@ def act(
             note=text,
             due=due,
             now=now,
+            reason=reason,
         )
     if card.board == str(Board.RENEWAL):
         from app.modules.boards import renewal
@@ -421,11 +426,13 @@ def _support_act(
     note: str,
     due: datetime | None,
     now: datetime,
+    reason: str = "",
 ) -> BoardCard:
     """A ticket's buttons are its person's, and the superuser's and the
     Owner's. «Ishlayapman» on a ticket with nobody makes who pressed its
     person. «Hal qilindi» does not close it: the client is asked first, and
-    the ticket waits in Tasdiq kutilmoqda for their answer."""
+    the ticket waits in Tasdiq kutilmoqda for their answer. «Bog'lanib
+    bo'lmadi» names a reason from the office's list (``reason``: its id)."""
     if action not in SUPPORT_ACTIONS.get(card.column_code, ()):
         raise ActionNotHere
     if held_by_another(card, user=user, access=access):
@@ -440,6 +447,10 @@ def _support_act(
         to, kind = SupportColumn.WAITING, EventKind.WAITING
     elif action == CardAction.TO_DEVELOPER:
         to, kind = SupportColumn.DEVELOPER, EventKind.DEVELOPER
+    elif action == CardAction.UNREACHABLE:
+        found = _contact_reason(db, reason)
+        to, kind = SupportColumn.UNREACHABLE, EventKind.UNREACHABLE
+        note = f"{found.name}. {note}" if note else found.name
     elif action == CardAction.RELEASE:
         card.manager_id = None
         to, kind = SupportColumn.NEW, EventKind.RELEASED
@@ -464,8 +475,21 @@ def _support_act(
         actor=user,
         body=_said(note, due),
     )
+    if action == CardAction.UNREACHABLE:
+        card.unreachable_reason_id = found.id
     db.commit()
     return card
+
+
+def _contact_reason(db: Session, value: str) -> ContactReason:
+    """A live reason from the list, by its id."""
+    try:
+        found = db.get(ContactReason, uuid.UUID(value)) if value else None
+    except ValueError:
+        found = None
+    if found is None or found.is_archived:
+        raise ContactReasonRequired
+    return found
 
 
 def set_due(

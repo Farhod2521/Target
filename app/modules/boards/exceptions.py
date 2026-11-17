@@ -27,6 +27,13 @@ class CardClosed(DomainError):
         super().__init__("Karta yopilgan.")
 
 
+class ContactReasonRequired(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bog'lanib bo'lmaslik sababini tanlang.")
+
+
 class ReasonRequired(DomainError):
     status_code = 422
 

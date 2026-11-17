@@ -346,6 +346,9 @@ def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, A
         "renewal": extras.renewal.get(card.id),
         "client_denied": mark == EventKind.DENIED,
         "client_replied": mark == EventKind.CLIENT_REPLIED,
+        "unreachable_reason": card.unreachable_reason.name
+        if card.unreachable_reason is not None
+        else "",
         "confirm_until": card.column_since + timedelta(hours=CONFIRM_HOURS)
         if card.board == str(Board.SUPPORT)
         and card.column_code == SupportColumn.CONFIRMING

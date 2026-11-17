@@ -103,6 +103,7 @@ def test_support_opens_only_support(client: TestClient, db: Session) -> None:
         "new",
         "in_progress",
         "waiting",
+        "unreachable",
         "developer",
         "confirming",
         "resolved",
@@ -185,4 +186,4 @@ def test_a_new_seed_column_goes_after_the_office_order(db: Session) -> None:
     db.commit()
 
     back = db.scalar(select(BoardColumn).where(BoardColumn.code == "resolved"))
-    assert back is not None and back.position == 8
+    assert back is not None and back.position == 9

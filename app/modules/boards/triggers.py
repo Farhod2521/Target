@@ -880,8 +880,9 @@ def wait_over(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
 
 
 def client_replied(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
-    """A ticket waiting for its client, and the client wrote in the Yordam
-    chat since: back to Ishlanmoqda, its wait over."""
+    """A ticket waiting for its client, or one Support could not reach the
+    client on, and the client wrote in the Yordam chat since: back to
+    Ishlanmoqda, its wait over."""
     from app.modules.supportchat.models import SupportMessage
 
     wrote = exists().where(
@@ -895,7 +896,9 @@ def client_replied(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> i
             select(BoardCard)
             .where(
                 BoardCard.board == str(Board.SUPPORT),
-                BoardCard.column_code == str(SupportColumn.WAITING),
+                BoardCard.column_code.in_(
+                    [str(SupportColumn.WAITING), str(SupportColumn.UNREACHABLE)]
+                ),
                 wrote,
             )
             .order_by(BoardCard.column_since)

@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, Db
 from app.common.dates import localtime
@@ -41,6 +42,7 @@ from app.modules.boards.constants import (
     CloseReason,
     DeclineReason,
 )
+from app.modules.boards.models import ContactReason
 from app.modules.boards.schemas import (
     ActionIn,
     AssignIn,
@@ -51,6 +53,9 @@ from app.modules.boards.schemas import (
     ClientsFoundOut,
     ColumnsIn,
     ColumnsOut,
+    ContactReasonIn,
+    ContactReasonOut,
+    ContactReasonsOut,
     DueIn,
     HelpOptionsIn,
     HelpOptionsOut,
@@ -334,6 +339,113 @@ def close_reasons(staff: Staff) -> list[dict[str, str]]:
         {"value": str(reason), "label": str(CLOSE_REASON_LABELS[reason])}
         for reason in CloseReason
     ]
+
+
+def _contact_reader(db: Db, user: Staff) -> Any:
+    access = access_for(db, user)
+    if not access.sees(Board.SUPPORT):
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return access
+
+
+def _contact_keeper(db: Db, user: Staff) -> None:
+    """The Owner and the superuser keep the list."""
+    if not _contact_reader(db, user).full:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Ruxsat yo'q.")
+
+
+def _contact_out(row: ContactReason) -> dict[str, Any]:
+    return {
+        "id": str(row.id),
+        "name": row.name,
+        "position": row.position,
+        "is_archived": row.is_archived,
+    }
+
+
+def _contact_row(db: Db, reason_id: uuid.UUID) -> ContactReason:
+    found = db.get(ContactReason, reason_id)
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return found
+
+
+@router.get(
+    "/boards/support/contact-reasons", responses={200: {"model": ContactReasonsOut}}
+)
+def contact_reasons(db: Db, user: Staff) -> dict[str, Any]:
+    """Why Support cannot reach a client: what «Bog'lanib bo'lmadi» asks
+    for. Archived ones only for who keeps the list."""
+    keeps = _contact_reader(db, user).full
+    query = select(ContactReason).order_by(
+        ContactReason.position, ContactReason.created_at
+    )
+    if not keeps:
+        query = query.where(ContactReason.is_archived.is_(False))
+    return {"rows": [_contact_out(row) for row in db.scalars(query)], "may_edit": keeps}
+
+
+@router.post(
+    "/boards/support/contact-reasons",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": ContactReasonOut}},
+)
+def add_contact_reason(body: ContactReasonIn, db: Db, user: Staff) -> dict[str, Any]:
+    _contact_keeper(db, user)
+    position = (
+        body.position
+        or int(
+            db.scalar(select(func.coalesce(func.max(ContactReason.position), 0))) or 0
+        )
+        + 1
+    )
+    row = ContactReason(
+        name=body.name.strip(), position=position, created_by_id=user.id
+    )
+    db.add(row)
+    db.commit()
+    return _contact_out(row)
+
+
+@router.put(
+    "/boards/support/contact-reasons/{reason_id}",
+    responses={200: {"model": ContactReasonOut}},
+)
+def edit_contact_reason(
+    reason_id: uuid.UUID, body: ContactReasonIn, db: Db, user: Staff
+) -> dict[str, Any]:
+    """New words or place; tickets standing there read the new words."""
+    _contact_keeper(db, user)
+    row = _contact_row(db, reason_id)
+    row.name = body.name.strip()
+    row.position = body.position
+    db.commit()
+    return _contact_out(row)
+
+
+@router.post(
+    "/boards/support/contact-reasons/{reason_id}/archive",
+    responses={200: {"model": ContactReasonOut}},
+)
+def archive_contact_reason(reason_id: uuid.UUID, db: Db, user: Staff) -> dict[str, Any]:
+    """Off the list to pick from; tickets that have it keep it."""
+    _contact_keeper(db, user)
+    row = _contact_row(db, reason_id)
+    row.is_archived = True
+    db.commit()
+    return _contact_out(row)
+
+
+@router.post(
+    "/boards/support/contact-reasons/{reason_id}/restore",
+    responses={200: {"model": ContactReasonOut}},
+)
+def restore_contact_reason(reason_id: uuid.UUID, db: Db, user: Staff) -> dict[str, Any]:
+    _contact_keeper(db, user)
+    row = _contact_row(db, reason_id)
+    row.is_archived = False
+    db.commit()
+    return _contact_out(row)
 
 
 def _renewal(db: Db, user: Staff) -> Any:

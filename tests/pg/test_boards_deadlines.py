@@ -452,7 +452,12 @@ def test_a_ticket_waits_for_the_client_is_given_up_and_reopened(
         client.post(press, json={"action": "wait", "due_at": _in(24)}, headers=zarina)
     )
     assert waiting.column == "waiting" and waiting.due_at is not None
-    assert [a.value for a in waiting.actions] == ["start", "resolve", "release"]
+    assert [a.value for a in waiting.actions] == [
+        "start",
+        "unreachable",
+        "resolve",
+        "release",
+    ]
     assert (
         next(a for a in waiting.actions if a.value == "release").label == "Voz kechish"
     )
