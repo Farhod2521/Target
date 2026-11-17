@@ -699,6 +699,7 @@ def move_card(db: Db, user: Staff, card_id: str, body: MoveIn) -> dict[str, Any]
         access=access_for(db, user),
         to=body.column,
         reason=body.reason,
+        contact_reason=body.contact_reason,
         now=now,
     )
     return view.card_detail(db, card=found, now=now)

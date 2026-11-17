@@ -67,6 +67,7 @@ Mijoz bilan bog'lanish imkoni yo'q (raqam xato, Telegramdan javob yo'q). Qayta q
 
 - Tugma `unreachable`: `reason` — sabab `id` si, majburiy; `note` ixtiyoriy. Sabab yo'q yoki arxivda: `422 contact_reason_required`. Tarixga «Sabab. Izoh» bo'lib yoziladi, `due_at` olib tashlanadi.
 - Karta `unreachable_reason` — sabab nomi; zayavka ustundan chiqishi bilan bo'shaydi.
+- «Ko'chirish» (`POST /api/v2/office/cards/{id}/move`, Owner/superuser) bilan shu ustunga: `contact_reason` — sabab `id` si, majburiy (aks holda `422 contact_reason_required`). Tarixga «Sabab. Ko'chirish izohi». Boshqa ustunlarga `contact_reason` e'tiborsiz.
 - Bu ustundagi zayavka 5 talik limitga kirmaydi. Mijoz Yordam chatga yozsa, zayavka o'zi `in_progress` ga, o'sha xodimga qaytadi.
 - Sabablar ro'yxati — `GET /api/v2/office/boards/support/contact-reasons` → `{rows: [{id, name, position, is_archived}], may_edit}`. Support faqat faollarini ko'radi; Owner va superuser arxivdagilarini ham ko'radi va tahrirlaydi:
   - `POST .../contact-reasons` `{name, position?}` → `201`;

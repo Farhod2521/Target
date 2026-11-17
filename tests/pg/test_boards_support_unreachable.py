@@ -187,3 +187,43 @@ def test_the_owner_and_the_superuser_keep_the_list(
     assert refused.status_code == 422
     restored = client.post(f"{REASONS}/{by_boss.json()['id']}/restore", headers=boss)
     assert restored.json()["is_archived"] is False
+
+
+def test_ko_chirish_into_unreachable_asks_for_a_reason_from_the_list(
+    client: TestClient, db: Session
+) -> None:
+    _live(db)
+    _, telegram = _reasons(db)
+    boss = _staff(db, "boss@office.test", Role.OWNER)
+    opened = _opened(client, db, boss)
+    move = f"{URL}/cards/{opened.id}/move"
+
+    bare = client.post(
+        move, json={"column": "unreachable", "reason": "Javob yo'q"}, headers=boss
+    )
+    assert bare.status_code == 422
+    assert bare.json()["detail"] == "Bog'lanib bo'lmaslik sababini tanlang."
+
+    moved = _detail(
+        client.post(
+            move,
+            json={
+                "column": "unreachable",
+                "reason": "Javob yo'q",
+                "contact_reason": str(telegram.id),
+            },
+            headers=boss,
+        )
+    )
+    assert moved.column == "unreachable"
+    assert moved.unreachable_reason == "Telegramdan bog'lanib bo'lmadi"
+    assert moved.history[0].body == "Telegramdan bog'lanib bo'lmadi. Javob yo'q"
+
+    back = _detail(
+        client.post(
+            move,
+            json={"column": "in_progress", "reason": "Topildi", "contact_reason": "x"},
+            headers=boss,
+        )
+    )
+    assert back.column == "in_progress" and back.unreachable_reason == ""

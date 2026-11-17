@@ -532,6 +532,12 @@ class MoveIn(BaseModel):
         max_length=24, description="A visible column's code on the card's board."
     )
     reason: str = Field(min_length=1, max_length=2000)
+    contact_reason: str = Field(
+        default="",
+        max_length=64,
+        description="Into Support's «Bog'lanib bo'lmadi»: the reason's id from "
+        "the Owner's list (required there, ignored elsewhere).",
+    )
 
 
 class StaffRoleOut(BaseModel):

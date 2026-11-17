@@ -821,10 +821,12 @@ def move_by_hand(
     to: str,
     reason: str,
     now: datetime,
+    contact_reason: str = "",
 ) -> BoardCard:
     """The superuser or the Owner puts a card in any visible column of its
     board, saying why. A final column closes the card; leaving one opens it.
-    Ishlanmagan has nobody on the card."""
+    Ishlanmagan has nobody on the card. Support's «Bog'lanib bo'lmadi» also
+    takes a reason from the Owner's list, as the button does."""
     from app.modules.boards.exceptions import MoveReasonRequired, NoSuchColumn
     from app.modules.boards.models import BoardColumn
 
@@ -845,6 +847,12 @@ def move_by_hand(
         raise NoSuchColumn
     if column.code == card.column_code:
         return card
+    unreachable = (
+        card.board == Board.SUPPORT and column.code == SupportColumn.UNREACHABLE
+    )
+    found = _contact_reason(db, contact_reason) if unreachable else None
+    if found is not None:
+        why = f"{found.name}. {why}"[:NOTE_MAX]
     card.closed_at = now if column.is_final else None
     if column.is_final:
         card.due_at = None
@@ -860,5 +868,7 @@ def move_by_hand(
         actor=user,
         body=why,
     )
+    if found is not None:
+        card.unreachable_reason_id = found.id
     db.commit()
     return card
