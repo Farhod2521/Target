@@ -68,6 +68,10 @@ class SupportColumn(Choices):
     IN_PROGRESS = "in_progress"
     # Support did its part; the client's answer or action is waited for.
     WAITING = "waiting"
+    # No way to reach the client (a wrong number, no answer on Telegram):
+    # a reason from the office's list says which. Calling again is Mijoz
+    # kutilmoqda, not this.
+    UNREACHABLE = "unreachable"
     # A fault only a developer can mend; the ticket stays its person's.
     DEVELOPER = "developer"
     # Support says it is solved; the client is asked whether it is.
@@ -82,6 +86,7 @@ SUPPORT_COLUMN_LABELS = {
     SupportColumn.NEW: "Yangi",
     SupportColumn.IN_PROGRESS: "Ishlanmoqda",
     SupportColumn.WAITING: "Mijoz kutilmoqda",
+    SupportColumn.UNREACHABLE: "Bog'lanib bo'lmadi",
     SupportColumn.DEVELOPER: "Dasturchiga berildi",
     SupportColumn.CONFIRMING: "Tasdiq kutilmoqda",
     SupportColumn.RESOLVED: "Hal qilindi",
@@ -167,6 +172,7 @@ SEED_COLUMNS: Final[tuple[SeedColumn, ...]] = (
     _support(SupportColumn.NEW, ColumnKind.AUTO),
     _support(SupportColumn.IN_PROGRESS, ColumnKind.MANUAL),
     _support(SupportColumn.WAITING, ColumnKind.MANUAL),
+    _support(SupportColumn.UNREACHABLE, ColumnKind.MANUAL),
     _support(SupportColumn.DEVELOPER, ColumnKind.MANUAL),
     _support(SupportColumn.CONFIRMING, ColumnKind.MANUAL),
     _support(SupportColumn.RESOLVED, ColumnKind.AUTO, final=True),
@@ -228,6 +234,8 @@ class CardAction(Choices):
     RESOLVE = "resolve"
     REOPEN = "reopen"
     TO_DEVELOPER = "to_developer"
+    # Support: no way to reach the client; a reason from the list is picked.
+    UNREACHABLE = "unreachable"
     # Renewal: the client will not renew; the reason is picked.
     DECLINE = "decline"
 
@@ -246,6 +254,7 @@ CARD_ACTION_LABELS = {
     CardAction.RESOLVE: "Hal qilindi",
     CardAction.REOPEN: "Qayta ochish",
     CardAction.TO_DEVELOPER: "Dasturchiga berish",
+    CardAction.UNREACHABLE: "Bog'lanib bo'lmadi",
     CardAction.DECLINE: "Rad etdi",
 }
 # On Support the same button gives the ticket up, not a lead back.
@@ -337,15 +346,19 @@ SUPPORT_ACTIONS: Final[dict[str, tuple[CardAction, ...]]] = {
     str(SupportColumn.NEW): (CardAction.START,),
     str(SupportColumn.IN_PROGRESS): (
         CardAction.WAIT,
+        CardAction.UNREACHABLE,
         CardAction.TO_DEVELOPER,
         CardAction.RESOLVE,
         CardAction.RELEASE,
     ),
     str(SupportColumn.WAITING): (
         CardAction.START,
+        CardAction.UNREACHABLE,
         CardAction.RESOLVE,
         CardAction.RELEASE,
     ),
+    # Reached after all (or the client wrote): «Ishlayapman».
+    str(SupportColumn.UNREACHABLE): (CardAction.START, CardAction.RELEASE),
     str(SupportColumn.DEVELOPER): (CardAction.START, CardAction.RESOLVE),
     str(SupportColumn.CONFIRMING): (CardAction.REOPEN,),
     str(SupportColumn.RESOLVED): (CardAction.REOPEN,),
@@ -546,6 +559,7 @@ class EventKind(Choices):
     MISSED_CALL = "missed_call"
     TICKET_TAKEN = "ticket_taken"
     DEVELOPER = "developer"
+    UNREACHABLE = "unreachable"
     WAIT_OVER = "wait_over"
     ASKED = "asked"
     CONFIRMED = "confirmed"
@@ -599,6 +613,7 @@ EVENT_KIND_LABELS = {
     EventKind.MISSED_CALL: "Javobsiz qo'ng'iroq",
     EventKind.TICKET_TAKEN: "Zayavka olindi",
     EventKind.DEVELOPER: "Dasturchiga berildi",
+    EventKind.UNREACHABLE: "Bog'lanib bo'lmadi",
     EventKind.WAIT_OVER: "Kutish vaqti tugadi",
     EventKind.ASKED: "Mijozdan so'raldi: hal bo'ldimi?",
     EventKind.CONFIRMED: "Mijoz tasdiqladi: hal bo'ldi",

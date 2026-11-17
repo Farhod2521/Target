@@ -158,6 +158,10 @@ class CardOut(BaseModel):
     client_replied: bool = Field(
         False, description="Support: the client wrote back while it waited."
     )
+    unreachable_reason: str = Field(
+        "",
+        description="Support, «Bog'lanib bo'lmadi»: the reason's words; empty elsewhere.",
+    )
     confirm_until: datetime | None = Field(
         None,
         description="Support, Tasdiq kutilmoqda: unanswered by then, the "
@@ -391,7 +395,8 @@ class ActionIn(BaseModel):
     action: str = Field(
         description="One of the card's `actions`. Sales: `contacted`, "
         "`no_contact`, `callback`, `will_pay`, `offer`, `needs_support`, `close`, "
-        "`release`. Support: `start`, `wait`, `resolve`, `release`, `reopen`. "
+        "`release`. Support: `start`, `wait`, `unreachable`, `to_developer`, "
+        "`resolve`, `release`, `reopen`. "
         "Uzaytirish: `contacted`, `no_contact`, `callback`, `will_pay`, `decline`."
     )
     due_at: datetime | None = Field(
@@ -404,9 +409,10 @@ class ActionIn(BaseModel):
     )
     reason: str = Field(
         "",
-        max_length=24,
+        max_length=36,
         description="`close`: a code from `GET /office/boards/sales/reasons`. "
-        "`decline`: one from `GET /office/boards/renewal/reasons`.",
+        "`decline`: one from `GET /office/boards/renewal/reasons`. "
+        "`unreachable`: an `id` from `GET /office/boards/support/contact-reasons`.",
     )
     note: str = Field(
         "",
@@ -459,6 +465,25 @@ class NoteIn(BaseModel):
 
 class AssignIn(BaseModel):
     staff_id: str | None = Field(description="Empty: back to Ishlanmagan.")
+
+
+class ContactReasonOut(BaseModel):
+    id: str
+    name: str
+    position: int
+    is_archived: bool
+
+
+class ContactReasonsOut(BaseModel):
+    rows: list[ContactReasonOut] = Field(
+        description="Archived ones only for who may edit the list."
+    )
+    may_edit: bool = Field(description="The Owner and the superuser keep the list.")
+
+
+class ContactReasonIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    position: int = Field(0, ge=0, le=1000)
 
 
 class ReasonOut(BaseModel):

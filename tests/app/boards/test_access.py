@@ -110,6 +110,28 @@ def test_the_migration_seeds_the_same_columns_as_the_code() -> None:
             if row[0] == support.BOARD and row[1] == after
         )
         seeded.insert(at + 1, (support.BOARD, code, name, kind, final, True))
+    # 0062 puts «Bog'lanib bo'lmadi» after Mijoz kutilmoqda.
+    reach = next(Path("migrations/versions").glob("*_0062_support_unreachable.py"))
+    spec = importlib.util.spec_from_file_location("m0062", reach)
+    assert spec is not None and spec.loader is not None
+    unreachable = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(unreachable)
+    at = next(
+        i
+        for i, row in enumerate(seeded)
+        if row[0] == unreachable.BOARD and row[1] == "waiting"
+    )
+    seeded.insert(
+        at + 1,
+        (
+            unreachable.BOARD,
+            unreachable.CODE,
+            "Bog'lanib bo'lmadi",
+            "manual",
+            False,
+            True,
+        ),
+    )
     seeded = [
         (
             board,

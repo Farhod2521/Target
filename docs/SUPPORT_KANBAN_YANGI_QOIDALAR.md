@@ -21,6 +21,7 @@ Birovning zayavkasi Support xodimiga `404` qaytaradi (ro'yxat, karta, izoh, mudd
 | `new` | Yangi | yo'q | zayavka ochilganda |
 | `in_progress` | Ishlanmoqda | yo'q | «Zayavka olish», «Ishlayapman» |
 | `waiting` | Mijoz kutilmoqda | yo'q | `wait`, vaqt majburiy |
+| `unreachable` | Bog'lanib bo'lmadi | yo'q | `unreachable`, sabab majburiy (§4a) |
 | `developer` | Dasturchiga berildi | yo'q | `to_developer`, izoh majburiy |
 | `confirming` | Tasdiq kutilmoqda | yo'q | `resolve`, izoh majburiy |
 | `resolved` | Hal qilindi | ha | mijoz «Ha» dedi |
@@ -31,8 +32,9 @@ Tugmalar (`actions` ro'yxati backenddan keladi, front o'zi hisoblamaydi):
 | Ustun | Tugmalar |
 |---|---|
 | `new` | `start` |
-| `in_progress` | `wait`, `to_developer`, `resolve`, `release` |
-| `waiting` | `start`, `resolve`, `release` |
+| `in_progress` | `wait`, `unreachable`, `to_developer`, `resolve`, `release` |
+| `waiting` | `start`, `unreachable`, `resolve`, `release` |
+| `unreachable` | `start`, `release` |
 | `developer` | `start`, `resolve` |
 | `confirming`, `resolved`, `closed` | `reopen` |
 
@@ -58,6 +60,20 @@ Limit faqat `Ishlanmoqda` ni sanaydi. Quyidagilar limitdan oshsa ham o'tadi: Own
 ## 4. Kutish taymeri
 
 `wait` tugmasi vaqt so'raydi (`due_at`, majburiy). Vaqt kelganda zayavka o'zi `Ishlanmoqda` ga qaytadi, tarixga «Kutish vaqti tugadi» (`wait_over`) yoziladi. Mijoz Yordam chatiga yozsa, avvalgidek darhol qaytadi.
+
+## 4a. «Bog'lanib bo'lmadi» (2026-11-17, migratsiya 0062)
+
+Mijoz bilan bog'lanish imkoni yo'q (raqam xato, Telegramdan javob yo'q). Qayta qo'ng'iroq qilish — bu `waiting`, bu ustun emas.
+
+- Tugma `unreachable`: `reason` — sabab `id` si, majburiy; `note` ixtiyoriy. Sabab yo'q yoki arxivda: `422 contact_reason_required`. Tarixga «Sabab. Izoh» bo'lib yoziladi, `due_at` olib tashlanadi.
+- Karta `unreachable_reason` — sabab nomi; zayavka ustundan chiqishi bilan bo'shaydi.
+- Bu ustundagi zayavka 5 talik limitga kirmaydi. Mijoz Yordam chatga yozsa, zayavka o'zi `in_progress` ga, o'sha xodimga qaytadi.
+- Sabablar ro'yxati — `GET /api/v2/office/boards/support/contact-reasons` → `{rows: [{id, name, position, is_archived}], may_edit}`. Support faqat faollarini ko'radi; Owner va superuser arxivdagilarini ham ko'radi va tahrirlaydi:
+  - `POST .../contact-reasons` `{name, position?}` → `201`;
+  - `PUT .../contact-reasons/{id}` `{name, position}`;
+  - `POST .../contact-reasons/{id}/archive`, `.../restore`.
+  Boshqalar uchun `403`. Sabab o'chirilmaydi, faqat arxivlanadi.
+- Migratsiya ikki sabab yozadi: «Telefon raqam xato», «Telegramdan bog'lanib bo'lmadi».
 
 ## 5. Yopilishni mijoz tasdiqlaydi
 

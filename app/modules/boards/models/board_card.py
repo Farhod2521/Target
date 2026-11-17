@@ -12,6 +12,7 @@ from app.common.db import Base, utcnow
 
 if TYPE_CHECKING:
     from app.modules.accounts.models import User
+    from app.modules.boards.models.contact_reason import ContactReason
 
 
 class BoardCard(Base):
@@ -69,6 +70,8 @@ class BoardCard(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     close_reason: Mapped[str] = mapped_column(String(24), nullable=False, default="")
     close_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Support's «Bog'lanib bo'lmadi»: which reason, while the ticket stands there.
+    unreachable_reason_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("board_contact_reasons.id", ondelete="SET NULL"), nullable=True)
     # Uzaytirish: the plan the term was on, the moment the term ends, and
     # the bill whose payment renewed it.
     plan_code: Mapped[str] = mapped_column(String(32), nullable=False, default="", server_default="")
@@ -76,3 +79,4 @@ class BoardCard(Base):
     invoice_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("invoices.id", ondelete="SET NULL"), nullable=True, index=True)
     owner: Mapped[User] = relationship(foreign_keys=[owner_id], lazy="select")
     manager: Mapped[User | None] = relationship(foreign_keys=[manager_id], lazy="select")
+    unreachable_reason: Mapped[ContactReason | None] = relationship(lazy="select")

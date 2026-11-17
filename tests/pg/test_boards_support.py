@@ -223,6 +223,7 @@ def test_one_ticket_per_client_reopened_with_the_same_person(
         "new",
         "in_progress",
         "waiting",
+        "unreachable",
         "developer",
         "confirming",
         "resolved",
@@ -242,6 +243,7 @@ def test_one_ticket_per_client_reopened_with_the_same_person(
     assert started.column == "in_progress" and started.manager is not None
     assert [a.value for a in started.actions] == [
         "wait",
+        "unreachable",
         "to_developer",
         "resolve",
         "release",
