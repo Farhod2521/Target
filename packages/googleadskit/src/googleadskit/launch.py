@@ -10,7 +10,9 @@ what Meta's rollback exists for.
 **What is fixed here, and why.** Every campaign this product makes is the
 same shape, chosen for a small advertiser with no conversion tracking:
 
-- Google Search only - no search partners' display, no Display expansion.
+- Google Search, search partners and Display expansion all on: the
+  campaign reaches every placement a Search campaign can. (YouTube, Gmail
+  and Maps need other campaign types or a Business Profile.)
 - Maximize clicks (``targetSpend``): maximize conversions needs a
   conversion tag on the site, which these sites do not have.
 - Keywords as phrase or exact match. Broad match is Google's default and
@@ -248,8 +250,8 @@ def _campaign(name: str, budget: str, spec: SearchCampaignSpec) -> dict[str, Any
         "targetSpend": {},
         "networkSettings": {
             "targetGoogleSearch": True,
-            "targetSearchNetwork": False,
-            "targetContentNetwork": False,
+            "targetSearchNetwork": True,
+            "targetContentNetwork": True,
             "targetPartnerSearchNetwork": False,
         },
         "containsEuPoliticalAdvertising": "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",

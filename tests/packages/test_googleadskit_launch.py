@@ -106,7 +106,12 @@ def test_the_operations_build_the_whole_campaign_parents_first() -> None:
     assert budget["explicitlyShared"] is False
     campaign = ops[1]["campaignOperation"]["create"]
     assert campaign["targetSpend"] == {}
-    assert campaign["networkSettings"]["targetContentNetwork"] is False
+    assert campaign["networkSettings"] == {
+        "targetGoogleSearch": True,
+        "targetSearchNetwork": True,
+        "targetContentNetwork": True,
+        "targetPartnerSearchNetwork": False,
+    }
     # People in the places, not people elsewhere searching about them.
     assert campaign["geoTargetTypeSetting"] == {"positiveGeoTargetType": "PRESENCE"}
     assert (
