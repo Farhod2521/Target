@@ -14,6 +14,7 @@ from telegramkit import SentMessage
 from app.common.config import settings
 from app.common.db import utcnow
 from app.modules.backoffice.constants import Role
+from app.modules.boards.chat_hold import hold_of
 from app.modules.notifications.models import StaffChat, TelegramChat
 from app.modules.notifications.services import (
     announce_support as announce_module,
@@ -173,17 +174,22 @@ def test_a_question_is_copied_answered_from_telegram_and_marked(
         if name == "send_message" and fields.get("buttons")
     )
     send_data = prompt["buttons"][0].data
+    # Aziz's reply took the chat (Telegram has no «Men javob beraman»), so
+    # Olim's second reply is refused: one person answers a client at a time.
+    hold = hold_of(db, owner_id=owner.id)
+    assert hold is not None and hold.holder.id == aziz.id
     sent = handle_staff_update(
         db, payload=_press("502", send_data, message_id=900), now=utcnow()
     )
-    assert sent == "support_replied"
+    assert sent == "support_refused"
+    assert any("javob beryapti" in text for text in fake.texts("edit_message_text"))
     again = handle_staff_update(
         db, payload=_press("502", send_data, message_id=900), now=utcnow()
     )
     assert again == "support_expired"
     assert (
         db.scalar(select(SupportMessage).where(SupportMessage.sender_id == olim.id))
-        is not None
+        is None
     )
 
 

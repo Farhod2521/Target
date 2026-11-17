@@ -15,6 +15,7 @@ from telegramkit import BotBlocked, SentMessage, TelegramFile, TelegramRateLimit
 from app.common.config import settings
 from app.common.db import utcnow
 from app.modules.backoffice.constants import Role
+from app.modules.boards.chat_hold import take_chat
 from app.modules.notifications.models import SupportBotChat, TelegramChat
 from app.modules.notifications.services import (
     announce_support as announce_module,
@@ -338,6 +339,8 @@ def test_an_office_reply_goes_to_the_bot_signed_and_follows_edits(
     conversation = db.scalar(select(SupportConversation))
     assert conversation is not None
 
+    take_chat(db, client=owner, user=aziz, now=utcnow())
+    db.commit()
     reply = post_message(
         db,
         conversation=conversation,
@@ -412,6 +415,8 @@ def test_a_reply_with_a_file_sends_the_file_then_the_words(
         select(SupportAttachment).where(SupportAttachment.message_id == with_file.id)
     )
     assert attachment is not None
+    take_chat(db, client=owner, user=aziz, now=utcnow())
+    db.commit()
     reply = post_message(
         db,
         conversation=conversation,
@@ -447,6 +452,8 @@ def test_a_blocked_bot_stops_the_replies_and_the_main_bot_takes_over(
     aziz, _ = _staff(db, Role.SUPPORT, email="aziz@office.test")
     handle_support_update(db, payload=_text("900", "Savol"), now=utcnow())
     conversation = db.scalar(select(SupportConversation))
+    take_chat(db, client=owner, user=aziz, now=utcnow())
+    db.commit()
     reply = post_message(
         db,
         conversation=conversation,
@@ -473,6 +480,8 @@ def test_a_temporary_refusal_is_tried_again_without_sending_files_twice(
     handle_support_update(db, payload=photo, now=utcnow())
     stored = db.scalar(select(SupportAttachment))
     conversation = db.scalar(select(SupportConversation))
+    take_chat(db, client=owner, user=aziz, now=utcnow())
+    db.commit()
     reply = post_message(
         db,
         conversation=conversation,

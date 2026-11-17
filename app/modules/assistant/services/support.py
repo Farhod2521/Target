@@ -40,13 +40,10 @@ from sqlalchemy.orm import Session
 from app.modules.accounts.models import User
 from app.modules.assistant.constants import (
     IMPORT_ROWS,
-    REPLY_WINDOW,
     SESSION_TTL_DAYS,
     SUPPORT_TITLE,
     TEAM,
     Author,
-    ButtonKind,
-    ButtonState,
     MessageStatus,
     Mode,
 )
@@ -315,37 +312,29 @@ def state_for(db: Session, *, owner: User) -> SupportState:
     )
 
 
-def thread_mode(
-    db: Session,
-    *,
-    owner: User,
-    thread: AssistantSession | None,
-    messages: Sequence[Any],
-    entitled: bool,
-    now: datetime,
-) -> str:
-    """``support`` while this thread is with a person, ``ai`` otherwise.
+def thread_mode(db: Session, *, owner: User, entitled: bool) -> str:
+    """``support`` while a person in Support has this client's chat
+    («Men javob beraman» in the office), ``ai`` otherwise. It goes back to
+    the assistant only when the person or the Owner gives it back, or the
+    ticket is solved or closed (``boards.chat_hold``). A client with no
+    plan has only the person to talk to."""
+    from app.modules.boards.chat_hold import hold_of
 
-    With a person: the client's last words went to Support and wait for an
-    answer, or a person answered within ``REPLY_WINDOW``. Anything after
-    that - the assistant answered since, the office closed the question, a
-    day went by - gives the composer back to the assistant. A client with
-    no plan has only the person to talk to. The page may switch it.
-    """
     if not entitled:
         return Mode.SUPPORT
-    last = next(
-        (row for row in reversed(messages) if row.status != MessageStatus.FAILED),
-        None,
-    )
-    if thread is None or thread.support_at is None or last is None:
-        return Mode.AI
-    if last.author == Author.STAFF:
-        fresh = now - last.created_at <= REPLY_WINDOW
-        return Mode.SUPPORT if fresh else Mode.AI
-    if is_to_support(last) or ticket_sent(last):
-        return Mode.SUPPORT if _waiting(db, owner=owner) else Mode.AI
-    return Mode.AI
+    return Mode.SUPPORT if hold_of(db, owner_id=owner.id) else Mode.AI
+
+
+def point_at_open_thread(db: Session, *, owner_id: Any, now: datetime) -> None:
+    """A person took this client's chat: their words go to the thread the
+    client wrote in last. A client with no thread gets their support chat
+    brought in when they next open the chat (``ensure_thread``)."""
+    owner = db.get(User, owner_id)
+    if owner is None:
+        return
+    thread = db.scalar(visible(owner).limit(1))
+    if thread is not None:
+        thread.support_at = now
 
 
 def read(db: Session, *, owner: User, thread: AssistantSession | None) -> None:
@@ -425,16 +414,6 @@ def is_to_support(row: Any) -> bool:
     return row.author == Author.USER and row.support_message_id is not None
 
 
-def ticket_sent(row: Any) -> bool:
-    """An answer whose ticket button was pressed."""
-    return row.author == Author.AI and any(
-        isinstance(item, dict)
-        and item.get("kind") == ButtonKind.TICKET
-        and item.get("state") not in (ButtonState.OPEN, ButtonState.DISMISSED)
-        for item in (row.buttons or ())
-    )
-
-
 def _uses_this_chat(db: Session, *, owner_id: Any) -> bool:
     """Whether this client has ever had Support in a thread of this chat."""
     return (
@@ -448,13 +427,6 @@ def _uses_this_chat(db: Session, *, owner_id: Any) -> bool:
         )
         is not None
     )
-
-
-def _waiting(db: Session, *, owner: User) -> bool:
-    from app.modules.supportchat.selectors import chat_of, is_waiting
-
-    conversation = chat_of(db, owner=owner)
-    return conversation is not None and is_waiting(conversation=conversation)
 
 
 def _recent(moment: datetime | None, *, now: datetime) -> bool:
@@ -583,6 +555,7 @@ __all__ = [
     "is_to_support",
     "on_changed",
     "on_stored",
+    "point_at_open_thread",
     "read",
     "row_of",
     "sending_from",
@@ -591,7 +564,6 @@ __all__ = [
     "support_path",
     "support_thread",
     "thread_mode",
-    "ticket_sent",
     "views",
     "write_to_support",
 ]

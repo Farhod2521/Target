@@ -257,10 +257,22 @@ def test_a_ticket_is_prepared_pressed_and_lands_on_the_board_and_in_support(
     # The question was in the thread already: the ticket adds no row.
     thread = _thread(client, headers, turn["session_id"])
     assert [m["author"] for m in thread["messages"]] == ["user", "ai"]
-    assert thread["mode"] == "support"
+    # Sent is not taken: the assistant answers until a person presses
+    # «Men javob beraman» in the office.
+    assert thread["mode"] == "ai"
     assert thread["support"]["thread_id"] == turn["session_id"]
 
     _, office = _staff(db, Role.SUPPORT, email="aziza@office.test")
+    refused = client.post(
+        f"{OFFICE}/{sent.conversation_id}/messages",
+        data={"body": "Hali olinmagan"},
+        headers=office,
+    )
+    assert refused.status_code == 409, refused.text
+    taken = client.post(f"{OFFICE}/customers/{owner.id}/chat/take", headers=office)
+    assert taken.status_code == 200, taken.text
+    assert taken.json()["mine"] is True
+    assert _thread(client, headers, turn["session_id"])["support"]["person"]
     reply = client.post(
         f"{OFFICE}/{sent.conversation_id}/messages",
         data={"body": "Pul qaytarildi, tarif ochildi."},
@@ -304,6 +316,10 @@ def test_a_ticket_is_prepared_pressed_and_lands_on_the_board_and_in_support(
     card.column_code = "in_progress"
     db.commit()
 
+    # Given back to the assistant, it reads the person's reply next time.
+    back = client.post(f"{OFFICE}/customers/{owner.id}/chat/release", headers=office)
+    assert back.status_code == 200, back.text
+    assert back.json()["holder"] is None
     # The assistant reads the person's reply next time.
     later = _Script(words=["Yaxshi."])
     _ask(
@@ -324,7 +340,7 @@ def test_a_ticket_is_prepared_pressed_and_lands_on_the_board_and_in_support(
 def test_words_for_a_person_with_a_file_and_the_edit_and_delete_follow(
     client: TestClient, db: Session, queued: list
 ) -> None:
-    headers, _owner = _with_plan(client, db)
+    headers, owner = _with_plan(client, db)
     sent = client.post(
         f"{URL}/support",
         data={"body": "Chek ilovada"},
@@ -342,6 +358,7 @@ def test_words_for_a_person_with_a_file_and_the_edit_and_delete_follow(
     assert not support.show(db, message=question, now=utcnow())  # once only
 
     _, office = _staff(db, Role.SUPPORT, email="aziza@office.test")
+    client.post(f"{OFFICE}/customers/{owner.id}/chat/take", headers=office)
     reply = client.post(
         f"{OFFICE}/{question.conversation_id}/messages",
         data={"body": "Birinchi javob"},
@@ -412,36 +429,62 @@ def test_a_client_with_no_plan_reaches_a_person_and_not_the_ai(
     assert [reason["detail"] for reason in card.reasons][-1] == "Yana chiqdi"
 
 
-def test_the_composer_goes_back_to_the_ai_when_the_person_is_done(
-    client: TestClient, db: Session
+def test_the_chat_is_the_persons_from_the_take_until_given_back_or_closed(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    headers, _owner = _with_plan(client, db)
+    from app.modules.boards import services as board_services
+    from app.modules.boards.constants import EventKind
+
+    headers, owner = _with_plan(client, db)
     session_id = client.post(
         f"{URL}/support", data={"body": "Rahmat"}, headers=headers
     ).json()["session_id"]
     conversation = db.scalar(select(SupportConversation))
     assert conversation is not None
-    _, office = _staff(db, Role.SUPPORT, email="aziza@office.test")
-    assert _thread(client, headers, session_id)["mode"] == "support"
-
-    assert (
-        client.post(f"{OFFICE}/{conversation.id}/settle", headers=office).status_code
-        == 200
-    )
+    # Words for a person wait on the board; the assistant still answers.
     assert _thread(client, headers, session_id)["mode"] == "ai"
 
+    _, office = _staff(db, Role.SUPPORT, email="aziza@office.test")
+    assert (
+        client.post(f"{OFFICE}/customers/{owner.id}/chat/take", headers=office).json()[
+            "mine"
+        ]
+        is True
+    )
+    assert _thread(client, headers, session_id)["mode"] == "support"
+    # The assistant does not answer whoever asks it meanwhile.
+    asked = client.post(f"{URL}/ask", json={"question": "Salom"}, headers=headers)
+    assert asked.status_code == 409, asked.text
+    assert asked.json()["code"] == "chat_with_person"
+
+    # A day of the person's silence does not give it back.
     client.post(
         f"{OFFICE}/{conversation.id}/messages",
         data={"body": "Arzimaydi"},
         headers=office,
     )
-    assert _thread(client, headers, session_id)["mode"] == "support"
     reply = db.scalar(
         select(AssistantMessage).where(AssistantMessage.author == "staff")
     )
     assert reply is not None
     reply.created_at = utcnow() - timedelta(hours=25)
     db.commit()
+    assert _thread(client, headers, session_id)["mode"] == "support"
+
+    # «AI ga qaytarish».
+    client.post(f"{OFFICE}/customers/{owner.id}/chat/release", headers=office)
+    assert _thread(client, headers, session_id)["mode"] == "ai"
+
+    # Taken again, and the ticket is solved: the assistant answers again.
+    client.post(f"{OFFICE}/customers/{owner.id}/chat/take", headers=office)
+    assert _thread(client, headers, session_id)["mode"] == "support"
+    card = db.scalar(select(BoardCard).where(BoardCard.owner_id == owner.id))
+    assert card is not None
+    board_services.move(
+        db, card=card, to="confirming", kind=EventKind.RESOLVED, now=utcnow()
+    )
+    db.commit()
+    assert card.chat_taken_at is None
     assert _thread(client, headers, session_id)["mode"] == "ai"
 
 
@@ -476,6 +519,7 @@ def test_a_support_chat_from_before_is_brought_in_once_and_others_are_left_alone
 
     # A reply written before the client opens the new chat is not copied:
     # they have no thread yet, and the old screen still shows it.
+    client.post(f"{OFFICE}/customers/{owner.id}/chat/take", headers=office)
     client.post(
         f"{OFFICE}/{conversation.id}/messages",
         data={"body": "Yangi javob"},

@@ -1174,6 +1174,42 @@ class SupportBotLinkOut(BaseModel):
     )
 
 
+class AssistantOfferedOut(BaseModel):
+    kind: str = Field(description="`ticket`, `change`, `offer` or `guest_ticket`.")
+    label: str
+    summary: str = Field(description="A ticket's purpose, as the assistant wrote it.")
+    state: str = Field(description="`open`, `sent`, `done`, `dismissed` …")
+
+
+class AssistantRowOut(BaseModel):
+    id: str
+    thread_id: str
+    thread_title: str = Field(description="The client's thread it was said in.")
+    author: str = Field(description="`user`: the client asked; `ai`: the answer.")
+    text: str
+    status: str = Field(description="`done`, `pending` (being written) or `failed`.")
+    stopped: bool = Field(description="The client stopped the answer half way.")
+    offered: list[AssistantOfferedOut] = Field(
+        description="What the answer offered under it."
+    )
+    lessons: list[str] = Field(description="Video lessons the answer named.")
+    created_at: datetime
+
+
+class ChatHoldOut(BaseModel):
+    holder: PersonOut | None = Field(
+        description="Who answers the client in the one chat; empty: the assistant."
+    )
+    since: datetime | None
+    mine: bool = Field(description="The viewer has it: the box is theirs.")
+    can_take: bool = Field(description="«Men javob beraman» may be pressed.")
+    can_release: bool = Field(description="«AI ga qaytarish» may be pressed.")
+    can_hand: bool = Field(description="May give it to somebody in Support (Owner).")
+    busy_with: str = Field(
+        description="Why it cannot be taken: who works with this client."
+    )
+
+
 class SupportThreadOut(BaseModel):
     customer: PersonOut
     support_bot: SupportBotLinkOut | None = Field(
@@ -1193,6 +1229,14 @@ class SupportThreadOut(BaseModel):
     send_key: str
     ws_path: str = Field(description="Add `?token=`; empty without a chat.")
     composer: ComposerOut
+    chat: ChatHoldOut = Field(
+        description="Who answers the client: a person, or the assistant."
+    )
+    assistant: list[AssistantRowOut] = Field(
+        description="The client's questions to the assistant and its answers "
+        "in this page's span of time, oldest first - put them among "
+        "`messages` by `created_at`."
+    )
 
 
 class WindowOut(BaseModel):

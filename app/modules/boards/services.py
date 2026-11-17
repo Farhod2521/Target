@@ -24,6 +24,7 @@ from app.modules.boards.constants import (
     OFFER_STEPS,
     SALES_ACTIONS,
     SUPPORT_ACTIONS,
+    SUPPORT_DONE_COLUMNS,
     SUPPORT_FINAL_COLUMNS,
     TICKET_TAKE_LIMIT,
     Board,
@@ -93,10 +94,18 @@ def move(
     body: str = "",
     ref: str = "",
 ) -> None:
-    """The card into ``to``, with the line that says so."""
+    """The card into ``to``, with the line that says so. A ticket that is
+    solved, closed or nobody's any more gives the chat back to the
+    assistant (``chat_hold``)."""
     before = card.column_code
     card.column_code = to
     card.column_since = now
+    if (
+        card.board == Board.SUPPORT
+        and card.chat_taken_at is not None
+        and (to in SUPPORT_DONE_COLUMNS or to == SupportColumn.NEW)
+    ):
+        card.chat_taken_at = None
     record(
         db,
         card=card,

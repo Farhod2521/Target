@@ -63,6 +63,9 @@ class BoardCard(Base):
     reasons: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     column_since: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Support: the card's person answers the client in the one chat since
+    # this moment, and the assistant does not (``boards.chat_hold``).
+    chat_taken_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     close_reason: Mapped[str] = mapped_column(String(24), nullable=False, default="")
     close_note: Mapped[str] = mapped_column(Text, nullable=False, default="")

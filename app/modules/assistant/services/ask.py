@@ -76,6 +76,14 @@ def start_turn(
     text = question.strip() or (str(ASK_ABOUT_ITEM) if item_key else "")
     if len(text) > MAX_QUESTION_CHARS:
         raise QuestionTooLong(MAX_QUESTION_CHARS)
+    if owner is not None and entitled:
+        from app.modules.boards.chat_hold import hold_of
+        from app.modules.boards.exceptions import ChatWithPerson
+
+        # A person has this client's chat: the assistant does not answer,
+        # whatever the page that sent this thought (``boards.chat_hold``).
+        if hold_of(db, owner_id=owner.id) is not None:
+            raise ChatWithPerson
     left = _allowance(db, owner=owner, entitled=entitled, scope=scope, now=now)
 
     said = (

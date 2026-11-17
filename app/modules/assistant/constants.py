@@ -1,7 +1,6 @@
 """The one chat's own words and limits. Nothing here is shared with the old
 chat (``app/modules/chat``) except what is imported from it by name."""
 
-from datetime import timedelta
 from typing import Final
 
 from app.common.choices import Choices
@@ -100,8 +99,6 @@ TICKET_CHECKED_ITEMS: Final = 5
 
 # How much of an earlier support chat is brought into a new thread.
 IMPORT_ROWS: Final = 100
-# After a person's reply the thread stays with them this long.
-REPLY_WINDOW: Final = timedelta(hours=24)
 
 HELP_RESULTS: Final = 4
 HELP_STEPS_CHARS: Final = 1200

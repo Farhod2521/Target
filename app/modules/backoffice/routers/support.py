@@ -11,6 +11,7 @@ write again. Live updates come over ``/office/support/{id}/ws``.
 """
 
 import uuid
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import (
@@ -27,6 +28,7 @@ from fastapi import (
 )
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -36,9 +38,15 @@ from app.modules.accounts.models import User
 from app.modules.backoffice.constants import ANSWER_ROLES, ActionKind
 from app.modules.backoffice.permissions import has_role, staff_required
 from app.modules.backoffice.routers._out import choices, person_out
-from app.modules.backoffice.schemas import MessageOut, SupportQueueOut, SupportThreadOut
+from app.modules.backoffice.schemas import (
+    ChatHoldOut,
+    MessageOut,
+    SupportQueueOut,
+    SupportThreadOut,
+)
 from app.modules.backoffice.selectors.card import person
 from app.modules.backoffice.services import seen
+from app.modules.boards import chat_hold
 from app.modules.notifications.selectors import last_support_bot_chat_for
 from app.modules.supportchat import selectors, services
 from app.modules.supportchat.constants import EVERYONE, OFFICE, WAITING
@@ -105,10 +113,60 @@ def _row_out(row: selectors.QueueRow, drawn: selectors.Drawn) -> dict[str, Any]:
     }
 
 
+def _span(
+    db: Session,
+    *,
+    client: User,
+    chat: SupportConversation | None,
+    shown: selectors.MessagePage,
+) -> tuple[datetime | None, datetime | None]:
+    """The time this page of the support chat covers: from its first
+    message (from the start on the first page) to the next page's first
+    (to now on the last). The assistant's rows in it go with the page."""
+    from app.modules.supportchat.constants import MESSAGE_PAGE_SIZE
+
+    rows = shown.drawn.messages
+    since = rows[0].created_at if shown.has_previous and rows else None
+    until = None
+    if chat is not None and shown.has_next:
+        until = db.scalar(
+            select(SupportMessage.created_at)
+            .where(
+                SupportMessage.owner_id == client.id,
+                SupportMessage.conversation_id == chat.id,
+            )
+            .order_by(SupportMessage.created_at, SupportMessage.id)
+            .offset(shown.number * MESSAGE_PAGE_SIZE)
+            .limit(1)
+        )
+    return since, until
+
+
+def _hold_out(db: Session, *, client: User, viewer: User) -> dict[str, Any]:
+    state = chat_hold.seen_by(db, client=client, user=viewer)
+    return {
+        "holder": person_out(state.hold.holder) if state.hold else None,
+        "since": state.hold.since if state.hold else None,
+        "mine": state.mine,
+        "can_take": state.can_take,
+        "can_release": state.can_release,
+        "can_hand": state.can_hand,
+        "busy_with": state.busy_with,
+    }
+
+
 def _screen(
-    db: Session, *, client: User, chat: SupportConversation | None, page: str | None
+    db: Session,
+    *,
+    client: User,
+    chat: SupportConversation | None,
+    page: str | None,
+    viewer: User,
 ) -> dict[str, Any]:
+    from app.modules.assistant.selectors.office import assistant_rows
+
     shown = selectors.messages_page(db, owner=client, conversation=chat, page=page)
+    since, until = _span(db, client=client, chat=chat, shown=shown)
     return jsonable_encoder(
         {
             "customer": person_out(client),
@@ -130,6 +188,10 @@ def _screen(
             "send_key": uuid.uuid4().hex,
             "ws_path": SOCKET_PATH.format(id=chat.id) if chat is not None else "",
             "composer": composer(),
+            "chat": _hold_out(db, client=client, viewer=viewer),
+            "assistant": assistant_rows(
+                db, owner_id=client.id, since=since, until=until
+            ),
         }
     )
 
@@ -225,7 +287,7 @@ def support_client(customer_id: uuid.UUID, db: Db, user: Answer) -> dict[str, An
     chat = selectors.chat_of(db, owner=client)
     if chat is not None:
         return support_thread(chat.id, db, user, page=None)
-    return _screen(db, client=client, chat=None, page=None)
+    return _screen(db, client=client, chat=None, page=None, viewer=user)
 
 
 @router.post(
@@ -261,6 +323,53 @@ def support_start(
     return {"already_sent": False, "message": _drawn_one(db, message)}
 
 
+class HandIn(BaseModel):
+    staff_id: uuid.UUID = Field(
+        description="Somebody in Support (`/office/boards/staff`)."
+    )
+
+
+def _held(db: Session, *, client: User, viewer: User) -> dict[str, Any]:
+    db.commit()
+    return jsonable_encoder(_hold_out(db, client=client, viewer=viewer))
+
+
+@router.post(
+    "/customers/{customer_id}/chat/take", responses={200: {"model": ChatHoldOut}}
+)
+def chat_take(customer_id: uuid.UUID, db: Db, user: Answer) -> dict[str, Any]:
+    """«Men javob beraman»: from now this person answers the client and the
+    assistant does not. Their ticket, opened if there is none, is theirs
+    too. 409 when somebody else works with the client (the Owner may take
+    it from them), or at «Zayavka olish»'s limit."""
+    client = _client(db, customer_id)
+    chat_hold.take_chat(db, client=client, user=user, now=utcnow())
+    return _held(db, client=client, viewer=user)
+
+
+@router.post(
+    "/customers/{customer_id}/chat/hand", responses={200: {"model": ChatHoldOut}}
+)
+def chat_hand(
+    customer_id: uuid.UUID, body: HandIn, db: Db, user: Answer
+) -> dict[str, Any]:
+    """The Owner gives the chat, with the ticket, to somebody in Support."""
+    client = _client(db, customer_id)
+    chat_hold.hand_chat(db, client=client, user=user, to_id=body.staff_id, now=utcnow())
+    return _held(db, client=client, viewer=user)
+
+
+@router.post(
+    "/customers/{customer_id}/chat/release", responses={200: {"model": ChatHoldOut}}
+)
+def chat_release(customer_id: uuid.UUID, db: Db, user: Answer) -> dict[str, Any]:
+    """«AI ga qaytarish»: the assistant answers the client again. The person
+    who has the chat, or the Owner; the ticket stays where it is."""
+    client = _client(db, customer_id)
+    chat_hold.release_chat(db, client=client, user=user, now=utcnow())
+    return _held(db, client=client, viewer=user)
+
+
 @router.get("/{conversation_id}", responses={200: {"model": SupportThreadOut}})
 def support_thread(
     conversation_id: uuid.UUID,
@@ -277,7 +386,7 @@ def support_thread(
         set_committed_value(chat, "office_read_at", now)
         broadcast_read(owner_id=client.id, side=OFFICE, at=now)
     db.commit()
-    return _screen(db, client=client, chat=chat, page=page)
+    return _screen(db, client=client, chat=chat, page=page, viewer=user)
 
 
 @router.post(

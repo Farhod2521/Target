@@ -557,6 +557,10 @@ class EventKind(Choices):
     RENEWED = "renewed"
     DECLINED = "declined"
     SILENT = "silent"
+    # The one chat: a person answers the client instead of the assistant.
+    CHAT_TAKEN = "chat_taken"
+    CHAT_HANDED = "chat_handed"
+    CHAT_RELEASED = "chat_released"
 
 
 EVENT_KIND_LABELS = {
@@ -606,6 +610,9 @@ EVENT_KIND_LABELS = {
     EventKind.RENEWED: "Uzaytirdi",
     EventKind.DECLINED: "Rad etdi",
     EventKind.SILENT: "30 kun javob bermadi, yopildi",
+    EventKind.CHAT_TAKEN: "Chatni oldi: AI javob bermaydi",
+    EventKind.CHAT_HANDED: "Chat boshqa xodimga berildi",
+    EventKind.CHAT_RELEASED: "Chat AI ga qaytdi",
 }
 
 NOTE_MAX: Final = 2000

@@ -147,3 +147,42 @@ class ReportPeriodInvalid(DomainError):
 
     def __init__(self) -> None:
         super().__init__("Hisobot davri noto'g'ri: ko'pi bilan bir yil.")
+
+
+class ChatHeld(DomainError):
+    status_code = 409
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Bu chatda {name} javob beryapti.")
+
+
+class TicketOfAnother(DomainError):
+    """Code ``chat_held`` too: the page reads both as «somebody else has
+    this client»."""
+
+    status_code = 409
+    code = "chat_held"
+
+    def __init__(self, name: str) -> None:
+        super().__init__(
+            f"Bu mijozning zayavkasi {name} da. Faqat u yoki Owner javob bera oladi."
+        )
+
+
+class ChatNotTaken(DomainError):
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__("Avval «Men javob beraman» tugmasini bosing.")
+
+
+class ChatWithPerson(DomainError):
+    """The client asked the assistant while a person has their chat: the
+    page writes to Support instead (``code`` ``chat_with_person``)."""
+
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Hozir sizga Support xodimi javob beryapti. Xabaringiz unga yuboriladi."
+        )

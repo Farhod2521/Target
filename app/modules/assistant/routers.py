@@ -44,6 +44,7 @@ from app.modules.assistant.constants import (
     PAGE_MESSAGES,
     POLL_SECONDS,
     STREAM_TIMEOUT_SECONDS,
+    TEAM,
 )
 from app.modules.assistant.models import AssistantMessage, AssistantSession
 from app.modules.assistant.selectors import threads
@@ -117,6 +118,11 @@ class SupportOut(BaseModel):
     )
     send_key: str
     composer: dict[str, Any] = Field(description="Limits for `POST /support`.")
+    person: str = Field(
+        "",
+        description="The first name of the person in Support who answers this "
+        "client now (`mode: support`); empty while the assistant does.",
+    )
 
 
 class ScreenOut(BaseModel):
@@ -126,8 +132,9 @@ class ScreenOut(BaseModel):
         "?before=<the first row's id>`."
     )
     mode: str = Field(
-        description="`ai`: send with `POST /ask`; `support`: send with "
-        "`POST /support`. The page may let the client switch."
+        description="`ai`: send with `POST /ask`; `support`: a person in "
+        "Support has this chat (or there is no plan) - send with `POST /support`; "
+        "`POST /ask` answers 409 `chat_with_person` meanwhile."
     )
     sessions: list[ThreadOut]
     thread: ThreadOut | None
@@ -251,11 +258,14 @@ def _message_row(
 
 
 def _support_block(db: Session, *, owner: User) -> dict[str, Any]:
+    from app.modules.boards.chat_hold import hold_of
     from app.modules.supportchat.live import CLIENT_SOCKET_PATH
     from app.modules.supportchat.routers import composer
 
     state = support.state_for(db, owner=owner)
+    held = hold_of(db, owner_id=owner.id)
     return {
+        "person": (held.holder.full_name.split() or [TEAM])[0] if held else "",
         "thread_id": state.thread_id,
         "unread": state.unread,
         "waiting": state.waiting,
@@ -318,14 +328,7 @@ def _screen(
         {
             "entitled": entitled,
             "has_earlier": has_earlier,
-            "mode": support.thread_mode(
-                db,
-                owner=owner,
-                thread=thread,
-                messages=rows,
-                entitled=entitled,
-                now=now,
-            ),
+            "mode": support.thread_mode(db, owner=owner, entitled=entitled),
             "sessions": [
                 _thread_row(row) for row in threads.sessions_for(db, owner=owner)
             ],

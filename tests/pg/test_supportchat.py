@@ -17,6 +17,7 @@ from app.common.config import settings
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.audit.models import ActionLog
+from app.modules.boards.chat_hold import take_chat
 from app.modules.supportchat import live
 from app.modules.supportchat.drafts import Draft
 from app.modules.supportchat.models import (
@@ -292,6 +293,8 @@ def test_office_reply_is_unread_until_the_chat_is_opened(
     assert mine["read"] is False
     fired.clear()
 
+    take_chat(db, client=owner, user=staff, now=utcnow())
+    db.commit()
     reply = write_to_client(
         db, client=owner, sender=staff, draft=Draft(body="Javob"), now=utcnow()
     )
@@ -323,6 +326,8 @@ def test_poll_answers_204_until_something_changes(
     )
     assert poll.status_code == 204
 
+    take_chat(db, client=owner, user=staff, now=utcnow())
+    db.commit()
     write_to_client(
         db, client=owner, sender=staff, draft=Draft(body="Javob"), now=utcnow()
     )
@@ -351,6 +356,8 @@ def test_socket_hears_the_office_and_stores_words(
     with client.websocket_connect(
         f"/api/v1/support/ws?token={_token(owner)}"
     ) as socket:
+        take_chat(db, client=owner, user=staff, now=utcnow())
+        db.commit()
         reply = write_to_client(
             db, client=owner, sender=staff, draft=Draft(body="Javob"), now=utcnow()
         )

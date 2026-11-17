@@ -29,9 +29,16 @@ def reply_from_telegram(
     now: datetime,
 ) -> SupportMessage:
     """A member of Support answering a client from Telegram: stored through
-    the console's own service, then put on the client's screen."""
+    the console's own service, then put on the client's screen. There is no
+    «Men javob beraman» in Telegram: the reply takes a chat nobody has, and
+    one somebody else has is refused (``boards.chat_hold``)."""
     message = post_message(
-        db, conversation=conversation, sender=sender, draft=Draft(body=body), now=now
+        db,
+        conversation=conversation,
+        sender=sender,
+        draft=Draft(body=body),
+        now=now,
+        take=True,
     )
     broadcast_message(message=message)
     return message

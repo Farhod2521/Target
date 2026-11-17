@@ -24,9 +24,13 @@ def post_message(
     draft: Draft,
     now: datetime,
     send_key: str = "",
+    take: bool = False,
 ) -> SupportMessage:
     """Append one message to this chat, once per ``send_key``. The client
-    writes in their own chat; Support writes in any."""
+    writes in their own chat; Support writes in any - the person who has
+    the client's chat (``boards.chat_hold``). ``take``: a reply with no
+    button to press first (Telegram) takes a chat nobody has."""
+    from app.modules.boards.chat_hold import check_writer
 
     def run() -> SupportMessage:
         locked = db.scalar(
@@ -39,6 +43,10 @@ def post_message(
             raise LookupError("support conversation not found")
         if sender.id != locked.owner_id and not may_answer_support(db, user=sender):
             raise NotAllowed("Bu suhbatga yoza olmaysiz.")
+        if sender.id != locked.owner_id:
+            check_writer(
+                db, owner_id=locked.owner_id, sender=sender, now=now, take=take
+            )
         return store_message(
             db, conversation=locked, sender=sender, draft=draft, now=now
         )

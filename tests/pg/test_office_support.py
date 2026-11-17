@@ -55,6 +55,17 @@ def test_the_queue_a_thread_a_reply_and_settling(
     chat = db.get(SupportConversation, chat_id)
     db.refresh(chat)
     assert chat is not None and chat.office_read_at is not None
+    assert thread["chat"]["holder"] is None and thread["chat"]["can_take"] is True
+
+    # Nobody has the client's chat yet: the box is closed until one takes it.
+    refused = client.post(
+        f"{URL}/{chat_id}/messages", headers=office, data={"body": "Salom"}
+    )
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "chat_not_taken"
+    taken = client.post(f"{URL}/customers/{owner.id}/chat/take", headers=office)
+    assert taken.status_code == 200, taken.text
+    assert taken.json()["holder"]["id"] == str(member.id)
 
     sent = client.post(
         f"{URL}/{chat_id}/messages",
@@ -100,6 +111,11 @@ def test_the_office_writes_first_to_a_client_without_a_chat(
     _, office = _staff(db, Role.OWNER, email="owner@office.test")
     empty = client.get(f"{URL}/customers/{owner.id}", headers=office).json()
     assert empty["conversation_id"] is None and empty["messages"] == []
+    assert empty["assistant"] == [] and empty["chat"]["can_take"] is True
+    assert (
+        client.post(f"{URL}/customers/{owner.id}/chat/take", headers=office).status_code
+        == 200
+    )
 
     first = client.post(
         f"{URL}/customers/{owner.id}/messages", headers=office, data={"body": "Salom"}
@@ -114,10 +130,11 @@ def test_the_office_socket_speaks_for_the_office(
     client: TestClient, db: Session
 ) -> None:
     owner = _user(db, "mijoz@example.com")
-    member, _ = _staff(db, Role.SUPPORT, email="support@office.test")
+    member, office = _staff(db, Role.SUPPORT, email="support@office.test")
     _send(client, owner, body="Savol")
     chat = db.scalar(select(SupportConversation))
     assert chat is not None
+    client.post(f"{URL}/customers/{owner.id}/chat/take", headers=office)
 
     with (
         pytest.raises(WebSocketDisconnect),

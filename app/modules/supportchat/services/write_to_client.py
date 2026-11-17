@@ -17,11 +17,15 @@ from app.modules.supportchat.services.send_to_support import chat_of_client
 def write_to_client(
     db: Session, *, client: User, sender: User, draft: Draft, now: datetime
 ) -> SupportMessage:
-    """One message from the office into this client's chat."""
+    """One message from the office into this client's chat - by the person
+    who has it (``boards.chat_hold``)."""
+    from app.modules.boards.chat_hold import check_writer
+
     if not may_answer_support(db, user=sender):
         raise NotAllowed("Mijozga yoza olmaysiz.")
 
     def run() -> SupportMessage:
+        check_writer(db, owner_id=client.id, sender=sender, now=now)
         conversation = chat_of_client(db, owner=client, now=now, opened_by=sender)
         return store_message(
             db, conversation=conversation, sender=sender, draft=draft, now=now
