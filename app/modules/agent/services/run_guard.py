@@ -28,7 +28,7 @@ from app.common.exceptions import DomainError
 from app.modules.accounts.models import User
 from app.modules.ads import actions
 from app.modules.ads.constants import ManagedLevel
-from app.modules.ads.services.manage import Origin
+from app.modules.ads.services.manage import Origin, switch_of
 from app.modules.agent.constants import GUARD_STOP_MARK
 from app.modules.agent.models import GuardAlert
 from app.modules.agent.selectors.guard import (
@@ -210,7 +210,12 @@ def _one(
     row.times = finding.times
     row.result_kind = item.kind
     row.currency = item.currency
-    row.figures = _figures(item, finding)
+    row.figures = _figures(item, finding) | {
+        "sole_group": switch_of(
+            db, user=owner, level=ManagedLevel.ADSET, external_id=finding.adset_id
+        )[0]
+        == ManagedLevel.CAMPAIGN
+    }
     if log_id is not None:
         row.action_log_id = log_id
         row.baseline = {

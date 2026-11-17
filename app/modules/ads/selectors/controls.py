@@ -7,8 +7,6 @@ from sqlalchemy.orm import Session, joinedload, object_session
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.ads.constants import (
-    SWITCHED_OFF,
-    Delivery,
     ManagedLevel,
 )
 from app.modules.ads.models import Ad
@@ -20,7 +18,9 @@ from app.modules.ads.selectors.actions import (
 from app.modules.ads.selectors.delivery import (
     ancestors_of,
     blocked_above,
+    own_off,
     parent_switched_off,
+    sole_adset,
 )
 from app.modules.ads.selectors.early_touch import hours_to_wait
 from core.agent import ObjectState, check_status_change
@@ -51,17 +51,16 @@ def controls_for(*, target: Any, level: str) -> Controls:
         is_learning=learning_under(target),
         daily_budget_minor=getattr(target, "daily_budget_minor", None),
     )
-    switched_off = state.delivery in SWITCHED_OFF
-    faulted = state.delivery == Delivery.REJECTED and bool(
-        getattr(target, "issue_codes", None)
-    )
+    # Its own switch, not what it delivers: one Meta holds for a fault
+    # (WITH_ISSUES, DISAPPROVED) is still on or off, and still switched.
+    switched_off = own_off(target)
     watched = not account_of(target=target, level=level).is_active
     return Controls(
         level=level,
         external_id=str(target.external_id),
         can_pause=check_status_change(state=state, wanted=PAUSED).allowed
         and (not switched_off)
-        and (not faulted)
+        and (not _stops_with_campaign_off(target=target, level=level))
         and (not watched),
         can_resume=check_status_change(state=state, wanted=ACTIVE).allowed
         and switched_off
@@ -79,6 +78,14 @@ def controls_for(*, target: Any, level: str) -> Controls:
         watched_account=watched,
         early_hours=_early_hours(target=target, level=level),
     )
+
+
+def _stops_with_campaign_off(*, target: Any, level: str) -> bool:
+    """A campaign's one group stops by the campaign's switch, already off."""
+    if level != ManagedLevel.ADSET:
+        return False
+    campaign = getattr(target, "campaign", None)
+    return campaign is not None and sole_adset(campaign) is target and own_off(campaign)
 
 
 def _early_hours(*, target: Any, level: str) -> int:

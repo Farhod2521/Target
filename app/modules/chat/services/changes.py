@@ -20,6 +20,7 @@ from app.common.exceptions import DomainError
 from app.common.money import format_minor
 from app.modules.accounts.models import User
 from app.modules.ads.constants import ManagedLevel
+from app.modules.ads.selectors.delivery import own_off
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.audit.constants import ActionStatus
 from app.modules.audit.models import ActionLog
@@ -27,6 +28,7 @@ from app.modules.chat.models import ChatMessage
 from core.agent.guardrails import ACTIVE, PAUSED
 from core.chat.lookup_arguments import ChangeProposal
 
+PAUSED_ABOVE: Final = "paused_above"
 CHANGE_KIND: Final = "change"
 KEY_PREFIX: Final = "P"
 
@@ -44,7 +46,11 @@ LEVEL_WORDS: Final[dict[str, str]] = {
     ManagedLevel.ADSET: "reklama guruhi",
     ManagedLevel.AD: "reklama",
 }
-STATE_WORDS: Final[dict[str, str]] = {ACTIVE: "Yoqilgan", PAUSED: "To'xtatilgan"}
+STATE_WORDS: Final[dict[str, str]] = {
+    ACTIVE: "Yoqilgan",
+    PAUSED: "To'xtatilgan",
+    PAUSED_ABOVE: "Kampaniya to'xtatilgan",
+}
 
 WORKING: Final = "Bajarilmoqda."
 APPLIED: Final = "Bajarildi."
@@ -90,16 +96,23 @@ def prepare_change(
                 db, owner=owner, arguments=arguments, target=target, account=account
             )
         else:
+            item = {}
+        planned = actions.preview(
+            db, user=owner, ask=_ask(arguments.action, level, external_id, item)
+        )
+        if arguments.action != "budget":
+            # A campaign's one group stops by the campaign's switch, and a
+            # start reaches what above is off: the button names what moves.
+            target, level_shown = planned.target, planned.level
+            name = str(getattr(target, "name", "") or planned.external_id)
             wanted = PAUSED if arguments.action == "pause" else ACTIVE
             item = {
                 "before": STATE_WORDS.get(
                     _status_of(target), str(getattr(target, "delivery", ""))
                 ),
                 "after": STATE_WORDS[wanted],
+                "shown_level": level_shown,
             }
-        actions.preview(
-            db, user=owner, ask=_ask(arguments.action, level, external_id, item)
-        )
     except _NotABudget as exc:
         return Prepared(text=str(exc))
     except DomainError as exc:
@@ -113,7 +126,7 @@ def prepare_change(
         "level": level,
         "external_id": external_id,
         "target": name,
-        "target_kind": LEVEL_WORDS.get(level, level),
+        "target_kind": LEVEL_WORDS.get(str(item.pop("shown_level", level)), str(level)),
         "label": WHAT[arguments.action],
         "state": OPEN,
         "log_id": "",
@@ -193,7 +206,9 @@ def _status_of(target: Any) -> str:
     delivery = str(getattr(target, "delivery", ""))
     if delivery == "active":
         return ACTIVE
-    if delivery in {"paused", "paused_above"}:
+    if delivery == PAUSED_ABOVE:
+        return PAUSED_ABOVE
+    if own_off(target):
         return PAUSED
     return delivery
 

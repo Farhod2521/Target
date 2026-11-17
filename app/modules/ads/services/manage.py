@@ -7,6 +7,7 @@ caller's, and the worker task is sent after it.
 """
 
 import logging
+import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -560,18 +561,51 @@ def open_planned(
     )
 
 
+# A stop of a campaign's one group, made on the campaign: the group it was for.
+FOR_ADSET: Final = "for_adset"
+
+
+def switch_of(
+    db: Session, *, user: User, level: str, external_id: str
+) -> tuple[str, str]:
+    """Where a stop of this object is made. A campaign's one group shares the
+    campaign's switch - the screens show no group then - so stopping that
+    group stops the campaign, whoever asks: the owner, the chat, the agent."""
+    from app.modules.ads.selectors.delivery import sole_adset
+
+    if level != ManagedLevel.ADSET:
+        return level, external_id
+    target = managed_target(db, owner=user, level=level, external_id=external_id)
+    campaign = getattr(target, "campaign", None)
+    if target is None or campaign is None or sole_adset(campaign) is not target:
+        return level, external_id
+    return ManagedLevel.CAMPAIGN, str(campaign.external_id)
+
+
 def plan_status(
     db: Session, *, user: User, level: str, external_id: str, wanted: str
 ) -> Planned:
+    from app.modules.ads.selectors.delivery import sole_adset
+
+    if wanted == PAUSED:
+        level, external_id = switch_of(
+            db, user=user, level=level, external_id=external_id
+        )
     target = status_gate(
         db, user=user, level=level, external_id=external_id, wanted=wanted
     )
+    requested: dict[str, Any] = {"status": wanted}
+    sole = sole_adset(target) if level == ManagedLevel.CAMPAIGN else None
+    if sole is not None:
+        # The campaign's switch is its one group's: readers that follow a
+        # group's stops and starts find them here by the group's id.
+        requested[FOR_ADSET] = str(sole.external_id)
     return Planned(
         target=target,
         level=level,
         external_id=external_id,
         action=ActionType.PAUSE if wanted == PAUSED else ActionType.RESUME,
-        requested={"status": wanted},
+        requested=requested,
     )
 
 
@@ -954,6 +988,20 @@ def _finish_change(db: Session, job: Any, result: ActionResult) -> None:
         token=job.token,
         dry_run=result.dry_run,
     )
+    landed = _landed(log=job.log, after=after)
+    if landed is False and job.log.action in STATUS_WANTED:
+        # Meta answers the read made a moment after a switch with the state
+        # before it, now and then: an advert stopped read as running, and
+        # the owner was told the change did not reach Meta. One look more.
+        time.sleep(READ_AGAIN_SECONDS)
+        again = _read_back(
+            port=job.provider.campaigns,
+            ref=job.ref,
+            token=job.token,
+            dry_run=result.dry_run,
+        )
+        if again is not None:
+            after, landed = again, _landed(log=job.log, after=again)
     record(
         db,
         log=job.log,
@@ -961,7 +1009,7 @@ def _finish_change(db: Session, job: Any, result: ActionResult) -> None:
         result=result,
         before=job.before,
         after=after,
-        landed=_landed(log=job.log, after=after),
+        landed=landed,
     )
     if not result.dry_run:
         _read_below(db, job)
@@ -1026,12 +1074,25 @@ def _moved_elsewhere(
     return "changed_elsewhere"
 
 
+# An object's own switch, as each network names it.
+OWN_SWITCH: Final[dict[str, str]] = {
+    "ACTIVE": ACTIVE,
+    "ENABLED": ACTIVE,
+    "PAUSED": PAUSED,
+}
+READ_AGAIN_SECONDS: Final = 3
+
+
 def _landed(*, log: ActionLog, after: StatusDTO | None) -> bool | None:
+    """Whether the write took. A switch is judged by the object's own switch:
+    a group started under a campaign still starting reads «paused above»
+    though its own switch moved, and that is not a write that failed."""
     if after is None:
         return None
     wanted = STATUS_WANTED.get(log.action)
     if wanted is not None:
-        return after.delivery == wanted
+        own = OWN_SWITCH.get(str(after.status or "").upper())
+        return own == wanted if own is not None else after.delivery == wanted
     if log.action in BUDGET_ACTIONS:
         asked = log.request_payload.get("daily_budget_minor")
         if asked is None or after.daily_budget_minor is None:
@@ -1323,3 +1384,61 @@ def start_delivery(
     if not opened and not refused:
         raise NothingToStart
     return Activation(opened=tuple(opened), refused=tuple(refused))
+
+
+def resume_plans(
+    db: Session, *, user: User, level: str, external_id: str
+) -> list[Planned]:
+    """A «Yoqish» asked by name - the chat, an undo, the guard, a lapse - is
+    planned as the screens' is: what above is off, and what below goes with
+    it (:func:`app.modules.ads.selectors.delivery.resume_plan`).
+
+    The plan of the object asked for comes first, when it has one. A refusal
+    of the campaign, or of the object asked for, is raised as before; one
+    below is left for its own press. Nothing to switch is «already on».
+    """
+    from app.modules.ads.selectors.delivery import resume_plan
+
+    target = managed_target(db, owner=user, level=level, external_id=external_id)
+    if target is None:
+        raise UnknownTarget
+    plans: list[Planned] = []
+    for at, ref in resume_plan(db, owner=user, target=target, level=level).targets:
+        try:
+            plans.append(
+                plan_status(db, user=user, level=at, external_id=ref, wanted=ACTIVE)
+            )
+        except AlreadyInState:
+            continue
+        except DomainError:
+            if (at, ref) == (level, external_id) or at == ManagedLevel.CAMPAIGN:
+                raise
+            logger.info("could not start %s:%s with %s", at, ref, external_id)
+    if not plans:
+        raise AlreadyInState
+    plans.sort(key=lambda plan: plan.external_id != external_id)
+    return plans
+
+
+def resume_chain(
+    db: Session,
+    *,
+    user: User,
+    level: str,
+    external_id: str,
+    origin: Origin = BY_HAND,
+    reverts: str = "",
+) -> ActionLog:
+    """Every plan of :func:`resume_plans` opened; answers the first one's change."""
+    plans = resume_plans(db, user=user, level=level, external_id=external_id)
+    logs = [
+        open_planned(
+            db,
+            user=user,
+            plan=plan,
+            origin=origin,
+            reverts=reverts if plan.external_id == external_id else "",
+        )
+        for plan in plans
+    ]
+    return logs[0]

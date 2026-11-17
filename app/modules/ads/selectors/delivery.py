@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import select
@@ -14,7 +14,7 @@ from app.modules.ads.constants import (
     LaunchStep,
     ManagedLevel,
 )
-from app.modules.ads.models import Ad, AdSet, Campaign, CampaignLaunch
+from app.modules.ads.models import Campaign, CampaignLaunch
 from app.modules.audit.constants import ActionStatus, ActionType, ActorType
 from app.modules.audit.models import ActionLog
 
@@ -61,11 +61,112 @@ def parent_switched_off(*, target: Any, level: str) -> bool:
     )
 
 
+def own_off(row: Any) -> bool:
+    """Its own switch is off. Meta keeps ``status`` PAUSED under a fault too
+    (WITH_ISSUES), where ``delivery`` reads «rejected»; a finished object is
+    never started again."""
+    delivery = str(getattr(row, "delivery", ""))
+    if delivery == Delivery.FINISHED:
+        return False
+    return delivery in SWITCHED_OFF or str(getattr(row, "status", "")).upper() == (
+        "PAUSED"
+    )
+
+
+def sole_adset(campaign: Any) -> Any | None:
+    """The campaign's one group: the screens show no group then, and the
+    campaign's switch is the group's too."""
+    groups = list(getattr(campaign, "adsets", None) or [])
+    return groups[0] if len(groups) == 1 else None
+
+
+@dataclass(frozen=True, slots=True)
+class ResumePlan:
+    """What one «Yoqish» switches on, top first, and what it leaves off to say."""
+
+    targets: list[tuple[str, str]]
+    notes: list[str] = field(default_factory=list)
+
+
+ALL_GROUPS_OFF = (
+    "Kampaniya yoqiladi, lekin undagi guruhlarning hammasi o'chiq. "
+    "Kerakli guruhni o'zingiz yoqing."
+)
+ADS_OFF = (
+    "«{name}» guruhidagi reklamalarning hammasi o'chiq. "
+    "Kerakli reklamani o'zingiz yoqing."
+)
+
+
+def resume_plan(db: Session, *, owner: User, target: Any, level: str) -> ResumePlan:
+    """One rule for every «Yoqish», wherever it is pressed.
+
+    Above: whatever is switched off is switched on, or nothing would run.
+    Below: a campaign with one group, and a group with one advert, are one
+    switch - the screens do not show that group - so the one below goes on
+    with it, whoever switched it off. Where there are several, each is the
+    owner's to switch: only those a launch made and never started go on.
+    """
+    above = [
+        (parent_level, parent)
+        for parent_level, parent in ancestors_of(target=target, level=level)
+        if own_off(parent)
+    ]
+    targets = [(at, str(row.external_id)) for at, row in above]
+    if own_off(target) or not targets:
+        targets.append((level, str(target.external_id)))
+    notes: list[str] = []
+    if level == ManagedLevel.AD:
+        return ResumePlan(targets=targets, notes=notes)
+    waiting = never_started(db, owner=owner)
+    groups = list(target.adsets) if level == ManagedLevel.CAMPAIGN else [target]
+    turned_on = _groups_on(db, owner=owner, groups=groups, waiting=waiting)
+    if level == ManagedLevel.CAMPAIGN:
+        targets += [(ManagedLevel.ADSET, str(row.external_id)) for row in turned_on]
+        running = [row for row in groups if not own_off(row) or row in turned_on]
+        if groups and not running:
+            notes.append(ALL_GROUPS_OFF)
+    else:
+        running = [target]
+    for group in running:
+        ads, silent = _ads_on(group, waiting=waiting)
+        targets += [(ManagedLevel.AD, str(row.external_id)) for row in ads]
+        if silent:
+            notes.append(ADS_OFF.format(name=group.name or group.external_id))
+    return ResumePlan(targets=list(dict.fromkeys(targets)), notes=notes)
+
+
+def _groups_on(
+    db: Session, *, owner: User, groups: list[Any], waiting: frozenset[str]
+) -> list[Any]:
+    """The groups below a campaign that go on with it."""
+    if len(groups) == 1:
+        return [row for row in groups if own_off(row)]
+    off = [row for row in groups if own_off(row) and row.external_id in waiting]
+    # The agent's stop is the agent's to undo, among several groups.
+    by_agent = stopped_by_agent(
+        db, owner=owner, external_ids=[str(row.external_id) for row in off]
+    )
+    return [row for row in off if row.external_id not in by_agent]
+
+
+def _ads_on(group: Any, *, waiting: frozenset[str]) -> tuple[list[Any], bool]:
+    """The adverts of a group going on that go on with it, and whether none
+    of its adverts would run."""
+    ads = [row for row in group.ads if str(row.delivery) != Delivery.FINISHED]
+    if len(ads) == 1:
+        return [row for row in ads if own_off(row)], False
+    chosen = [row for row in ads if own_off(row) and row.external_id in waiting]
+    silent = bool(ads) and all(own_off(row) and row not in chosen for row in ads)
+    return chosen, silent
+
+
 def delivery_chain(*, target: Any, level: str) -> list[tuple[str, str]]:
+    """What above this object must go on for it to run, and the object."""
     chain = [
         (parent_level, str(parent.external_id))
         for parent_level, parent in ancestors_of(target=target, level=level)
-        if str(getattr(parent, "delivery", "")) in SWITCHED_OFF
+        if own_off(parent)
     ]
     chain.append((level, str(target.external_id)))
     return chain
@@ -74,39 +175,9 @@ def delivery_chain(*, target: Any, level: str) -> list[tuple[str, str]]:
 def campaign_chain(
     db: Session, *, owner: User, campaign: Campaign
 ) -> list[tuple[str, str]]:
-    adsets = list(
-        db.execute(
-            select(AdSet.external_id, AdSet.delivery).where(
-                AdSet.owner_id == owner.id, AdSet.campaign_id == campaign.id
-            )
-        )
-    )
-    ads = list(
-        db.execute(
-            select(Ad.external_id, Ad.delivery)
-            .join(AdSet, AdSet.id == Ad.adset_id)
-            .where(Ad.owner_id == owner.id, AdSet.campaign_id == campaign.id)
-        )
-    )
-    waiting = never_started(db, owner=owner)
-    below = [
-        (level, external_id)
-        for level, rows in ((ManagedLevel.ADSET, adsets), (ManagedLevel.AD, ads))
-        for external_id, delivery in rows
-        if str(delivery) in SWITCHED_OFF and (external_id in waiting or _none_on(rows))
-    ]
-    by_agent = stopped_by_agent(
-        db, owner=owner, external_ids=[external_id for _level, external_id in below]
-    )
-    return [
-        (ManagedLevel.CAMPAIGN, str(campaign.external_id)),
-        *(pair for pair in below if pair[1] not in by_agent),
-    ]
-
-
-def _none_on(rows: Sequence[Any]) -> bool:
-    """A level with nothing on: the campaign would start and still show nothing."""
-    return all(str(delivery) in SWITCHED_OFF for _external_id, delivery in rows)
+    return resume_plan(
+        db, owner=owner, target=campaign, level=ManagedLevel.CAMPAIGN
+    ).targets
 
 
 def never_started(db: Session, *, owner: User) -> frozenset[str]:
@@ -147,11 +218,15 @@ def stopped_by_agent(db: Session, *, owner: User, external_ids: list[str]) -> se
 
 
 __all__ = [
+    "ResumePlan",
     "ancestors_of",
     "blocked_above",
     "campaign_chain",
     "delivery_chain",
     "never_started",
+    "own_off",
     "parent_switched_off",
+    "resume_plan",
+    "sole_adset",
     "stopped_by_agent",
 ]

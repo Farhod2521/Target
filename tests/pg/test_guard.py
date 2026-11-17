@@ -168,7 +168,9 @@ def test_three_then_four_are_said_once_each_and_five_stops(
     (row,) = _rows(db)
     assert (row.action, row.step) == ("stop", 5)
     (log,) = _pauses(db)
-    assert log.target_external_id == "s_1"
+    # The campaign's one group: the campaign's switch is what stops it.
+    assert (log.target_level, log.target_external_id) == ("campaign", "c_1")
+    assert row.figures["sole_group"] is True
     assert log.status == ActionStatus.PENDING
     assert log.request_payload[GUARD_STOP_MARK]["kind"] == "price"
     assert row.action_log_id == log.id

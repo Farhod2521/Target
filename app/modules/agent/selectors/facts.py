@@ -211,6 +211,7 @@ def _stopped_by_agent(db: Session, *, owner: User) -> set[str]:
     page that is down. Those carry their own line with its own way back, and
     a card proposing to switch the same group on again would argue with it.
     """
+    from app.modules.ads.services.manage import FOR_ADSET
     from app.modules.agent.constants import AUTO_STOP_MARK, GUARD_STOP_MARK
 
     latest: dict[str, tuple[str, str, bool]] = {}
@@ -223,7 +224,11 @@ def _stopped_by_agent(db: Session, *, owner: User) -> set[str]:
         )
         .where(
             ActionLog.owner_id == owner.id,
-            ActionLog.target_level == LEVEL,
+            # A campaign's one group is stopped on its campaign.
+            or_(
+                ActionLog.target_level == LEVEL,
+                ActionLog.request_payload[FOR_ADSET].as_string().is_not(None),
+            ),
             ActionLog.status == ActionStatus.APPLIED,
             ActionLog.dry_run.is_(False),
         )
@@ -231,7 +236,8 @@ def _stopped_by_agent(db: Session, *, owner: User) -> set[str]:
     )
     for external_id, action, actor, payload in rows:
         by_itself = bool({AUTO_STOP_MARK, GUARD_STOP_MARK} & set(payload or {}))
-        latest.setdefault(external_id, (action, actor, by_itself))
+        group = str((payload or {}).get(FOR_ADSET) or external_id)
+        latest.setdefault(group, (action, actor, by_itself))
     return {
         external_id
         for external_id, (action, actor, by_itself) in latest.items()

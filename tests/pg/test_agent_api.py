@@ -241,8 +241,10 @@ def test_the_readers_over_a_launched_group_with_figures(
     from app.modules.audit.models import ActionLog
 
     assert stop_fruitless(db, owner=user, now=now) == 1
-    log = db.scalar(select(ActionLog).where(ActionLog.target_external_id == "s_1"))
+    # The campaign's one group: stopped on the campaign, found by the group.
+    log = db.scalar(select(ActionLog).where(ActionLog.action == "pause"))
     assert log is not None and AUTO_STOP_MARK in log.request_payload
+    assert (log.target_level, log.request_payload["for_adset"]) == ("campaign", "s_1")
     assert "sarflandi" in log.reason
 
 

@@ -112,8 +112,11 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "cause.conversion": "bosganlar natijaga aylanmayapti",
         "causes": "Sabab: {list}.",
         "no_cause": "Aniq sabab topilmadi: ko'rsatish narxi va bosish ulushi odatdagidek.",
-        "stopped": "Pul behuda ketmasligi uchun guruhni to'xtatdim. Qayta yoqsangiz, hisob shu paytdan boshlanadi.",
+        "stopped": "Pul behuda ketmasligi uchun «{campaign}» kampaniyasidagi «{group}» guruhini to'xtatdim. Kampaniyaning boshqa guruhlari ishlayveradi — kampaniyani o'zingiz to'xtatishingiz mumkin. Qayta yoqsangiz, hisob shu paytdan boshlanadi.",
+        "stopped_plain": "Pul behuda ketmasligi uchun guruhni to'xtatdim. Qayta yoqsangiz, hisob shu paytdan boshlanadi.",
+        "stopped_campaign": "Pul behuda ketmasligi uchun «{campaign}» kampaniyasini to'xtatdim. Qayta yoqsangiz, hisob shu paytdan boshlanadi.",
         "next_stop": "Narx 5 baravarga yetsa, guruhni o'zim to'xtataman.",
+        "next_stop_campaign": "Narx 5 baravarga yetsa, kampaniyani o'zim to'xtataman.",
         "advice": "Tavsiya: {button}.",
         "and": " va ",
     },
@@ -141,8 +144,11 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "cause.conversion": "клики не превращаются в результат",
         "causes": "Причина: {list}.",
         "no_cause": "Точная причина не найдена: цена показов и кликабельность как обычно.",
-        "stopped": "Я остановил группу, чтобы деньги не уходили впустую. Если включите снова, счёт начнётся с этого момента.",
+        "stopped": "Я остановил группу «{group}» в кампании «{campaign}», чтобы деньги не уходили впустую. Остальные группы кампании продолжают работать — кампанию вы можете остановить сами. Если включите снова, счёт начнётся с этого момента.",
+        "stopped_plain": "Я остановил группу, чтобы деньги не уходили впустую. Если включите снова, счёт начнётся с этого момента.",
+        "stopped_campaign": "Я остановил кампанию «{campaign}», чтобы деньги не уходили впустую. Если включите снова, счёт начнётся с этого момента.",
         "next_stop": "Если цена дойдёт до 5 раз, я сам остановлю группу.",
+        "next_stop_campaign": "Если цена дойдёт до 5 раз, я сам остановлю кампанию.",
         "advice": "Совет: {button}.",
         "and": " и ",
     },
@@ -170,8 +176,11 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "cause.conversion": "clicks do not turn into results",
         "causes": "Cause: {list}.",
         "no_cause": "No clear cause: the showings' price and the click rate are as usual.",
-        "stopped": "I paused the group so the money is not wasted. Switched back on, it is counted from that moment.",
-        "next_stop": "At 5 times the usual price I will pause the group myself.",
+        "stopped": "I paused the ad set «{group}» in the campaign «{campaign}» so the money is not wasted. The campaign's other ad sets keep running — you can pause the campaign yourself. Switched back on, it is counted from that moment.",
+        "stopped_plain": "I paused the group so the money is not wasted. Switched back on, it is counted from that moment.",
+        "stopped_campaign": "I paused the campaign «{campaign}» so the money is not wasted. Switched back on, it is counted from that moment.",
+        "next_stop": "At 5 times the usual price I will pause the ad set myself.",
+        "next_stop_campaign": "At 5 times the usual price I will pause the campaign myself.",
         "advice": "Advice: {button}.",
         "and": " and ",
     },
@@ -265,11 +274,26 @@ def guard_body(row: GuardAlert) -> str:
     lines = [_figures_line(row)]
     if row.kind in ("price", "fruitless"):
         lines.append(_causes_line(row))
+    figures = row.figures or {}
+    # A campaign's one group shares its switch: the campaign is what stops.
+    sole = bool(figures.get("sole_group"))
     if row.action == "stop":
-        lines.append(_text("stopped"))
-    elif row.kind == "price" and (row.figures or {}).get("ours"):
-        lines.append(_text("next_stop"))
+        lines.append(_stopped_line(row, sole=sole))
+    elif row.kind == "price" and figures.get("ours"):
+        lines.append(_text("next_stop_campaign" if sole else "next_stop"))
     return "\n".join(line for line in lines if line)
+
+
+def _stopped_line(row: GuardAlert, *, sole: bool) -> str:
+    figures = row.figures or {}
+    campaign = str(figures.get("campaign_name") or "")
+    group = str(figures.get("group_name") or "") if row.level == "ad" else row.name
+    if "sole_group" not in figures:
+        # Stopped before the campaign's switch was told apart.
+        return _text("stopped_plain")
+    if sole:
+        return _text("stopped_campaign", campaign=campaign or group)
+    return _text("stopped", campaign=campaign or "—", group=group or "—")
 
 
 def guard_advice(row: GuardAlert) -> str:

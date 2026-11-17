@@ -3,12 +3,13 @@
 from collections.abc import Collection
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
 from app.modules.ads.constants import Delivery, ManagedLevel
 from app.modules.ads.models import AdSet
+from app.modules.ads.services.manage import FOR_ADSET
 from app.modules.agent.constants import AUTO_STOP_MARK, STOPPED_SHOWN_DAYS
 from app.modules.agent.selectors.same_day import kind_of
 from app.modules.agent.selectors.watched import Watched
@@ -23,19 +24,35 @@ _SWITCHES = (ActionType.PAUSE, ActionType.RESUME)
 def _newest(
     db: Session, *, owner: User, adset_ids: Collection[str], actions: tuple[str, ...]
 ) -> list[ActionLog]:
+    """The groups' switches, newest first; a campaign's one group is stopped
+    on its campaign, and found there by the group it was for."""
+    ids = list(adset_ids)
     return list(
         db.scalars(
             select(ActionLog)
             .where(
                 ActionLog.owner_id == owner.id,
                 ActionLog.action.in_([str(action) for action in actions]),
-                ActionLog.target_level == ManagedLevel.ADSET,
-                ActionLog.target_external_id.in_(list(adset_ids)),
+                or_(
+                    and_(
+                        ActionLog.target_level == ManagedLevel.ADSET,
+                        ActionLog.target_external_id.in_(ids),
+                    ),
+                    and_(
+                        ActionLog.target_level == ManagedLevel.CAMPAIGN,
+                        ActionLog.request_payload[FOR_ADSET].as_string().in_(ids),
+                    ),
+                ),
                 ActionLog.status != ActionStatus.FAILED,
             )
             .order_by(ActionLog.created_at.desc())
         )
     )
+
+
+def group_of(log: ActionLog) -> str:
+    """The group a switch was for."""
+    return str((log.request_payload or {}).get(FOR_ADSET) or log.target_external_id)
 
 
 def last_stops(
@@ -49,7 +66,7 @@ def last_stops(
         db, owner=owner, adset_ids=adset_ids, actions=(ActionType.PAUSE,)
     ):
         if AUTO_STOP_MARK in (row.request_payload or {}):
-            found.setdefault(row.target_external_id, row)
+            found.setdefault(group_of(row), row)
     return found
 
 
@@ -69,7 +86,7 @@ def stopped_rows(
             select(AdSet).where(
                 AdSet.owner_id == owner.id,
                 AdSet.external_id.in_(list(born)),
-                AdSet.delivery == Delivery.PAUSED,
+                AdSet.delivery.in_([Delivery.PAUSED, Delivery.PAUSED_ABOVE]),
             )
         )
     }
@@ -77,12 +94,17 @@ def stopped_rows(
         return []
     latest: dict[str, ActionLog] = {}
     for row in _newest(db, owner=owner, adset_ids=groups, actions=_SWITCHES):
-        latest.setdefault(row.target_external_id, row)
+        latest.setdefault(group_of(row), row)
     since = now - timedelta(days=STOPPED_SHOWN_DAYS)
     found: list[Watched] = []
     for adset_id, row in groups.items():
         log = latest.get(adset_id)
         if log is None or AUTO_STOP_MARK not in (log.request_payload or {}):
+            continue
+        # Under a campaign someone else stopped, the group's own stop is not why.
+        if row.delivery == Delivery.PAUSED_ABOVE and log.target_level != (
+            ManagedLevel.CAMPAIGN
+        ):
             continue
         if log.status != ActionStatus.APPLIED or log.created_at < since:
             continue

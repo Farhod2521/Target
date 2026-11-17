@@ -41,6 +41,8 @@ from app.modules.ads.services.manage import (
     plan_spend_cap,
     plan_status,
     plan_targeting,
+    resume_chain,
+    resume_plans,
 )
 from app.modules.ads.services.removal import plan_delete
 from app.modules.ads.services.swap import plan_swap
@@ -209,9 +211,9 @@ SPECS: dict[type, Spec] = {
     ),
     Resume: Spec(
         "resume",
-        lambda db, user, ask, _origin: plan_status(
-            db, user=user, level=ask.level, external_id=ask.external_id, wanted=ACTIVE
-        ),
+        lambda db, user, ask, _origin: resume_plans(
+            db, user=user, level=ask.level, external_id=ask.external_id
+        )[0],
     ),
     Budget: Spec(
         "budget",
@@ -347,7 +349,19 @@ def request(
     origin: Origin = BY_HAND,
     reverts: str = "",
 ) -> ActionLog:
-    """The same checks, and the change opened. The caller commits; the worker is sent after."""
+    """The same checks, and the change opened. The caller commits; the worker is sent after.
+
+    A start opens what goes on with it too (:func:`resume_chain`) and answers
+    the change on the object asked for."""
+    if isinstance(ask, Resume):
+        return resume_chain(
+            db,
+            user=user,
+            level=ask.level,
+            external_id=ask.external_id,
+            origin=origin,
+            reverts=reverts,
+        )
     plan = preview(db, user=user, ask=ask, origin=origin)
     return open_planned(db, user=user, plan=plan, origin=origin, reverts=reverts)
 

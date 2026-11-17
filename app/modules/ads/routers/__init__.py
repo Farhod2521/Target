@@ -624,16 +624,14 @@ def pause(level: str, external_id: str, db: Db, user: CurrentUser) -> dict[str, 
 @router.post("/manage/{level}/{external_id}/resume", response_model=ControlState)
 def resume(level: str, external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     target = _target(db, user, level, external_id)
+    plan = selectors.resume_plan(db, owner=user, target=target, level=level)
 
     def run() -> str:
-        chain = (
-            selectors.campaign_chain(db, owner=user, campaign=target)
-            if level == ManagedLevel.CAMPAIGN
-            else selectors.delivery_chain(target=target, level=level)
-        )
-        return " ".join(services.start_delivery(db, user=user, targets=chain).refused)
+        started = services.start_delivery(db, user=user, targets=plan.targets)
+        return " ".join(started.refused)
 
-    return _changed(db, user, level, external_id, run)
+    state = _changed(db, user, level, external_id, run)
+    return state if state.get("refused") else state | {"notes": plan.notes}
 
 
 @router.get(
