@@ -145,7 +145,7 @@ def test_three_then_four_are_said_once_each_and_five_stops(
 ) -> None:
     owner, account, now = _running(client, db)
 
-    _today(db, owner, account, now, spend=640, leads=1)
+    _today(db, owner, account, now, spend=1_920, leads=3)
     assert run_guard(db, owner=owner, now=now) == 1
     (row,) = _rows(db)
     assert (row.kind, row.action, row.step, row.times) == ("price", "warn", 3, 320)
@@ -153,17 +153,17 @@ def test_three_then_four_are_said_once_each_and_five_stops(
     assert row.figures["usual_source"] == "own"
 
     # The next half hours at the same step: nothing new.
-    _today(db, owner, account, now, spend=700, leads=1)
+    _today(db, owner, account, now, spend=2_100, leads=3)
     assert run_guard(db, owner=owner, now=now) == 0
     assert _rows(db)[0].step == 3
 
-    _today(db, owner, account, now, spend=820, leads=1)
+    _today(db, owner, account, now, spend=2_460, leads=3)
     assert run_guard(db, owner=owner, now=now) == 1
     (row,) = _rows(db)
     assert (row.action, row.step, row.advice) == ("warn", 4, "pause")
     assert _pauses(db) == []
 
-    _today(db, owner, account, now, spend=1_010, leads=1)
+    _today(db, owner, account, now, spend=3_030, leads=3)
     assert run_guard(db, owner=owner, now=now) == 1
     (row,) = _rows(db)
     assert (row.action, row.step) == ("stop", 5)
@@ -174,7 +174,7 @@ def test_three_then_four_are_said_once_each_and_five_stops(
     assert log.status == ActionStatus.PENDING
     assert log.request_payload[GUARD_STOP_MARK]["kind"] == "price"
     assert row.action_log_id == log.id
-    assert row.baseline["spend_minor"] == 1_010
+    assert row.baseline["spend_minor"] == 3_030
 
     # While the stop is on its way nothing is asked twice, and it stays said.
     assert run_guard(db, owner=owner, now=now) == 0
@@ -186,7 +186,7 @@ def test_a_rise_that_eases_closes_and_a_new_one_is_a_new_row(
     client: TestClient, db: Session, queued: list
 ) -> None:
     owner, account, now = _running(client, db)
-    _today(db, owner, account, now, spend=640, leads=1)
+    _today(db, owner, account, now, spend=1_920, leads=3)
     run_guard(db, owner=owner, now=now)
 
     _today(db, owner, account, now, spend=700, leads=4)
@@ -217,7 +217,7 @@ def test_a_group_built_elsewhere_is_only_warned(
     client: TestClient, db: Session, queued: list
 ) -> None:
     owner, account, now = _running(client, db, launched_here=False)
-    _today(db, owner, account, now, spend=1_200, leads=1)
+    _today(db, owner, account, now, spend=3_600, leads=3)
 
     assert run_guard(db, owner=owner, now=now) == 1
     (row,) = _rows(db)
@@ -291,7 +291,7 @@ def _warned(
     client: TestClient, db: Session
 ) -> tuple[User, AdAccount, datetime, GuardAlert]:
     owner, account, now = _running(client, db)
-    _today(db, owner, account, now, spend=640, leads=1)
+    _today(db, owner, account, now, spend=1_920, leads=3)
     run_guard(db, owner=owner, now=now)
     (row,) = _rows(db)
     return owner, account, now, row
@@ -311,9 +311,9 @@ def test_leave_is_written_down_and_the_next_step_still_comes(
     # Answered: off the cabinet's list until the price goes a step further.
     assert open_guard_alerts(db, owner=owner) == []
 
-    _today(db, owner, account, now, spend=700, leads=1)
+    _today(db, owner, account, now, spend=2_100, leads=3)
     assert run_guard(db, owner=owner, now=now) == 0
-    _today(db, owner, account, now, spend=820, leads=1)
+    _today(db, owner, account, now, spend=2_460, leads=3)
     assert run_guard(db, owner=owner, now=now) == 1
     (row,) = _rows(db)
     assert (row.step, row.answer) == (4, "")
@@ -333,7 +333,7 @@ def test_pause_asks_the_provider_once_and_closes_the_finding(
     db.commit()
     (row,) = _rows(db)
     assert row.answer == "pause" and row.closed_at is not None
-    assert row.baseline["spend_minor"] == 640
+    assert row.baseline["spend_minor"] == 1_920
     assert len(_pauses(db)) == 1
     with pytest.raises(GuardAlertGone):
         answer_guard(db, user=owner, alert_id=str(row.id), answer="pause", now=now)
@@ -368,7 +368,7 @@ def test_an_answer_the_finding_does_not_offer_is_refused(
         answer_guard(db, user=owner, alert_id=str(row.id), answer="resume", now=now)
 
 
-def test_the_phone_is_told_each_step_once(
+def test_the_phone_hears_of_a_group_once_a_day_and_of_a_stop_always(
     client: TestClient, db: Session, queued: list, monkeypatch
 ) -> None:
     from app.common.config import settings
@@ -391,12 +391,21 @@ def test_the_phone_is_told_each_step_once(
     (row,) = _rows(db)
     assert row.said_step == 3 and row.telegram_sent_at is not None
 
-    _today(db, owner, account, now, spend=820, leads=1)
+    # Four the same day: written down for the cabinet, not sent - a group
+    # is warned about once a day.
+    _today(db, owner, account, now, spend=2_460, leads=3)
+    run_guard(db, owner=owner, now=now)
+    assert announce_guard(db, client=phone, now=now, asleep=set()) == 0
+    (row,) = _rows(db)
+    assert (row.step, row.said_step) == (4, 4)
+
+    # Five stops it, and a stop is always said.
+    _today(db, owner, account, now, spend=3_030, leads=3)
     run_guard(db, owner=owner, now=now)
     assert announce_guard(db, client=phone, now=now, asleep=set()) == 1
     assert len(phone.texts()) == 2
     subjects = set(db.scalars(select(TelegramNotice.subject)))
-    assert subjects == {f"guard:{row.id}:3", f"guard:{row.id}:4"}
+    assert subjects == {f"guard:{row.id}:3", f"guard:{row.id}:5"}
 
 
 def test_a_warning_waits_for_the_morning_and_a_stop_does_not(
@@ -415,7 +424,7 @@ def test_a_warning_waits_for_the_morning_and_a_stop_does_not(
     asleep = {str(owner.id)}
 
     assert announce_guard(db, client=phone, now=now, asleep=asleep) == 0
-    _today(db, owner, account, now, spend=1_010, leads=1)
+    _today(db, owner, account, now, spend=3_030, leads=3)
     run_guard(db, owner=owner, now=now)
     assert announce_guard(db, client=phone, now=now, asleep=asleep) == 1
     (text,) = phone.texts()
@@ -471,7 +480,7 @@ def test_a_finding_names_its_page_and_campaign(
     assert campaign is not None
     db.commit()
 
-    _today(db, owner, account, now, spend=640, leads=1)
+    _today(db, owner, account, now, spend=1_920, leads=3)
     assert run_guard(db, owner=owner, now=now) == 1
     (row,) = _rows(db)
     assert row.figures["page_name"] == "Gul do'koni"
@@ -492,7 +501,7 @@ def test_old_open_findings_get_their_page_and_campaign_named(
     page.name = "Gul do'koni"
     group.promoted_object_raw = {"page_id": page.external_id}
     db.commit()
-    _today(db, owner, account, now, spend=640, leads=1)
+    _today(db, owner, account, now, spend=1_920, leads=3)
     run_guard(db, owner=owner, now=now)
     (row,) = _rows(db)
     # As a finding written before the names were kept.
@@ -528,8 +537,8 @@ def test_a_sent_message_is_rewritten_in_place_with_its_page(
     db.commit()
     phone = FakeBot()
     # Step 3 then step 4 sent, both before the names were kept.
-    for spend in (640, 820):
-        _today(db, owner, account, now, spend=spend, leads=1)
+    for day, spend in enumerate((1_920, 2_460)):
+        _today(db, owner, account, now, spend=spend, leads=3)
         run_guard(db, owner=owner, now=now)
         (row,) = _rows(db)
         row.figures = {
@@ -538,7 +547,9 @@ def test_a_sent_message_is_rewritten_in_place_with_its_page(
             if k not in ("page_name", "campaign_name")
         }
         db.commit()
-        announce_guard(db, client=phone, now=now, asleep=set())
+        # A day apart: a group is warned about once a day.
+        later = now + timedelta(days=day)
+        announce_guard(db, client=phone, now=later, asleep=set())
     assert len(phone.texts()) == 2
     sent_ids = [c[1] for c in phone.calls if c[0] == "send_message"]
     assert sent_messages(db) == []  # nothing named yet: nothing to rewrite
@@ -557,3 +568,118 @@ def test_a_sent_message_is_rewritten_in_place_with_its_page(
     assert edit["buttons"]  # the answers stay under it
     assert len(phone.texts()) == 2  # no new message
     assert len(sent_ids) == 2
+
+
+def _linked_phone(db: Session, owner: User, now: datetime, monkeypatch):
+    from app.common.config import settings
+    from app.modules.notifications.models import TelegramChat
+    from tests.pg.test_office_telegram import FakeBot
+
+    monkeypatch.setattr(settings, "site_url", "https://targetolog.test")
+    db.add(
+        TelegramChat(owner_id=owner.id, chat_id="700", is_active=True, linked_at=now)
+    )
+    db.commit()
+    return FakeBot()
+
+
+def test_a_group_missing_from_one_reading_is_not_said_again(
+    client: TestClient, db: Session, queued: list, monkeypatch
+) -> None:
+    from app.modules.notifications.services.announce_guard import announce_guard
+
+    owner, account, now, _row = _warned(client, db)
+    phone = _linked_phone(db, owner, now, monkeypatch)
+    assert announce_guard(db, client=phone, now=now, asleep=set()) == 1
+
+    # One sync reads the group as «with issues», the next as running again.
+    group = db.scalar(select(AdSet).where(AdSet.external_id == "s_1"))
+    assert group is not None
+    group.delivery = "rejected"
+    db.commit()
+    run_guard(db, owner=owner, now=now)
+    group.delivery = "active"
+    db.commit()
+    run_guard(db, owner=owner, now=now)
+
+    assert announce_guard(db, client=phone, now=now, asleep=set()) == 0
+    assert len(phone.texts()) == 1
+    old, new = _rows(db)
+    assert old.closed_at is not None and new.closed_at is None
+    assert (new.step, new.said_step) == (3, 3)
+
+    # The next step waits for tomorrow; a stop does not.
+    _today(db, owner, account, now, spend=2_460, leads=3)
+    run_guard(db, owner=owner, now=now)
+    assert announce_guard(db, client=phone, now=now, asleep=set()) == 0
+    _today(db, owner, account, now, spend=3_030, leads=3)
+    run_guard(db, owner=owner, now=now)
+    assert announce_guard(db, client=phone, now=now, asleep=set()) == 1
+
+
+def test_a_price_hovering_at_its_bar_is_said_once_a_day(
+    client: TestClient, db: Session, queued: list, monkeypatch
+) -> None:
+    from app.modules.agent.services.answer_guard import answer_guard
+    from app.modules.notifications.services.announce_guard import announce_guard
+
+    owner, account, now, row = _warned(client, db)  # 3.2 usual prices
+    phone = _linked_phone(db, owner, now, monkeypatch)
+    announce_guard(db, client=phone, now=now, asleep=set())
+    answer_guard(db, user=owner, alert_id=str(row.id), answer="leave", now=now)
+    db.commit()
+
+    # Eases under two, back over three, eases, back over three.
+    for spend, leads in [(2_000, 6), (4_000, 6), (4_100, 12), (8_000, 12)]:
+        _today(db, owner, account, now, spend=spend, leads=leads)
+        run_guard(db, owner=owner, now=now)
+        assert announce_guard(db, client=phone, now=now, asleep=set()) == 0
+
+    assert len(phone.texts()) == 1
+    rows = [row for row in _rows(db) if row.kind == "price"]
+    assert len(rows) == 3
+    # Still answered: it does not come back to the cabinet's list either.
+    assert rows[-1].answer == "leave"
+    assert [r for r in open_guard_alerts(db, owner=owner) if r.kind == "price"] == []
+
+
+def test_a_warning_still_true_tomorrow_is_said_again(
+    client: TestClient, db: Session, queued: list, monkeypatch
+) -> None:
+    from app.modules.notifications.services.announce_guard import announce_guard
+
+    owner, _account, now, row = _warned(client, db)
+    phone = _linked_phone(db, owner, now, monkeypatch)
+    announce_guard(db, client=phone, now=now, asleep=set())
+    # Raised yesterday and closed: today's rise is today's news.
+    row.created_at = row.telegram_sent_at = now - timedelta(days=1)
+    row.closed_at = now - timedelta(hours=1)
+    db.commit()
+
+    run_guard(db, owner=owner, now=now)
+    assert announce_guard(db, client=phone, now=now, asleep=set()) == 1
+
+
+def test_yesterdays_price_is_not_raised_a_step_by_this_mornings_first_lead(
+    client: TestClient, db: Session, queued: list, monkeypatch
+) -> None:
+    """The Elegant Style case of 2026-11-17: 3.9 usual prices last night, one
+    lead at 4.1 this morning, said as the rise going on."""
+    from app.modules.notifications.services.announce_guard import announce_guard
+
+    owner, account, now, row = _warned(client, db)
+    phone = _linked_phone(db, owner, now, monkeypatch)
+    announce_guard(db, client=phone, now=now, asleep=set())
+    yesterday = now.astimezone(account.tzinfo()).date() - timedelta(days=1)
+    row.figures = {**row.figures, "day": yesterday.isoformat()}
+    row.created_at = row.telegram_sent_at = now - timedelta(days=1)
+    db.commit()
+
+    # This morning: one lead at four usual prices.
+    _today(db, owner, account, now, spend=820, leads=1)
+    run_guard(db, owner=owner, now=now)
+
+    (old,) = _rows(db)
+    assert old.closed_at is not None and old.step == 3
+    assert announce_guard(db, client=phone, now=now, asleep=set()) == 0
+    assert len(phone.texts()) == 1

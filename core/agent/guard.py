@@ -10,7 +10,9 @@ five usual prices; three usual prices gone since the last result with nothing ba
 the advert sends people to not opening. A group built in Ads Manager gets
 the same finding as a warning: its owner did not hand it over.
 
-**What only warns.** Three usual prices for one result, then four; an advert
+**What only warns.** Three usual prices for one result, then four - once
+three results are in, or ten usual prices are gone; five usual prices gone
+with nothing back, in a group not ours; an advert
 inside a group taking a third of the money and bringing nothing while
 another brings results; the click rate under 70 % of usual; a thousand
 showings at 150 % of usual; a person shown the advert three times a week.
@@ -51,6 +53,14 @@ PRICE_STEPS: Final = (3, 4, 5)
 STOP_STEP: Final = 5
 # Under this many usual prices a rise is over.
 EASE_UNDER: Final = 2
+# Results before a price means anything: one morning lead is a coin toss.
+# Fewer are judged only once this many usual prices are gone.
+MIN_PRICE_RESULTS: Final = 3
+FEW_RESULTS_SPEND: Final = 10
+# Usual prices gone with nothing back before a group not ours - or one we may
+# not stop - is warned about. Ours is stopped at three: a stop is ours to
+# make; a warning only asks for a look, and asks too often at three.
+FRUITLESS_WARN_TIMES: Final = 5
 # Hours after the switch-on before anything but a broken page is judged.
 WAIT_HOURS: Final = 24
 # ``now / usual`` in percent: the click rate's floor, the showings' ceiling.
@@ -248,9 +258,10 @@ def _money(group: GroupToday) -> Finding | None:
         return None
     if group.results <= 0:
         gone = max(group.spend_minor, group.dry_spend_minor)
-        if gone < SPEND_MULTIPLE * usual:
-            return None
         action = _stop_or_warn(group)
+        bar = SPEND_MULTIPLE if action == "stop" else FRUITLESS_WARN_TIMES
+        if gone < bar * usual:
+            return None
         return Finding(
             kind="fruitless",
             action=action,
@@ -259,6 +270,11 @@ def _money(group: GroupToday) -> Finding | None:
             times=gone * 100 // usual,
             causes=causes(group),
         )
+    if (
+        group.results < MIN_PRICE_RESULTS
+        and group.spend_minor < FEW_RESULTS_SPEND * usual
+    ):
+        return None
     times = price_times(group)
     step = price_step(times)
     if not step:
@@ -366,7 +382,10 @@ __all__ = [
     "CPM_HIGH_PCT",
     "CTR_LOW_PCT",
     "EASE_UNDER",
+    "FEW_RESULTS_SPEND",
     "FREQUENCY_BAR",
+    "FRUITLESS_WARN_TIMES",
+    "MIN_PRICE_RESULTS",
     "PRICE_STEPS",
     "STOP_STEP",
     "WAIT_HOURS",

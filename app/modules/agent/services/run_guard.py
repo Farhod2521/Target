@@ -6,9 +6,14 @@ row a group and kind:
 
 - a new finding opens a row; a finding gone further - a price at the next
   step - moves the row's step, and that is what a second message waits for;
-- a price rise closes when the price eases; the other warnings close on a
+- a price rise closes when the price eases, and at the end of its day -
+  tomorrow's price starts again from its first step; the other warnings close on a
   later day than they were raised, so a figure hovering at its bar is said
   once a day at most and not every half hour;
+- a warning closed and found again the same day - a price back over its
+  bar, a group missing from one reading - opens a new row but no new
+  message at a step the owner was already told that day, and keeps the
+  answer they gave it;
 - a stop pauses the group at the provider, as the agent, and keeps the
   day's figures on the row: switched back on the same day, the group is
   counted from there.
@@ -18,7 +23,7 @@ Nothing here sends a message: the rows are what the notices are written from.
 
 import logging
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import date, datetime, tzinfo
 from typing import Any
 
 from sqlalchemy import and_, or_, select
@@ -85,6 +90,10 @@ def _account(
     )
     by_group = {item.group.adset_id: item for item in guarded}
     pausing = _being_paused(db, owner=owner, adset_ids=list(by_group))
+    told = _told_today(rows, clock=account.tzinfo(), now=now)
+    _close_yesterdays_prices(
+        rows, today=now.astimezone(account.tzinfo()).date(), now=now
+    )
     findings: dict[tuple[str, str], tuple[Finding, Guarded]] = {}
     for item in guarded:
         if item.group.adset_id in pausing:
@@ -114,9 +123,44 @@ def _account(
             row=current,
             now=now,
             may_stop=may_stop,
+            told=told.get(key),
         )
     db.commit()
     return changed
+
+
+def _close_yesterdays_prices(
+    rows: list[GuardAlert], *, today: date, now: datetime
+) -> None:
+    """A price warning is about its own day. Left open overnight, today's
+    first result - one lead, an hour in - would read as the rise going a
+    step further; closed, today's price is judged from its own first step."""
+    for row in rows:
+        if row.closed_at is not None or row.kind != PRICE or row.action == STOP:
+            continue
+        day = (row.figures or {}).get("day") or ""
+        if day and day < today.isoformat():
+            row.closed_at = now
+
+
+def _told_today(
+    rows: list[GuardAlert], *, clock: tzinfo, now: datetime
+) -> dict[tuple[str, str], GuardAlert]:
+    """``{(object, kind): the closed warning of today told furthest}``.
+
+    Only today's - by the day it was raised, in the account's clock - so a
+    warning still true tomorrow is said again tomorrow, once."""
+    today: date = now.astimezone(clock).date()
+    found: dict[tuple[str, str], GuardAlert] = {}
+    for row in rows:
+        if row.closed_at is None or row.action == STOP or row.said_step <= 0:
+            continue
+        if row.created_at.astimezone(clock).date() != today:
+            continue
+        key = (row.external_id, row.kind)
+        if key not in found or row.said_step > found[key].said_step:
+            found[key] = row
+    return found
 
 
 def _baselines(rows: list[GuardAlert]) -> dict[str, Mapping[str, Any]]:
@@ -180,8 +224,12 @@ def _one(
     row: GuardAlert | None,
     now: datetime,
     may_stop: bool,
+    told: GuardAlert | None = None,
 ) -> int:
-    """Open a row, move it a step, or leave it. Returns 1 when something changed."""
+    """Open a row, move it a step, or leave it. Returns 1 when something changed.
+
+    ``told`` is today's closed warning on the same thing: a new row at a step
+    it already said is written down, but not said again."""
     if row is not None and finding.step <= row.step and not _now_stops(row, finding):
         return 0
     action = finding.action
@@ -230,6 +278,12 @@ def _one(
         )[0]
         == ManagedLevel.CAMPAIGN
     }
+    if action != STOP and told is not None and told.said_step >= row.step:
+        row.said_step = max(row.said_step or 0, told.said_step)
+        # «Leave it for now» still answers the same step; a closing answer
+        # ended that row and is not carried.
+        if told.answer == "leave":
+            row.answer, row.answered_at = told.answer, told.answered_at
     if log_id is not None:
         row.action_log_id = log_id
         row.baseline = {
