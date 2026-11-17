@@ -1,6 +1,7 @@
 """Support tickets: one per client, for every reason. A new reason on a
-solved ticket reopens it with the same person, so one Support member keeps
-working with the client."""
+ticket waiting for the client's confirmation goes back to its person. On a
+fully closed one (Hal qilindi, Yopildi) it opens a new round in Yangi, for
+whoever takes it next; a soft fact there (``reopen=False``) is only noted."""
 
 import uuid
 from datetime import datetime
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.modules.accounts.models import User
 from app.modules.boards.constants import (
     SUPPORT_DONE_COLUMNS,
+    SUPPORT_FINAL_COLUMNS,
     Board,
     EventKind,
     SupportColumn,
@@ -41,10 +43,14 @@ def raise_ticket(
     detail: str = "",
     actor: User | None = None,
     extra: dict[str, Any] | None = None,
+    reopen: bool = True,
 ) -> bool:
     """Put ``reason`` on the client's ticket, opening or reopening it.
     ``ref`` names the fact (a payment, a launch); the same fact twice is
-    nothing. ``actor`` is who opened it by hand; a rule has none. Whether anything was written. The caller commits."""
+    nothing. ``actor`` is who opened it by hand; a rule has none.
+    ``reopen=False``: on a fully closed ticket the fact is noted in its
+    history (so a sweep does not meet it again) and the ticket stays closed.
+    Whether anything was written. The caller commits."""
     # ``extra``: what the office reads beside the words: the provider's own
     # text (``raw``) and what the fact was about (``target``).
     item = {
@@ -98,10 +104,26 @@ def raise_ticket(
         )
     ):
         return False
+    final = card.column_code in SUPPORT_FINAL_COLUMNS
+    if final and not reopen:
+        record(
+            db,
+            card=card,
+            kind=EventKind.AFTER_CLOSE,
+            now=now,
+            body=detail,
+            ref=ref,
+            actor=actor,
+        )
+        db.flush()
+        return True
     card.reasons = [*card.reasons, item]
     if card.column_code in SUPPORT_DONE_COLUMNS:
         card.closed_at = None
         card.due_at = None
+        if final:
+            # A new round: the queue's, not the person's who closed it.
+            card.manager_id = None
         to = SupportColumn.IN_PROGRESS if card.manager_id else SupportColumn.NEW
         move(
             db,

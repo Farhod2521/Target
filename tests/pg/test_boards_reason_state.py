@@ -115,13 +115,15 @@ def test_a_new_reason_leaves_the_old_ones_solved(
     )
     db.commit()
     again = _detail(client.get(f"{URL}/cards/{taken.id}", headers=boss))
-    assert again.column == "in_progress"
+    # Fully closed: a new round goes to the queue, not back to its person.
+    assert again.column == "new" and again.manager is None
     assert _states(again) == [("meta_error", "open"), ("setup", "solved")]
     # The card and the filter read what is open now, not the whole past.
     assert again.reasons == ["meta_error"]
     assert [chip.code for chip in again.reason_chips] == ["meta_error"]
-    assert _ids(_board(client, boss, reason="meta_error"), "in_progress") == [taken.id]
-    assert _ids(_board(client, boss, reason="setup"), "in_progress") == []
+    assert _ids(_board(client, boss, reason="meta_error"), "new") == [taken.id]
+    assert _ids(_board(client, boss, reason="setup"), "new") == []
+    assert _detail(client.post(f"{URL}/support/take", headers=boss)).id == taken.id
 
     # Reopened by hand after the next «Hal qilindi»: only that round.
     client.post(

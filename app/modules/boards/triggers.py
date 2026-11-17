@@ -783,6 +783,9 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             reason=TicketReason.META_ERROR,
             ref=f"action:{action_id}",
             now=now,
+            # The client's own press: noted on a closed ticket, never
+            # reopening it. A refused launch still does.
+            reopen=False,
             detail=_said(f"«{label}» amali bajarilmadi", _plain(code)),
             extra={
                 "raw": _cut(message),

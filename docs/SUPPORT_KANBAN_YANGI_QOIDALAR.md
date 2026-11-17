@@ -75,7 +75,7 @@ Mijoz tomoni (kabinet, `Authorization` mijozniki):
 
 `stale` — savolga javob berilgan yoki u endi so'ralmayapti; xato emas.
 
-Yopilgan (`resolved`, `closed`) yoki tasdiq kutayotgan zayavkaga yangi sabab kelsa, u qayta ochiladi va o'sha xodimga qaytadi.
+Tasdiq kutayotgan (`confirming`) zayavkaga yangi sabab kelsa, u qayta ochiladi va o'sha xodimga qaytadi. To'liq yopilgan (`resolved`, `closed`) zayavkaga yangi sabab kelsa, u xodimsiz «Yangi» navbatiga tushadi (keyingi «Zayavka olish» bosganga beriladi). Mijozning o'z tugmasidagi Meta xatosi va chatdagi oddiy xabari yopilgan zayavkani ochmaydi: Meta xatosi tarixga `after_close` («Yopilgandan keyin keldi») bo'lib yoziladi. Support xodimi yopilgan zayavkani qo'lda ochsa, u o'ziga tushadi.
 
 ## 6. Zayavkani qo'lda ochish
 

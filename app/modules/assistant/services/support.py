@@ -135,10 +135,17 @@ def _open_ticket(
 ) -> None:
     """Words for a person are a request on Support's board, not only a line
     in a chat: somebody is given it and it is counted. A client whose
-    request is already open adds to it by writing; one with none, or with a
-    solved one, opens it with these words. A failure here never costs the
-    message: it is stored already."""
-    from app.modules.boards.constants import SUPPORT_DONE_COLUMNS, Board, TicketReason
+    request is already open adds to it by writing; one with none opens it
+    with these words, and one waiting for its confirmation goes back to its
+    person. A fully closed one stays closed: the words are in the support
+    chat, and «Mutaxassisga yuborish» opens a new round. A failure here
+    never costs the message: it is stored already."""
+    from app.modules.boards.constants import (
+        SUPPORT_DONE_COLUMNS,
+        SUPPORT_FINAL_COLUMNS,
+        Board,
+        TicketReason,
+    )
     from app.modules.boards.models import BoardCard
     from app.modules.boards.tickets import raise_ticket
 
@@ -150,7 +157,9 @@ def _open_ticket(
                 BoardCard.term_ends_at.is_(None),
             )
         )
-        if column is not None and column not in SUPPORT_DONE_COLUMNS:
+        if column is not None and (
+            column not in SUPPORT_DONE_COLUMNS or column in SUPPORT_FINAL_COLUMNS
+        ):
             return
         raise_ticket(
             db,

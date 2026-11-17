@@ -359,6 +359,11 @@ SUPPORT_DONE_COLUMNS: Final = frozenset(
         str(SupportColumn.CLOSED),
     }
 )
+# Fully closed: a new fact on a ticket here opens a new round for the
+# queue, not for the person who closed it; a soft one opens nothing.
+SUPPORT_FINAL_COLUMNS: Final = frozenset(
+    {str(SupportColumn.RESOLVED), str(SupportColumn.CLOSED)}
+)
 # «Zayavka olish» gives one ticket a press, while this person has fewer
 # than this many in Ishlanmoqda. What comes back on its own (a timer, the
 # client's "no", the Owner's hand) is not held by it.
@@ -523,6 +528,8 @@ class EventKind(Choices):
     TICKET = "ticket"
     REASON = "reason"
     REOPENED = "reopened"
+    # A fact that came after the ticket was fully closed and did not reopen it.
+    AFTER_CLOSE = "after_close"
     STARTED = "started"
     RESOLVED = "resolved"
     MOVED = "moved"
@@ -571,6 +578,7 @@ EVENT_KIND_LABELS = {
     EventKind.TICKET: "Zayavka ochildi",
     EventKind.REASON: "Yangi sabab",
     EventKind.REOPENED: "Zayavka qayta ochildi",
+    EventKind.AFTER_CLOSE: "Yopilgandan keyin keldi",
     EventKind.STARTED: "Ishga olindi",
     EventKind.RESOLVED: "Xodim: hal qilindi",
     EventKind.MOVED: "Qo'lda ko'chirildi",
