@@ -289,7 +289,7 @@ Hammasi faqat **deploydan keyin** bo'lgan hodisalar uchun ishlaydi; undan olding
   tugmasi bilan qo'yilgan karta o'zi qaytmaydi.
 
 **Support**: bitta mijozga **bitta** karta. Yangi sabab shu kartaga qo'shiladi.
-«Hal qilindi» dagi kartaga yangi sabab kelsa, u qayta ochiladi va o'sha xodimga qaytadi.
+Tasdiq kutayotgan (`confirming`) zayavkaga yangi sabab kelsa, u qayta ochiladi va o'sha xodimga qaytadi. To'liq yopilgan (`resolved`, `closed`) zayavkaga yangi sabab kelsa, u xodimsiz «Yangi» navbatiga tushadi (keyingi «Zayavka olish» bosganga beriladi). Mijozning o'z tugmasidagi Meta xatosi va chatdagi oddiy xabari yopilgan zayavkani ochmaydi: Meta xatosi tarixga `after_close` («Yopilgandan keyin keldi») bo'lib yoziladi. Support xodimi yopilgan zayavkani qo'lda ochsa, u o'ziga tushadi.
 
 | `reasons` kodi | Qachon |
 |---|---|

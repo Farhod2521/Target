@@ -393,8 +393,17 @@ def test_a_client_with_no_plan_reaches_a_person_and_not_the_ai(
     db.expire_all()
     assert len(card.reasons) == 1
 
-    # Solved, and the client writes again: the request is open again.
+    # Fully closed, and the client writes again («rahmat», most often): the
+    # words are in the support chat, the ticket stays closed.
     card.column_code = "resolved"
+    db.commit()
+    thanks = client.post(f"{URL}/support", data={"body": "Rahmat"}, headers=headers)
+    assert thanks.status_code == 201, thanks.text
+    db.expire_all()
+    assert card.column_code == "resolved" and len(card.reasons) == 1
+
+    # Waiting for the client's word, and the client writes: open again.
+    card.column_code = "confirming"
     db.commit()
     again = client.post(f"{URL}/support", data={"body": "Yana chiqdi"}, headers=headers)
     assert again.status_code == 201, again.text

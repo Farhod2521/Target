@@ -24,6 +24,7 @@ from app.modules.boards.constants import (
     OFFER_STEPS,
     SALES_ACTIONS,
     SUPPORT_ACTIONS,
+    SUPPORT_FINAL_COLUMNS,
     TICKET_TAKE_LIMIT,
     Board,
     CardAction,
@@ -630,10 +631,16 @@ def add_ticket(
                 raise NotOnBoard
     else:
         member = user
-        held = db.scalar(
-            select(BoardCard.manager_id).where(
+        found = db.execute(
+            select(BoardCard.manager_id, BoardCard.column_code).where(
                 BoardCard.board == str(Board.SUPPORT), BoardCard.owner_id == client.id
             )
+        ).first()
+        # A fully closed ticket is nobody's: it opens as a new round.
+        held = (
+            found.manager_id
+            if found is not None and found.column_code not in SUPPORT_FINAL_COLUMNS
+            else None
         )
         if held not in (None, user.id):
             raise TicketHeld
