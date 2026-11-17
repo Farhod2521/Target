@@ -54,30 +54,30 @@ def test_under_three_usual_prices_nothing_is_said() -> None:
 
 
 def test_three_usual_prices_is_a_warning() -> None:
-    found = _one(_group(spend_minor=320, results=1))
+    found = _one(_group(spend_minor=960, results=3))
     assert (found.kind, found.action, found.step, found.times) == (
         "price", "warn", 3, 320,
     )  # fmt: skip
 
 
 def test_four_is_a_second_warning_that_advises_the_stop() -> None:
-    found = _one(_group(spend_minor=410, results=1))
+    found = _one(_group(spend_minor=1_230, results=3))
     assert (found.action, found.step, found.advice) == ("warn", 4, "pause")
 
 
 def test_five_stops_what_was_launched_here() -> None:
-    found = _one(_group(spend_minor=500, results=1))
+    found = _one(_group(spend_minor=1_500, results=3))
     assert (found.kind, found.action, found.step) == ("price", "stop", 5)
     assert found.advice == "keep_off"
 
 
 def test_five_only_warns_about_a_group_built_elsewhere() -> None:
-    found = _one(_group(spend_minor=500, results=1, ours=False))
+    found = _one(_group(spend_minor=1_500, results=3, ours=False))
     assert (found.action, found.step, found.advice) == ("warn", 5, "pause")
 
 
 def test_five_only_warns_while_the_group_learns() -> None:
-    found = _one(_group(spend_minor=500, results=1, learning=True))
+    found = _one(_group(spend_minor=1_500, results=3, learning=True))
     assert (found.action, found.advice) == ("warn", "leave")
 
 
@@ -108,8 +108,22 @@ def test_nothing_back_stops_a_learning_group_too() -> None:
     assert _one(_group(spend_minor=300, learning=True)).action == "stop"
 
 
+def test_a_price_on_one_or_two_results_is_not_said() -> None:
+    # Four usual prices on two leads: an hour's coin toss, not a price.
+    assert judge(_group(spend_minor=800, results=2)) == []
+    # Ten usual prices gone on them is enough to say it.
+    found = _one(_group(spend_minor=1_000, results=2))
+    assert (found.kind, found.action, found.step) == ("price", "stop", 5)
+
+
+def test_nothing_back_elsewhere_waits_for_five_usual_prices() -> None:
+    assert judge(_group(spend_minor=499, ours=False)) == []
+    # Ours is stopped at three: that stays.
+    assert _one(_group(spend_minor=300)).action == "stop"
+
+
 def test_nothing_back_only_warns_elsewhere() -> None:
-    found = _one(_group(spend_minor=300, ours=False))
+    found = _one(_group(spend_minor=500, ours=False))
     assert (found.action, found.advice) == ("warn", "pause")
 
 
@@ -139,7 +153,7 @@ def test_an_unknown_age_is_read_as_old() -> None:
 
 def test_a_price_rise_carries_its_causes_instead_of_more_messages() -> None:
     # Shown 1000 times for 320: CPM 320 against 200; 4 clicks: CTR 0.4 %.
-    group = _group(spend_minor=320, results=1, impressions=1_000, link_clicks=4)
+    group = _group(spend_minor=960, results=3, impressions=3_000, link_clicks=12)
     found = _one(group)
     assert found.kind == "price"
     assert found.causes == ("cpm", "ctr")
@@ -149,11 +163,11 @@ def test_price_advice_by_cause() -> None:
     # CPM alone: the auction, leave it.
     # 1000 showings for 600 (three usual CPMs), the usual 1 % clicking, the
     # usual five clicks a result.
-    cpm_only = _group(spend_minor=600, results=2, impressions=1_000, link_clicks=10)
+    cpm_only = _group(spend_minor=900, results=3, impressions=1_500, link_clicks=15)
     assert causes(cpm_only) == ("cpm",)
     assert _one(cpm_only).advice == "leave"
     # The click rate: less money meanwhile - where the budget is the group's.
-    ctr = _group(spend_minor=320, results=1, impressions=2_000, link_clicks=10)
+    ctr = _group(spend_minor=960, results=3, impressions=6_000, link_clicks=30)
     assert "ctr" in causes(ctr)
     assert _one(ctr).advice == "budget_down"
     assert _one(replace(ctr, own_budget=False)).advice == "leave"

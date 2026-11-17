@@ -6,10 +6,13 @@ it stands (``step``), under a subject that names both the row and the step:
 the same step is never said twice, and the next step is a new message.
 
 A stop is always said, at any hour: it changed the owner's advertising. A
-warning waits for the morning and for the owner's «takliflar» switch.
+warning waits for the morning and for the owner's «takliflar» switch, and a
+group gets one a day: a second warning the same day - another kind, the
+next step, the same one found again - is written down for the cabinet and
+not sent. Five usual prices are a stop and are said.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -98,10 +101,16 @@ def _announce(
     sent = warned = 0
     # The stops first: they are news whatever else waits.
     ordered = sorted(rows, key=lambda row: row.action != STOP)
+    told_today = _groups_told_today(db, owner_id=chat.owner_id, now=now)
     with override(chat.owner.language):
         for row in ordered:
             if row.action != STOP:
                 if asleep or not chat.notify_suggestions:
+                    continue
+                if _group_of(row) in told_today:
+                    # Said once today already: the cabinet has it.
+                    row.said_step = row.step
+                    db.commit()
                     continue
                 if warned >= MAX_GUARD_WARNINGS_PER_SWEEP:
                     break
@@ -124,8 +133,37 @@ def _announce(
                 row.telegram_sent_at = now
                 sent += 1
                 warned += row.action != STOP
+            told_today.add(_group_of(row))
             db.commit()
     return sent
+
+
+def _group_of(row: GuardAlert) -> tuple[object, str]:
+    return (row.ad_account_id, row.adset_external_id or row.external_id)
+
+
+def _groups_told_today(
+    db: Session, *, owner_id: object, now: datetime
+) -> set[tuple[object, str]]:
+    """The owner's groups the phone heard about today, each in its own
+    account's clock - a stop included: a warning after it waits a day."""
+    rows = db.scalars(
+        select(GuardAlert).where(
+            GuardAlert.owner_id == owner_id,
+            GuardAlert.telegram_sent_at.is_not(None),
+            GuardAlert.telegram_sent_at > now - timedelta(days=2),
+        )
+    )
+    found: set[tuple[object, str]] = set()
+    for row in rows:
+        clock = row.ad_account.tzinfo()
+        sent_at = row.telegram_sent_at
+        if (
+            sent_at is not None
+            and sent_at.astimezone(clock).date() == now.astimezone(clock).date()
+        ):
+            found.add(_group_of(row))
+    return found
 
 
 def guard_message(row: GuardAlert) -> str:
