@@ -90,13 +90,22 @@ def hand_over(
 def close_fixed_ticket(
     *, db: Session, path: str, by_id: uuid.UUID, now: datetime, **_: Any
 ) -> None:
-    """The fault settled: the ticket it came from closes. Commits."""
+    """The fault settled: the ticket it came from closes. Commits. A ticket
+    that cannot be closed is logged: the fault stays settled either way."""
     if not path.startswith(SUBJECT):
         return
     try:
         card_id = uuid.UUID(path[len(SUBJECT) :])
     except ValueError:
         return
+    try:
+        _close(db, card_id=card_id, by_id=by_id, now=now)
+    except Exception:
+        db.rollback()
+        logger.exception("fixed_ticket_not_closed", extra={"card_id": str(card_id)})
+
+
+def _close(db: Session, *, card_id: uuid.UUID, by_id: uuid.UUID, now: datetime) -> None:
     card = db.scalar(
         select(BoardCard)
         .where(BoardCard.id == card_id, BoardCard.board == str(Board.SUPPORT))
