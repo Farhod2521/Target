@@ -234,10 +234,28 @@ def release_stalled_launches(db: Session) -> int:
         .execution_options(synchronize_session=False)
     ).rowcount
     db.commit()
+    from app.modules.ads.services.faults import launch_fault
+
     for pk, status, step in frozen:
         logger.warning(
             "launch_stalled", extra={"launch": str(pk), "was": status, "step": step}
         )
+        launch = db.scalar(
+            select(CampaignLaunch)
+            .where(CampaignLaunch.id == pk)
+            .execution_options(populate_existing=True)
+        )
+        if launch is not None and launch.error_code == STALLED_CODE:
+            launch_fault(
+                db,
+                launch,
+                code=STALLED_CODE,
+                message=(
+                    f"no worker finished it in {STALLED_AFTER_MINUTES} min;"
+                    f" was {status} at step {step or '-'}"
+                ),
+                where="ads.rollback.release_stalled_launches",
+            )
     return int(released or 0)
 
 

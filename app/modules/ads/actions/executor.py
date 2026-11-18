@@ -31,11 +31,13 @@ from app.common.config import settings
 from app.modules.ads.exceptions import ConnectionUnusable, NoAdAccount
 from app.modules.ads.selectors import managed_target
 from app.modules.ads.services.access import target_account_and_token
+from app.modules.ads.services.faults import action_fault
 from app.modules.ads.services.manage import fail_log, refused_by_provider
 from app.modules.audit.constants import ActionStatus
 from app.modules.audit.models import ActionLog
 
 logger = logging.getLogger(__name__)
+WHERE = "ads.actions.executor"
 
 
 @dataclass(slots=True)
@@ -84,6 +86,9 @@ def carry_out(db: Session, *, log_id: str, kind: Write) -> str:
         return "done"
     if log.action not in kind.actions:
         fail_log(db, log=log, code="unknown", message=f"no write for {log.action}")
+        action_fault(
+            db, log, code="unknown", message=f"no write for {log.action}", where=WHERE
+        )
         return "unknown"
     target = managed_target(
         db, owner=log.owner, level=log.target_level, external_id=log.target_external_id
@@ -105,6 +110,7 @@ def carry_out(db: Session, *, log_id: str, kind: Write) -> str:
     except Exception as exc:
         logger.exception("no provider for change %s", log.id)
         fail_log(db, log=log, code="unknown", message=str(exc))
+        action_fault(db, log, code="unknown", message=str(exc), where=WHERE, exc=exc)
         return "failed"
     job = Job(
         log=log,
@@ -129,6 +135,7 @@ def carry_out(db: Session, *, log_id: str, kind: Write) -> str:
     except Exception as exc:
         logger.exception("change %s could not be prepared", log.id)
         fail_log(db, log=log, code="unknown", message=str(exc))
+        action_fault(db, log, code="unknown", message=str(exc), where=WHERE, exc=exc)
         return "failed"
     if refusal:
         fail_log(db, log=log, code=refusal, message="the check before the write failed")
@@ -141,11 +148,15 @@ def carry_out(db: Session, *, log_id: str, kind: Write) -> str:
     except Exception as exc:
         logger.exception("change %s failed unexpectedly", log.id)
         fail_log(db, log=log, code="unknown", message=str(exc))
+        action_fault(db, log, code="unknown", message=str(exc), where=WHERE, exc=exc)
         return "failed"
     if not result.ok:
         # Answered and refused without raising: nothing changed, so the row
         # must not say it did.
         fail_log(db, log=log, code="not_applied", message=str(result.raw_response))
+        action_fault(
+            db, log, code="not_applied", message=str(result.raw_response), where=WHERE
+        )
         return "failed"
     kind.finish(db, job, result)
     db.commit()

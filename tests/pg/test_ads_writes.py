@@ -26,7 +26,7 @@ from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.models import Ad, AdSet, Campaign
 from app.modules.ads.services import manage, mirror, removal, swap
 from app.modules.audit.constants import ActionStatus, ActionType
-from app.modules.audit.models import ActionLog
+from app.modules.audit.models import ActionLog, ErrorEvent
 from app.modules.integrations.models import AdAccount
 from tests.pg.test_ads_manage import _mirror
 from tests.pg.test_cabinet_flows import _cabinet
@@ -191,6 +191,7 @@ def test_a_delete_meta_refused_quietly_keeps_the_mirror(
     log = db.get(ActionLog, log_id)
     assert (log.status, log.error_code) == (ActionStatus.FAILED, "not_applied")
     assert (_count(db, Campaign), _count(db, AdSet), _count(db, Ad)) == (1, 1, 1)
+    assert db.scalars(select(ErrorEvent)).one().context["code"] == "not_applied"
 
 
 def test_an_unexpected_error_in_a_delete_does_not_leave_it_pending(
@@ -210,6 +211,11 @@ def test_an_unexpected_error_in_a_delete_does_not_leave_it_pending(
     db.expire_all()
     log = db.get(ActionLog, log_id)
     assert (log.status, log.error_code) == (ActionStatus.FAILED, "unknown")
+    fault = db.scalars(select(ErrorEvent)).one()
+    assert (fault.exception, fault.where) == ("KeyError", "ads.actions.executor")
+    assert "no port" in fault.trace
+    assert fault.context["external_id"] == "a_1"
+    assert log.result_payload["fault"] == fault.reference
 
 
 def test_a_change_meta_refused_quietly_is_not_recorded_as_applied(
