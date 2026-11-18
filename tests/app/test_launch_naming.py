@@ -36,21 +36,21 @@ def _business() -> Business:
     return Business(name="Baraka", timezone="Asia/Tashkent")
 
 
-def test_the_campaign_is_page_goal_level_day_and_time() -> None:
+def test_the_campaign_is_page_goal_and_day() -> None:
     name = naming.goal_campaign_name(
         launch=_launch(), business=_business(), page_name="Baraka Market", at=AT
     )
-    assert name == "Baraka Market - Qo'ng'iroq - ABO - 17.11.2026 - 17:18"
+    assert name == "Baraka Market - Qo'ng'iroq - 17.11.2026"
 
 
-def test_the_goal_follows_the_owners_language_and_the_level_the_budget() -> None:
+def test_the_goal_follows_the_owners_language_and_the_level_is_left_out() -> None:
     launch = _launch(language="en", answers={BUDGET_LEVEL: "campaign"})
     name = naming.goal_campaign_name(
         launch=launch, business=_business(), page_name="Baraka Market", at=AT
     )
-    assert name == "Baraka Market - Calls - CBO - 17.11.2026 - 17:18"
+    assert name == "Baraka Market - Calls - 17.11.2026"
     ru = naming.campaign_name(launch=_launch(language="ru"), business=_business())
-    assert ru == "Baraka Market - Звонки - ABO - 17.11.2026 - 17:18"
+    assert ru == "Baraka Market - Звонки - 17.11.2026"
 
 
 def test_a_long_page_name_is_cut_and_the_stamp_kept() -> None:
@@ -58,7 +58,7 @@ def test_a_long_page_name_is_cut_and_the_stamp_kept() -> None:
         launch=_launch(), business=_business(), page_name="X" * 300, at=AT
     )
     assert len(name) <= naming.MAX_NAME
-    assert name.endswith("… - Qo'ng'iroq - ABO - 17.11.2026 - 17:18")
+    assert name.endswith("… - Qo'ng'iroq - 17.11.2026")
 
 
 def test_nothing_chosen_is_everyone() -> None:
@@ -115,6 +115,9 @@ def test_the_ad_is_its_number() -> None:
 
 
 def test_a_row_drops_the_stamp() -> None:
+    assert naming.short_name("Baraka - Qo'ng'iroq - 17.11.2026") == (
+        "Baraka - Qo'ng'iroq"
+    )
     assert naming.short_name("Baraka - Qo'ng'iroq - ABO - 17.11.2026 - 17:18") == (
         "Baraka - Qo'ng'iroq - ABO"
     )

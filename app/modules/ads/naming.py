@@ -16,7 +16,6 @@ from app.modules.ads.constants import (
     TargetingMode,
 )
 from app.modules.ads.models import CampaignLaunch
-from app.modules.ads.selectors.budget_level import held_by_campaign
 from app.modules.businesses.models import Business
 from core.targeting.describe import describe
 from core.targeting.modes import is_automatic
@@ -36,11 +35,10 @@ MODE_WORDS: Final[dict[str, str]] = {
 STAMP: Final = "%d.%m %H:%M"
 _PARSE_YEAR: Final = 2024
 
-# What Ads Manager shows: «Sahifa - Calls - ABO - 17.11.2026 - 17:18» for the
-# campaign, the audience for the ad set and «#1» for the ad.
+# What Ads Manager shows: «Sahifa - Calls - 17.11.2026» for the campaign, the
+# audience for the ad set and «#1» for the ad.
 DASH: Final = " - "
 DAY: Final = "%d.%m.%Y"
-TIME: Final = "%H:%M"
 PLACES_SHOWN: Final = 2
 PLACE_JOIN: Final = ", "
 AGE_FLOOR: Final = 18
@@ -67,11 +65,14 @@ AUDIENCE_WORDS: Final[dict[str, dict[str, str]]] = {
     "custom": {"uz": "O'z", "ru": "Свои", "en": "Custom"},
 }
 ADVANTAGE: Final = "Adv+"
-_DASH_STAMP: Final = re.compile(r"^(?P<head>.+?) - \d{2}\.\d{2}\.\d{4} - \d{2}:\d{2}$")
+# Older campaigns also carry « - 17:18» after the day.
+_DASH_STAMP: Final = re.compile(
+    r"^(?P<head>.+?) - \d{2}\.\d{2}\.\d{4}(?: - \d{2}:\d{2})?$"
+)
 
 
 def campaign_name(*, launch: CampaignLaunch, business: Business) -> str:
-    """This launch's campaign, stamped when the launch was opened."""
+    """This launch's campaign, dated when the launch was opened."""
     page = launch.page.name if launch.page is not None else ""
     return _campaign(
         launch=launch, business=business, page_name=page, at=launch.created_at
@@ -85,7 +86,7 @@ def goal_campaign_name(
     page_name: str,
     at: datetime | None = None,
 ) -> str:
-    """The campaign a page's launches for one goal share, stamped as it opens."""
+    """The campaign a page's launches for one goal share, dated as it opens."""
     return _campaign(
         launch=launch,
         business=business,
@@ -208,11 +209,9 @@ def _campaign(
     page_name: str,
     at: datetime | None,
 ) -> str:
-    level = "CBO" if held_by_campaign(launch=launch) else "ABO"
-    parts = [_goal_word(launch, _language(launch)), level]
+    parts = [_goal_word(launch, _language(launch))]
     if at is not None:
-        local = timezone.localtime(at, _zone(business.timezone))
-        parts += [local.strftime(DAY), local.strftime(TIME)]
+        parts.append(timezone.localtime(at, _zone(business.timezone)).strftime(DAY))
     house = page_name.strip() or (business.name or "").strip()
     return _fitted(
         house=house, fixed=DASH.join(part for part in parts if part), separator=DASH
