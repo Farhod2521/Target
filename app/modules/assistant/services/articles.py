@@ -8,7 +8,10 @@ from typing import Any, Final
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.common.db import on_commit, utcnow
 from app.common.exceptions import Conflict, InputRefused, NotFound
+from app.modules.accounts.models import User
+from app.modules.assistant.constants import HELP_LANGUAGES, Translation
 from app.modules.assistant.models import HelpArticle
 
 CODE: Final = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
@@ -64,27 +67,75 @@ def save_article(
     fields: dict[str, Any],
     now: datetime,
     row: HelpArticle | None = None,
+    actor: User | None = None,
+    translate_from: str = "",
+    commit: bool = True,
 ) -> HelpArticle:
     """Create or change one article; refused field by field. An article is
-    published only with its Uzbek problem and steps written."""
-    clean = _checked(db, fields=fields, row=row)
+    published only with its Uzbek problem and steps written.
+
+    ``translate_from`` is the language the office wrote: a worker then
+    writes every other language this save did not change itself."""
+    clean = _checked(db, fields=fields, row=row, source=translate_from)
+    targets = _targets(clean, row=row, source=translate_from)
     target = row or HelpArticle(id=uuid.uuid4(), created_at=now)
     for name, value in clean.items():
         setattr(target, name, value)
     target.updated_at = now
+    target.translation = (
+        Translation.TRANSLATING if targets and actor is not None else Translation.NONE
+    )
     if row is None:
         db.add(target)
-    db.commit()
+    db.flush()
+    if targets and actor is not None:
+        from app.modules.assistant.tasks import translate_article_task
+
+        article_id, actor_id = str(target.id), str(actor.id)
+        on_commit(
+            db,
+            lambda: translate_article_task.delay(
+                article_id, actor_id, translate_from, targets
+            ),
+        )
+    if commit:
+        db.commit()
     return target
 
 
+def _targets(
+    clean: dict[str, Any], *, row: HelpArticle | None, source: str
+) -> list[str]:
+    """The languages to write from ``source``: each one whose words this
+    save left as they were."""
+    if source not in HELP_LANGUAGES:
+        return []
+    if not (clean[f"problem_{source}"] and clean[f"steps_{source}"]):
+        return []
+    return [
+        code
+        for code in HELP_LANGUAGES
+        if code != source
+        and all(
+            clean[f"{name}_{code}"] == (getattr(row, f"{name}_{code}") if row else "")
+            for name in ("problem", "steps")
+        )
+    ]
+
+
 def delete_article(db: Session, *, row: HelpArticle) -> None:
+    from app.modules.assistant.services.gaps import release_article
+
+    release_article(db, article_id=row.id)
     db.delete(row)
     db.commit()
 
 
 def article_out(row: HelpArticle) -> dict[str, Any]:
+    from app.modules.assistant.services.translate import shown
+
     return {
+        "translation": shown(row.translation, since=row.updated_at, now=utcnow()),
         "id": str(row.id),
         "code": row.code,
         **{name: getattr(row, name) for name in FIELDS},
@@ -96,11 +147,14 @@ def article_out(row: HelpArticle) -> dict[str, Any]:
 
 
 def _checked(
-    db: Session, *, fields: dict[str, Any], row: HelpArticle | None
+    db: Session, *, fields: dict[str, Any], row: HelpArticle | None, source: str = ""
 ) -> dict[str, Any]:
     problems: dict[str, str] = {}
     clean: dict[str, Any] = {}
-    code = str(fields.get("code", row.code if row else "")).strip().lower()
+    code = str(fields.get("code") or (row.code if row else "")).strip().lower()
+    if not code:
+        # The office names a problem, not a code: one is made for it.
+        code = f"javob-{uuid.uuid4().hex[:10]}"
     if not CODE.match(code):
         problems["code"] = (
             "Kod: kichik lotin harflari, raqam, '-' yoki '_' (2-64 belgi)."
@@ -126,7 +180,12 @@ def _checked(
         clean[name] = text
     clean["position"] = int(fields.get("position", row.position if row else 0) or 0)
     published = bool(fields.get("is_published", row.is_published if row else False))
-    if published and not (clean["problem_uz"] and clean["steps_uz"]):
+    # Written in another language and on its way into Uzbek: the Uzbek is
+    # there before anybody is shown it, or the search falls back to none.
+    coming = source in HELP_LANGUAGES and bool(
+        clean[f"problem_{source}"] and clean[f"steps_{source}"]
+    )
+    if published and not (clean["problem_uz"] and clean["steps_uz"]) and not coming:
         problems["is_published"] = (
             "Chop etishdan oldin o'zbekcha muammo va qadamlarni yozing."
         )

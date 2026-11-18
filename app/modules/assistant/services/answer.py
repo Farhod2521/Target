@@ -47,8 +47,10 @@ from app.modules.chat.constants import LOOKING_DEFAULT, VISITOR_HEADCOUNT_BELOW
 from app.modules.chat.copy import CARRY_ON, CUT_SHORT
 from core.assistant.tools import (
     CHANGE_TOOL,
+    GAP_TOOL,
     HEALTH_TOOL,
     HELP_TOOL,
+    MAX_GAPS,
     MAX_TICKETS,
     NEW_TOOLS,
     TICKET_TOOL,
@@ -83,9 +85,14 @@ GUEST_TICKET_PREPARED = (
     "and a phone number; a specialist writes or calls back once they leave "
     "them. Say that in one sentence. Do not ask for the phone yourself."
 )
-# A visitor has no account to look into: only the two that need none.
+GAP_NOTED = (
+    "Noted for the team. The person is not told about this note - do not "
+    "mention it. Carry on: say plainly what you could not find or do, and "
+    "prepare a ticket if a person can help."
+)
+# A visitor has no account to look into: only the ones that need none.
 VISITOR_TOOLS = tuple(
-    tool for tool in NEW_TOOLS if tool.name in (HELP_TOOL, TICKET_TOOL)
+    tool for tool in NEW_TOOLS if tool.name in (HELP_TOOL, TICKET_TOOL, GAP_TOOL)
 )
 
 
@@ -128,10 +135,18 @@ class Desk:
     # Video lessons a search returned, by id: the ones the answer names
     # are drawn as cards that open them.
     lessons: dict[str, str] = field(default_factory=dict)
+    # What the assistant said it could not answer, and each search of the
+    # known fixes with how many it found: the office's list is written
+    # from these (``services.gaps``).
+    gaps: list[dict[str, str]] = field(default_factory=list)
+    searches: list[tuple[str, int]] = field(default_factory=list)
     _scope: PageScope | None = None
     _counted: PageScope | None = None
 
     def __call__(self, call: ToolCall) -> ToolOutput:
+        if call.name == GAP_TOOL:
+            # A note, not a look-up: it costs none of the answer's look-ups.
+            return self._gap(call)
         self.made += 1
         if self.halt is not None and self.halt.stopped:
             return ToolOutput(text=STOPPED, is_error=True)
@@ -187,17 +202,26 @@ class Desk:
     def _help(self, call: ToolCall) -> ToolOutput:
         from app.modules.assistant.selectors.help import help_found, help_text
 
-        found = help_found(
-            self.db,
-            query=str(getattr(call.arguments, "query", "")),
-            language=self.language,
-        )
+        query = str(getattr(call.arguments, "query", ""))
+        found = help_found(self.db, query=query, language=self.language)
+        self.searches.append((query, len(found)))
         for item in found:
             if item.lesson_id:
                 self.lessons[item.lesson_id] = item.problem
         text = help_text(found)
         self.gate.allow(figures_in(text))
         return ToolOutput(text=with_reading(HELP_TOOL, text))
+
+    def _gap(self, call: ToolCall) -> ToolOutput:
+        """The assistant could not answer: kept for the office, once."""
+        if len(self.gaps) < MAX_GAPS:
+            self.gaps.append(
+                {
+                    name: str(getattr(call.arguments, name, ""))
+                    for name in ("topic", "kind", "missing")
+                }
+            )
+        return ToolOutput(text=GAP_NOTED)
 
     def _change(self, call: ToolCall) -> ToolOutput:
         """A change the owner asked for, checked and described by the old
@@ -535,6 +559,33 @@ def _finish(
         now=now,
         lessons=lessons,
     )
+    # Last: the person already has the answer on the screen.
+    _note_gap(db, payload=payload, desk=desk, now=now)
+
+
+def _note_gap(
+    db: Session, *, payload: dict[str, Any], desk: Desk, now: datetime
+) -> None:
+    """A question left unanswered goes on the office's list. Whatever goes
+    wrong here, the answer itself is still shown and kept."""
+    from app.modules.assistant.services.gaps import note_gap
+
+    if not desk.gaps and not desk.searches:
+        return
+    try:
+        with db.begin_nested():
+            note_gap(
+                db,
+                question=str(payload.get("question", "")),
+                language=str(payload.get("language", "")),
+                owner_id=str(payload.get("owner_id", "")),
+                message_id=str(payload.get("message_id", "")),
+                report=desk.gaps[0] if desk.gaps else None,
+                searches=desk.searches,
+                now=now,
+            )
+    except Exception:
+        logger.exception("assistant gap not kept")
 
 
 def named_lessons(text: str, *, found: dict[str, str]) -> list[dict[str, str]]:

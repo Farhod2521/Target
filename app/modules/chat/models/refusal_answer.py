@@ -25,3 +25,6 @@ class RefusalAnswer(Base):
     hits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     held: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The office's text being put into the other languages: empty,
+    # ``translating`` or ``failed`` (``assistant.constants.Translation``).
+    translation: Mapped[str] = mapped_column(String(16), nullable=False, default="")

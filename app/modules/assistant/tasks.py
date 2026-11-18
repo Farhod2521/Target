@@ -55,7 +55,43 @@ def sweep_stuck_assistant_answers() -> int:
     return int(closed or 0)
 
 
-__all__ = ["answer_assistant_turn", "sweep_stuck_assistant_answers"]
+@celery_app.task(queue="agent", ignore_result=True)
+def translate_refusal_task(
+    answer_id: str, actor_id: str, source: str, targets: list[str]
+) -> str:
+    """The office's answer to a Meta refusal, in the other languages. With
+    every other Claude call, and no retry: the office saves again."""
+    from app.modules.assistant.services.translate import translate_refusal
+
+    with task_session() as db:
+        return translate_refusal(
+            db, answer_id=answer_id, actor_id=actor_id, source=source, targets=targets
+        )
+
+
+@celery_app.task(queue="agent", ignore_result=True)
+def translate_article_task(
+    article_id: str, actor_id: str, source: str, targets: list[str]
+) -> str:
+    """A ready answer of the assistant's, in the other languages."""
+    from app.modules.assistant.services.translate import translate_article
+
+    with task_session() as db:
+        return translate_article(
+            db,
+            article_id=article_id,
+            actor_id=actor_id,
+            source=source,
+            targets=targets,
+        )
+
+
+__all__ = [
+    "answer_assistant_turn",
+    "sweep_stuck_assistant_answers",
+    "translate_article_task",
+    "translate_refusal_task",
+]
 
 # The support chat's hooks, registered wherever the chat's tasks are loaded.
 from app.modules.assistant import listeners as _listeners  # noqa: E402, F401

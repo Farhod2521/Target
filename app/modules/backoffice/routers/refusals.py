@@ -5,7 +5,7 @@ person who has seen the customer's screen is who can tell it is wrong.
 """
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from app.api.deps import Db
 from app.common.db import utcnow
 from app.modules.accounts.models import User
-from app.modules.backoffice.constants import Role
+from app.modules.backoffice.constants import AI_ANSWER_ROLES, Role
 from app.modules.backoffice.permissions import staff_required
 from app.modules.backoffice.routers._out import choices
 from app.modules.backoffice.schemas import RefusalAnswerOut, RefusalAnswersOut
@@ -41,11 +41,22 @@ class RefusalAnswerIn(BaseModel):
     answer_uz: str | None = Field(None, max_length=8000)
     answer_ru: str | None = Field(None, max_length=8000)
     answer_en: str | None = Field(None, max_length=8000)
+    translate_from: Literal["uz", "ru", "en"] | None = Field(
+        None,
+        description=(
+            "The language the office wrote. Every other language this save "
+            "does not carry is then written from it by a worker; the row's "
+            "`translation` is `translating` until it has."
+        ),
+    )
 
 
 def _out(row: RefusalAnswer) -> dict[str, Any]:
+    from app.modules.assistant.services.translate import shown
+
     operation = operation_of(row.key)
     return {
+        "translation": shown(row.translation, since=row.edited_at, now=utcnow()),
         "id": str(row.id),
         "key": row.key,
         "operation": operation,
@@ -81,8 +92,12 @@ def refusals(
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
     """Every kept answer, the most often met first."""
+    from app.modules.assistant.selectors.gaps import open_count
+    from app.modules.backoffice.permissions import has_role
+
     page = refusal_answers(db, tab=tab, term=q, offset=offset)
     return {
+        "ai_open": open_count(db) if has_role(db, user, AI_ANSWER_ROLES) else None,
         "tab": tab,
         "tabs": choices(TABS),
         "links": choices(LINK_NAMES),
@@ -109,8 +124,9 @@ def edit_refusal(
         db,
         actor=actor,
         row=_found(db, answer_id),
-        answers=body.model_dump(exclude_none=True),
+        answers=body.model_dump(exclude_none=True, exclude={"translate_from"}),
         now=utcnow(),
+        translate_from=body.translate_from or "",
     )
     db.commit()
     return _out(row)

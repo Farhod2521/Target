@@ -1,16 +1,17 @@
 """What the one chat's assistant may call while it answers.
 
 The fifteen look-ups of the old chat are used as they are
-(``core/chat/lookups.py``). Three are new: a check of the account's own
-state, a search of known problems and their steps, and a ticket for a person
-in Support - prepared, never sent, until the client presses its button.
+(``core/chat/lookups.py``). Four are new: a check of the account's own
+state, a search of known problems and their steps, a ticket for a person
+in Support - prepared, never sent, until the client presses its button -
+and a note to the team about a question that was left unanswered.
 
 How to read a result travels with the result (``READING``), not in the
 prompt: the model is told about a look-up's output when it has one in hand,
 and the prompt stays short for the questions that never call it.
 """
 
-from typing import Final
+from typing import Final, Literal
 
 from llmkit import Tool
 from pydantic import Field
@@ -22,8 +23,13 @@ from core.chat.lookups import TOOLS as LOOKUPS
 HEALTH_TOOL: Final = "account_health"
 HELP_TOOL: Final = "help_search"
 TICKET_TOOL: Final = "create_ticket"
+GAP_TOOL: Final = "report_gap"
 
 MAX_TICKETS: Final = 1
+MAX_GAPS: Final = 1
+# What is missing: words a person can write, or something that has to be built.
+GAP_ANSWER: Final = "answer"
+GAP_BUILD: Final = "tool"
 
 
 class HelpSearch(Arguments):
@@ -69,6 +75,41 @@ class TicketDraft(Arguments):
     )
 
 
+class GapReport(Arguments):
+    """A question the assistant had to leave unanswered, for the team."""
+
+    topic: str = Field(
+        min_length=3,
+        max_length=160,
+        description=(
+            "What the person asked for, as a short title in plain Uzbek - "
+            "'Reklamani boshqa akkauntga ko'chirish'. The general question, "
+            "so the same one asked by somebody else gets the same title: "
+            "no names, phones, figures or dates."
+        ),
+    )
+    kind: Literal["answer", "tool"] = Field(
+        description=(
+            "'answer': the product can do it or the problem is known, but "
+            "no written answer or steps exist here - a person can write "
+            "them. 'tool': answering needs something you cannot read or do "
+            "here - a look-up that does not exist, data that is not kept, "
+            "or a feature the product does not have."
+        ),
+    )
+    missing: str = Field(
+        min_length=5,
+        max_length=300,
+        description=(
+            "In Uzbek, one or two short sentences: exactly what has to be "
+            "added so the next person gets an answer. For 'answer' - which "
+            "steps or explanation should be written. For 'tool' - which "
+            "data a look-up would have to return or which action it would "
+            "have to make. Precise and short; never retell the conversation."
+        ),
+    )
+
+
 def _tool(name: str, arguments: type, *lines: str) -> Tool:
     return Tool(name=name, description=" ".join(lines), arguments=arguments)
 
@@ -107,6 +148,17 @@ NEW_TOOLS: Final[tuple[Tool, ...]] = (
         "problem, when the fix needs a person (a refund, a payment that did",
         "not arrive, an account to unblock, something broken in the product),",
         "or when the person asks for an operator. At most once per answer.",
+    ),
+    _tool(
+        GAP_TOOL,
+        GapReport,
+        "Tell the product's team about a question you could not answer, so",
+        "they write the missing answer or build the missing look-up. Call it",
+        "once, before you write, when `help_search` found nothing and the",
+        "account's state does not explain the problem, when no look-up reads",
+        "what the person asked about, or when the product cannot do what",
+        "they want. Not for a question you answered, and not for one that is",
+        "not about advertising or this product. The person is not told.",
     ),
 )
 
@@ -231,7 +283,9 @@ READING: Final[dict[str, str]] = {
         "them in the same order, in the person's language, as a numbered "
         "list; add nothing that is not there. 'nothing found' means there "
         "is no written fix - say what you know from the account's state, "
-        "and prepare a ticket if that does not solve it. A result marked "
+        "prepare a ticket if that does not solve it, and call `report_gap` "
+        "if the person is left without the answer they asked for. A result "
+        "marked "
         "'a video lesson' is a video the person can watch: name it by its "
         "exact title, as it is written here, in «» - the page then shows "
         "it under your answer as a card that opens the video. So do not "
@@ -249,14 +303,19 @@ def with_reading(name: str, text: str) -> str:
 
 __all__ = [
     "CHANGE_TOOL",
+    "GAP_ANSWER",
+    "GAP_BUILD",
+    "GAP_TOOL",
     "HEALTH_TOOL",
     "HELP_TOOL",
+    "MAX_GAPS",
     "MAX_TICKETS",
     "NEW_TOOLS",
     "READING",
     "TICKET_TOOL",
     "TOOLS",
     "TOOL_NAMES",
+    "GapReport",
     "HelpSearch",
     "TicketDraft",
     "with_reading",
