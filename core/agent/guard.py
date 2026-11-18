@@ -12,12 +12,13 @@ too new to have a fortnight is held against its own start, and one with no
 result yet against its own day's budget - see :func:`_unpriced`.
 
 **What stops, and only what was launched from here.** One result costing
-five usual prices; three usual prices gone since the last result with nothing back; three
+ten usual prices; three usual prices gone since the last result with nothing back; three
 days run without one result ever; the page
 the advert sends people to not opening. A group built in Ads Manager gets
 the same finding as a warning: its owner did not hand it over.
 
-**What only warns.** Three usual prices for one result, then four - once
+**What only warns.** Three usual prices for one result, then four, then
+five - once
 three results are in, or ten usual prices are gone; five usual prices gone
 with nothing back, in a group not ours; an advert
 inside a group taking a third of the money and bringing nothing while
@@ -32,7 +33,7 @@ after the switch-on with still not one result it is stopped.
 
 **One finding a group.** A stop leaves no warning beside it, and a price
 rise carries the click rate and the showings' price as its causes instead
-of as two more messages. The steps of a rise - 3, 4, 5 - are what a second
+of as two more messages. The steps of a rise - 3, 4, 5, 10 - are what a second
 message waits for: the same step is never said twice.
 
 **Not in the first day.** A group is judged from 24 hours after it was
@@ -63,8 +64,8 @@ Advice = Literal[
 ]
 
 # A rise is said at each of these, and stops at the last.
-PRICE_STEPS: Final = (3, 4, 5)
-STOP_STEP: Final = 5
+PRICE_STEPS: Final = (3, 4, 5, 10)
+STOP_STEP: Final = 10
 # Under this many usual prices a rise is over.
 EASE_UNDER: Final = 2
 # Results before a price means anything: one morning lead is a coin toss.
@@ -362,8 +363,8 @@ def _money(group: GroupToday) -> Finding | None:
 def _price_advice(group: GroupToday, *, step: int, why: tuple[Cause, ...]) -> Advice:
     """Which button a price warning advises.
 
-    Learning is left alone; past four usual prices the stop is next, so it
-    is advised now; a rise that is only the showings' price is the auction
+    Learning is left alone; past four usual prices the stop is advised,
+    long before ours at ten; a rise that is only the showings' price is the auction
     and usually passes; one in the click rate or the conversion is the
     advert or the form wearing out, and less money goes to it meanwhile.
     """

@@ -1,5 +1,5 @@
 """The half-hourly guard against PostgreSQL: a price said at three and four
-usual prices and stopped at five, money gone with nothing back stopped,
+usual prices and stopped at ten, money gone with nothing back stopped,
 nothing said twice, and a group switched back on counted from there."""
 
 from datetime import datetime, timedelta
@@ -141,7 +141,7 @@ def test_a_usual_day_says_nothing(
     assert _rows(db) == []
 
 
-def test_three_then_four_are_said_once_each_and_five_stops(
+def test_three_then_four_are_said_once_each_and_ten_stops(
     client: TestClient, db: Session, queued: list
 ) -> None:
     owner, account, now = _running(client, db)
@@ -164,10 +164,10 @@ def test_three_then_four_are_said_once_each_and_five_stops(
     assert (row.action, row.step, row.advice) == ("warn", 4, "pause")
     assert _pauses(db) == []
 
-    _today(db, owner, account, now, spend=3_030, leads=3)
+    _today(db, owner, account, now, spend=6_060, leads=3)
     assert run_guard(db, owner=owner, now=now) == 1
     (row,) = _rows(db)
-    assert (row.action, row.step) == ("stop", 5)
+    assert (row.action, row.step) == ("stop", 10)
     (log,) = _pauses(db)
     # The campaign's one group: the campaign's switch is what stops it.
     assert (log.target_level, log.target_external_id) == ("campaign", "c_1")
@@ -175,7 +175,7 @@ def test_three_then_four_are_said_once_each_and_five_stops(
     assert log.status == ActionStatus.PENDING
     assert log.request_payload[GUARD_STOP_MARK]["kind"] == "price"
     assert row.action_log_id == log.id
-    assert row.baseline["spend_minor"] == 3_030
+    assert row.baseline["spend_minor"] == 6_060
 
     # While the stop is on its way nothing is asked twice, and it stays said.
     assert run_guard(db, owner=owner, now=now) == 0
@@ -400,13 +400,13 @@ def test_the_phone_hears_of_a_group_once_a_day_and_of_a_stop_always(
     (row,) = _rows(db)
     assert (row.step, row.said_step) == (4, 4)
 
-    # Five stops it, and a stop is always said.
-    _today(db, owner, account, now, spend=3_030, leads=3)
+    # Ten stops it, and a stop is always said.
+    _today(db, owner, account, now, spend=6_060, leads=3)
     run_guard(db, owner=owner, now=now)
     assert announce_guard(db, client=phone, now=now, asleep=set()) == 1
     assert len(phone.texts()) == 2
     subjects = set(db.scalars(select(TelegramNotice.subject)))
-    assert subjects == {f"guard:{row.id}:3", f"guard:{row.id}:5:stop"}
+    assert subjects == {f"guard:{row.id}:3", f"guard:{row.id}:10:stop"}
 
 
 def test_a_warning_waits_for_the_morning_and_a_stop_does_not(
@@ -425,7 +425,7 @@ def test_a_warning_waits_for_the_morning_and_a_stop_does_not(
     asleep = {str(owner.id)}
 
     assert announce_guard(db, client=phone, now=now, asleep=asleep) == 0
-    _today(db, owner, account, now, spend=3_030, leads=3)
+    _today(db, owner, account, now, spend=6_060, leads=3)
     run_guard(db, owner=owner, now=now)
     assert announce_guard(db, client=phone, now=now, asleep=asleep) == 1
     (text,) = phone.texts()
@@ -613,7 +613,7 @@ def test_a_group_missing_from_one_reading_is_not_said_again(
     _today(db, owner, account, now, spend=2_460, leads=3)
     run_guard(db, owner=owner, now=now)
     assert announce_guard(db, client=phone, now=now, asleep=set()) == 0
-    _today(db, owner, account, now, spend=3_030, leads=3)
+    _today(db, owner, account, now, spend=6_060, leads=3)
     run_guard(db, owner=owner, now=now)
     assert announce_guard(db, client=phone, now=now, asleep=set()) == 1
 
@@ -845,11 +845,11 @@ def test_a_new_group_is_held_against_its_own_first_results(
     owner, account, now = _new_group(client, db, hours_on=100)
     # Three leads at $2 on its second day: the price of its own start.
     _figures(db, owner=owner, account=account, back=2, spend=600, leads=3, now=now)
-    # Five of those prices for a lead today: said, never stopped for.
-    _today(db, owner, account, now, spend=3_000, leads=3)
+    # Ten of those prices for a lead today: said, never stopped for.
+    _today(db, owner, account, now, spend=6_000, leads=3)
     assert run_guard(db, owner=owner, now=now) == 1
     (row,) = _rows(db)
-    assert (row.kind, row.action, row.step) == ("price", "warn", 5)
+    assert (row.kind, row.action, row.step) == ("price", "warn", 10)
     assert row.figures["usual_source"] == "start"
     assert row.figures["usual_cost_minor"] == 200
     with override("uz"):

@@ -44,8 +44,8 @@ def test_price_in_usual_prices() -> None:
 
 
 def test_steps() -> None:
-    assert [price_step(t) for t in (299, 300, 399, 400, 499, 500, 900)] == [
-        0, 3, 3, 4, 4, 5, 5,
+    assert [price_step(t) for t in (299, 300, 399, 400, 499, 500, 999, 1_000)] == [
+        0, 3, 3, 4, 4, 5, 5, 10,
     ]  # fmt: skip
 
 
@@ -65,19 +65,27 @@ def test_four_is_a_second_warning_that_advises_the_stop() -> None:
     assert (found.action, found.step, found.advice) == ("warn", 4, "pause")
 
 
-def test_five_stops_what_was_launched_here() -> None:
+def test_five_is_a_third_warning() -> None:
     found = _one(_group(spend_minor=1_500, results=3))
-    assert (found.kind, found.action, found.step) == ("price", "stop", 5)
+    assert (found.kind, found.action, found.step) == ("price", "warn", 5)
+    assert found.advice == "pause"
+    # Still a warning just under ten.
+    assert _one(_group(spend_minor=2_990, results=3)).action == "warn"
+
+
+def test_ten_stops_what_was_launched_here() -> None:
+    found = _one(_group(spend_minor=3_000, results=3))
+    assert (found.kind, found.action, found.step) == ("price", "stop", 10)
     assert found.advice == "keep_off"
 
 
-def test_five_only_warns_about_a_group_built_elsewhere() -> None:
-    found = _one(_group(spend_minor=1_500, results=3, ours=False))
-    assert (found.action, found.step, found.advice) == ("warn", 5, "pause")
+def test_ten_only_warns_about_a_group_built_elsewhere() -> None:
+    found = _one(_group(spend_minor=3_000, results=3, ours=False))
+    assert (found.action, found.step, found.advice) == ("warn", 10, "pause")
 
 
-def test_five_only_warns_while_the_group_learns() -> None:
-    found = _one(_group(spend_minor=1_500, results=3, learning=True))
+def test_ten_only_warns_while_the_group_learns() -> None:
+    found = _one(_group(spend_minor=3_000, results=3, learning=True))
     assert (found.action, found.advice) == ("warn", "leave")
 
 
@@ -113,7 +121,7 @@ def test_a_price_on_one_or_two_results_is_not_said() -> None:
     assert judge(_group(spend_minor=800, results=2)) == []
     # Ten usual prices gone on them is enough to say it.
     found = _one(_group(spend_minor=1_000, results=2))
-    assert (found.kind, found.action, found.step) == ("price", "stop", 5)
+    assert (found.kind, found.action, found.step) == ("price", "warn", 5)
 
 
 def test_nothing_back_elsewhere_waits_for_five_usual_prices() -> None:
@@ -349,7 +357,7 @@ def test_a_new_group_s_own_price_stops_it_for_nothing_back() -> None:
 
 
 def test_a_new_group_s_price_rise_is_never_a_stop() -> None:
-    found = _one(_new(usual=START, spend_minor=1_500, results=3))
+    found = _one(_new(usual=START, spend_minor=3_000, results=3))
     assert (found.kind, found.action, found.step, found.advice) == (
-        "price", "warn", 5, "pause",
+        "price", "warn", 10, "pause",
     )  # fmt: skip

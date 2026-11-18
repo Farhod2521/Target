@@ -9,7 +9,7 @@ A stop is always said, at any hour: it changed the owner's advertising. A
 warning waits for the morning and for the owner's «takliflar» switch, and a
 group gets one a day: a second warning the same day - another kind, the
 next step, the same one found again - is written down for the cabinet and
-not sent. Five usual prices are a stop and are said.
+not sent. Ten usual prices are a stop and are said.
 """
 
 from datetime import datetime, timedelta

@@ -73,7 +73,7 @@ def test_a_price_rise_in_uzbek() -> None:
         body = guard_body(row)
         assert "Bugun bitta lid: $6,40 (1 ta). Odatda: $2." in body
         assert "Sabab: kam bosishyapti (CTR 0,50%, odatda 1,00%)." in body
-        assert "Narx 5 baravarga yetsa, guruhni o'zim to'xtataman." in body
+        assert "Narx 10 baravarga yetsa, guruhni o'zim to'xtataman." in body
         assert guard_advice(row) == "Tavsiya: Byudjetni 20% kamaytirish."
 
 
