@@ -38,3 +38,13 @@ def sweep_renewal_board_task() -> int:
 
     with task_session() as db:
         return renewal.sweep(db, now=utcnow())
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def sales_notices_task() -> int:
+    """Every minute: Sales people hear on Telegram that a card's time came
+    or a client opened a bill; the team hears of new leads waiting."""
+    from app.modules.boards import notices
+
+    with task_session() as db:
+        return sum(notices.sweep(db, now=utcnow()).values())

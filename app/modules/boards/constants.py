@@ -381,6 +381,9 @@ SUPPORT_FINAL_COLUMNS: Final = frozenset(
 # than this many in Ishlanmoqda. What comes back on its own (a timer, the
 # client's "no", the Owner's hand) is not held by it.
 TICKET_TAKE_LIMIT: Final = 5
+# «Lid olish» gives no more while this many leads the person took stand in
+# Yangi lead not yet called: a lead taken and left goes cold in a hand.
+LEAD_TAKE_LIMIT: Final = 5
 # The client has this long to say whether the problem is solved.
 CONFIRM_HOURS: Final = 24
 # How many of the sales manager's notes go with a ticket from Sales.
@@ -576,6 +579,10 @@ class EventKind(Choices):
     CHAT_TAKEN = "chat_taken"
     CHAT_HANDED = "chat_handed"
     CHAT_RELEASED = "chat_released"
+    # The card's person was told on Telegram its time had come.
+    DUE_REMINDED = "due_reminded"
+    # The card's person was told the client opened a bill.
+    BILL_TOLD = "bill_told"
 
 
 EVENT_KIND_LABELS = {
@@ -629,6 +636,8 @@ EVENT_KIND_LABELS = {
     EventKind.CHAT_TAKEN: "Chatni oldi: AI javob bermaydi",
     EventKind.CHAT_HANDED: "Chat boshqa xodimga berildi",
     EventKind.CHAT_RELEASED: "Chat AI ga qaytdi",
+    EventKind.DUE_REMINDED: "Telegramga eslatma yuborildi",
+    EventKind.BILL_TOLD: "Hisob ochgani Telegramga yuborildi",
 }
 
 NOTE_MAX: Final = 2000
@@ -647,6 +656,35 @@ class DueFilter(Choices):
     TODAY = "today"
     SET = "set"
 
+
+# How warm a lead is, from what they did after signing up: a bill opened
+# weighs most, then Facebook tied, then a page and a business filled in,
+# then coming back to the cabinet. Hot from this many points, warm from 1.
+HEAT_BILL: Final = 3
+HEAT_FACEBOOK: Final = 2
+HEAT_PAGE: Final = 1
+HEAT_BUSINESS: Final = 1
+HEAT_RETURNED: Final = 1
+HEAT_HOT: Final = 3
+# Signed in again this long after signing up: they came back.
+HEAT_RETURN_MINUTES: Final = 30
+
+
+class Heat(Choices):
+    HOT = "hot"
+    WARM = "warm"
+    COLD = "cold"
+
+
+HEAT_LABELS = {Heat.HOT: "Issiq", Heat.WARM: "Iliq", Heat.COLD: "Sovuq"}
+
+# Telegram reminders to Sales: a card's time is told once when it comes, if
+# it came this recently (an old missed time is the board's red, not a ping).
+DUE_REMIND_WINDOW_MINUTES: Final = 60
+# New leads waiting are told to the Sales team at most this often, and only
+# in the office's working hours.
+QUEUE_NOTICE_MINUTES: Final = 30
+WORK_HOURS: Final = (9, 21)
 
 # «Bog'lanilmadi» is counted up to this; the column is a small integer.
 ATTEMPTS_MAX: Final = 999

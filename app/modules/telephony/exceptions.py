@@ -71,3 +71,10 @@ class NoRecording(NotFound):
 
     def __init__(self) -> None:
         super().__init__("Bu qo'ng'iroqning yozuvi yo'q.")
+
+
+class NoExtension(DomainError):
+    status_code = 409
+
+    def __init__(self) -> None:
+        super().__init__("Sizga ichki nomer berilmagan. Rahbarga ayting.")

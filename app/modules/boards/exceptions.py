@@ -149,6 +149,16 @@ class TakeLimit(DomainError):
         )
 
 
+class LeadTakeLimit(DomainError):
+    status_code = 409
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(
+            f"Sizda {limit} ta olingan, hali qo'ng'iroq qilinmagan lid bor "
+            "(«Yangi lead»). Yangisini olish uchun avval ularga qo'ng'iroq qiling."
+        )
+
+
 class ReportPeriodInvalid(DomainError):
     status_code = 422
 

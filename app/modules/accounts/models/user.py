@@ -3,7 +3,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
+from typing import Any
+
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.db import Base, utcnow
@@ -34,6 +37,10 @@ class User(Base):
     is_staff: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     date_joined: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     crm_owner_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    # How the account was opened (accounts.constants.SignupVia) and the
+    # landing link's utm_* marks the browser kept: where a lead came from.
+    signup_via: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
+    signup_utm: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
 
     @property
     def has_password(self) -> bool:

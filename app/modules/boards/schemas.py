@@ -74,6 +74,16 @@ class ClientOut(BaseModel):
     email: str
     phone: str
     signed_up_at: datetime
+    signup_via: str = Field(
+        "",
+        description="How the account was opened: `email`, `google`, `telegram`; empty: not known.",
+    )
+    signup_via_label: str = Field("", description="The same in words.")
+    utm: dict[str, str] = Field(
+        default_factory=dict,
+        description="The landing link's marks before signing up: `source`, "
+        "`medium`, `campaign`, `content`, `term` (each only when there was one).",
+    )
 
 
 class ReasonChipOut(BaseModel):
@@ -123,6 +133,17 @@ class CardRenewalOut(BaseModel):
     paid: RenewalMoneyOut | None = Field(description="The bill that renewed the term.")
 
 
+class CardHeatOut(BaseModel):
+    level: str = Field(description="`hot`, `warm` or `cold`.")
+    label: str = Field(description="«Issiq», «Iliq», «Sovuq».")
+    points: int = Field(description="What «Lid olish» orders the queue by.")
+    bill: bool = Field(description="A plan bill is open.")
+    facebook: bool = Field(description="Facebook is tied.")
+    page: bool = Field(description="A page is chosen.")
+    business: bool = Field(description="The business is filled in.")
+    returned: bool = Field(description="Signed in again after signing up.")
+
+
 class CardOut(BaseModel):
     id: str
     board: str
@@ -151,6 +172,11 @@ class CardOut(BaseModel):
     )
     has_bill: bool = Field(
         description="Sales: the client opened a plan bill and may still pay it."
+    )
+    heat: CardHeatOut | None = Field(
+        None,
+        description="Sales, an open card: how warm the lead is, from what the "
+        "client did after signing up.",
     )
     client_denied: bool = Field(
         False, description="Support: the client said «Yo'q», it is not solved."
@@ -188,17 +214,26 @@ class DueCountsOut(BaseModel):
 
 
 class TakeOut(BaseModel):
-    queue: int = Field(description="Tickets in Yangi with nobody on them.")
-    working: int = Field(description="The reader's tickets in Ishlanmoqda.")
+    queue: int = Field(
+        description="Support: tickets in Yangi with nobody on them. Sotuv: "
+        "leads in Ishlanmagan with nobody on them."
+    )
+    working: int = Field(
+        description="Support: the reader's tickets in Ishlanmoqda. Sotuv: the "
+        "leads the reader took that still stand in Yangi lead, not called."
+    )
     limit: int = Field(
-        description="«Zayavka olish» is refused once `working` reaches this."
+        description="«Zayavka olish» / «Lid olish» is refused once `working` "
+        "reaches this."
     )
 
 
 class BoardViewOut(BaseModel):
     board: str
     take: TakeOut | None = Field(
-        None, description="Support only: what «Zayavka olish» shows."
+        None,
+        description="Support: what «Zayavka olish» shows; Sotuv: what «Lid "
+        "olish» shows; Uzaytirish: null.",
     )
     due: DueCountsOut = Field(
         description="Deadlines on the board under the same search and filters, "
@@ -634,3 +669,85 @@ class RenewalReportOut(BaseModel):
     date_to: date
     total: ReportLineOut
     plans: list[ReportLineOut] = Field(description="Standart, then Pro.")
+
+
+class SalesFiguresOut(BaseModel):
+    leads: int = Field(
+        description="Cards opened: sign-ups that became leads. Only in the "
+        "lead's view; 0 on a staff row."
+    )
+    taken: int = Field(description="«Lid olish» pressed, or a card given by the lead.")
+    contacted: int = Field(description="«Gaplashildi» pressed.")
+    no_contact: int = Field(description="«Bog'lanib bo'lmadi» pressed.")
+    callbacks: int = Field(description="«Vaqt qo'yish» pressed.")
+    sold: int = Field(description="First full plan paid; Start is not a sale.")
+    sold_offer: int = Field(description="Of `sold`: with the 20%/10% discount on.")
+    closed: int = Field(description="Closed by a person or by the discount ending.")
+    rate: int = Field(
+        description="`sold` of `leads` in percent on the total and a day in the "
+        "lead's view; of `taken` on a staff row and in a manager's own view."
+    )
+    calls: int = Field(description="The office exchange's calls by the person.")
+    calls_answered: int
+    talk_seconds: int
+    money: list[RenewalMoneyOut] = Field(description="The sales' first bills.")
+    first_touch_minutes: int | None = Field(
+        description="Median minutes from «Lid olish» to the first call button; "
+        "null: none in the period."
+    )
+
+
+class SalesDayOut(SalesFiguresOut):
+    day: date
+
+
+class SalesStaffOut(SalesFiguresOut):
+    staff: PersonOut | None = Field(
+        description="null: «Menejersiz» - clients who paid with nobody on them."
+    )
+    open_now: int = Field(description="Open cards in the person's hand now.")
+    overdue_now: int = Field(description="Of `open_now`: past their time now.")
+    reasons: list[ReportReasonOut] = Field(description="Why their cards closed.")
+
+
+class SalesQueueOut(BaseModel):
+    waiting: int = Field(description="Leads in Ishlanmagan with nobody on them now.")
+    oldest_at: datetime | None
+
+
+class SalesSourceOut(BaseModel):
+    code: str = Field(description="`email`, `google`, `telegram`; empty: not known.")
+    label: str
+    leads: int = Field(description="The period's leads that signed up so.")
+    sold: int = Field(description="Of them, sold by now.")
+    rate: int
+
+
+class SalesCampaignOut(BaseModel):
+    source: str
+    campaign: str
+    leads: int
+    sold: int
+    rate: int
+
+
+class SalesReportOut(BaseModel):
+    date_from: date
+    date_to: date
+    scope: str = Field(description="`all`: everybody's; `own`: the reader's only.")
+    total: SalesFiguresOut
+    queue: SalesQueueOut | None = Field(description="The lead's view only.")
+    days: list[SalesDayOut] = Field(
+        description="Every day of the period, oldest first."
+    )
+    staff: list[SalesStaffOut] = Field(
+        description="Every Sales person (most sold first), and «Menejersiz» last."
+    )
+    reasons: list[ReportReasonOut] = Field(description="Why the period's cards closed.")
+    sources: list[SalesSourceOut] = Field(
+        description="The lead's view only: the period's leads by how they signed up."
+    )
+    campaigns: list[SalesCampaignOut] = Field(
+        description="The lead's view only: the period's leads by utm_source and "
+        "utm_campaign, most first (at most 15); leads with no marks left out."
+    )

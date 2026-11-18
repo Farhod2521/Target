@@ -53,6 +53,25 @@ SOCIAL_PROVIDER_LABELS = {
     SocialProvider.GOOGLE: "Google",
     SocialProvider.TELEGRAM: "Telegram",
 }
+
+
+class SignupVia(Choices):
+    """How an account was opened: what the Sales report counts leads by."""
+
+    EMAIL = "email"
+    GOOGLE = "google"
+    TELEGRAM = "telegram"
+
+
+SIGNUP_VIA_LABELS = {
+    SignupVia.EMAIL: "Email bilan",
+    SignupVia.GOOGLE: "Google",
+    SignupVia.TELEGRAM: "Telegram",
+}
+# Where the visitor came from before signing up (the landing link's
+# utm_* marks), as the browser kept them: each at most this long.
+SIGNUP_UTM_KEYS: Final = ("source", "medium", "campaign", "content", "term")
+SIGNUP_UTM_MAX: Final = 120
 # The Google round trip: the consent screen, a second account picked, a slow
 # phone. The finishing form (phone and role) gets longer.
 SOCIAL_STATE_TTL_SECONDS: Final = 15 * 60

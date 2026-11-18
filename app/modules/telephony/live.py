@@ -137,9 +137,8 @@ def note(
 
 
 def _shown(db: Session, rows: list[PhoneLiveCall]) -> list[dict[str, Any]]:
-    """Each call with who is on it and whose number it is."""
-    from app.modules.boards.models import BoardCard
-
+    """Each call with who is on it, whose number it is and where that
+    client stands: the plan and the days left."""
     if not rows:
         return []
     holders = {
@@ -160,15 +159,9 @@ def _shown(db: Session, rows: list[PhoneLiveCall]) -> list[dict[str, Any]]:
         .order_by(User.date_joined)
     ):
         clients.setdefault(person.phone, []).append(person)
-    owners = {person.id for people in clients.values() for person in people}
-    cards: dict[uuid.UUID, dict[str, str]] = {}
-    if owners:
-        for card_id, board, owner_id in db.execute(
-            select(BoardCard.id, BoardCard.board, BoardCard.owner_id).where(
-                BoardCard.owner_id.in_(owners)
-            )
-        ):
-            cards.setdefault(owner_id, {})[board] = str(card_id)
+    shown = calls.callers(
+        db, [person for people in clients.values() for person in people]
+    )
     return [
         {
             "call_id": row.call_id,
@@ -179,16 +172,7 @@ def _shown(db: Session, rows: list[PhoneLiveCall]) -> list[dict[str, Any]]:
             "extension": row.extension,
             "staff": calls._person(holders.get(row.extension)),
             "started_at": row.started_at.isoformat(),
-            "clients": [
-                {
-                    "id": str(person.id),
-                    "name": person.full_name or person.email,
-                    "email": person.email,
-                    "sales_card_id": cards.get(person.id, {}).get("sales"),
-                    "support_card_id": cards.get(person.id, {}).get("support"),
-                }
-                for person in clients.get(row.number, [])
-            ],
+            "clients": [shown[person.id] for person in clients.get(row.number, [])],
         }
         for row in rows
     ]

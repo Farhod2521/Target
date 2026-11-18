@@ -43,6 +43,7 @@ from app.modules.telephony.exceptions import (
     ExchangeUnreachable,
     ExtensionGone,
     ExtensionNotFound,
+    NoExtension,
     NotConnected,
     NotStaff,
     TenantShape,
@@ -403,11 +404,18 @@ def my_phone(db: Session, *, user: User) -> dict[str, Any]:
     if row is None:
         return _no_phone(PhoneOff.NO_EXTENSION)
     if not row.softphone:
-        return _no_phone(PhoneOff.SOFTPHONE_OFF) | {"extension": row.number}
+        return _no_phone(PhoneOff.SOFTPHONE_OFF) | {
+            "extension": row.number,
+            "accepts_calls": row.accepts_calls,
+        }
     if row.sip_refused_at is not None:
-        return _no_phone(PhoneOff.SIP_REFUSED) | {"extension": row.number}
+        return _no_phone(PhoneOff.SIP_REFUSED) | {
+            "extension": row.number,
+            "accepts_calls": row.accepts_calls,
+        }
     domain = f"{connection.tenant}.{UTEL_ZONE}"
     return {
+        "accepts_calls": row.accepts_calls,
         "enabled": True,
         "reason": "",
         "reason_label": "",
@@ -442,9 +450,26 @@ def colleagues(db: Session, *, user: User) -> list[dict[str, Any]]:
         .order_by(User.full_name, User.email)
     ).all()
     return [
-        {"number": seat.number, "title": seat.title, "user": _person(person)}
+        {
+            "number": seat.number,
+            "title": seat.title,
+            "user": _person(person),
+            "accepts_calls": seat.accepts_calls,
+        }
         for seat, person in rows
     ]
+
+
+def set_accepting(db: Session, *, user: User, accepts: bool) -> dict[str, Any]:
+    """«Qo'ng'iroq qabul qilmayman» and back, on the reader's own number."""
+    if office_connection(db) is None:
+        raise NoExtension
+    row = _mine(db, user, lock=True)
+    if row is None:
+        raise NoExtension
+    row.accepts_calls = accepts
+    db.commit()
+    return my_phone(db, user=user)
 
 
 def sip_refused(db: Session, *, user: User) -> dict[str, Any]:

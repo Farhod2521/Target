@@ -32,7 +32,9 @@ def test_a_client_reaches_whoever_works_their_card(
     card = _card(db, owner, "sales", "new_lead")
     card.manager_id = office["people"]["sotuv@office.test"].id
     db.commit()
-    to_seller = {"extension": "101", "module": 101, "contact_name": "Shop"}
+    # The phone's screen shows the name and where the client stands.
+    shown = "Shop · Tarif sotib olmagan"
+    to_seller = {"extension": "101", "module": 101, "contact_name": shown}
 
     # However UTeL writes the number, and however it asks.
     for number in ("901234567", "998901234567", "+998901234567"):
@@ -48,14 +50,14 @@ def test_a_client_reaches_whoever_works_their_card(
         office["hook"],
         json=_moment("dial_answered", "busy", src="935550011", answered_by="101"),
     )
-    assert _ask(client, office, "901234567") == NOBODY | {"contact_name": "Shop"}
+    assert _ask(client, office, "901234567") == NOBODY | {"contact_name": shown}
     client.post(office["hook"], json=_moment("call_ended", "busy"))
     assert _ask(client, office, "901234567") == to_seller
 
     # A closed card puts nobody through.
     card.closed_at = utcnow()
     db.commit()
-    assert _ask(client, office, "901234567") == NOBODY | {"contact_name": "Shop"}
+    assert _ask(client, office, "901234567") == NOBODY | {"contact_name": shown}
 
 
 def test_the_card_moved_last_wins_and_a_person_without_a_number_is_skipped(

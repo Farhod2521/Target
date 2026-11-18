@@ -22,6 +22,7 @@ from app.modules.boards import (
     services,
     view,
 )
+from app.modules.boards import sales_report as sales_report_module
 from app.modules.boards import staff as staff_service
 from app.modules.boards.access import (
     BoardStaff,
@@ -66,6 +67,7 @@ from app.modules.boards.schemas import (
     RenewalManagerIn,
     RenewalManagerOut,
     RenewalReportOut,
+    SalesReportOut,
     StaffAddIn,
     StaffListOut,
     StaffPeopleOut,
@@ -224,7 +226,8 @@ def board(
         str,
         Query(
             max_length=3,
-            description="Uzaytirish: «Bog'lanib bo'lmadi» presses: `0`, `1-2` or `3+`.",
+            description="Sotuv and Uzaytirish: «Bog'lanib bo'lmadi» presses: "
+            "`0`, `1-2` or `3+`.",
         ),
     ] = "",
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -339,6 +342,31 @@ def close_reasons(staff: Staff) -> list[dict[str, str]]:
         {"value": str(reason), "label": str(CLOSE_REASON_LABELS[reason])}
         for reason in CloseReason
     ]
+
+
+@router.get("/boards/sales/report", responses={200: {"model": SalesReportOut}})
+def sales_report(
+    db: Db,
+    user: Staff,
+    date_from: Annotated[
+        date | None, Query(description="The first office day; 30 days back if empty.")
+    ] = None,
+    date_to: Annotated[
+        date | None, Query(description="The last office day; today if empty.")
+    ] = None,
+) -> dict[str, Any]:
+    """The Sales board's period: the totals, each day, and each staff member
+    (taken, called, sold, money, closed and why, calls, first-touch speed,
+    cards in hand now), plus the leads by how they signed up. A manager reads
+    their own figures; the Sales lead, the Owner and the superuser everybody's."""
+    access = access_for(db, user)
+    if not access.sees(Board.SALES):
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    end = date_to or localtime(utcnow()).date()
+    start = date_from or end - timedelta(days=REPORT_DEFAULT_DAYS - 1)
+    return sales_report_module.report(
+        db, user=user, access=access, start=start, end=end
+    )
 
 
 def _contact_reader(db: Db, user: Staff) -> Any:

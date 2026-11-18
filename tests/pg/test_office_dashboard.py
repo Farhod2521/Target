@@ -13,8 +13,7 @@ from app.modules.backoffice.constants import ActionKind, Role
 from app.modules.backoffice.models import StaffAction
 from app.modules.billing.constants import InvoiceKind, InvoiceStatus
 from app.modules.billing.models import Invoice, Plan
-from app.modules.sales.constants import Outcome
-from app.modules.sales.models import SalesClaim
+from app.modules.boards.models import BoardCard, BoardCardEvent
 from tests.pg.test_office_actions import _shop, _staff
 from tests.pg.test_supportchat import _send, _user
 
@@ -91,14 +90,20 @@ def test_customers_queues_and_sales(client: TestClient, db: Session) -> None:
     shop, _ = _shop(db)
     fresh = _user(db, "yangi@example.com")
     seller, _ = _staff(db, Role.SALES, email="seller@office.test")
+    # The Sales board's cards, not the first board's claims: one sold, one open.
+    now = utcnow()
+    sold = BoardCard(board="sales", owner_id=shop.id, manager_id=seller.id,
+                     column_code="sold", opened_at=now, column_since=now, closed_at=now)
     db.add_all(
         [
-            SalesClaim(owner_id=shop.id, manager_id=seller.id, outcome=Outcome.SOLD,
-                       claimed_at=utcnow(), expires_at=utcnow(), closed_at=utcnow()),
-            SalesClaim(owner_id=fresh.id, manager_id=seller.id, claimed_at=utcnow(),
-                       expires_at=utcnow() + timedelta(days=1)),
+            sold,
+            BoardCard(board="sales", owner_id=fresh.id, manager_id=seller.id,
+                      column_code="new_lead", opened_at=now, column_since=now),
         ]
     )  # fmt: skip
+    db.flush()
+    db.add(BoardCardEvent(card_id=sold.id, owner_id=shop.id, kind="sold",
+                          to_column="sold", ref="sold", created_at=now))  # fmt: skip
     db.commit()
     _send(client, fresh, body="Salom")
     _, support = _staff(db, Role.SUPPORT, email="support@office.test")
