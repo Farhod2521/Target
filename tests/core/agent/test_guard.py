@@ -96,24 +96,24 @@ def test_a_group_with_no_usual_price_is_not_judged_on_price() -> None:
 # -- nothing back ------------------------------------------------------------------------
 
 
-def test_three_usual_prices_with_nothing_back_stops() -> None:
-    found = _one(_group(spend_minor=300, results=0))
+def test_five_usual_prices_with_nothing_back_stops() -> None:
+    found = _one(_group(spend_minor=500, results=0))
     assert (found.kind, found.action, found.advice) == ("fruitless", "stop", "keep_off")
 
 
-def test_less_than_three_with_nothing_back_waits() -> None:
-    assert judge(_group(spend_minor=299, results=0)) == []
+def test_less_than_five_with_nothing_back_waits() -> None:
+    assert judge(_group(spend_minor=499, results=0)) == []
 
 
 def test_a_small_budget_s_dry_days_add_up() -> None:
-    # 80 today, 310 since the last result four days ago.
-    found = _one(_group(spend_minor=80, results=0, dry_spend_minor=310, dry_days=4))
-    assert (found.kind, found.action, found.times) == ("fruitless", "stop", 310)
-    assert judge(_group(spend_minor=80, dry_spend_minor=290, dry_days=4)) == []
+    # 80 today, 510 since the last result four days ago.
+    found = _one(_group(spend_minor=80, results=0, dry_spend_minor=510, dry_days=4))
+    assert (found.kind, found.action, found.times) == ("fruitless", "stop", 510)
+    assert judge(_group(spend_minor=80, dry_spend_minor=490, dry_days=4)) == []
 
 
 def test_nothing_back_stops_a_learning_group_too() -> None:
-    assert _one(_group(spend_minor=300, learning=True)).action == "stop"
+    assert _one(_group(spend_minor=500, learning=True)).action == "stop"
 
 
 def test_a_price_on_one_or_two_results_is_not_said() -> None:
@@ -126,8 +126,9 @@ def test_a_price_on_one_or_two_results_is_not_said() -> None:
 
 def test_nothing_back_elsewhere_waits_for_five_usual_prices() -> None:
     assert judge(_group(spend_minor=499, ours=False)) == []
-    # Ours is stopped at three: that stays.
-    assert _one(_group(spend_minor=300)).action == "stop"
+    # Ours waits for the same five, and is stopped there.
+    assert judge(_group(spend_minor=499)) == []
+    assert _one(_group(spend_minor=500)).action == "stop"
 
 
 def test_nothing_back_only_warns_elsewhere() -> None:
@@ -153,7 +154,7 @@ def test_a_page_down_elsewhere_is_a_warning() -> None:
 
 
 def test_an_unknown_age_is_read_as_old() -> None:
-    assert _one(_group(spend_minor=300, hours_running=None)).kind == "fruitless"
+    assert _one(_group(spend_minor=500, hours_running=None)).kind == "fruitless"
 
 
 # -- one finding a group -----------------------------------------------------------------

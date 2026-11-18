@@ -200,14 +200,14 @@ def test_a_rise_that_eases_closes_and_a_new_one_is_a_new_row(
     assert [r.closed_at is None for r in _rows(db)] == [False, True]
 
 
-def test_nothing_back_for_three_usual_prices_is_stopped(
+def test_nothing_back_for_five_usual_prices_is_stopped(
     client: TestClient, db: Session, queued: list
 ) -> None:
     owner, account, now = _running(client, db)
-    _today(db, owner, account, now, spend=599, leads=0)
+    _today(db, owner, account, now, spend=999, leads=0)
     assert run_guard(db, owner=owner, now=now) == 0
 
-    _today(db, owner, account, now, spend=600, leads=0)
+    _today(db, owner, account, now, spend=1_000, leads=0)
     assert run_guard(db, owner=owner, now=now) == 1
     (row,) = _rows(db)
     assert (row.kind, row.action) == ("fruitless", "stop")
@@ -230,7 +230,7 @@ def test_an_owner_with_the_agent_off_is_only_warned(
     client: TestClient, db: Session, queued: list
 ) -> None:
     owner, account, now = _running(client, db)
-    _today(db, owner, account, now, spend=600, leads=0)
+    _today(db, owner, account, now, spend=1_000, leads=0)
 
     assert run_guard(db, owner=owner, now=now, may_stop=False) == 1
     (row,) = _rows(db)
@@ -266,21 +266,21 @@ def test_switched_back_on_the_group_is_counted_from_the_stop(
     client: TestClient, db: Session, queued: list
 ) -> None:
     owner, account, now = _running(client, db)
-    _today(db, owner, account, now, spend=600, leads=0)
+    _today(db, owner, account, now, spend=1_000, leads=0)
     run_guard(db, owner=owner, now=now)
     (log,) = _pauses(db)
     # The stop landed, and the owner switched the group back on.
     log.status = ActionStatus.APPLIED
     db.commit()
 
-    _today(db, owner, account, now, spend=700, leads=0)
+    _today(db, owner, account, now, spend=1_100, leads=0)
     assert run_guard(db, owner=owner, now=now) == 0
     (row,) = _rows(db)
     # Running again: the stop is no longer said, and $1 since is no verdict.
     assert row.closed_at is not None
     assert len(_pauses(db)) == 1
 
-    _today(db, owner, account, now, spend=1_200, leads=0)
+    _today(db, owner, account, now, spend=2_000, leads=0)
     assert run_guard(db, owner=owner, now=now) == 1
     assert len(_pauses(db)) == 2
 
@@ -451,10 +451,10 @@ def test_a_small_budget_is_stopped_for_its_dry_days_together(
     client: TestClient, db: Session, queued: list
 ) -> None:
     owner, account, now = _running(client, db)
-    # A result five days ago at the usual price, then $2.50 a day for nothing.
+    # A result five days ago at the usual price, then $3.30 a day for nothing.
     for back in (1, 2, 3):
         _figures(
-            db, owner=owner, account=account, back=back, spend=250, leads=0, now=now
+            db, owner=owner, account=account, back=back, spend=330, leads=0, now=now
         )
     _today(db, owner, account, now, spend=40, leads=0)
 
@@ -462,7 +462,7 @@ def test_a_small_budget_is_stopped_for_its_dry_days_together(
     (row,) = _rows(db)
     assert (row.kind, row.action) == ("fruitless", "stop")
     assert row.figures["dry_days"] == 4
-    assert row.figures["dry_spend_minor"] == 790
+    assert row.figures["dry_spend_minor"] == 1_030
 
 
 def test_a_finding_names_its_page_and_campaign(

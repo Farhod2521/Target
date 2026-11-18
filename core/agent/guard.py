@@ -12,7 +12,7 @@ too new to have a fortnight is held against its own start, and one with no
 result yet against its own day's budget - see :func:`_unpriced`.
 
 **What stops, and only what was launched from here.** One result costing
-ten usual prices; three usual prices gone since the last result with nothing back; three
+ten usual prices; five usual prices gone since the last result with nothing back; three
 days run without one result ever; the page
 the advert sends people to not opening. A group built in Ads Manager gets
 the same finding as a warning: its owner did not hand it over.
@@ -26,7 +26,7 @@ another brings results; the click rate under 70 % of usual; a thousand
 showings at 150 % of usual; a person shown the advert three times a week.
 
 **A new group.** Three results in, their pooled price is its usual one:
-nothing back for three of them stops it, and a rise in its price is only
+nothing back for three of them - not five - stops it, and a rise in its price is only
 ever a warning - a few days are not a level to stop by. With no price at
 all, a day's budget gone with nothing back is a warning, and three days
 after the switch-on with still not one result it is stopped.
@@ -72,10 +72,11 @@ EASE_UNDER: Final = 2
 # Fewer are judged only once this many usual prices are gone.
 MIN_PRICE_RESULTS: Final = 3
 FEW_RESULTS_SPEND: Final = 10
-# Usual prices gone with nothing back before a group not ours - or one we may
-# not stop - is warned about. Ours is stopped at three: a stop is ours to
-# make; a warning only asks for a look, and asks too often at three.
-FRUITLESS_WARN_TIMES: Final = 5
+# Usual prices gone with nothing back before a group is stopped - or, not
+# ours, warned about. A new group held against its own first days is stopped
+# at :data:`SPEND_MULTIPLE` of their price instead: a few days' pooled price
+# is no fortnight's middle, and the money is what is known for sure.
+FRUITLESS_TIMES: Final = 5
 # Hours after the switch-on before anything but a broken page is judged.
 WAIT_HOURS: Final = 24
 # Results before a new group's first days have a price of their own.
@@ -310,14 +311,16 @@ def _unpriced(group: GroupToday) -> Finding | None:
 
 
 def _money(group: GroupToday) -> Finding | None:
-    """Nothing back for three usual prices, or a result at three and more."""
+    """Nothing back for five usual prices - three of a new group's own first
+    price - or a result at three and more."""
     usual = group.usual.cost_minor
     if not usual:
         return None
     if group.results <= 0:
         gone = max(group.spend_minor, group.dry_spend_minor)
         action = _stop_or_warn(group)
-        bar = SPEND_MULTIPLE if action == "stop" else FRUITLESS_WARN_TIMES
+        new = group.usual.source == "start"
+        bar = SPEND_MULTIPLE if new and action == "stop" else FRUITLESS_TIMES
         if gone < bar * usual:
             return None
         return Finding(
@@ -443,7 +446,7 @@ __all__ = [
     "EASE_UNDER",
     "FEW_RESULTS_SPEND",
     "FREQUENCY_BAR",
-    "FRUITLESS_WARN_TIMES",
+    "FRUITLESS_TIMES",
     "MIN_PRICE_RESULTS",
     "NEVER_STOP_HOURS",
     "PRICE_STEPS",
