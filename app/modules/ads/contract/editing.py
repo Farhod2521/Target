@@ -264,7 +264,8 @@ def edit_form(
         "places": (audience or {}).get("places", []),
         "place_limit": MAX_GEO_PLACES,
         "can_move": bool((audience or {}).get("can_move")),
-        "learning": bool((audience or {}).get("is_learning")),
+        "learning": bool((audience or {}).get("is_learning"))
+        or bool(budget and budget["warns_learning"]),
         "pin": _pin(audience),
         "excluded_places": (audience or {}).get("excluded_places", []),
         "detailed": (audience or {}).get("detailed", []),
@@ -286,7 +287,7 @@ def edit_form(
         else None,
         "split": group is None and form["groups"] > 1,
         "locks": {
-            "budget": _lock(budget["can_change"], early > 0) if budget else "closed",
+            "budget": None if budget and budget["can_change"] else "closed",
             "audience": _lock(audience["can_change"], audience["is_learning"])
             if audience
             else "closed",

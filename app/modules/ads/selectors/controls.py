@@ -65,9 +65,8 @@ def controls_for(*, target: Any, level: str) -> Controls:
         can_resume=check_status_change(state=state, wanted=ACTIVE).allowed
         and switched_off
         and (not watched),
-        can_budget=state.daily_budget_minor is not None
-        and (not state.is_learning)
-        and (not watched),
+        # Learning only warns: the person decides (warns_learning).
+        can_budget=state.daily_budget_minor is not None and (not watched),
         warns_learning=resets_learning(state=state),
         blocked_above=blocked_above(target=target, level=level),
         daily_budget_minor=state.daily_budget_minor,
