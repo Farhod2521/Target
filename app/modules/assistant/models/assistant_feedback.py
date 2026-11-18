@@ -10,14 +10,23 @@ from app.common.db import Base, utcnow
 
 
 class AssistantFeedback(Base):
-    """What a client said was wrong with the assistant's answers, asked for
-    when the assistant prepared a request to Support (owner's decision,
-    2026-11-19). The office reads these on «Meta & AI» → AI chat to improve
-    the assistant; Support never sees them in the request."""
+    """What a client said about the assistant's answers (owner's decisions,
+    2026-11-19), for the office's «Meta & AI» → AI chat:
+
+    - ``ticket``: asked before a request to Support is shown - what was
+      wrong with my answers; Support never sees it in the request;
+    - ``rating``: 👍 or 👎 under any answer, with a reason for 👎. One per
+      answer: pressed again, it is changed."""
 
     __tablename__ = "assistant_feedback"
     __table_args__ = (
         Index("assistant_feedback_status_idx", "status", text("created_at DESC")),
+        Index(
+            "uniq_assistant_rating_per_message",
+            "message_id",
+            unique=True,
+            postgresql_where=text("kind = 'rating'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -32,6 +41,11 @@ class AssistantFeedback(Base):
     question: Mapped[str] = mapped_column(Text, nullable=False, default="")
     answer: Mapped[str] = mapped_column(Text, nullable=False, default="")
     ticket_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # ``ticket`` or ``rating`` (``constants.FeedbackKind``).
+    kind: Mapped[str] = mapped_column(String(8), nullable=False, default="ticket")
+    # A rating's ``up`` or ``down``, and a 👎's reason (``RATING_REASONS``).
+    rating: Mapped[str] = mapped_column(String(8), nullable=False, default="")
+    reason: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     # The client's own words about the answers.
     feedback: Mapped[str] = mapped_column(Text, nullable=False, default="")
     language: Mapped[str] = mapped_column(String(8), nullable=False, default="")

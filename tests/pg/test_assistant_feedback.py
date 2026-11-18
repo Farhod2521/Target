@@ -147,3 +147,117 @@ def test_a_new_question_in_between_ends_the_wait(
     assert [m["author"] for m in messages] == ["user", "ai", "user", "ai", "user", "ai"]
     assert db.scalar(select(func.count()).select_from(AssistantFeedback)) == 0
     assert URL
+
+
+# -- 👍 / 👎 under any answer ---------------------------------------------------
+
+
+def _answered(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> tuple[dict[str, str], dict, str]:
+    headers, _owner = _with_plan(client, db)
+    script = _Script(words=["Budjetni oshirish uchun «Reklama»ga kiring."])
+    turn = _ask(
+        client, db, headers, monkeypatch, script, question="Budjetni oshiraymi?"
+    )
+    return headers, turn, turn["message_id"]
+
+
+def test_a_thumbs_down_with_a_reason_reaches_the_office(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers, turn, answer = _answered(client, db, monkeypatch)
+    rated = client.post(
+        f"{URL}/messages/{answer}/rate",
+        json={"value": "down", "reason": "unclear", "note": "Qaysi tugmani bosay?"},
+        headers=headers,
+    )
+    assert rated.status_code == 200, rated.text
+    # The thread remembers the press, so the page draws it after a reload.
+    shown = _thread(client, headers, turn["session_id"])["messages"][1]
+    assert shown["meta"]["rating"] == "down"
+
+    _, support = _staff(db, Role.SUPPORT, email="aziza@office.test")
+    body = client.get(FEEDBACK, headers=support).json()
+    assert body["open"] == 1
+    row = body["rows"][0]
+    assert row["kind"] == "rating" and row["rating"] == "down"
+    assert row["reason"] == "unclear" and row["reason_label"] == "Tushunarsiz"
+    assert row["feedback"] == "Qaysi tugmani bosay?"
+    assert row["question"] == "Budjetni oshiraymi?"
+    assert "«Reklama»ga kiring" in row["answer"]
+    assert body["ratings"]["today"] == {"up": 0, "down": 1}
+    assert (
+        len(
+            client.get(FEEDBACK, params={"kind": "down"}, headers=support).json()[
+                "rows"
+            ]
+        )
+        == 1
+    )
+    assert (
+        client.get(FEEDBACK, params={"kind": "ticket"}, headers=support).json()["rows"]
+        == []
+    )
+
+
+def test_a_thumbs_up_is_counted_not_listed_and_a_change_replaces_it(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers, _turn, answer = _answered(client, db, monkeypatch)
+    url = f"{URL}/messages/{answer}/rate"
+    assert (
+        client.post(
+            url, json={"value": "down", "reason": "wrong"}, headers=headers
+        ).status_code
+        == 200
+    )
+    assert client.post(url, json={"value": "up"}, headers=headers).status_code == 200
+    assert db.scalar(select(func.count()).select_from(AssistantFeedback)) == 1
+    kept = db.scalar(select(AssistantFeedback))
+    assert kept is not None and kept.rating == "up" and kept.reason == ""
+    assert kept.status == "done"
+
+    _, support = _staff(db, Role.SUPPORT, email="aziza@office.test")
+    body = client.get(FEEDBACK, headers=support).json()
+    assert body["rows"] == [] and body["open"] == 0
+    assert body["ratings"]["today"] == {"up": 1, "down": 0}
+    assert body["ratings"]["week"] == {"up": 1, "down": 0}
+
+
+def test_only_an_answer_of_ones_own_may_be_rated(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers, turn, answer = _answered(client, db, monkeypatch)
+    url = f"{URL}/messages/{answer}/rate"
+    # A reason belongs to a 👎 only, and only one of the list.
+    assert (
+        client.post(
+            url, json={"value": "up", "reason": "wrong"}, headers=headers
+        ).status_code
+        == 422
+    )
+    assert client.post(url, json={"value": "meh"}, headers=headers).status_code == 422
+    # The client's own question is not an answer.
+    asked = _thread(client, headers, turn["session_id"])["messages"][0]["id"]
+    assert (
+        client.post(
+            f"{URL}/messages/{asked}/rate", json={"value": "up"}, headers=headers
+        ).status_code
+        == 404
+    )
+    other, _owner = _with_plan(client, db, email="boshqa@example.uz")
+    assert client.post(url, json={"value": "down"}, headers=other).status_code == 404
+
+
+def test_the_thank_you_after_the_word_is_not_rated(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers, turn = _prepared(client, db, monkeypatch)
+    _reply(client, headers, "Fikrim yo'q", session=turn["session_id"])
+    thanks = _thread(client, headers, turn["session_id"])["messages"][3]
+    assert thanks["meta"]["feedback_reply"] is True
+    rated = client.post(
+        f"{URL}/messages/{thanks['id']}/rate", json={"value": "up"}, headers=headers
+    )
+    assert rated.status_code == 404

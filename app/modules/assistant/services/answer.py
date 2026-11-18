@@ -473,6 +473,7 @@ def publish(
     replies: list[str] | None = None,
     stopped: bool = False,
     lessons: list[dict[str, str]] | None = None,
+    rateable: bool = True,
 ) -> None:
     """The answer so far, as the stream's door reads it. ``html`` is drawn
     once, with the last frame: the page writes ``delta`` as it arrives."""
@@ -492,6 +493,7 @@ def publish(
             "replies": replies or [],
             "stopped": stopped,
             "lessons": lessons or [],
+            "rateable": rateable,
         },
         TURN_TTL_SECONDS,
     )

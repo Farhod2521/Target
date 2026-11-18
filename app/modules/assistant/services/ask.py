@@ -206,6 +206,7 @@ def _feedback_turn(
         },
         done=True,
         buttons=buttons,
+        rateable=False,
     )
     left, _total = questions_left(db, owner=owner, entitled=True, now=now)
     return Turn(

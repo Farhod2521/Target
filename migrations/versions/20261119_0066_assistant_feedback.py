@@ -1,7 +1,8 @@
-"""What clients say is wrong with the assistant's answers.
+"""What clients say about the assistant's answers.
 
-Asked when the assistant prepares a request to Support; the office reads
-them on «Meta & AI». Additive and idempotent: nothing existing is changed.
+Asked when the assistant prepares a request to Support (``ticket``), and the
+👍/👎 under any answer (``rating``, one per answer); the office reads them on
+«Meta & AI». Additive and idempotent: nothing existing is changed.
 """
 
 from collections.abc import Sequence
@@ -27,6 +28,9 @@ def upgrade() -> None:
             question text NOT NULL DEFAULT '',
             answer text NOT NULL DEFAULT '',
             ticket_summary text NOT NULL DEFAULT '',
+            kind varchar(8) NOT NULL DEFAULT 'ticket',
+            rating varchar(8) NOT NULL DEFAULT '',
+            reason varchar(16) NOT NULL DEFAULT '',
             feedback text NOT NULL DEFAULT '',
             language varchar(8) NOT NULL DEFAULT '',
             status varchar(16) NOT NULL DEFAULT 'open',
@@ -41,6 +45,10 @@ def upgrade() -> None:
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_assistant_feedback_owner_id"
         " ON assistant_feedback (owner_id)"
+    )
+    op.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uniq_assistant_rating_per_message"
+        " ON assistant_feedback (message_id) WHERE kind = 'rating'"
     )
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_assistant_feedback_session_id"

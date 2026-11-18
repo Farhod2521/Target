@@ -16,7 +16,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.common.exceptions import NotFound
+from app.common.exceptions import InputRefused, NotFound
 from app.modules.accounts.models import User
 from app.modules.assistant.constants import (
     FEEDBACK_ANSWER_CHARS,
@@ -25,8 +25,12 @@ from app.modules.assistant.constants import (
     FEEDBACK_SKIP,
     FEEDBACK_SKIPPED,
     FEEDBACK_THANKS,
+    RATING_DOWN,
+    RATING_REASONS,
+    RATING_UP,
     Author,
     ButtonState,
+    FeedbackKind,
     FeedbackStatus,
     MessageStatus,
     in_language,
@@ -42,6 +46,9 @@ logger = logging.getLogger(__name__)
 
 WAITING: str = "ticket_waiting"
 ANSWERED: str = "ticket_answered"
+# The product's own reply to the client's word, never the model's.
+REPLY: str = "feedback_reply"
+RATED: str = "rating"
 
 
 def waiting_answer(
@@ -98,6 +105,7 @@ def take_feedback(
                 question=str(ticket.get("question", ""))[:FEEDBACK_CHARS],
                 answer=_without_ask(waited.text or "")[:FEEDBACK_ANSWER_CHARS],
                 ticket_summary=str(ticket.get("summary", "")),
+                kind=FeedbackKind.TICKET,
                 feedback=text.strip()[:FEEDBACK_CHARS],
                 language=language[:8],
                 created_at=now,
@@ -105,6 +113,8 @@ def take_feedback(
             )
         )
     waited.meta = {**meta, ANSWERED: now.isoformat()}
+    # The thank-you is the product's own words: nothing to rate there.
+    answer.meta = {**(answer.meta or {}), REPLY: True}
     words = in_language(FEEDBACK_SKIPPED if skipped else FEEDBACK_THANKS, language)
     buttons = [{**ticket, "state": ButtonState.OPEN}]
     html = render(words)
@@ -131,6 +141,96 @@ def _without_ask(text: str) -> str:
     return text
 
 
+class AnswerMissing(NotFound):
+    def __init__(self) -> None:
+        super().__init__("Javob topilmadi.")
+
+
+class RatingRefused(InputRefused):
+    def __init__(self, field: str, words: str) -> None:
+        super().__init__({field: words})
+
+
+def rate_answer(
+    db: Session,
+    *,
+    owner: User,
+    message_id: uuid.UUID,
+    value: str,
+    reason: str,
+    note: str,
+    language: str,
+    now: datetime,
+) -> AssistantMessage:
+    """👍 or 👎 under one of the assistant's answers. One rating an answer:
+    pressed again, it is changed. A 👎 waits for the office; a 👍 is counted
+    and needs nobody to read it."""
+    from app.modules.assistant.selectors.threads import message_for
+
+    if value not in (RATING_UP, RATING_DOWN):
+        raise RatingRefused("value", "Baho: up yoki down.")
+    if reason and (value != RATING_DOWN or reason not in RATING_REASONS):
+        raise RatingRefused("reason", "Sabab ro'yxatdagilardan biri bo'lsin.")
+    row = message_for(db, owner=owner, pk=message_id, lock=True)
+    if (
+        row is None
+        or row.author != Author.AI
+        or row.status != MessageStatus.DONE
+        or not (row.text or "").strip()
+        or (row.meta or {}).get(REPLY)
+    ):
+        raise AnswerMissing
+    words = " ".join(note.split())[:FEEDBACK_CHARS] if value == RATING_DOWN else ""
+    found = db.scalar(
+        select(AssistantFeedback).where(
+            AssistantFeedback.message_id == row.id,
+            AssistantFeedback.kind == FeedbackKind.RATING,
+        )
+    )
+    if found is None:
+        found = AssistantFeedback(
+            owner_id=owner.id,
+            session_id=row.session_id,
+            message_id=row.id,
+            kind=FeedbackKind.RATING,
+            question=_asked_before(db, row=row)[:FEEDBACK_CHARS],
+            answer=_without_ask(row.text or "")[:FEEDBACK_ANSWER_CHARS],
+            created_at=now,
+        )
+        db.add(found)
+    found.rating = value
+    found.reason = reason if value == RATING_DOWN else ""
+    found.feedback = words
+    found.language = language[:8]
+    # A 👍 is counted, not read; a 👎 - also one turned from a 👍 - is read.
+    done = value == RATING_UP
+    found.status = FeedbackStatus.DONE if done else FeedbackStatus.OPEN
+    found.closed_at = now if done else None
+    found.updated_at = now
+    row.meta = {**(row.meta or {}), RATED: value}
+    db.flush()
+    logger.info(
+        "assistant_rating",
+        extra={"owner_id": str(owner.id), "value": value, "reason": reason},
+    )
+    return row
+
+
+def _asked_before(db: Session, *, row: AssistantMessage) -> str:
+    """The client's words this answer was written for."""
+    asked = db.scalar(
+        select(AssistantMessage.text)
+        .where(
+            AssistantMessage.session_id == row.session_id,
+            AssistantMessage.author == Author.USER,
+            AssistantMessage.created_at <= row.created_at,
+        )
+        .order_by(AssistantMessage.created_at.desc())
+        .limit(1)
+    )
+    return str(asked or "")
+
+
 class FeedbackMissing(NotFound):
     def __init__(self) -> None:
         super().__init__("Fikr topilmadi.")
@@ -155,10 +255,13 @@ def mark_feedback(
 
 
 __all__ = [
+    "AnswerMissing",
     "FeedbackMissing",
+    "RatingRefused",
     "feedback_row",
     "is_skip",
     "mark_feedback",
+    "rate_answer",
     "take_feedback",
     "waiting_answer",
 ]

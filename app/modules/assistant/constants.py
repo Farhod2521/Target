@@ -161,6 +161,24 @@ class FeedbackStatus:
     DONE = "done"
 
 
+class FeedbackKind:
+    """What brought a client's word on the answers."""
+
+    # Asked before a request to Support was shown.
+    TICKET = "ticket"
+    # 👍 or 👎 under an answer.
+    RATING = "rating"
+
+
+RATING_UP: Final = "up"
+RATING_DOWN: Final = "down"
+# Why a 👎, as the client picks it under the answer.
+RATING_REASONS: Final[dict[str, str]] = {
+    "wrong": "Noto'g'ri",
+    "unclear": "Tushunarsiz",
+    "incomplete": "To'liq emas",
+    "other": "Boshqa",
+}
 FEEDBACK_CHARS: Final = 2000
 FEEDBACK_ANSWER_CHARS: Final = 4000
 # Before a prepared request is shown, the client is asked what was wrong
