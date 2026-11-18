@@ -1,10 +1,11 @@
 """What the one chat's assistant may call while it answers.
 
 The fifteen look-ups of the old chat are used as they are
-(``core/chat/lookups.py``). Four are new: a check of the account's own
+(``core/chat/lookups.py``). Five are new: a check of the account's own
 state, a search of known problems and their steps, a ticket for a person
 in Support - prepared, never sent, until the client presses its button -
-and a note to the team about a question that was left unanswered.
+a note to the team about a question that was left unanswered, and
+the product's own plans, prices and dollar rate.
 
 How to read a result travels with the result (``READING``), not in the
 prompt: the model is told about a look-up's output when it has one in hand,
@@ -24,6 +25,7 @@ HEALTH_TOOL: Final = "account_health"
 HELP_TOOL: Final = "help_search"
 TICKET_TOOL: Final = "create_ticket"
 GAP_TOOL: Final = "report_gap"
+PLANS_TOOL: Final = "plans_and_prices"
 
 MAX_TICKETS: Final = 1
 MAX_GAPS: Final = 1
@@ -159,6 +161,16 @@ NEW_TOOLS: Final[tuple[Tool, ...]] = (
         "or when the person asks for an operator. At most once per answer.",
         "When Support already has a request in hand, it is refused unless",
         "this one is about a different problem (`new_problem`).",
+    ),
+    _tool(
+        PLANS_TOOL,
+        Nothing,
+        "This product's own plans the person may buy now - price in so'm,",
+        "days, pages included, extra page and CRM seat prices, Start being",
+        "a first purchase only - their current plan, a personal discount if",
+        "they have one, and today's dollar rate in so'm. Use it for any",
+        "question about what the product costs, a free option, renewing,",
+        "or turning a dollar amount into so'm.",
     ),
     _tool(
         GAP_TOOL,

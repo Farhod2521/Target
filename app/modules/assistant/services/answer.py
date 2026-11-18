@@ -53,6 +53,7 @@ from core.assistant.tools import (
     MAX_GAPS,
     MAX_TICKETS,
     NEW_TOOLS,
+    PLANS_TOOL,
     TICKET_TOOL,
     TOOLS,
     with_reading,
@@ -92,7 +93,9 @@ GAP_NOTED = (
 )
 # A visitor has no account to look into: only the ones that need none.
 VISITOR_TOOLS = tuple(
-    tool for tool in NEW_TOOLS if tool.name in (HELP_TOOL, TICKET_TOOL, GAP_TOOL)
+    tool
+    for tool in NEW_TOOLS
+    if tool.name in (HELP_TOOL, TICKET_TOOL, GAP_TOOL, PLANS_TOOL)
 )
 
 
@@ -157,6 +160,8 @@ class Desk:
         self._say(call.name)
         if call.name == HELP_TOOL:
             return self._help(call)
+        if call.name == PLANS_TOOL:
+            return self._plans()
         if self.owner is None:
             return ToolOutput(text=NO_ACCOUNT, is_error=True)
         self._scopes()
@@ -211,6 +216,14 @@ class Desk:
         text = help_text(found)
         self.gate.allow(figures_in(text))
         return ToolOutput(text=with_reading(HELP_TOOL, text))
+
+    def _plans(self) -> ToolOutput:
+        """Prices and the rate: for a visitor too, nothing of an account."""
+        from app.modules.assistant.selectors.plans import plans_text
+
+        text = plans_text(self.db, owner=self.owner, now=self.now)
+        self.gate.allow(figures_in(text))
+        return ToolOutput(text=text)
 
     def _gap(self, call: ToolCall) -> ToolOutput:
         """The assistant could not answer: kept for the office, once."""

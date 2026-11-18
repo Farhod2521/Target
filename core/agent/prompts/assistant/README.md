@@ -43,3 +43,7 @@ it stands, what it is about, whether Support wrote in the chat). A second
 request for a problem Support has in hand is refused by `create_ticket`
 unless the model marks it `new_problem`; the assistant no longer says «the
 reply comes here» - Support usually calls.
+Also in `v4`: `plans_and_prices` (the plans this person may buy, their
+discount, the dollar rate in so'm - for a visitor too), and Meta's payment
+standing of each ad account in `account_health` with the Billing Hub
+address.

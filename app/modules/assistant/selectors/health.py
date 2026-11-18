@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.common.money import format_minor
 from app.modules.accounts.models import User
 from app.modules.ads.selectors.page_boundary import PageScope
+from app.modules.integrations.models import AdAccount
 
 OK: Final = "OK"
 PROBLEM: Final = "PROBLEM"
@@ -178,6 +179,49 @@ def _connection(db: Session, *, owner: User) -> list[str]:
     return lines
 
 
+# What Meta's standing of an ad account means, said once for the model.
+_STANDING_WORDS: Final = {
+    "payment_failed": (
+        "Meta could not take the payment for it; its adverts are stopped "
+        "until the debt is paid"
+    ),
+    "disabled_payment": "Meta switched it off over a payment",
+    "payment_grace": (
+        "a payment did not go through; Meta gives a grace period - the "
+        "adverts still run, but stop if it is not paid"
+    ),
+    "payment_pending": "Meta is still settling a payment on it",
+    "review": "Meta is reviewing the account; adverts may not run meanwhile",
+    "disabled": "Meta disabled it",
+    "closed": "it is closed",
+}
+_MONEY_STANDINGS: Final = frozenset(
+    {"payment_failed", "disabled_payment", "payment_grace", "payment_pending"}
+)
+BILLING_PATH: Final = (
+    "Meta Business Suite → «Billing & payments» (To'lovlar) → "
+    "«Payment settings», this ad account chosen at the top"
+)
+
+
+def _money_fix(row: AdAccount) -> str:
+    from metaads.accounts import billing_url
+
+    act = (
+        "add money to its prepaid balance"
+        if row.prepaid
+        else "pay the debt («Pay now») or add another Visa/Mastercard that "
+        "allows international payments in USD"
+    )
+    return (
+        f"open {BILLING_PATH} - address, may be written out as it is: "
+        f"{billing_url(row.external_id)} - "
+        f"and {act}, signed in with a Facebook profile that manages this ad "
+        "account. If the card has money and the bank allowed it, the bank "
+        "or a person in Support settles the rest."
+    )
+
+
 def _ad_accounts(db: Session, *, owner: User, now: datetime) -> list[str]:
     from app.modules.chat.selectors.scope import subscribed_accounts
 
@@ -191,27 +235,54 @@ def _ad_accounts(db: Session, *, owner: User, now: datetime) -> list[str]:
                 f"the connected Facebook profile cannot reach it since {row.reach_lost_at:%Y-%m-%d}"
             )
             fix = "reconnect with the profile that manages this ad account, or give it the role in Business Manager."
-        if row.may_advertise is False:
+        standing = row.standing or ""
+        said = _STANDING_WORDS.get(standing)
+        if said is not None:
+            faults.append(said)
+            if standing in _MONEY_STANDINGS:
+                fix = fix or _money_fix(row)
+            elif standing == "review":
+                fix = fix or "wait for Meta's review; Account Quality (facebook.com/accountquality) shows it."
+            else:
+                fix = fix or "ask Meta to review it in Account Quality (facebook.com/accountquality); if Meta does not open it, it needs a person."
+        elif row.may_advertise is False or row.payment_due:
             faults.append(
                 "Meta does not let it advertise right now"
                 + (f" (status {row.account_status})" if row.account_status else "")
             )
-            fix = (
-                fix
-                or "open the ad account in Ads Manager and settle what Meta asks there."
+            fix = fix or (
+                _money_fix(row)
+                if row.payment_due
+                else "open the ad account in Ads Manager and settle what Meta asks there."
             )
-        if row.payment_due:
-            faults.append("Meta has an unpaid amount on it")
-            fix = fix or "pay it in Ads Manager, on the ad account's payments page."
+        if standing in _MONEY_STANDINGS and row.balance_minor > 0:
+            faults.append(
+                "owed to Meta: "
+                + format_minor(amount_minor=row.balance_minor, currency=row.currency)
+            )
+        if 0 < row.spend_cap_minor <= row.amount_spent_minor:
+            faults.append(
+                "its account spending limit is used up ("
+                + format_minor(amount_minor=row.spend_cap_minor, currency=row.currency)
+                + "); Meta shows nothing more until it is raised"
+            )
+            fix = fix or (
+                f"raise or remove «Account spending limit» on {BILLING_PATH}."
+            )
         if row.synced_at is not None and now - row.synced_at > STALE_SYNC:
             faults.append(f"figures last synced {row.synced_at:%Y-%m-%d %H:%M} UTC")
+        kind = " (prepaid balance)" if row.prepaid else ""
         if faults:
             lines.append(
-                _line(PROBLEM, f"ad account «{name}»: {'; '.join(faults)}.", fix=fix)
+                _line(
+                    PROBLEM,
+                    f"ad account «{name}»{kind}: {'; '.join(faults)}.",
+                    fix=fix,
+                )
             )
         else:
             lines.append(
-                _line(OK, f"ad account «{name}» ({row.currency}) can advertise.")
+                _line(OK, f"ad account «{name}» ({row.currency}){kind} can advertise.")
             )
     if not lines:
         lines.append(
