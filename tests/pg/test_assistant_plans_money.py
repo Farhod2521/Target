@@ -122,3 +122,36 @@ def test_the_assistant_quotes_the_plans_through_its_tool(
     assert "«Biznes_Y»" in script.seen[0]
     assert "## This person" in script.seen[0]
     assert "1 USD = 12 650 so'm" in script.seen[0]
+
+
+def test_accounts_left_out_of_the_subscription_are_named(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.chat.selectors.lookups import answer_lookup
+    from app.modules.chat.selectors.scope import asked_scopes
+    from app.modules.integrations.models import AdAccount
+
+    owner, account = _cabinet(client, db)
+    db.add(
+        AdAccount(
+            owner_id=owner.id,
+            provider=account.provider,
+            external_id="act_999",
+            connection_id=account.connection_id,
+            name="Kiyim tavar",
+            currency="USD",
+            is_active=False,
+        )
+    )
+    db.commit()
+    scope, counted = asked_scopes(db, owner=owner)
+    text = answer_lookup(
+        db,
+        owner=owner,
+        name="account_overview",
+        arguments=Nothing(),
+        scope=scope,
+        now=utcnow(),
+        counted=counted,
+    )
+    assert "connected but not in the subscription: «Kiyim tavar» (USD)" in text

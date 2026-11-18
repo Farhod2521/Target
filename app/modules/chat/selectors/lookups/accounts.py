@@ -36,15 +36,7 @@ def account_overview(
         [_account_line(row) for row in accounts],
         empty="none switched on",
     )
-    left_out = db.scalar(
-        select(func.count(AdAccount.id)).where(
-            AdAccount.owner_id == owner.id,
-            AdAccount.provider == META,
-            AdAccount.is_active.is_(False),
-        )
-    )
-    if left_out:
-        lines.append(f"- connected but not in the subscription: {left_out}")
+    lines += _left_out_accounts(db, owner=owner)
     lines += ["", *_pages(db, owner=owner, pages=pages)]
     if len(every) > len(pages):
         lines.append(
@@ -116,14 +108,56 @@ def _pages(db: Session, *, owner: User, pages: list[PageAccount]) -> list[str]:
         for page in pages
     ]
     lines = section("The Facebook page being asked about", rows, empty="none")
-    left_out = db.scalar(
-        select(func.count(PageAccount.id)).where(
-            PageAccount.owner_id == owner.id, PageAccount.is_active.is_(False)
+    lines += _left_out_pages(db, owner=owner)
+    return lines
+
+
+# Named, not counted: «is "Kiyim tavar" the one?» is answered by its name.
+LEFT_OUT_ROWS = 10
+
+
+def _left_out_accounts(db: Session, *, owner: User) -> list[str]:
+    """Ad accounts Facebook gave us that the subscription does not use."""
+    rows = list(
+        db.scalars(
+            select(AdAccount)
+            .where(
+                AdAccount.owner_id == owner.id,
+                AdAccount.provider == META,
+                AdAccount.is_active.is_(False),
+            )
+            .order_by(AdAccount.name)
+            .limit(LEFT_OUT_ROWS + 1)
         )
     )
-    if left_out:
-        lines.append(f"- connected but not in the subscription: {left_out}")
-    return lines
+    if not rows:
+        return []
+    names = ", ".join(
+        f"«{row.name or row.external_id}» ({row.currency})"
+        for row in rows[:LEFT_OUT_ROWS]
+    )
+    more = " and more" if len(rows) > LEFT_OUT_ROWS else ""
+    return [
+        f"- connected but not in the subscription: {names}{more}. It is "
+        "switched on on Ulanishlar."
+    ]
+
+
+def _left_out_pages(db: Session, *, owner: User) -> list[str]:
+    """Facebook pages we can see that the subscription does not use."""
+    rows = list(
+        db.scalars(
+            select(PageAccount)
+            .where(PageAccount.owner_id == owner.id, PageAccount.is_active.is_(False))
+            .order_by(PageAccount.name)
+            .limit(LEFT_OUT_ROWS + 1)
+        )
+    )
+    if not rows:
+        return []
+    names = ", ".join(f"«{row.name or row.external_id}»" for row in rows[:LEFT_OUT_ROWS])
+    more = " and more" if len(rows) > LEFT_OUT_ROWS else ""
+    return [f"- pages connected but not in the subscription: {names}{more}"]
 
 
 def _page_line(page: PageAccount, *, forms: int, leads: int) -> str:
