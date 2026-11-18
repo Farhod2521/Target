@@ -23,6 +23,7 @@ from app.modules.audit.models import ActionLog
 from app.modules.chat.selectors.fence import inside_rows, outside_targets
 from app.modules.chat.selectors.lookups.common import (
     LEVEL_WORDS,
+    checked_fix,
     named,
     names_by_level,
     section,
@@ -48,12 +49,24 @@ def _label(choices: type, value: str) -> str:
         return value
 
 
-def _why_failed(row: ActionLog) -> str:
+def _why_failed(db: Session, *, owner: User, row: ActionLog) -> str:
     """The screen's own sentence for a change that did not go through, what
-    Meta wrote for the advertiser, and the ready steps when there are any."""
+    Meta wrote for the advertiser, and the ready steps when there are any:
+    the ones Support checked for exactly this refusal first."""
     from app.modules.ads.selectors.failures import failure_sentence, guide_of
+    from app.modules.chat.selectors.change_refusal import change_key, change_links
+    from app.modules.integrations.selectors import active_ad_account
 
     said = trimmed(failure_sentence(row), NOTE_CHARS * 2)
+    account = active_ad_account(db, owner=owner)
+    checked = checked_fix(
+        db,
+        key=change_key(row),
+        language=owner.language or "",
+        links=change_links(account.external_id if account is not None else ""),
+    )
+    if checked:
+        return f"{said} Ready fix, checked by Support: {' '.join(checked[1].split())}"
     _cause, steps = guide_of(row.error_code)
     if not steps:
         return said
@@ -97,7 +110,7 @@ def recent_changes(
         if row.reason:
             line += f", note: {trimmed(row.reason, NOTE_CHARS)}"
         if row.status == ActionStatus.FAILED:
-            line += f", why it failed: {_why_failed(row)}"
+            line += f", why it failed: {_why_failed(db, owner=owner, row=row)}"
         lines.append(line)
     return "\n".join(
         section(f"Changes in the last {arguments.days} days", lines, empty="no changes")

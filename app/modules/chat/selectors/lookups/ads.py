@@ -11,6 +11,7 @@ from app.modules.ads.models import Ad, AdCreative, AdSet, Campaign
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.chat.selectors.briefs import delivery_label
 from app.modules.chat.selectors.lookups.common import (
+    checked_fix,
     figure_sums,
     in_subscription,
     money,
@@ -81,7 +82,7 @@ def ad_details(
     )
     if ad.issue_summary:
         lines.append(f"- provider says: {ad.issue_summary}")
-    lines += _refusals(ad)
+    lines += _refusals(db, owner=owner, ad=ad)
     return "\n".join(lines)
 
 
@@ -185,11 +186,13 @@ def _figures(
     return lines
 
 
-def _refusals(ad: Ad) -> list[str]:
+def _refusals(db: Session, *, owner: User, ad: Ad) -> list[str]:
     """Why the provider turned the advert down - every policy it named, on
-    every placement - and the help base's ready fix for it."""
+    every placement - and the ready fix for it: the one Support checked for
+    exactly this complaint when there is one, the help base's otherwise."""
     from app.modules.ads.selectors.failures import feedback_text
     from app.modules.ads.selectors.rejections import rejection_of
+    from app.modules.chat.selectors.change_refusal import change_links
 
     lines: list[str] = []
     seen: set[str] = set()
@@ -200,7 +203,19 @@ def _refusals(ad: Ad) -> list[str]:
         seen.add(said)
         lines.append(f"- refused under {trimmed(policy, 80)}: {trimmed(reason, 300)}")
     found = rejection_of(ad)
-    if found is not None and found.get("steps"):
+    checked = (
+        checked_fix(
+            db,
+            key=str(found.get("key") or ""),
+            language=owner.language or "",
+            links=change_links(ad.adset.campaign.ad_account.external_id),
+        )
+        if found is not None
+        else []
+    )
+    if checked:
+        lines += ["", *checked]
+    elif found is not None and found.get("steps"):
         lines += [
             "",
             *ready_fix(

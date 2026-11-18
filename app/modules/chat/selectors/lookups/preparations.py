@@ -11,6 +11,7 @@ from app.modules.ads.contract.launch.failures import Guide, guide_for
 from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.chat.selectors.lookups.common import (
+    checked_fix,
     named,
     ready_fix,
     section,
@@ -54,7 +55,7 @@ def preparations(
     )
     if len(mine) > PREPARATION_ROWS:
         out.append(f"- and {len(mine) - PREPARATION_ROWS} older ones")
-    out += _fixes(mine[:PREPARATION_ROWS])
+    out += _fixes(db, owner=owner, launches=mine[:PREPARATION_ROWS])
     return "\n".join(out)
 
 
@@ -105,15 +106,37 @@ def _guide(launch: CampaignLaunch) -> Guide:
     )
 
 
-def _fixes(launches: list[CampaignLaunch]) -> list[str]:
-    """The ready fix for each refusal in the list, once per code: the
-    steps are copied to the person, not composed."""
+def _fixes(
+    db: Session, *, owner: User, launches: list[CampaignLaunch]
+) -> list[str]:
+    """The ready fix for each refusal in the list, once per refusal: the one
+    Support checked for exactly it when there is one, the help base's
+    otherwise. The steps are copied to the person, not composed."""
+    from app.modules.chat.selectors.refusal import key_for, refusal_links
+
     seen: dict[str, Guide] = {}
+    checked: dict[str, list[str]] = {}
     for launch in launches:
-        if launch.status in (LaunchStatus.FAILED, LaunchStatus.ROLLED_BACK):
-            guide = _guide(launch)
-            seen.setdefault(guide.code, guide)
+        if launch.status not in (LaunchStatus.FAILED, LaunchStatus.ROLLED_BACK):
+            continue
+        key = key_for(launch)
+        if key and key not in checked:
+            block = checked_fix(
+                db,
+                key=key,
+                language=owner.language or "",
+                links=refusal_links(launch),
+            )
+            if block:
+                checked[key] = block
+                continue
+        if key in checked:
+            continue
+        guide = _guide(launch)
+        seen.setdefault(guide.code, guide)
     out: list[str] = []
+    for block in checked.values():
+        out += ["", *block]
     for guide in seen.values():
         out += ["", *ready_fix(code=guide.code, cause=guide.cause, steps=guide.steps)]
     return out

@@ -1,6 +1,6 @@
 """What every look-up shares: the subscription's edges, the window, the words."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from typing import Any, Final
 
@@ -119,6 +119,23 @@ def ready_fix(
         for index, step in enumerate(steps, start=1)
     ]
     return lines
+
+
+def checked_fix(
+    db: Session, *, key: str, language: str, links: Mapping[str, Any]
+) -> list[str]:
+    """The office's checked answer for exactly this refusal, as a block the
+    model gives as it is; nothing while no person has checked one."""
+    from app.modules.chat.selectors.refusal import checked_answer
+    from core.chat.links import link_text
+
+    text = checked_answer(db, key=key, language=language)
+    if text is None:
+        return []
+    return [
+        "## Ready fix, checked by Support for exactly this error",
+        link_text(text, links),
+    ]
 
 
 def issue_tag(row: Any) -> str:
