@@ -477,3 +477,40 @@ Karta tafsiloti: `resolution` — `{note, by, at, client: waiting|yes|silent, co
 hozirgi muammolari (ofisdagi «Muammolar» ro'yxati bilan bir xil); `client.plan.expired`.
 
 Migratsiya 0055 mavjud zayavkalarga shu holatni ularning o'z tarixidan yozadi.
+
+## 10. Sotuv: hisobot, lid issiqligi, manba, eslatmalar (2026-11-19)
+
+### Hisobot: `GET /api/v2/office/boards/sales/report?date_from&date_to`
+Ofis kunlari (Toshkent), bo'sh bo'lsa oxirgi 30 kun, ko'pi bilan 366 kun. Javob `SalesReportOut`:
+`total`, `days[]` (davrning har kuni, eskisi birinchi), `staff[]` (har bir Sotuv xodimi, ko'p sotgan birinchi;
+`staff: null` — «Menejersiz»: hech kim olmay turib o'zi to'laganlar), `reasons[]`, `queue` (faqat rahbar),
+`sources[]` va `campaigns[]` (faqat rahbar). Raqamlar kartalar tarixidan:
+`leads` — ochilgan kartalar; `taken` — «Lid olish» yoki rahbar bergani; `contacted` / `no_contact` / `callbacks` —
+bosilgan tugmalar; `sold` — birinchi to'liq tarif to'lovi (Start sotuv emas), `money` — o'sha hisob summasi;
+`closed` — qo'lda yoki chegirma tugab yopilgan; `calls*` — ofis UTeL qo'ng'iroqlari; `first_touch_minutes` —
+«Lid olish»dan birinchi qo'ng'iroq tugmasigacha mediana. `rate`: rahbar ko'rinishida jami va kunda `sold ÷ leads`,
+xodim qatorida va menejerning o'z ko'rinishida `sold ÷ taken`. Menejer faqat o'zini ko'radi (`scope: "own"`).
+
+### Kartada
+`heat` (Sotuv, ochiq karta): `level` hot/warm/cold, `points`, `bill`, `facebook`, `page`, `business`, `returned`.
+`client.signup_via` (`email`/`google`/`telegram`), `signup_via_label`, `utm` (`source`, `medium`, `campaign`, …).
+
+### «Lid olish»
+Navbat: chegirma ustunlari, keyin eng issiq (`heat.points`), tenglar ichida eng yangi. «Yangi lead»da olingan,
+hali qo'ng'iroq qilinmagan 5 ta lid bo'lsa — 409 `lead_take_limit`. `GET /boards/sales` javobida
+`take: {queue, working, limit}`. `attempts` filtri (`0`, `1-2`, `3+`) Sotuvda ham ishlaydi.
+
+### Ro'yxatdan o'tish
+`POST /api/v1/auth/signup` va `POST /api/v1/auth/social/{provider}/start` `utm` qabul qiladi
+(`{"source": "...", "campaign": "..."}`, `utm_` prefiksisiz).
+
+### Telegram (xodimlar boti), har daqiqa
+Kartaning vaqti keldi (oxirgi 60 daqiqa ichida) — kartaning menejeriga; mijoz tarif hisobini ochdi — menejerga;
+navbatda yangi lidlar — Sotuv jamoasiga, 30 daqiqada bir martadan ko'p emas, 09:00–21:00. Har biri kartaga
+tarix qatori bo'lib yoziladi (`due_reminded`, `bill_told`).
+
+### Telefoniya
+`clients[]` (jonli qo'ng'iroq, jurnal): `renewal_card_id`, `standing` (`paid`, `plan`, `days_left`, `state`,
+`label`). UTeL'ning `contact_name`i: «Ism · «Standart» · 12 kun qoldi». `PUT /api/v2/office/telephony/me/accepting`
+`{"accepts_calls": false}` — «Qo'ng'iroq qabul qilmayman»: yo'naltirish bu xodimni o'tkazib yuboradi, brauzer
+telefoni kiruvchini rad etadi (486). `GET /telephony/me` va `/colleagues` `accepts_calls` beradi.
