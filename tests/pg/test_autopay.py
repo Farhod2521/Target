@@ -48,6 +48,7 @@ class FakeMulticard:
         self.confirm: dict[str, Any] = {"status": "success"}
         self.otp_hash: str | None = None
         self.code = "50112"
+        self.binds: list[dict[str, Any]] = []
         self.confirmed: list[dict[str, Any]] = []
         self.callbacks: list[httpx.Response] = []
         self.payments: dict[str, dict[str, Any]] = {}
@@ -58,6 +59,7 @@ class FakeMulticard:
             return _ok(None, token="t", expiry="2099-01-01 00:00:00")
         self.seen.append(f"{request.method} {path}")
         if (request.method, path) == ("POST", "/payment/card/bind"):
+            self.binds.append(json.loads(request.content))
             return _ok({"session_id": SESSION, "form_url": f"https://mc/card/{SESSION}"})
         if (request.method, path) == ("GET", f"/payment/card/bind/{SESSION}"):
             return _ok(CARD)
@@ -419,3 +421,38 @@ def test_a_refused_card_says_why_and_no_card_is_not_found(
     assert refused.json()["detail"] == "Kartada mablag' yetarli emas."
     db.expire_all()
     assert set(db.scalars(select(Invoice.status))) == {"pending"}
+
+
+def test_a_card_bound_from_a_checkout_comes_back_to_it_with_autopay_as_chosen(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+
+    opened = client.post(
+        "/api/v1/billing/card/bind",
+        json={
+            "consent": True,
+            "phone": "998901234567",
+            "autopay": False,
+            "back": "/app/billing/checkout/?plan=pro",
+        },
+        headers=auth,
+    )
+    assert opened.status_code == 200, opened.text
+    client.post("/webhooks/cards/multicard", json={"payer_id": SESSION})
+
+    sent = multicard.binds[-1]
+    assert sent["redirect_url"].endswith("/app/billing/checkout/?plan=pro&card=bound")
+    assert sent["redirect_decline_url"].endswith("plan=pro&card=declined")
+    shown = client.get("/api/v1/billing/card", headers=auth).json()
+    assert shown["card"] is not None and shown["autopay"] is False
+
+
+@pytest.mark.parametrize(
+    "back", ["https://evil.example/app/", "//evil.example", "/app//x", "/office/", ""]
+)
+def test_only_a_cabinet_path_is_returned_to(back: str) -> None:
+    assert services.return_paths(back) == (
+        "/app/billing?card=bound",
+        "/app/billing?card=declined",
+    )

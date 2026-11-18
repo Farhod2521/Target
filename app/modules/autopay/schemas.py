@@ -15,6 +15,17 @@ class BindIn(BaseModel):
         max_length=20,
         description="The card owner's phone, 998XXXXXXXXX. Empty: the account's.",
     )
+    autopay: bool = Field(
+        True,
+        description="Renew the plan from the card once it is bound. The switch "
+        "of `POST /billing/card/autopay`, set ahead.",
+    )
+    back: str = Field(
+        "",
+        max_length=300,
+        description="A cabinet path (`/app/...`) Multicard sends the owner back to, "
+        "with `card=bound` or `card=declined` added. Empty: the billing screen.",
+    )
 
 
 class AutopayIn(BaseModel):

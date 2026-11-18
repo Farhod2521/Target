@@ -99,19 +99,46 @@ class Binding:
     form_url: str
 
 
+def return_paths(back: str) -> tuple[str, str]:
+    """Where Multicard sends the owner after its card page: bound, declined.
+
+    ``back`` is a cabinet path the owner was on (a checkout); anything that
+    is not plainly one falls back to the billing screen.
+    """
+    plain = (
+        back.startswith("/app/")
+        and "//" not in back
+        and "\\" not in back
+        and "#" not in back
+        and all(ch.isprintable() and not ch.isspace() for ch in back)
+    )
+    if not plain:
+        return CARD_DONE_PATH, CARD_DECLINED_PATH
+    joint = "&" if "?" in back else "?"
+    return f"{back}{joint}card=bound", f"{back}{joint}card=declined"
+
+
 def start_binding(
-    db: Session, *, user: User, phone: str, consent: bool, now: datetime
+    db: Session,
+    *,
+    user: User,
+    phone: str,
+    consent: bool,
+    now: datetime,
+    autopay: bool = True,
+    back: str = "",
 ) -> Binding:
-    """A Multicard page where the owner adds the card the plan is renewed from."""
+    """A Multicard page where the owner adds the card bills are paid from."""
     if not consent:
         raise ConsentRequired
     adapter = cards()
     number = phone_of(phone, user=user)
+    done, declined = return_paths(back)
     try:
         session = adapter.start_card_binding(
             phone=number,
-            redirect_url=settings.site_url + CARD_DONE_PATH,
-            decline_url=settings.site_url + CARD_DECLINED_PATH,
+            redirect_url=settings.site_url + done,
+            decline_url=settings.site_url + declined,
             callback_url=settings.multicard_card_callback_url,
         )
     except PaymentError as exc:
@@ -124,6 +151,8 @@ def start_binding(
             session_id=session.session_id,
             status=CardStatus.PENDING,
             consented_at=now,
+            # What the owner chose before the page; kept once the card is bound.
+            autopay=autopay,
         )
     )
     db.flush()
@@ -164,7 +193,6 @@ def finish_binding(db: Session, *, card: SavedCard, now: datetime) -> SavedCard:
     card.ps = bound.ps[:16]
     card.holder = bound.holder[:100]
     card.bound_at = now
-    card.autopay = True
     db.flush()
     logger.info("card %s bound for owner %s", card.pan, card.owner_id)
     return card
@@ -459,6 +487,7 @@ __all__ = [
     "pay_from_card",
     "phone_of",
     "remove_card",
+    "return_paths",
     "set_autopay",
     "start_binding",
 ]

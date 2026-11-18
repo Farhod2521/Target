@@ -39,7 +39,13 @@ def card(db: Db, user: CurrentUser) -> CardOut:
 def bind(body: BindIn, db: Db, user: CurrentUser) -> BindOut:
     """Open Multicard's page for adding a card. A new card replaces the old."""
     binding = services.start_binding(
-        db, user=user, phone=body.phone, consent=body.consent, now=utcnow()
+        db,
+        user=user,
+        phone=body.phone,
+        consent=body.consent,
+        now=utcnow(),
+        autopay=body.autopay,
+        back=body.back,
     )
     db.commit()
     return BindOut(session_id=binding.session_id, form_url=binding.form_url)

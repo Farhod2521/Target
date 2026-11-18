@@ -96,6 +96,11 @@ Barcha yo'llar `Authorization: Bearer <access>` bilan. Javoblar snake_case.
 { "consent": true, "phone": "998901234567" }
 ```
 
+Qo'shimcha (ixtiyoriy) maydonlar: `"autopay": false` — karta ulanadi, lekin
+avtomatik yechish o'chiq turadi (standart `true`); `"back": "/app/billing/checkout/?plan=standard"`
+— Multicard mijozni shu kabinet manziliga qaytaradi (`card=bound` yoki
+`card=declined` qo'shiladi). Faqat `/app/` bilan boshlanadigan yo'l olinadi.
+
 - `consent` — majburiy `true`. Ekranda checkbox: «Obuna har muddatda shu
   kartadan avtomatik to'lansin». Belgilanmasa `400 autopay_consent_required`.
 - `phone` — karta egasining telefoni (Humo uchun majburiy). Bo'sh bo'lsa,
