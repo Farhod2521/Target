@@ -295,7 +295,7 @@ Tasdiq kutayotgan (`confirming`) zayavkaga yangi sabab kelsa, u qayta ochiladi v
 |---|---|
 | `setup` | To'lovdan 1 soat o'tdi, sozlash tugamagan |
 | `from_sales` | Sotuvda «Support kerak» belgisi bor mijoz to'ladi (darhol) |
-| `meta_error` | Reklamani ishga tushirish yoki mijozning amali Meta xatosi bilan tugadi |
+| `meta_error` | Reklamani ishga tushirishni yoki mijozning Meta'dagi amalini Meta rad etdi va 30 daqiqada tuzalmadi (shu orada qayta urinishda yaratilgan launch yoki keyin bajarilgan xuddi shu amal zayavka ochmaydi). O'tib ketadigan xatolar (`temporary`, `already`, …), mijozning o'z sozlamasi (`site_missing`, `profile_incomplete`, …) va bizning xatolarimiz (`unknown`, `schema_error`, `stalled`, `not_applied`, …) kirmaydi. Bizning xatolarimiz Developerga boradi: `/office/faults`. Bir xil amal bir xil sabab bilan kuniga bitta sabab bo'ladi |
 | `survey` | So'rovnomada «yordam kerak» deb belgilangan variantni tanladi |
 | `ai` | Mijoz AI chatda «Mutaxassisga yuborish» ni bosdi |
 | `manual` | Ofisda qo'lda ochildi |

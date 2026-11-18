@@ -5,6 +5,7 @@ from telegramkit import TelegramTemporaryError
 
 from app.common.db import utcnow
 from app.modules.notifications.services import (
+    alert_fault,
     announce_block_suggestion,
     announce_feedback,
     announce_password_changed,
@@ -20,7 +21,6 @@ from app.modules.notifications.services import (
     handle_support_update,
     handle_update,
     mirror_bot_change,
-    report_launch_failure,
 )
 from app.modules.notifications.services.notices import user_of
 from app.worker import celery_app, task_session
@@ -206,9 +206,9 @@ def deliver_guest_question_task(message_id: str) -> int:
 
 
 @celery_app.task(queue="webhooks", ignore_result=True)
-def deliver_launch_failure_task(launch_id: str) -> int:
+def deliver_fault_task(event_id: str) -> int:
     with task_session() as db:
-        return report_launch_failure(db, launch_id=launch_id)
+        return alert_fault(db, event_id=event_id)
 
 
 @celery_app.task(queue="webhooks", ignore_result=True)

@@ -128,12 +128,20 @@ def build_draft(db: Session, *, launch_id: UUID | str, run: str = "") -> str:
             call=LLMCallStatus.SCHEMA_ERROR,
             attempts=exc.attempts or 1,
             spent=exc.spent,
+            exc=exc,
         )
     except ClaudeTemporaryError:
         return _fail(db, launch, run=run, code="temporary", call=LLMCallStatus.FAILED)
-    except ClaudeAuthError:
+    except ClaudeAuthError as exc:
         logger.error("claude_auth_failed", extra={"launch_id": str(launch.id)})
-        return _fail(db, launch, run=run, code="unavailable", call=LLMCallStatus.FAILED)
+        return _fail(
+            db,
+            launch,
+            run=run,
+            code="unavailable",
+            call=LLMCallStatus.FAILED,
+            exc=exc,
+        )
     except ClaudeRefused as exc:
         logger.warning("launch_draft_declined", extra={"launch": str(launch.id)})
         return _fail(
@@ -144,9 +152,17 @@ def build_draft(db: Session, *, launch_id: UUID | str, run: str = "") -> str:
             call=LLMCallStatus.FAILED,
             attempts=exc.attempts or 1,
             spent=exc.spent,
+            exc=exc,
         )
-    except LLMError:
-        return _fail(db, launch, run=run, code="unavailable", call=LLMCallStatus.FAILED)
+    except LLMError as exc:
+        return _fail(
+            db,
+            launch,
+            run=run,
+            code="unavailable",
+            call=LLMCallStatus.FAILED,
+            exc=exc,
+        )
     _advance(db, launch, step=LaunchStep.LLM)
     try:
         record_llm_result(
@@ -482,8 +498,10 @@ def _fail(
     call: LLMCallStatus | None = None,
     attempts: int = 1,
     spent: Spend | None = None,
+    exc: BaseException | None = None,
 ) -> str:
-    """Record the failure on the row and, when Claude answered, in the audit."""
+    """Record the failure on the row and, when Claude answered, in the audit.
+    Our own fault is kept for the Developers too."""
     from app.modules.audit.services import record_llm_failure
 
     if call is not None:
@@ -513,6 +531,16 @@ def _fail(
     logger.warning(
         "launch_preparation_failed",
         extra={"launch": str(launch.id), "owner": str(launch.owner_id), "code": code},
+    )
+    from app.modules.ads.services.faults import launch_fault
+
+    launch_fault(
+        db,
+        launch,
+        code=code,
+        message=str(exc) if exc else f"preparation failed: {call or code}",
+        where="ads.proposal",
+        exc=exc,
     )
     return code
 

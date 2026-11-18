@@ -154,7 +154,8 @@ def test_a_meta_refusal_is_said_in_plain_words_with_its_target(
         )
     )
     db.commit()
-    assert triggers.meta_errors(db, now=utcnow()) == 1
+    assert triggers.meta_errors(db, now=utcnow()) == 0
+    assert triggers.meta_errors(db, now=utcnow() + timedelta(minutes=31)) == 1
     boss = _staff(db, "boss@office.test", superuser=True)
     card = db.scalar(select(BoardCard).where(BoardCard.owner_id == owner.id))
     assert card is not None

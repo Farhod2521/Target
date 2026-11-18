@@ -501,8 +501,9 @@ NO_SPEND_LOOKBACK_DAYS: Final = 30
 CAMPAIGN_FRESH_HOURS: Final = 6
 # Survey answers are read this far back each run.
 SURVEY_LOOKBACK_HOURS: Final = 24
-# A failed press that is not Meta's refusal: nothing for Support to fix.
-NOT_META_ERRORS: Final = frozenset({"already", "finished", "temporary", "in_use"})
+# A Meta refusal waits this long before it is a ticket: most clients mend
+# it themselves and press again within minutes.
+META_ERROR_WAIT_MINUTES: Final = 30
 
 
 class CloseReason(Choices):
