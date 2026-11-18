@@ -70,7 +70,10 @@ def guard_items(
 def guard_key(row: GuardAlert) -> str:
     """One finding at one step: the key the phone claims a message under,
     so a step is said once and the next step is a new message."""
-    return f"{GUARD_PREFIX}{row.id}:{row.step}"
+    key = f"{GUARD_PREFIX}{row.id}:{row.step}"
+    # A warning that became a stop at the step it was said at - the owner's
+    # «leave» ran out, the learning ended - is news of its own.
+    return f"{key}:stop" if row.action == "stop" else key
 
 
 def is_guard_key(key: str) -> bool:

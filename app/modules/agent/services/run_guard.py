@@ -14,6 +14,8 @@ row a group and kind:
   bar, a group missing from one reading - opens a new row but no new
   message at a step the owner was already told that day, and keeps the
   answer they gave it;
+- «leave it for now» holds a stop back for three days from the answer: the
+  finding stays a warning, and only a page that does not open still stops;
 - a stop pauses the group at the provider, as the agent, and keeps the
   day's figures on the row: switched back on the same day, the group is
   counted from there.
@@ -23,7 +25,7 @@ Nothing here sends a message: the rows are what the notices are written from.
 
 import logging
 from collections.abc import Mapping
-from datetime import date, datetime, tzinfo
+from datetime import date, datetime, timedelta, tzinfo
 from typing import Any
 
 from sqlalchemy import and_, or_, select
@@ -53,6 +55,9 @@ STOP = "stop"
 WARN = "warn"
 PRICE = "price"
 SITE_DOWN = "site_down"
+LEAVE = "leave"
+# How long «leave it for now» holds the guard's own stop back.
+LEAVE_HOLDS = timedelta(hours=72)
 
 
 def run_guard(db: Session, *, owner: User, now: datetime, may_stop: bool = True) -> int:
@@ -230,11 +235,19 @@ def _one(
 
     ``told`` is today's closed warning on the same thing: a new row at a step
     it already said is written down, but not said again."""
-    if row is not None and finding.step <= row.step and not _now_stops(row, finding):
+    held = _held(row, now=now) or _held(told, now=now)
+    stops = (
+        finding.action == STOP and may_stop and (finding.kind == SITE_DOWN or not held)
+    )
+    if (
+        row is not None
+        and finding.step <= row.step
+        and not (stops and _now_stops(row, finding))
+    ):
         return 0
     action = finding.action
     advice = finding.advice
-    if action == STOP and not may_stop:
+    if action == STOP and not stops:
         action, advice = WARN, "pause"
     if action == STOP and finding.kind == SITE_DOWN and not _still_down(item):
         return 0
@@ -263,8 +276,14 @@ def _one(
         )
         db.add(row)
     # A new step is a new question: the answer given to the last one - «leave
-    # it for now», a lower budget - does not answer this one.
+    # it for now», a lower budget - does not answer this one. A stop that
+    # «leave» held back is the exception: the answer is what holds it, and it
+    # is kept, off the list and unsaid, until it runs out.
+    kept = (row.answer, row.answered_at) if _held(row, now=now) else None
     row.answer, row.answered_at = "", None
+    if kept is not None and finding.action == STOP and action != STOP:
+        row.answer, row.answered_at = kept
+        row.said_step = finding.step
     row.name = _name(item, finding)
     row.action = action
     row.advice = advice
@@ -285,6 +304,8 @@ def _one(
         if told.answer == "leave":
             row.answer, row.answered_at = told.answer, told.answered_at
     if log_id is not None:
+        # A stop is always said, at a step already said as a warning too.
+        row.said_step = min(row.said_step or 0, row.step - 1)
         row.action_log_id = log_id
         row.baseline = {
             "day": item.day.isoformat(),
@@ -292,6 +313,13 @@ def _one(
         }
     db.flush()
     return 1
+
+
+def _held(row: GuardAlert | None, *, now: datetime) -> bool:
+    """Whether the owner said «leave it for now» to this, not long ago."""
+    if row is None or row.answer != LEAVE or row.answered_at is None:
+        return False
+    return now - row.answered_at < LEAVE_HOLDS
 
 
 def _now_stops(row: GuardAlert, finding: Finding) -> bool:
@@ -361,6 +389,11 @@ def _figures(item: Guarded, finding: Finding) -> dict[str, Any]:
         "learning": group.learning,
         "ours": group.ours,
         "own_budget": group.own_budget,
+        "day_budget_minor": group.day_budget_minor,
+        "past_results": group.past_results,
+        "hours_running": (
+            int(group.hours_running) if group.hours_running is not None else None
+        ),
     }
 
 

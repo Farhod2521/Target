@@ -100,8 +100,17 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "title.cpm.warn": "Ko'rsatish narxi oshdi",
         "title.frequency.warn": "Reklama bir xil odamlarga ko'p ko'rsatilyapti",
         "price": "Bugun bitta {word}: {cost} ({results} ta). Odatda: {usual}.",
+        "price.start": "Bugun bitta {word}: {cost} ({results} ta).",
         "fruitless": "Bugun {spend} sarflandi, {word}: 0. Odatda bitta {word}: {usual}.",
         "fruitless_days": "Oxirgi {days} kunda {spend} sarflandi, {word}: 0. Odatda bitta {word}: {usual}.",
+        "usual.start": "Shu reklamaning o'zida shu paytgacha bitta {word} o'rtacha: {usual}.",
+        "budget": "Bugun {spend} sarflandi, {word}: 0. Kunlik byudjet: {budget}.",
+        "budget_days": "Oxirgi {days} kunda {spend} sarflandi, {word}: 0. Kunlik byudjet: {budget}.",
+        "spent": "Bugun {spend} sarflandi, {word}: 0.",
+        "spent_days": "Oxirgi {days} kunda {spend} sarflandi, {word}: 0.",
+        "never": "Reklama yoqilganiga {days} kun bo'ldi, hali birorta ham natija kelmadi.",
+        "next_stop_never": "Yoqilganidan 3 kun o'tib ham natija bo'lmasa, guruhni o'zim to'xtataman.",
+        "next_stop_never_campaign": "Yoqilganidan 3 kun o'tib ham natija bo'lmasa, kampaniyani o'zim to'xtataman.",
         "site_down": "Reklamadagi havola ochilmayapti, odamlar bo'sh sahifaga tushyapti.",
         "weak_ad": "Bu reklama bugun {spend} sarfladi, {word}: 0. Guruhdagi boshqa reklama natija beryapti.",
         "ctr": "Bosish ulushi (CTR) {now}%, odatda {usual}%.",
@@ -132,8 +141,17 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "title.cpm.warn": "Показы подорожали",
         "title.frequency.warn": "Рекламу слишком часто видят одни и те же люди",
         "price": "Сегодня цена результата ({word}): {cost} (всего: {results}). Обычно: {usual}.",
+        "price.start": "Сегодня цена результата ({word}): {cost} (всего: {results}).",
         "fruitless": "Сегодня потрачено {spend}, результатов ({word}): 0. Обычная цена результата: {usual}.",
         "fruitless_days": "За последние {days} дн. потрачено {spend}, результатов ({word}): 0. Обычная цена результата: {usual}.",
+        "usual.start": "У этой же рекламы до сих пор один результат ({word}) стоил в среднем {usual}.",
+        "budget": "Сегодня потрачено {spend}, результатов ({word}): 0. Дневной бюджет: {budget}.",
+        "budget_days": "За последние {days} дн. потрачено {spend}, результатов ({word}): 0. Дневной бюджет: {budget}.",
+        "spent": "Сегодня потрачено {spend}, результатов ({word}): 0.",
+        "spent_days": "За последние {days} дн. потрачено {spend}, результатов ({word}): 0.",
+        "never": "Реклама включена уже {days} дн., и пока нет ни одного результата.",
+        "next_stop_never": "Если через 3 дня после включения результата так и не будет, я сам остановлю группу.",
+        "next_stop_never_campaign": "Если через 3 дня после включения результата так и не будет, я сам остановлю кампанию.",
         "site_down": "Ссылка в рекламе не открывается, люди попадают на пустую страницу.",
         "weak_ad": "Это объявление сегодня потратило {spend}, результатов ({word}): 0. Другое объявление группы даёт результат.",
         "ctr": "Кликабельность (CTR) {now}%, обычно {usual}%.",
@@ -164,8 +182,17 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
         "title.cpm.warn": "Showings got dearer",
         "title.frequency.warn": "The same people see the advert too often",
         "price": "Today one {word} costs {cost} ({results} so far). Usually: {usual}.",
+        "price.start": "Today one {word} costs {cost} ({results} so far).",
         "fruitless": "Today {spend} was spent, {word}: 0. Usually one {word} costs {usual}.",
         "fruitless_days": "Over the last {days} days {spend} was spent, {word}: 0. Usually one {word} costs {usual}.",
+        "usual.start": "In this advert so far one {word} cost {usual} on average.",
+        "budget": "Today {spend} was spent, {word}: 0. The day's budget: {budget}.",
+        "budget_days": "Over the last {days} days {spend} was spent, {word}: 0. The day's budget: {budget}.",
+        "spent": "Today {spend} was spent, {word}: 0.",
+        "spent_days": "Over the last {days} days {spend} was spent, {word}: 0.",
+        "never": "The advert has been on for {days} days and has not brought one result yet.",
+        "next_stop_never": "With still no result 3 days after the switch-on, I will pause the ad set myself.",
+        "next_stop_never_campaign": "With still no result 3 days after the switch-on, I will pause the campaign myself.",
         "site_down": "The advert's link does not open: people land on an empty page.",
         "weak_ad": "This advert spent {spend} today, {word}: 0. Another advert of the group brings results.",
         "ctr": "Click rate (CTR) {now}%, usually {usual}%.",
@@ -280,8 +307,25 @@ def guard_body(row: GuardAlert) -> str:
     if row.action == "stop":
         lines.append(_stopped_line(row, sole=sole))
     elif row.kind == "price" and figures.get("ours"):
-        lines.append(_text("next_stop_campaign" if sole else "next_stop"))
+        # A new group's price is held against its own first days, and a
+        # rise past them is never stopped for: nothing is promised.
+        if figures.get("usual_source") != "start":
+            lines.append(_text("next_stop_campaign" if sole else "next_stop"))
+    elif _never(row) and figures.get("ours"):
+        lines.append(_text("next_stop_never_campaign" if sole else "next_stop_never"))
     return "\n".join(line for line in lines if line)
+
+
+def _never(row: GuardAlert) -> bool:
+    """Nothing back in a group with no price of its own and no result ever:
+    the one the guard stops three days after its switch-on."""
+    figures = row.figures or {}
+    return (
+        row.kind == "fruitless"
+        and not figures.get("usual_cost_minor")
+        and "past_results" in figures
+        and not figures.get("past_results")
+    )
 
 
 def _stopped_line(row: GuardAlert, *, sole: bool) -> str:
@@ -324,12 +368,22 @@ def _figures_line(row: GuardAlert) -> str:
     )
     usual = _money(row, figures.get("usual_cost_minor"))
     word = word_of(row)
+    start = figures.get("usual_source") == "start"
     if row.kind == "price":
         cost = _money(row, formulas.cost_per_result(spend, results) or spend)
+        if start:
+            return " ".join(
+                (
+                    _text("price.start", word=word, cost=cost, results=results),
+                    _text("usual.start", word=word, usual=usual),
+                )
+            )
         return _text("price", word=word, cost=cost, results=results, usual=usual)
     if row.kind == "fruitless":
         days = int(figures.get("dry_days") or 1)
         gone = max(spend, int(figures.get("dry_spend_minor") or 0))
+        if start or not figures.get("usual_cost_minor"):
+            return _own_fruitless(row, days=days, gone=gone, word=word, usual=usual)
         if days > 1:
             return _text(
                 "fruitless_days",
@@ -357,6 +411,38 @@ def _figures_line(row: GuardAlert) -> str:
         now=_money(row, now_cpm),
         usual=_money(row, figures.get("usual_cpm_minor")),
     )
+
+
+def _own_fruitless(
+    row: GuardAlert, *, days: int, gone: int, word: str, usual: str
+) -> str:
+    """Nothing back in a new group: against its own first days' price, or,
+    with no price yet, against its day's budget - and how long it has run
+    where it was stopped for never bringing a result."""
+    figures = row.figures or {}
+    budget = int(figures.get("day_budget_minor") or 0)
+    key = "budget" if budget else "spent"
+    spend = _money(row, gone if days > 1 else figures.get("spend_minor"))
+    said = [
+        _text(
+            f"{key}_days" if days > 1 else key,
+            days=days,
+            spend=spend,
+            word=word,
+            budget=_money(row, budget),
+        )
+    ]
+    if figures.get("usual_source") == "start":
+        said = [
+            _text(
+                "spent_days" if days > 1 else "spent", days=days, spend=spend, word=word
+            ),
+            _text("usual.start", word=word, usual=usual),
+        ]
+    elif row.action == "stop" and _never(row):
+        running = max(int(figures.get("hours_running") or 0) // 24, 3)
+        said.append(_text("never", days=running))
+    return " ".join(said)
 
 
 def _rates(figures: dict[str, Any]) -> tuple[int, int]:

@@ -12,6 +12,7 @@ from app.modules.ads import refs as ref_field
 from app.modules.ads.constants import Delivery, LaunchStep
 from app.modules.ads.models import AdSet, CampaignLaunch
 from app.modules.agent.constants import AUTO_STOP_FRESH_MINUTES, AUTO_STOP_MARK
+from app.modules.agent.selectors.guard import GUARD_KINDS
 from app.modules.agent.selectors.launch_watch import switched_on
 from app.modules.agent.selectors.same_day import (
     RESULT_COLUMNS,
@@ -116,7 +117,11 @@ def _account_candidates(
                 AdSet.delivery == Delivery.ACTIVE,
             )
         )
-        if kind_of(row.optimization_goal_raw, row.promoted_object_raw) in TODAY_KINDS
+        # A kind with a price is the half-hourly guard's, with or without a
+        # usual one yet: it warns first and stops by its own rules. This rule
+        # keeps the kinds the guard does not read - the recall.
+        if kind_of(row.optimization_goal_raw, row.promoted_object_raw)
+        in TODAY_KINDS - GUARD_KINDS
         # Nothing is judged in a group's first day - the guard's rule too.
         and now - born[row.external_id] >= timedelta(hours=WAIT_HOURS)
     ]

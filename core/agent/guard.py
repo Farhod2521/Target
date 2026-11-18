@@ -5,8 +5,15 @@ here and none writes a word about it. Every running group is held against
 one usual level (see :class:`Usual`) each time today's figures are read, and
 the answer is a short list of findings: a warning, or a stop.
 
+**Only against itself.** The usual level is the group's own and never
+another group's: two lead adverts of one account sell different things to
+different people, and one's price says nothing about the other's. A group
+too new to have a fortnight is held against its own start, and one with no
+result yet against its own day's budget - see :func:`_unpriced`.
+
 **What stops, and only what was launched from here.** One result costing
-five usual prices; three usual prices gone since the last result with nothing back; the page
+five usual prices; three usual prices gone since the last result with nothing back; three
+days run without one result ever; the page
 the advert sends people to not opening. A group built in Ads Manager gets
 the same finding as a warning: its owner did not hand it over.
 
@@ -16,6 +23,12 @@ with nothing back, in a group not ours; an advert
 inside a group taking a third of the money and bringing nothing while
 another brings results; the click rate under 70 % of usual; a thousand
 showings at 150 % of usual; a person shown the advert three times a week.
+
+**A new group.** Three results in, their pooled price is its usual one:
+nothing back for three of them stops it, and a rise in its price is only
+ever a warning - a few days are not a level to stop by. With no price at
+all, a day's budget gone with nothing back is a warning, and three days
+after the switch-on with still not one result it is stopped.
 
 **One finding a group.** A stop leaves no warning beside it, and a price
 rise carries the click rate and the showings' price as its causes instead
@@ -42,7 +55,8 @@ from core.metrics.arithmetic import basis_points_or_none
 Kind = Literal["site_down", "fruitless", "price", "weak_ad", "ctr", "cpm", "frequency"]
 Action = Literal["warn", "stop"]
 Cause = Literal["cpm", "ctr", "conversion"]
-Source = Literal["own", "account", "niche"]
+# ``own`` is the group's fortnight; ``start`` its first days' pooled price.
+Source = Literal["own", "start"]
 # The button a message advises, by what pressing it does.
 Advice = Literal[
     "pause", "budget_down", "leave", "keep_off", "resume", "pause_ad", "add_creative"
@@ -63,6 +77,11 @@ FEW_RESULTS_SPEND: Final = 10
 FRUITLESS_WARN_TIMES: Final = 5
 # Hours after the switch-on before anything but a broken page is judged.
 WAIT_HOURS: Final = 24
+# Results before a new group's first days have a price of their own.
+START_RESULTS: Final = 3
+# Hours after the switch-on before a group that never brought a result is
+# stopped. Before that, a day's budget gone with nothing back is a warning.
+NEVER_STOP_HOURS: Final = 72
 # ``now / usual`` in percent: the click rate's floor, the showings' ceiling.
 CTR_LOW_PCT: Final = 70
 CPM_HIGH_PCT: Final = 150
@@ -83,9 +102,10 @@ BUDGET_STEP_PCT: Final = 20
 class Usual:
     """The one usual level a group is held against.
 
-    The group's own last fortnight where it has one; else the account's
-    other groups bought for the same result; else the niche's. ``None``
-    where nothing is known - and a figure with no usual is never judged.
+    The group's own last fortnight where it has one; else the pooled price
+    of its own first days, once they brought :data:`START_RESULTS` results -
+    a price only, and one nothing is stopped for rising past. ``None`` where
+    the group has no price yet: it is then held against its day's budget.
     """
 
     cost_minor: int | None = None
@@ -133,6 +153,10 @@ class GroupToday:
     # usual prices in one day, and is no less fruitless for it.
     dry_spend_minor: int = 0
     dry_days: int = 1
+    # The day's budget, its own or its campaign's; ``0`` where it has none.
+    day_budget_minor: int = 0
+    # Results on its finished days since the switch-on, a fortnight at most.
+    past_results: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,7 +265,7 @@ def judge(group: GroupToday) -> list[Finding]:
         ]
     if too_young(group):
         return []
-    money = _money(group)
+    money = _money(group) if group.usual.cost_minor else _unpriced(group)
     if money is not None:
         return [money]
     return [*_weak_ads(group), *_rates(group)]
@@ -249,6 +273,39 @@ def judge(group: GroupToday) -> list[Finding]:
 
 def _stop_or_warn(group: GroupToday) -> Action:
     return "stop" if group.ours else "warn"
+
+
+def _unpriced(group: GroupToday) -> Finding | None:
+    """A group with no price of its own yet, held against its day's budget.
+
+    A day's budget gone since the last result with nothing back is a
+    warning. One that never brought a result is stopped once it has run
+    :data:`NEVER_STOP_HOURS` - step two of the same finding, so the warning
+    comes first where the money went first. A group with no day's budget is
+    held to having spent at all: the first day's wait has passed by then.
+    """
+    if group.results > 0:
+        return None
+    gone = max(group.spend_minor, group.dry_spend_minor)
+    if gone <= 0 or gone < group.day_budget_minor:
+        return None
+    old = group.hours_running is None or group.hours_running >= NEVER_STOP_HOURS
+    if group.ours and group.past_results <= 0 and old:
+        return Finding(
+            kind="fruitless",
+            action="stop",
+            advice="keep_off",
+            adset_id=group.adset_id,
+            step=2,
+            causes=causes(group),
+        )
+    return Finding(
+        kind="fruitless",
+        action="warn",
+        advice="pause",
+        adset_id=group.adset_id,
+        causes=causes(group),
+    )
 
 
 def _money(group: GroupToday) -> Finding | None:
@@ -280,7 +337,8 @@ def _money(group: GroupToday) -> Finding | None:
     if not step:
         return None
     why = causes(group)
-    if step >= STOP_STEP and group.ours and not group.learning:
+    settled = group.usual.source != "start"
+    if step >= STOP_STEP and group.ours and not group.learning and settled:
         return Finding(
             kind="price",
             action="stop",
@@ -386,7 +444,9 @@ __all__ = [
     "FREQUENCY_BAR",
     "FRUITLESS_WARN_TIMES",
     "MIN_PRICE_RESULTS",
+    "NEVER_STOP_HOURS",
     "PRICE_STEPS",
+    "START_RESULTS",
     "STOP_STEP",
     "WAIT_HOURS",
     "WEAK_AD_SHARE_PCT",

@@ -7,9 +7,11 @@ long ago, whether it still learns, whether its page opens, its adverts.
 **The usual level is the group's own.** Its last fourteen finished days,
 their middle day - :func:`core.agent.usual.usual_level`, the price and the
 click rate and the showings' price together. A group without five such
-days is held against the account's other groups bought for the same
-result, as last night's diagnosis read them; that gives a price only, so
-such a group is judged on its price and not on its rates.
+days is held against its own first days: their pooled price up to its last
+result, once they brought three - a price only, so such a group is judged
+on its price and not on its rates. Never against another group: the
+account's other lead adverts sell other things, at other prices. A group
+with no price yet is held against its day's budget.
 """
 
 from collections import defaultdict
@@ -27,7 +29,6 @@ from app.modules.ads.models import Ad, AdSet, Campaign
 from app.modules.agent.selectors.same_day import (
     RESULT_COLUMNS,
     adset_sums,
-    group_usuals,
     kind_of,
 )
 from app.modules.agent.selectors.window import start_of
@@ -35,7 +36,7 @@ from app.modules.integrations.models import AdAccount, PageAccount
 from app.modules.metrics.constants import MetricLevel
 from app.modules.metrics.models import MetricsDaily
 from app.modules.metrics.selectors.facts import cabinet_where
-from core.agent.guard import AdToday, GroupToday, Usual
+from core.agent.guard import START_RESULTS, AdToday, GroupToday, Usual
 from core.agent.usual import DayFigures, usual_level
 from core.metrics import Outcome, heard_leads
 
@@ -115,7 +116,6 @@ def guarded_groups(
     heard = counts_by_adset(db, owner=owner, since=start_of(today, tzinfo), until=now)
     history = _days(db, owner=owner, account=account, kinds=kinds, today=today)
     own = _own_usuals(history)
-    fallback = group_usuals(db, owner=owner, account=account, adset_ids=ids)
     landings = landing_by_adset(db, owner=owner, account=account)
     weeks = week_readings(db, owner=owner, account=account, adset_ids=ids)
     adverts = _adverts(db, owner=owner, account=account, kinds=kinds, today=today)
@@ -134,11 +134,10 @@ def guarded_groups(
             (baselines or {}).get(row.external_id),
             today=today,
         )
-        usual = own.get(row.external_id) or _account_usual(
-            fallback(row.external_id, kind)
-        )
+        past = history.get(row.external_id, {})
+        usual = own.get(row.external_id) or _start_usual(past)
         dry_spend, dry_days = _dry(
-            history.get(row.external_id, {}),
+            past,
             today=today,
             spent_today=counted["spend_minor"],
             results_today=counted["results"],
@@ -146,6 +145,8 @@ def guarded_groups(
                 born.get(row.external_id) or row.start_time,
                 (baselines or {}).get(row.external_id),
                 tzinfo=tzinfo,
+                # Against its day's budget the first day's money counts too.
+                first_day=not usual.cost_minor,
             ),
         )
         week = weeks.get(row.external_id)
@@ -164,6 +165,8 @@ def guarded_groups(
                     ads=tuple(adverts.get(row.external_id, ())),
                     dry_spend_minor=dry_spend,
                     dry_days=dry_days,
+                    day_budget_minor=_day_budget(row),
+                    past_results=sum(day.results for day in past.values()),
                     **counted,
                 ),
                 account=account,
@@ -239,10 +242,26 @@ def _since_baseline(
     }
 
 
-def _account_usual(cost_minor: int | None) -> Usual:
-    if not cost_minor:
+def _day_budget(row: AdSet) -> int:
+    """The day's budget: the group's own, else its campaign's shared one."""
+    shared = row.campaign.daily_budget_minor if row.campaign is not None else 0
+    return int(row.daily_budget_minor or shared or 0)
+
+
+def _start_usual(days: Mapping[date, DayFigures]) -> Usual:
+    """A new group's own price: its finished days pooled, up to the last one
+    that brought a result - the dry days after it are what is being judged,
+    and would raise the very price they are held against."""
+    spent = results = 0
+    pooled: tuple[int, int] | None = None
+    for day in sorted(days):
+        spent += days[day].spend_minor
+        results += days[day].results
+        if days[day].results > 0:
+            pooled = (spent, results)
+    if pooled is None or pooled[1] < START_RESULTS or pooled[0] <= 0:
         return Usual()
-    return Usual(cost_minor=cost_minor, source="account")
+    return Usual(cost_minor=max(1, pooled[0] // pooled[1]), source="start")
 
 
 _DAY_COLUMNS: Final = (
@@ -310,12 +329,17 @@ def _own_usuals(history: Mapping[str, Mapping[date, DayFigures]]) -> dict[str, U
 
 
 def _dry_floor(
-    started: datetime | None, baseline: Mapping[str, Any] | None, *, tzinfo: Any
+    started: datetime | None,
+    baseline: Mapping[str, Any] | None,
+    *,
+    tzinfo: Any,
+    first_day: bool = False,
 ) -> date | None:
-    """The first day a dry spell may count: the day after the switch-on, and
-    never a day a stop of ours already answered for."""
+    """The first day a dry spell may count: the day after the switch-on -
+    the switch-on's own day with ``first_day`` - and never a day a stop of
+    ours already answered for."""
     floor = (
-        started.astimezone(tzinfo).date() + timedelta(days=1)
+        started.astimezone(tzinfo).date() + timedelta(days=0 if first_day else 1)
         if started is not None
         else None
     )

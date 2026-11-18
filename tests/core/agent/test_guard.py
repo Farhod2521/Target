@@ -277,3 +277,79 @@ def test_a_rise_is_over_under_two_usual_prices() -> None:
 
 def test_a_first_cheap_result_of_the_morning_is_not_the_end() -> None:
     assert not eased(_group(spend_minor=40, results=1))
+
+
+# -- a new group: only against itself ----------------------------------------------------
+
+# Three results in its first days at 100 each: a price of its own, not a level.
+START = Usual(cost_minor=100, source="start")
+
+
+def _new(**changes: object) -> GroupToday:
+    """Launched here two days ago, a day's budget of 500, no price yet."""
+    base = _group(usual=Usual(), hours_running=48, day_budget_minor=500)
+    return replace(base, **changes)  # type: ignore[arg-type]
+
+
+def test_under_a_day_s_budget_with_nothing_back_nothing_is_said() -> None:
+    assert judge(_new(spend_minor=499)) == []
+
+
+def test_a_day_s_budget_with_nothing_back_is_a_warning() -> None:
+    found = _one(_new(spend_minor=500))
+    assert (found.kind, found.action, found.step, found.advice) == (
+        "fruitless", "warn", 1, "pause",
+    )  # fmt: skip
+
+
+def test_the_first_days_money_adds_up_to_the_day_s_budget() -> None:
+    found = _one(_new(spend_minor=100, dry_spend_minor=600, dry_days=2))
+    assert found.action == "warn"
+
+
+def test_three_days_on_with_no_result_ever_is_stopped() -> None:
+    assert _one(_new(spend_minor=500, hours_running=71)).action == "warn"
+    found = _one(_new(spend_minor=500, hours_running=72))
+    assert (found.kind, found.action, found.step, found.advice) == (
+        "fruitless", "stop", 2, "keep_off",
+    )  # fmt: skip
+
+
+def test_three_days_on_stops_a_learning_group_too() -> None:
+    assert _one(_new(spend_minor=500, hours_running=80, learning=True)).action == "stop"
+
+
+def test_three_days_on_with_no_money_gone_is_not_stopped() -> None:
+    assert judge(_new(spend_minor=0, hours_running=200)) == []
+
+
+def test_a_group_that_once_brought_a_result_is_only_warned() -> None:
+    found = _one(_new(spend_minor=500, hours_running=200, past_results=2))
+    assert (found.action, found.step) == ("warn", 1)
+
+
+def test_a_new_group_built_elsewhere_is_only_warned() -> None:
+    found = _one(_new(spend_minor=500, hours_running=200, ours=False))
+    assert found.action == "warn"
+
+
+def test_a_result_today_ends_the_dry_spell_of_a_new_group() -> None:
+    assert judge(_new(spend_minor=5_000, results=1, hours_running=200)) == []
+
+
+def test_without_a_day_s_budget_any_money_gone_counts() -> None:
+    found = _one(_new(spend_minor=10, day_budget_minor=0))
+    assert found.action == "warn"
+
+
+def test_a_new_group_s_own_price_stops_it_for_nothing_back() -> None:
+    found = _one(_new(usual=START, spend_minor=300))
+    assert (found.kind, found.action) == ("fruitless", "stop")
+    assert judge(_new(usual=START, spend_minor=299)) == []
+
+
+def test_a_new_group_s_price_rise_is_never_a_stop() -> None:
+    found = _one(_new(usual=START, spend_minor=1_500, results=3))
+    assert (found.kind, found.action, found.step, found.advice) == (
+        "price", "warn", 5, "pause",
+    )  # fmt: skip

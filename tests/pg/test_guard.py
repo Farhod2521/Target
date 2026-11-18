@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
+from app.common.i18n import override
 from app.modules.accounts.models import User
 from app.modules.ads.models import AdSet, CampaignLaunch
 from app.modules.agent.constants import GUARD_STOP_MARK
@@ -405,7 +406,7 @@ def test_the_phone_hears_of_a_group_once_a_day_and_of_a_stop_always(
     assert announce_guard(db, client=phone, now=now, asleep=set()) == 1
     assert len(phone.texts()) == 2
     subjects = set(db.scalars(select(TelegramNotice.subject)))
-    assert subjects == {f"guard:{row.id}:3", f"guard:{row.id}:5"}
+    assert subjects == {f"guard:{row.id}:3", f"guard:{row.id}:5:stop"}
 
 
 def test_a_warning_waits_for_the_morning_and_a_stop_does_not(
@@ -683,3 +684,193 @@ def test_yesterdays_price_is_not_raised_a_step_by_this_mornings_first_lead(
     assert old.closed_at is not None and old.step == 3
     assert announce_guard(db, client=phone, now=now, asleep=set()) == 0
     assert len(phone.texts()) == 1
+
+
+# -- a new group: held against itself, never against another group -------------------------
+
+
+def _new_group(
+    client: TestClient, db: Session, *, hours_on: int, launched_here: bool = True
+) -> tuple[User, AdAccount, datetime]:
+    """s_1 switched on ``hours_on`` hours ago with a day's budget of $50 and
+    no day of figures yet."""
+    owner, account, now = _running(client, db, launched_here=launched_here)
+    db.execute(MetricsDaily.__table__.delete().where(MetricsDaily.owner_id == owner.id))
+    started = now - timedelta(hours=hours_on)
+    group = db.scalar(select(AdSet).where(AdSet.external_id == "s_1"))
+    assert group is not None
+    group.start_time = started
+    launch = db.scalar(select(CampaignLaunch))
+    if launch is not None:
+        launch.delivery_started_at = started
+    db.commit()
+    return owner, account, now
+
+
+def _later(db: Session, account: AdAccount, now: datetime, hours: int) -> datetime:
+    """The clock moved on, the account read again."""
+    later = now + timedelta(hours=hours)
+    account.synced_at = later
+    db.commit()
+    return later
+
+
+def test_another_group_s_price_is_never_a_new_group_s(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.agent.models import AdSetDiagnosis
+
+    owner, account, now = _new_group(client, db, hours_on=30)
+    today = now.astimezone(account.tzinfo()).date()
+    # Last night read the account's other lead groups at $1 a lead.
+    db.add(
+        AdSetDiagnosis(
+            owner_id=owner.id,
+            provider=PROVIDER,
+            adset_external_id="s_1",
+            evidence={"currency": "USD", "account_cost_minor": 100, "outcome": "lead"},
+            since=today - timedelta(days=7),
+            until=today - timedelta(days=1),
+            diagnosed_at=now,
+        )
+    )
+    db.commit()
+    # Thirty of those prices gone, and under this group's own day's budget.
+    _today(db, owner, account, now, spend=3_000, leads=0)
+    assert run_guard(db, owner=owner, now=now) == 0
+    assert _rows(db) == [] and _pauses(db) == []
+
+
+def test_a_day_s_budget_with_nothing_back_warns_a_new_group(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.agent.guard_copy import guard_body
+
+    owner, account, now = _new_group(client, db, hours_on=30)
+    # The first day's money counts toward the day's budget.
+    _figures(db, owner=owner, account=account, back=1, spend=3_000, leads=0, now=now)
+    _today(db, owner, account, now, spend=1_999, leads=0)
+    assert run_guard(db, owner=owner, now=now) == 0
+
+    _today(db, owner, account, now, spend=2_000, leads=0)
+    assert run_guard(db, owner=owner, now=now) == 1
+    (row,) = _rows(db)
+    assert (row.kind, row.action, row.step, row.advice) == (
+        "fruitless", "warn", 1, "pause",
+    )  # fmt: skip
+    assert row.figures["usual_cost_minor"] is None
+    assert row.figures["day_budget_minor"] == 5_000
+    with override("uz"):
+        body = guard_body(row)
+    assert "Kunlik byudjet: $50" in body
+    assert "3 kun o'tib ham natija bo'lmasa" in body
+    assert _pauses(db) == []
+    # Said once: the same finding half an hour later changes nothing.
+    assert run_guard(db, owner=owner, now=now) == 0
+
+
+def test_three_days_on_with_no_result_ever_is_stopped(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.agent.guard_copy import guard_body, guard_title
+
+    owner, account, now = _new_group(client, db, hours_on=48)
+    _today(db, owner, account, now, spend=5_000, leads=0)
+    assert run_guard(db, owner=owner, now=now) == 1
+    assert _pauses(db) == []
+
+    now = _later(db, account, now, 25)
+    _today(db, owner, account, now, spend=5_000, leads=0)
+    assert run_guard(db, owner=owner, now=now) == 1
+    (row,) = _rows(db)
+    assert (row.kind, row.action, row.step) == ("fruitless", "stop", 2)
+    (log,) = _pauses(db)
+    assert log.request_payload[GUARD_STOP_MARK]["kind"] == "fruitless"
+    with override("uz"):
+        assert "To'xtatdim" in guard_title(row)
+        assert "yoqilganiga 3 kun bo'ldi" in guard_body(row)
+
+
+def test_leave_holds_the_stop_back_for_three_days(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.agent.services.answer_guard import answer_guard
+
+    owner, account, now = _new_group(client, db, hours_on=48)
+    _today(db, owner, account, now, spend=5_000, leads=0)
+    run_guard(db, owner=owner, now=now)
+    (row,) = _rows(db)
+    answered = now
+    answer_guard(db, user=owner, alert_id=str(row.id), answer="leave", now=answered)
+    db.commit()
+
+    # Three days on: it would be stopped, and the owner said to leave it.
+    now = _later(db, account, now, 25)
+    _today(db, owner, account, now, spend=5_000, leads=0)
+    assert run_guard(db, owner=owner, now=now) == 1
+    (row,) = _rows(db)
+    assert (row.action, row.step, row.answer) == ("warn", 2, "leave")
+    # Nothing new to say or to show: the owner has answered it.
+    assert row.said_step == 2 and open_guard_alerts(db, owner=owner) == []
+    assert _pauses(db) == []
+    assert run_guard(db, owner=owner, now=now) == 0
+
+    # Three days after the answer the stop is the guard's again.
+    now = _later(db, account, answered, 73)
+    _today(db, owner, account, now, spend=5_000, leads=0)
+    assert run_guard(db, owner=owner, now=now) == 1
+    (row,) = _rows(db)
+    assert (row.action, row.step) == ("stop", 2)
+    # The stop is still to be said, though its step was passed in silence.
+    assert row.said_step < row.step
+    assert len(_pauses(db)) == 1
+
+
+def test_a_new_group_built_elsewhere_is_never_stopped(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    owner, account, now = _new_group(client, db, hours_on=100, launched_here=False)
+    _today(db, owner, account, now, spend=5_000, leads=0)
+    assert run_guard(db, owner=owner, now=now) == 1
+    (row,) = _rows(db)
+    assert (row.action, row.step) == ("warn", 1)
+    assert _pauses(db) == []
+
+
+def test_a_new_group_is_held_against_its_own_first_results(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.agent.guard_copy import guard_body
+
+    owner, account, now = _new_group(client, db, hours_on=100)
+    # Three leads at $2 on its second day: the price of its own start.
+    _figures(db, owner=owner, account=account, back=2, spend=600, leads=3, now=now)
+    # Five of those prices for a lead today: said, never stopped for.
+    _today(db, owner, account, now, spend=3_000, leads=3)
+    assert run_guard(db, owner=owner, now=now) == 1
+    (row,) = _rows(db)
+    assert (row.kind, row.action, row.step) == ("price", "warn", 5)
+    assert row.figures["usual_source"] == "start"
+    assert row.figures["usual_cost_minor"] == 200
+    with override("uz"):
+        body = guard_body(row)
+    assert "Shu reklamaning o'zida" in body and "o'zim to'xtataman" not in body
+    assert _pauses(db) == []
+
+
+def test_a_new_group_is_stopped_for_three_of_its_own_prices_with_nothing_back(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    owner, account, now = _new_group(client, db, hours_on=100)
+    _figures(db, owner=owner, account=account, back=2, spend=600, leads=3, now=now)
+    # The dry day after is judged, and is not part of the price it is held to.
+    _figures(db, owner=owner, account=account, back=1, spend=400, leads=0, now=now)
+    _today(db, owner, account, now, spend=199, leads=0)
+    assert run_guard(db, owner=owner, now=now) == 0
+
+    _today(db, owner, account, now, spend=200, leads=0)
+    assert run_guard(db, owner=owner, now=now) == 1
+    (row,) = _rows(db)
+    assert (row.kind, row.action) == ("fruitless", "stop")
+    assert row.figures["usual_source"] == "start"
+    assert len(_pauses(db)) == 1

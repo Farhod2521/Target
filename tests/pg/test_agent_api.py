@@ -229,6 +229,11 @@ def test_the_readers_over_a_launched_group_with_figures(
     # has no line of its own about them any more.
     watch = watched_groups(db, owner=user, accounts=[account], now=now)
     assert watch == []
+    # A lead group is the half-hourly guard's, priced or not: the agent's
+    # own stop keeps only the kinds the guard does not read.
+    assert stop_candidates(db, owner=user, now=now) == []
+    group.optimization_goal_raw = "AD_RECALL_LIFT"
+    db.commit()
     stops = stop_candidates(db, owner=user, now=now)
     assert [row.group.adset_id for row in stops] == ["s_1"]
     assert stops[0].group.spend_minor > 0 and stops[0].results_ever == 0
