@@ -22,7 +22,7 @@ from app.modules.ads.models import CampaignLaunch, LaunchCreative
 from app.modules.ads.selectors.cards import variant_card
 from app.modules.ads.services import library
 from app.modules.audit.constants import ActionStatus, ActionType
-from app.modules.audit.models import ActionLog
+from app.modules.audit.models import ActionLog, ErrorEvent
 from app.modules.chat.constants import REFUSAL_OPERATION_LABELS
 from app.modules.chat.models import RefusalAnswer
 from app.modules.chat.services.explain import explain_action
@@ -216,6 +216,54 @@ def test_a_refused_file_keeps_why_for_the_screen_that_reads_it_later(
     assert row.upload_refusal["explaining"] is True
     assert variant_card(row, now=utcnow())["upload_refusal"] == row.upload_refusal
     assert len(_explaining(queued)) == 1
+    # Meta's refusal under the word the boards read, its raw code in the
+    # message; not ours, so no fault.
+    db.refresh(log)
+    assert log.error_code == "refused"
+    assert log.error_message.startswith("[100] ")
+    assert db.scalar(select(ErrorEvent.id)) is None
+
+
+def test_a_file_of_ours_that_would_not_open_is_the_developers(
+    db: Session, queued: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner, account = _owner(db)
+    launch = CampaignLaunch(
+        owner_id=owner.id, ad_account_id=account.id, provider="meta", status="ready"
+    )
+    db.add(launch)
+    db.flush()
+    row = LaunchCreative(
+        owner_id=owner.id,
+        launch_id=launch.id,
+        media_upload="launch/file.jpg",
+        library_upload=str(LibraryUpload.PENDING),
+    )
+    log = ActionLog(
+        owner_id=owner.id,
+        action=str(ActionType.MEDIA_UPLOAD),
+        target_provider="meta",
+        status=str(ActionStatus.PENDING),
+    )
+    db.add_all([row, log])
+    db.commit()
+    monkeypatch.setattr(
+        library, "launch_account_and_token", lambda *_, **__: (account, "t")
+    )
+
+    def send(*_: Any, **__: Any) -> None:
+        raise FileNotFoundError("launch/file.jpg")
+
+    monkeypatch.setattr(library, "_send", send)
+
+    assert library.upload_to_library(db, creative_id=row.id, log_id=log.id) == "failed"
+
+    db.refresh(log)
+    assert log.error_code == "unknown"
+    fault = db.scalars(select(ErrorEvent)).one()
+    assert fault.where == "ads.library.upload_to_library"
+    assert "FileNotFoundError" in fault.trace
+    assert log.result_payload["fault"] == fault.reference
 
 
 def test_every_operation_is_named_for_the_office_and_used_somewhere() -> None:

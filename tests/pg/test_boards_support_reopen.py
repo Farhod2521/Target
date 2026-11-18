@@ -98,7 +98,7 @@ def test_the_clients_own_refused_press_does_not_reopen_a_closed_ticket(
             status="failed",
             error_code="200",
             error_message="Meta refused",
-            created_at=utcnow() - timedelta(minutes=1),
+            created_at=utcnow() - timedelta(minutes=40),
         )
     )
     db.commit()
@@ -115,7 +115,8 @@ def test_the_clients_own_refused_press_does_not_reopen_a_closed_ticket(
     # Noted once: the next sweep does not meet it again.
     assert triggers.sweep_support(db, now=utcnow()) == 0
 
-    # The same press while the ticket is open is a reason on it, as before.
+    # A press refused for another reason while the ticket is open is a
+    # reason on it, as before (the same one again that day is not).
     ticket.column_code = "in_progress"
     db.commit()
     db.add(
@@ -128,9 +129,9 @@ def test_the_clients_own_refused_press_does_not_reopen_a_closed_ticket(
             target_provider=PROVIDER,
             idempotency_key=uuid.uuid4().hex,
             status="failed",
-            error_code="200",
+            error_code="account_blocked",
             error_message="Meta refused",
-            created_at=utcnow(),
+            created_at=utcnow() - timedelta(minutes=40),
         )
     )
     db.commit()

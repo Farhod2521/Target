@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from app.common.db import utcnow
 from app.modules.accounts.models import Group, User, UserGroup
 from app.modules.ads.models import CampaignLaunch
-from app.modules.ads.services import creation
+from app.modules.ads.services.faults import launch_fault
+from app.modules.audit.models import ErrorEvent
 from app.modules.backoffice.constants import ActionKind, Role
 from app.modules.backoffice.models import StaffAction
 from app.modules.backoffice.permissions import has_role, roles_of
@@ -23,15 +24,16 @@ from app.modules.integrations.models import (
 from app.modules.notifications import selectors as chats
 from app.modules.notifications.models import StaffChat
 from app.modules.notifications.services import (
+    alert_fault,
     dev_alerts,
     handle_staff_update,
-    report_launch_failure,
 )
 from tests.pg.test_office_actions import _bearer, _shop, _staff
 from tests.pg.test_office_telegram import FakeBot, _text, fake  # noqa: F401
 
 TEAM = "/api/v1/office/team"
 BOT = "/api/v1/office/telegram"
+FAULTS = "/api/v1/office/faults"
 
 
 def _kinds(db: Session, member: User) -> list[str]:
@@ -412,64 +414,146 @@ def engineer_chat(
     return fake
 
 
-def test_a_failed_launch_reaches_the_developers_once_an_hour(
-    db: Session, engineer_chat: FakeBot
+def _fault(db: Session, launch: CampaignLaunch, *, code: str = "unknown") -> str:
+    try:
+        raise KeyError("geo_locations <bad>")
+    except KeyError as exc:
+        return launch_fault(
+            db, launch, code=code, message=str(exc), where="ads.creation", exc=exc
+        )
+
+
+def test_our_fault_reaches_the_developers_once_an_hour_with_its_log(
+    db: Session,
+    engineer_chat: FakeBot,
+    queued: list[tuple[str, tuple[object, ...]]],
 ) -> None:
-    launch = _failed(db, error_detail={"title": "Xato", "message": "Joy noto'g'ri"})
+    launch = _failed(db)
+    reference = _fault(db, launch)
+    assert len(reference) == 6
+    db.refresh(launch)
+    assert launch.error_detail["fault"] == reference
+    event = db.scalar(select(ErrorEvent).where(ErrorEvent.reference == reference))
+    assert event is not None
+    assert event.context["launch_id"] == str(launch.id)
+    assert event.context["ad_account"]["external_id"] == "act_1"
+    assert "KeyError" in event.trace
+    assert any(name.endswith("deliver_fault_task") for name, _ in queued)
 
-    assert report_launch_failure(db, launch_id=str(launch.id)) == 1
-    assert report_launch_failure(db, launch_id=str(launch.id)) == 0
+    assert alert_fault(db, event_id=str(event.id)) == 1
+    assert alert_fault(db, event_id=str(event.id)) == 0
 
-    assert [fields["chat_id"] for _, fields in engineer_chat.calls] == ["800"]
+    assert {fields["chat_id"] for _, fields in engineer_chat.calls} == {"800"}
     text = engineer_chat.texts()[0]
-    assert "Reklama yaratilmadi" in text
+    assert "Tizim xatosi" in text
+    assert reference in text
     assert "geo_locations &lt;bad&gt;" in text
     assert "Asosiy &lt;kabinet&gt;" in text
-    assert "Xato — Joy noto'g'ri" in text
+    assert f"/ofis/muhandis/?havola={reference}" in text
     assert f"/ofis/mijozlar/{launch.owner_id}/reklama/{launch.id}/" in text
+    log = engineer_chat.calls[-1]
+    assert log[0] == "send_document"
+    assert log[1]["filename"] == f"xato_{reference}.txt"
+    assert b"Traceback" in log[1]["content"]
+    assert b"act_1" in log[1]["content"]
+
+
+def test_the_same_fault_again_counts_on_the_one_row(
+    db: Session, queued: list[tuple[str, tuple[object, ...]]]
+) -> None:
+    launch = _failed(db)
+    first = _fault(db, launch)
+    assert _fault(db, launch) == first
+    event = db.scalar(select(ErrorEvent).where(ErrorEvent.reference == first))
+    assert event is not None
+    assert event.seen == 2
+
+
+def test_a_meta_refusal_is_not_the_developers(
+    db: Session, queued: list[tuple[str, tuple[object, ...]]]
+) -> None:
+    launch = _failed(db)
+    for code in ("refused", "payment_missing", "temporary", "site_missing"):
+        assert _fault(db, launch, code=code) == ""
+    assert db.scalar(select(ErrorEvent.id)) is None
+    assert queued == []
 
 
 def test_a_trace_file_goes_with_the_report(
     db: Session,
     engineer_chat: FakeBot,
+    queued: list[tuple[str, tuple[object, ...]]],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     launch = _failed(db)
+    reference = _fault(db, launch)
     trace = tmp_path / f"2026_{str(launch.id)[:8]}.md"
     trace.write_text("izoh")
     monkeypatch.setattr(dev_alerts, "launch_trace", lambda *, launch_id: trace)
+    event = db.scalar(select(ErrorEvent).where(ErrorEvent.reference == reference))
+    assert event is not None
 
-    report_launch_failure(db, launch_id=str(launch.id))
+    alert_fault(db, event_id=str(event.id))
 
     assert engineer_chat.calls[-1][0] == "send_document"
     assert engineer_chat.calls[-1][1]["content"] == b"izoh"
 
 
-def test_a_launch_retried_since_is_not_reported(
-    db: Session, engineer_chat: FakeBot
+def test_a_settled_fault_is_not_reported(
+    db: Session,
+    engineer_chat: FakeBot,
+    queued: list[tuple[str, tuple[object, ...]]],
 ) -> None:
-    launch = _failed(db, status="created")
+    launch = _failed(db)
+    reference = _fault(db, launch)
+    event = db.scalar(select(ErrorEvent).where(ErrorEvent.reference == reference))
+    assert event is not None
+    event.resolved_at = utcnow()
+    db.commit()
 
-    assert report_launch_failure(db, launch_id=str(launch.id)) == 0
+    assert alert_fault(db, event_id=str(event.id)) == 0
     assert engineer_chat.calls == []
 
 
-def test_the_failure_hook_queues_the_report(
+def test_the_developer_page_lists_reads_and_settles_a_fault(
+    client: TestClient,
+    db: Session,
     queued: list[tuple[str, tuple[object, ...]]],
 ) -> None:
-    from app.common import hooks
+    launch = _failed(db)
+    reference = _fault(db, launch)
+    _, engineer = _staff(db, Role.ENGINEER, email="dev@x.co")
+    _, support = _staff(db, Role.SUPPORT, email="sup@x.co")
+    _, boss = _staff(db, email="boss@x.co", superuser=True)
 
-    hooks.fire(creation.LAUNCH_FAILED_HOOK, launch_id="abc")
+    assert client.get(FAULTS, headers=support).status_code == 404
+    listed = client.get(FAULTS, headers=engineer).json()
+    assert [row["ref"] for row in listed] == [reference]
+    assert listed[0]["title"] == "Reklama yaratish — kutilmagan xato"
+    assert listed[0]["times"] == 1
+    shown = client.get(f"{FAULTS}/{reference.lower()}", headers=boss).json()
+    assert shown["kind"] == "unknown"
+    assert shown["url"] == f"launch:{launch.id}"
+    assert "KeyError" in shown["stack"]
+    assert "act_1" in shown["stack"]
+    assert shown["settled"] is False
+    assert shown["stack"].startswith("Xato: [unknown] ")
+    assert shown["shown"] == ""
 
-    assert any(
-        name.endswith("deliver_launch_failure_task") and args == ("abc",)
-        for name, args in queued
+    assert (
+        client.post(f"{FAULTS}/{reference}/settle", headers=engineer).status_code == 204
     )
+    assert client.get(FAULTS, headers=engineer).json() == []
+    assert client.get(f"{FAULTS}/{reference}", headers=boss).json()["settled"] is True
+    assert client.get(f"{FAULTS}/ZZZZZZ", headers=boss).status_code == 404
 
 
 def test_someone_taken_off_the_staff_gets_nothing_more(
-    client: TestClient, db: Session, engineer_chat: FakeBot
+    client: TestClient,
+    db: Session,
+    engineer_chat: FakeBot,
+    queued: list[tuple[str, tuple[object, ...]]],
 ) -> None:
     _, headers = _staff(db, Role.OWNER, email="o@x.co")
     chat = db.scalar(select(StaffChat).where(StaffChat.chat_id == "800"))
@@ -481,7 +565,10 @@ def test_someone_taken_off_the_staff_gets_nothing_more(
         row for row in db.scalars(select(StaffChat)) if row.chat_id == "801"
     ]
     launch = _failed(db)
-    assert report_launch_failure(db, launch_id=str(launch.id)) == 0
+    reference = _fault(db, launch)
+    event = db.scalar(select(ErrorEvent).where(ErrorEvent.reference == reference))
+    assert event is not None
+    assert alert_fault(db, event_id=str(event.id)) == 0
 
 
 def test_only_the_superuser_gives_and_takes_the_owner_role(

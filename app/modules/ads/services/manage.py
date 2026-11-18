@@ -208,8 +208,18 @@ def close_stalled_changes(db: Session, *, now: datetime) -> int:
             ActionLog.created_at < now - timedelta(minutes=ACTION_STALE_MINUTES),
         )
     ).all()
+    from app.modules.ads.services.faults import action_fault
+
     for log in rows:
-        fail_log(db, log=log, code="stalled", message="no worker carried it out")
+        said = f"no worker carried it out in {ACTION_STALE_MINUTES} min"
+        fail_log(db, log=log, code="stalled", message=said)
+        action_fault(
+            db,
+            log,
+            code="stalled",
+            message=said,
+            where="ads.manage.close_stalled_changes",
+        )
     return len(rows)
 
 

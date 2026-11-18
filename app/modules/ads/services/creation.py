@@ -20,7 +20,6 @@ from sqlalchemy import update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.common import hooks
 from app.common.cache import cache
 from app.common.config import settings
 from app.common.db import on_commit, utcnow
@@ -133,10 +132,8 @@ from core.targeting.gate import validate_launchable
 
 logger = logging.getLogger(__name__)
 
-QUIET_RESULTS = frozenset({"created", "gone", "not_creating"})
 RUN_LOCK_PREFIX: Final = "launch-run:"
 RUN_LOCK_SECONDS: Final = 30 * 60
-LAUNCH_FAILED_HOOK: Final = "ads.launch_failed"
 WAITING: Final = "waiting"
 LATE_NOTE: Final = "Meta hozir javob bermadi."
 FAILURE_CODES: Final[dict[str, str]] = {
@@ -303,8 +300,6 @@ def create_campaign(db: Session, *, launch_id: UUID | str) -> str:
         result = _create(db, launch_id=launch_id)
     finally:
         cache.delete(key)
-    if result not in QUIET_RESULTS:
-        hooks.fire(LAUNCH_FAILED_HOOK, launch_id=str(launch_id))
     return result
 
 
@@ -507,6 +502,7 @@ def _run(
             message=str(exc),
             detail={**_detail_for(exc), SENT_KEY: sent},
             trace=trace,
+            exc=exc,
         )
     except Exception as exc:
         db.rollback()
@@ -521,6 +517,7 @@ def _run(
             code="unknown",
             message=str(exc),
             trace=trace,
+            exc=exc,
         )
     _succeed(db, launch=launch, log_id=log, account=account, dry_run=dry_run)
     return "created"
@@ -588,6 +585,7 @@ def _undo(
     message: str,
     detail: dict[str, Any] | None = None,
     trace: Any = None,
+    exc: BaseException | None = None,
 ) -> str:
     """Write the failure down, then delete whatever got created."""
     from app.modules.ads.services.rollback import rollback_launch
@@ -597,7 +595,7 @@ def _undo(
     watch.inputs("sabab", {"code": code, "message": message})
     fail_log(db, log_id=log_id, code=code, message=message)
     db.refresh(launch)
-    _fail(db, launch, code=code, message=message, detail=detail)
+    _fail(db, launch, code=code, message=message, detail=detail, exc=exc)
     if not launch.created_refs:
         watch.note("Provayderda hech narsa yaratilmagan - o'chiradigan narsa yo'q.")
         return code
@@ -691,8 +689,12 @@ def _fail(
     code: str,
     message: str = "",
     detail: dict[str, Any] | None = None,
+    exc: BaseException | None = None,
 ) -> str:
-    """Move the row out of CREATING and say why, in a code and in words."""
+    """Move the row out of CREATING and say why, in a code and in words. Our
+    own fault is kept for the Developers too."""
+    from app.modules.ads.services.faults import launch_fault
+
     launch.status = str(LaunchStatus.FAILED)
     launch.progress = 0
     launch.error_code = code[:32]
@@ -701,6 +703,7 @@ def _fail(
     launch.finished_at = utcnow()
     db.commit()
     logger.warning("launch %s could not be created: %s - %s", launch.id, code, message)
+    launch_fault(db, launch, code=code, message=message, where="ads.creation", exc=exc)
     _explain_later(db, launch)
     return code
 
