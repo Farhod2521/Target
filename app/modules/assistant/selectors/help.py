@@ -122,7 +122,7 @@ def help_found(db: Session, *, query: str, language: str) -> list[Found]:
     return ranked(
         [
             *_articles(db, language=language),
-            *_lessons(db),
+            *_lessons(db, language=language),
             *_launches(),
             *_troubles(),
             *_guides(),
@@ -223,24 +223,40 @@ def _articles(db: Session, *, language: str) -> list[Found]:
     return found
 
 
-def _lessons(db: Session) -> list[Found]:
+def _lessons(db: Session, *, language: str) -> list[Found]:
+    """Each lesson in the reader's language (else its first written one),
+    found by its words in any language."""
+    from app.modules.tutorials.constants import TutorialLanguage
     from app.modules.tutorials.models import Tutorial
 
     rows = db.scalars(select(Tutorial).where(Tutorial.is_active.is_(True)))
-    return [
-        Found(
-            shelf="a video lesson in the cabinet's Darsliklar",
-            problem=row.title,
-            steps=tuple(
-                line.strip()
-                for line in (row.description or "").splitlines()
-                if line.strip()
+    found: list[Found] = []
+    for row in rows:
+        shown = row.language_for(language)
+        written = row.languages
+        found.append(
+            Found(
+                shelf="a video lesson in the cabinet's Darsliklar",
+                problem=row.part("title", shown),
+                steps=tuple(
+                    line.strip()
+                    for line in row.part("description", shown).splitlines()
+                    if line.strip()
+                )
+                or (_OPEN_LESSON.get(shown, _OPEN_LESSON[TutorialLanguage.UZ]),),
+                keywords=" ".join(row.part("title", other) for other in written),
+                body=" ".join(row.part("description", other) for other in written),
+                lesson_id=str(row.id),
             )
-            or ("Darsliklar bo'limida shu nomdagi videoni oching.",),
-            lesson_id=str(row.id),
         )
-        for row in rows
-    ]
+    return found
+
+
+_OPEN_LESSON: Final = {
+    "uz": "Darsliklar bo'limida shu nomdagi videoni oching.",
+    "ru": "Откройте видео с этим названием в разделе «Уроки».",
+    "en": "Open the video with this title in the Lessons section.",
+}
 
 
 # What people call each kind of trouble, in the three languages: the answers

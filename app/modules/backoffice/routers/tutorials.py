@@ -10,16 +10,25 @@ then the create or the edit names ``video_upload_id``, ``video_size`` and
 ``remove_video``. ``status`` true shows it in the cabinet. ``places`` is
 sent once per screen the lesson shows on (``places=crm&places=leads``); one
 empty ``places`` clears them, and an edit without the field keeps them.
+
+Languages: ``title``, ``description``, ``video_url``, ``image``,
+``remove_image``, ``video_upload_id``, ``video_size``, ``video_name`` and
+``remove_video`` are the Uzbek lesson; the same names ending in ``_ru`` and
+``_en`` are the Russian and the English one, each with its own cover and
+video. At least one language is written; one sent empty (its files removed)
+is dropped. A refusal names the field with its ending (``title_ru``). The
+cabinet shows a reader's own language, else the first written of uz, ru, en.
 """
 
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, Header, Query, Request
 from fastapi import status as http
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.datastructures import UploadFile
 
 from app.api.deps import Db
 from app.common import storage
@@ -32,12 +41,19 @@ from app.modules.backoffice.schemas import CreatedOut, MessageOut
 from app.modules.tutorials import services
 from app.modules.tutorials.constants import (
     UPLOAD_CHUNK_BYTES,
+    TutorialLanguage,
     TutorialPlace,
     TutorialType,
 )
 from app.modules.tutorials.exceptions import TutorialNotFound
 from app.modules.tutorials.models import Tutorial
-from app.modules.tutorials.routers import place_choices, tutorial_out, type_choices
+from app.modules.tutorials.models.tutorial import column
+from app.modules.tutorials.routers import (
+    language_choices,
+    place_choices,
+    tutorial_out,
+    type_choices,
+)
 from app.modules.tutorials.selectors import tutorial_by_id, tutorial_page
 
 router = APIRouter(prefix="/tutorials")
@@ -49,11 +65,31 @@ class StatusIn(BaseModel):
 
 
 def _out(row: Tutorial, *, user: User) -> dict[str, Any]:
+    """The lesson as the cabinet's Uzbek reader sees it, and under
+    ``versions`` every language as written (``null``: not written)."""
+    now = utcnow()
+    shown = row.language_for(TutorialLanguage.UZ)
+    versions: dict[str, Any] = {}
+    for language in TutorialLanguage.values:
+        if language not in row.languages:
+            versions[language] = None
+            continue
+        own = tutorial_out(row, wanted=language, user=user, office=True, now=now)
+        versions[language] = {
+            "title": own["title"],
+            "description": own["description"],
+            "video_url": row.part("video_url", language),
+            "has_video_file": bool(row.part("video_file", language)),
+            "has_image": bool(row.part("image", language)),
+            "image_url": own["image_url"] if row.part("image", language) else None,
+            "video": own["video"],
+        }
     return {
-        **tutorial_out(row, user=user, office=True, now=utcnow()),
+        **tutorial_out(row, wanted=shown, user=user, office=True, now=now),
         "status": row.is_active,
-        "video_url": row.video_url,
-        "has_video_file": bool(row.video_file),
+        "video_url": row.part("video_url", shown),
+        "has_video_file": bool(row.part("video_file", shown)),
+        "versions": versions,
     }
 
 
@@ -71,6 +107,72 @@ def _video(
         return None
     return services.assembled_video(
         staff_id=actor.id, upload_id=upload_id, total=size, name=name
+    )
+
+
+def _flag(value: Any) -> bool:
+    return str(value or "").strip().lower() in ("true", "1", "on", "yes")
+
+
+async def _versions(request: Request) -> dict[str, dict[str, Any]]:
+    """Each language's fields from the form, by the names in the docstring."""
+    form = await request.form()
+    versions: dict[str, dict[str, Any]] = {}
+    for language in TutorialLanguage.values:
+
+        def field(name: str, language: str = language) -> Any:
+            return form.get(column(name, language))
+
+        image = field("image")
+        size = str(field("video_size") or "0").strip()
+        versions[language] = {
+            "title": str(field("title") or ""),
+            "description": str(field("description") or ""),
+            "video_url": str(field("video_url") or ""),
+            "image": image
+            if isinstance(image, UploadFile) and image.filename
+            else None,
+            "remove_image": _flag(field("remove_image")),
+            "upload_id": str(field("video_upload_id") or ""),
+            "size": int(size) if size.isdigit() else 0,
+            "name": str(field("video_name") or ""),
+            "remove_video": _flag(field("remove_video")),
+        }
+    return versions
+
+
+Versions = Annotated[dict[str, dict[str, Any]], Depends(_versions)]
+
+
+def _body(
+    actor: User,
+    *,
+    type: str,
+    status: bool,
+    places: list[str] | None,
+    versions: dict[str, dict[str, Any]],
+) -> services.TutorialIn:
+    return services.TutorialIn(
+        type=type,
+        is_active=status,
+        places=_places(places),
+        versions={
+            language: services.VersionIn(
+                title=sent["title"],
+                description=sent["description"],
+                video_url=sent["video_url"],
+                image=sent["image"],
+                video=_video(
+                    actor,
+                    upload_id=sent["upload_id"],
+                    size=sent["size"],
+                    name=sent["name"],
+                ),
+                remove_image=sent["remove_image"],
+                remove_video=sent["remove_video"],
+            )
+            for language, sent in versions.items()
+        },
     )
 
 
@@ -118,6 +220,7 @@ def tutorials(
         "has_more": page.has_more,
         "types": type_choices(),
         "places": place_choices(),
+        "languages": language_choices(),
     }
 
 
@@ -167,29 +270,13 @@ async def upload_chunk(
 def create_tutorial(
     db: Db,
     actor: Admin,
-    title: Annotated[str, Form()] = "",
+    versions: Versions,
     type: Annotated[str, Form()] = "",
     places: Annotated[list[str] | None, Form()] = None,
-    description: Annotated[str, Form()] = "",
-    video_url: Annotated[str, Form()] = "",
     status: Annotated[bool, Form()] = False,
-    image: Annotated[UploadFile | None, File()] = None,
-    video_upload_id: Annotated[str, Form()] = "",
-    video_size: Annotated[int, Form()] = 0,
-    video_name: Annotated[str, Form()] = "",
 ) -> dict[str, Any]:
-    body = services.TutorialIn(
-        title=title,
-        type=type,
-        places=_places(places),
-        description=description,
-        video_url=video_url,
-        is_active=status,
-        image=image,
-        video=_video(
-            actor, upload_id=video_upload_id, size=video_size, name=video_name
-        ),
-    )
+    """Fields per language as the module's docstring names them."""
+    body = _body(actor, type=type, status=status, places=places, versions=versions)
     saved = services.save_tutorial(db, body=body, row=None, actor=actor)
     _committed(db, saved)
     return {"message": "Video darslik qo'shildi.", "id": str(saved.row.id)}
@@ -200,35 +287,14 @@ def update_tutorial(
     tutorial_id: uuid.UUID,
     db: Db,
     actor: Admin,
-    title: Annotated[str, Form()] = "",
+    versions: Versions,
     type: Annotated[str, Form()] = "",
     places: Annotated[list[str] | None, Form()] = None,
-    description: Annotated[str, Form()] = "",
-    video_url: Annotated[str, Form()] = "",
     status: Annotated[bool, Form()] = False,
-    image: Annotated[UploadFile | None, File()] = None,
-    remove_image: Annotated[bool, Form()] = False,
-    video_upload_id: Annotated[str, Form()] = "",
-    video_size: Annotated[int, Form()] = 0,
-    video_name: Annotated[str, Form()] = "",
-    remove_video: Annotated[bool, Form()] = False,
 ) -> dict[str, Any]:
-    """Every field as it should be now. No ``image`` and no upload keep the
-    files there."""
-    body = services.TutorialIn(
-        title=title,
-        type=type,
-        places=_places(places),
-        description=description,
-        video_url=video_url,
-        is_active=status,
-        image=image,
-        video=_video(
-            actor, upload_id=video_upload_id, size=video_size, name=video_name
-        ),
-        remove_image=remove_image,
-        remove_video=remove_video,
-    )
+    """Every field as it should be now. No image and no upload of a
+    language keep its files there."""
+    body = _body(actor, type=type, status=status, places=places, versions=versions)
     saved = services.save_tutorial(
         db, body=body, row=_row(db, tutorial_id), actor=actor
     )

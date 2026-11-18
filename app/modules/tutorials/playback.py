@@ -29,6 +29,7 @@ from app.modules.tutorials.constants import (
     PLAY_TOKEN_HOURS,
     STREAM_PIECE_BYTES,
     VIDEO_TYPES,
+    TutorialLanguage,
 )
 from app.modules.tutorials.exceptions import TutorialNotFound
 from app.modules.tutorials.models import Tutorial
@@ -82,30 +83,42 @@ def playable(db: Session, *, token: str, tutorial_id: uuid.UUID) -> Tutorial:
 
 
 def links(
-    row: Tutorial, *, user: User, office: bool, now: datetime, base: str
+    row: Tutorial,
+    *,
+    user: User,
+    office: bool,
+    now: datetime,
+    base: str,
+    language: str = TutorialLanguage.UZ,
 ) -> dict[str, Any]:
-    """The cover and the video as the frontend draws them.
+    """The cover and the video of one language as the frontend draws them.
 
     ``video.kind`` is ``youtube`` (show ``embed_url`` in an iframe), ``link``
     (another site: open or embed ``url``) or ``file`` (``stream_url`` in a
-    ``<video>`` tag, which asks for the pieces by itself).
+    ``<video>`` tag, which asks for the pieces by itself). A language with
+    no cover of its own shows another language's.
     """
+    image_language, image = row.file_for("image", language)
+    video_file = row.part("video_file", language)
     token = (
         issue(user=user, tutorial=row, office=office, now=now)
-        if row.image or row.video_file
+        if image or video_file
         else ""
     )
-    image_url = f"{base}/{row.id}/image?t={token}" if row.image else None
-    if row.video_file:
+    image_url = (
+        f"{base}/{row.id}/image?t={token}&lang={image_language}" if image else None
+    )
+    if video_file:
         video: dict[str, Any] = {
             "kind": "file",
-            "stream_url": f"{base}/{row.id}/video?t={token}",
+            "stream_url": f"{base}/{row.id}/video?t={token}&lang={language}",
         }
     else:
-        found = youtube_id(row.video_url)
+        url = row.part("video_url", language)
+        found = youtube_id(url)
         video = {
             "kind": "youtube" if found else "link",
-            "url": row.video_url,
+            "url": url,
             "embed_url": (
                 f"https://www.youtube-nocookie.com/embed/{found}" if found else None
             ),
@@ -113,8 +126,10 @@ def links(
     return {"image_url": image_url, "video": video}
 
 
-def image_response(row: Tutorial) -> Response:
-    path = storage.media_path(row.image) if row.image else None
+def image_response(row: Tutorial, *, language: str) -> Response:
+    """A link without a language (one given before languages) is Uzbek's."""
+    _, name = row.file_for("image", language)
+    path = storage.media_path(name) if name else None
     if path is None or not path.is_file():
         raise TutorialNotFound("Rasm topilmadi.")
     kind = _IMAGE_TYPES.get(path.suffix.lower().lstrip("."), "application/octet-stream")
@@ -142,8 +157,9 @@ def _span(header: str, size: int) -> tuple[int, int] | None:
     return start, min(end, size - 1, start + STREAM_PIECE_BYTES - 1)
 
 
-def video_response(row: Tutorial, *, range_header: str) -> Response:
-    path = storage.media_path(row.video_file) if row.video_file else None
+def video_response(row: Tutorial, *, language: str, range_header: str) -> Response:
+    _, name = row.file_for("video_file", language)
+    path = storage.media_path(name) if name else None
     if path is None or not path.is_file():
         raise TutorialNotFound("Video topilmadi.")
     size = path.stat().st_size
