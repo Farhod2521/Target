@@ -350,7 +350,8 @@ def test_a_campaign_budget_answers_for_the_groups_it_pays(
     client: TestClient, db: Session, queued: list, fake: Fake
 ) -> None:
     """Learning and the floor live on the group; a campaign holding the money
-    must obey both, or the budget lock would vanish with the budget's move."""
+    warns about the one and obeys the other, or both would vanish with the
+    budget's move."""
     _headers, _owner, campaign = _signed_in(client, db)
     campaign.daily_budget_minor = 5000
     group = campaign.adsets[0]
@@ -361,7 +362,8 @@ def test_a_campaign_budget_answers_for_the_groups_it_pays(
 
     controls = selectors.controls_for(target=campaign, level=ManagedLevel.CAMPAIGN)
 
-    assert controls.can_budget is False
+    assert controls.can_budget is True
+    assert controls.warns_learning is True
     assert controls.floor_minor == selectors.budget_floor(
         target=group, level=ManagedLevel.ADSET
     )

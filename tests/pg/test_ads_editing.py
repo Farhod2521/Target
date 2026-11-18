@@ -93,6 +93,43 @@ def _running(db: Session, owner: User, account: object) -> Campaign:
     return campaign
 
 
+def test_a_learning_groups_budget_is_open_and_only_warned(
+    client, db: Session, queued: list
+) -> None:  # type: ignore[no-untyped-def]
+    """Long past its launch and back in learning: the budget still saves,
+    and the dialog says what it costs instead of a bare lock."""
+    headers = sign_up(client)
+    owner = db.scalar(select(User).order_by(User.date_joined.desc()))
+    assert owner is not None
+    account, page = _cabinet(db, owner)
+    page.is_current = page.is_active = True
+    account.is_active = account.is_current = True
+    db.commit()
+    start_trial(db, user=owner, now=utcnow())
+    db.commit()
+    campaign = _running(db, owner, account)
+    group = db.scalar(select(AdSet).where(AdSet.external_id == "s_1"))
+    assert group is not None
+    group.is_learning = True
+    db.commit()
+
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers)
+    assert form.status_code == 200, form.text
+    assert form.json()["locks"]["budget"] is None
+    assert form.json()["learning"] is True
+
+    saved = client.post(
+        f"/api/v1/campaigns/{campaign.id}/edit",
+        json={"budget": {"daily_budget": "15"}},
+        headers=headers,
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["queued"] == ["budget"]
+
+    log = db.scalar(select(ActionLog))
+    assert log is not None and log.request_payload["daily_budget_minor"] == 1500
+
+
 def test_edit_a_campaigns_settings_and_an_adverts_words(
     client, db: Session, queued: list
 ) -> None:  # type: ignore[no-untyped-def]
