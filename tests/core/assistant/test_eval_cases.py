@@ -15,6 +15,8 @@ PLANNED = {
     "wants-an-operator",
     "advert-not-created",
     "built-in-ads-manager",
+    "no-answer-reported",
+    "answered-not-reported",
 }
 
 

@@ -195,5 +195,40 @@
       "mahsulot",
       "yaratishgan"
     ]
+  },
+  {
+    "id": "no-answer-reported",
+    "question": "Reklamamni eski reklama akkauntimdan yangisiga ko'chirib bera olasizmi?",
+    "note": "Nothing moves a campaign between ad accounts and no fix is written: the team is told (report_gap), the person is not, and the answer says plainly it cannot be done here.",
+    "context": "## Business\n- Name: Osh markazi\n- Currency: USD",
+    "tools": {
+      "help_search": "nothing found - there is no written fix for this."
+    },
+    "must_call": [
+      "report_gap"
+    ],
+    "forbidden": [
+      "report_gap",
+      "jamoaga xabar",
+      "qayd etdim"
+    ]
+  },
+  {
+    "id": "answered-not-reported",
+    "question": "Lidlar Telegram guruhimga kelmayapti",
+    "note": "A written fix is found and given: nothing is missing, so nothing is reported.",
+    "context": "## Business\n- Name: Osh markazi\n- Currency: USD",
+    "tools": {
+      "help_search": "## Lidlar Telegram guruhga kelmayapti (the team's article)\n1. «Mijozlar» sahifasini oching\n2. «Telegram» tugmasini bosing\n3. Botni guruhga admin qilib qo'shing"
+    },
+    "must_call": [
+      "help_search"
+    ],
+    "must_not_call": [
+      "report_gap"
+    ],
+    "required": [
+      "admin"
+    ]
   }
 ]

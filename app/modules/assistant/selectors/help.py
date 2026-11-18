@@ -204,8 +204,35 @@ def _articles(db: Session, *, language: str) -> list[Found]:
     )
     found: list[Found] = []
     for row in rows:
-        problem = getattr(row, f"problem_{code}") or row.problem_uz
-        steps = getattr(row, f"steps_{code}") or row.steps_uz
+        # The reader's language, else whichever the office has written.
+        problem = next(
+            (
+                words
+                for words in (
+                    getattr(row, f"problem_{code}"),
+                    row.problem_uz,
+                    row.problem_ru,
+                    row.problem_en,
+                )
+                if words
+            ),
+            "",
+        )
+        steps = next(
+            (
+                words
+                for words in (
+                    getattr(row, f"steps_{code}"),
+                    row.steps_uz,
+                    row.steps_ru,
+                    row.steps_en,
+                )
+                if words
+            ),
+            "",
+        )
+        if not (problem and steps):
+            continue
         found.append(
             Found(
                 shelf="the team's article",

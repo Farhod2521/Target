@@ -25,6 +25,9 @@ ADMIN_ROLES = (Role.SUPPORT, Role.FINANCE, Role.OWNER)
 MONEY_ROLES = (Role.FINANCE, Role.OWNER)
 FEEDBACK_ROLES = (Role.OWNER,)
 ANSWER_ROLES = (Role.SUPPORT, Role.OWNER)
+# The assistant's ready answers and the questions it could not answer:
+# Support writes the words, the Developers build what words cannot fix.
+AI_ANSWER_ROLES = (Role.SUPPORT, Role.OWNER, Role.ENGINEER)
 BLOCK_ROLES = (Role.SUPPORT, Role.OWNER)
 # Setting a customer's password (the superuser too).
 PASSWORD_ROLES = (Role.SUPPORT, Role.OWNER)

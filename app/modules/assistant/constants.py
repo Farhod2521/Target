@@ -56,6 +56,42 @@ class ButtonState:
     GONE = "gone"
 
 
+class GapStatus:
+    """Where a question the assistant could not answer has got to."""
+
+    OPEN = "open"
+    # A ready answer was written for it (``AssistantGap.article_id``).
+    ANSWERED = "answered"
+    # The office decided it needs nothing.
+    DISMISSED = "dismissed"
+
+
+GAP_KIND_LABELS: Final[dict[str, str]] = {
+    "answer": "Tayyor javob yo'q",
+    "tool": "Imkoniyat qo'shish kerak",
+}
+# The same question asked again is found among this many of the newest.
+GAP_COMPARE_ROWS: Final = 300
+# Share of a title's words two questions must have in common to be one.
+GAP_SAME_SHARE: Final = 0.6
+GAP_SAMPLES: Final = 5
+GAP_QUERIES: Final = 8
+GAP_QUESTION_CHARS: Final = 1000
+
+
+class Translation:
+    """The office's text on its way into the other languages."""
+
+    NONE = ""
+    TRANSLATING = "translating"
+    FAILED = "failed"
+
+
+TRANSLATION_PROMPT: Final = "office_translation"
+# A translation nobody finished is shown as failed after this long.
+TRANSLATION_STUCK_MINUTES: Final = 10
+
+
 class Mode:
     """Who the composer talks to by default in a thread."""
 
@@ -109,3 +145,5 @@ LOOKING: Final[dict[str, str]] = {
     "help_search": "Yechimlar bazasidan qidiryapman…",
     "create_ticket": "Mutaxassis uchun zayavka tayyorlayapman…",
 }
+RELATED_REFUSAL: Final = "refusal_answer"
+RELATED_ARTICLE: Final = "help_article"

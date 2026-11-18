@@ -594,6 +594,7 @@ def test_a_visitor_is_asked_for_a_phone_and_a_guest_chat_opens(
     assert {tool.name for tool in script.asked[0]["tools"]} == {
         "help_search",
         "create_ticket",
+        "report_gap",
     }
     assert "## A visitor" in script.asked[0]["system_tail"]
     last = _frames(client.get(f"{URL}/stream/{turn_id}").text)[-1]

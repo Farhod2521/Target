@@ -33,3 +33,6 @@ class HelpArticle(Base):
     keywords: Mapped[str] = mapped_column(Text, nullable=False, default="")
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # The other languages being written from the one the office saved:
+    # empty, ``translating`` or ``failed`` (``constants.Translation``).
+    translation: Mapped[str] = mapped_column(String(16), nullable=False, default="")

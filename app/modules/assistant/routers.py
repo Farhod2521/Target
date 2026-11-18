@@ -14,7 +14,7 @@ import json
 import time
 import uuid
 from datetime import datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import (
     APIRouter,
@@ -50,12 +50,13 @@ from app.modules.assistant.models import AssistantMessage, AssistantSession
 from app.modules.assistant.selectors import threads
 from app.modules.assistant.services import buttons, support
 from app.modules.assistant.services import threads as thread_service
-from app.modules.backoffice.constants import ANSWER_ROLES
+from app.modules.backoffice.constants import AI_ANSWER_ROLES
 from app.modules.backoffice.permissions import staff_required
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 office = APIRouter(prefix="/office/help-articles", tags=["assistant office"])
-Writer = Annotated[User, Depends(staff_required(*ANSWER_ROLES))]
+office_gaps = APIRouter(prefix="/office/assistant-gaps", tags=["assistant office"])
+Writer = Annotated[User, Depends(staff_required(*AI_ANSWER_ROLES))]
 
 
 # -- shapes, for the API reference ------------------------------------------
@@ -701,7 +702,11 @@ def guest_ticket(body: GuestTicketIn, request: Request, db: Db) -> dict[str, Any
 
 
 class ArticleIn(BaseModel):
-    code: str = Field(max_length=64, description="Lowercase latin, digits, `-`, `_`.")
+    code: str = Field(
+        "",
+        max_length=64,
+        description="Lowercase latin, digits, `-`, `_`. Empty: one is made.",
+    )
     problem_uz: str = ""
     problem_ru: str = ""
     problem_en: str = ""
@@ -711,13 +716,25 @@ class ArticleIn(BaseModel):
     keywords: str = Field("", description="Other words people use, comma separated.")
     is_published: bool = False
     position: int = 0
+    translate_from: Literal["uz", "ru", "en"] | None = Field(
+        None,
+        description=(
+            "The language the office wrote. A worker then writes every "
+            "other language whose words this save left unchanged; "
+            "`translation` is `translating` until it has."
+        ),
+    )
+
+
+def _article_fields(body: ArticleIn) -> dict[str, Any]:
+    return body.model_dump(exclude={"translate_from"})
 
 
 @office.get("")
 def articles(
     db: Db, user: Writer, q: str = Query("", max_length=100)
 ) -> dict[str, Any]:
-    """Every article, published or not. Support and the Owner."""
+    """Every article, published or not. Support, the Owner, the Developers."""
     from app.modules.assistant.services.articles import article_out
     from app.modules.assistant.services.articles import articles as found
 
@@ -729,7 +746,15 @@ def create_article(body: ArticleIn, db: Db, user: Writer) -> dict[str, Any]:
     from app.modules.assistant.services.articles import article_out, save_article
 
     return jsonable_encoder(
-        article_out(save_article(db, fields=body.model_dump(), now=utcnow()))
+        article_out(
+            save_article(
+                db,
+                fields=_article_fields(body),
+                now=utcnow(),
+                actor=user,
+                translate_from=body.translate_from or "",
+            )
+        )
     )
 
 
@@ -752,7 +777,16 @@ def change_article(
 
     row = article(db, pk)
     return jsonable_encoder(
-        article_out(save_article(db, fields=body.model_dump(), now=utcnow(), row=row))
+        article_out(
+            save_article(
+                db,
+                fields=_article_fields(body),
+                now=utcnow(),
+                row=row,
+                actor=user,
+                translate_from=body.translate_from or "",
+            )
+        )
     )
 
 
@@ -775,6 +809,101 @@ def try_search(
     from app.modules.assistant.selectors.help import help_search
 
     return {"result": help_search(db, query=q, language=language)}
+
+
+# -- the office: the questions the assistant could not answer ----------------
+
+
+class GapStatusIn(BaseModel):
+    status: Literal["open", "dismissed"]
+
+
+class GapAnswerIn(BaseModel):
+    """The ready answer for a question, in the language the office writes."""
+
+    language: Literal["uz", "ru", "en"] = "uz"
+    problem: str = Field(min_length=3, max_length=255)
+    steps: str = Field(min_length=3, max_length=4000, description="One step a line.")
+    keywords: str = Field("", max_length=500)
+    translate: bool = Field(
+        True, description="Write the other languages from this one."
+    )
+
+
+@office_gaps.get("")
+def gap_list(
+    db: Db,
+    user: Writer,
+    tab: str = Query("open", description="`open` or `closed`."),
+    q: str = Query("", max_length=100),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """What the assistant could not answer, the most asked first."""
+    from app.modules.assistant.selectors.gaps import TABS, gap_out, gaps
+
+    page = gaps(db, tab=tab, term=q, offset=offset)
+    return jsonable_encoder(
+        {
+            "tab": tab,
+            "tabs": [{"value": value, "label": label} for value, label in TABS],
+            "rows": [gap_out(row, article) for row, article in page.rows],
+            "open": page.open,
+            "total": page.total,
+            "offset": page.offset,
+            "next_offset": page.next_offset,
+            "has_more": page.has_more,
+        }
+    )
+
+
+def _gap_out(db: Session, row: Any) -> dict[str, Any]:
+    from app.modules.assistant.models import HelpArticle
+    from app.modules.assistant.selectors.gaps import gap_out
+
+    article = db.get(HelpArticle, row.article_id) if row.article_id else None
+    return jsonable_encoder(gap_out(row, article))
+
+
+@office_gaps.patch("/{pk}")
+def gap_status(
+    pk: uuid.UUID, body: GapStatusIn, db: Db, user: Writer
+) -> dict[str, Any]:
+    """Dismiss a question that needs nothing, or put it back."""
+    from app.modules.assistant.services.gaps import gap, set_status
+
+    row = set_status(db, row=gap(db, pk), status=body.status, now=utcnow())
+    db.commit()
+    return _gap_out(db, row)
+
+
+@office_gaps.post("/{pk}/answer")
+def gap_answer(
+    pk: uuid.UUID, body: GapAnswerIn, db: Db, user: Writer
+) -> dict[str, Any]:
+    """Write the ready answer: the assistant gives it from now on. The other
+    languages follow from a worker (`article.translation`)."""
+    from app.modules.assistant.models import HelpArticle
+    from app.modules.assistant.services.gaps import answer_gap, gap
+
+    row = gap(db, pk)
+    article = db.get(HelpArticle, row.article_id) if row.article_id else None
+    fields: dict[str, Any] = {
+        f"problem_{body.language}": body.problem,
+        f"steps_{body.language}": body.steps,
+        "keywords": body.keywords,
+    }
+    if article is None:
+        fields["code"] = ""
+    answer_gap(
+        db,
+        row=row,
+        fields=fields,
+        now=utcnow(),
+        actor=user,
+        translate_from=body.language if body.translate else "",
+    )
+    db.commit()
+    return _gap_out(db, row)
 
 
 # The support chat's hooks, so Support's replies reach this chat.

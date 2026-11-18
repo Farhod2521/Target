@@ -32,4 +32,8 @@ composed; that a code finds its own fix in `help_search`; the product's
 name in the person's language («Targetolog AI», never "mahsulot"); and
 correct spelling.
 
+`v3` adds `report_gap`: a question left unanswered is told to the team,
+who write the missing answer («Meta & AI» in the office) or build the
+missing look-up. The person is never told.
+
 Run the live cases after every change: `python -m tools.assistant_eval`.

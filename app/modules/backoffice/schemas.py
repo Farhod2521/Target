@@ -34,9 +34,7 @@ class CanOut(BaseModel):
         description="The roster, the journal, the payments screen, adding a page, "
         "deleting."
     )
-    superuser: bool = Field(
-        description="Releasing a held bill."
-    )
+    superuser: bool = Field(description="Releasing a held bill.")
     engineer: bool = Field(description="The faults console.")
     answer_support: bool = Field(description="The support chat queue.")
     answer_feedback: bool = Field(description="The feedback queue.")
@@ -1076,6 +1074,13 @@ class RefusalAnswerOut(BaseModel):
     held: bool = Field(description="Hidden from owners until the office saves it.")
     retired: bool = Field(description="An old version: hidden until saved.")
     hits: int = Field(description="How many owners met this refusal.")
+    translation: Literal["", "translating", "failed"] = Field(
+        "",
+        description=(
+            "The office's text on its way into the other languages: ask "
+            "again while `translating`; `failed` means save again."
+        ),
+    )
     created_at: datetime
     edited_at: datetime | None
 
@@ -1086,6 +1091,14 @@ class RefusalAnswersOut(BaseModel):
     links: list[ChoiceOut] = Field(description="Names an answer may write in `[[ ]]`.")
     rows: list[RefusalAnswerOut]
     to_review: int = Field(description="Answers waiting for the office, for the badge.")
+    ai_open: int | None = Field(
+        None,
+        description=(
+            "Questions the assistant could not answer that wait for the "
+            "office (`/office/assistant-gaps`), for the «AI chat» tab. "
+            "Null: this reader may not open that tab."
+        ),
+    )
     total: int
     offset: int
     next_offset: int
