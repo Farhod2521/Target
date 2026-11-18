@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 
 from app.modules.autopay.constants import CHARGE_LEAD
 from app.modules.autopay.models import SavedCard
+from app.modules.billing.models import Plan
+from app.modules.billing.schemas import RenewsAs, renews_as
 
 
 class BindIn(BaseModel):
@@ -60,6 +62,11 @@ class CardOut(BaseModel):
     next_charge_at: datetime | None = Field(
         None, description="When the plan will be renewed from the card."
     )
+    renews_as: RenewsAs | None = Field(
+        None,
+        description="The plan the card pays for at `next_charge_at`: the running "
+        "plan, or Standart when it is Start. Null when nothing is renewed.",
+    )
     last_charge: LastCharge | None = None
 
 
@@ -69,6 +76,7 @@ def card_out(
     available: bool,
     expires_at: datetime | None = None,
     pending: bool = False,
+    next_plan: Plan | None = None,
 ) -> CardOut:
     if card is None or card.status != "active":
         return CardOut(available=available, pending=pending)
@@ -90,5 +98,6 @@ def card_out(
         next_charge_at=(
             expires_at - CHARGE_LEAD if card.autopay and expires_at else None
         ),
+        renews_as=renews_as(next_plan) if card.autopay and expires_at else None,
         last_charge=last,
     )

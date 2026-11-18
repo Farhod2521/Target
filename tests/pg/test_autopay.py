@@ -162,30 +162,44 @@ def _bound(client: TestClient, auth: dict[str, str]) -> dict[str, Any]:
     return shown
 
 
-def _plan_running_out(db: Session, *, hours: int = 12) -> Subscription:
-    # The one who bound the card: the only account here.
-    owner = db.scalar(select(User))
-    assert owner is not None
+def _plan(
+    db: Session,
+    *,
+    code: str = "pro",
+    price: int = 490000,
+    days: int = 30,
+    one_time: bool = False,
+) -> Plan:
     plan = Plan(
-        code="pro",
-        name="Pro",
+        code=code,
+        name=code.capitalize(),
         tagline="",
         features="",
-        price=490000,
+        price=price,
         currency="UZS",
-        period_days=30,
+        period_days=days,
         max_adsets=10,
         daily_chat_requests=20,
         llm_cost_limit_minor=1000,
         included_pages=1,
         included_google_accounts=0,
         extra_page_price=0,
-        is_one_time=False,
+        is_one_time=one_time,
         is_active=True,
         sort_order=1,
     )
     db.add(plan)
     db.flush()
+    return plan
+
+
+def _plan_running_out(
+    db: Session, *, hours: int = 12, plan: Plan | None = None
+) -> Subscription:
+    # The one who bound the card: the only account here.
+    owner = db.scalar(select(User))
+    assert owner is not None
+    plan = plan or _plan(db)
     now = utcnow()
     subscription = Subscription(
         owner_id=owner.id,
@@ -314,6 +328,70 @@ def test_autopay_off_or_card_removed_charges_nothing(
     assert f"DELETE /payment/card/{TOKEN}" in multicard.seen
     card = db.scalar(select(SavedCard))
     assert card is not None and card.token_encrypted is None
+
+
+def _start_running_out(db: Session) -> Subscription:
+    _plan(db, code="standart")
+    start = _plan(db, code="start", price=49000, days=7, one_time=True)
+    return _plan_running_out(db, plan=start)
+
+
+def test_start_running_out_is_followed_by_standart_from_the_card(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    subscription = _start_running_out(db)
+
+    shown = client.get("/api/v1/billing/card", headers=auth).json()
+    tried = services.charge_due(db, now=utcnow())
+
+    # Start is not sold twice: the card is said to pay for Standart, and does.
+    assert shown["renews_as"]["code"] == "standart"
+    assert shown["renews_as"]["price_minor"] == 490000 * 100
+    assert tried == 1
+    db.expire_all()
+    renewed = db.get(Subscription, subscription.id)
+    assert renewed is not None and renewed.plan.code == "standart"
+    assert renewed.expires_at > utcnow() + timedelta(days=29)
+    invoice = db.scalar(select(Invoice))
+    assert invoice is not None and invoice.status == "paid"
+    assert invoice.plan is not None and invoice.plan.code == "standart"
+    assert services.charge_due(db, now=utcnow()) == 0
+
+
+def test_a_stopped_subscription_does_not_move_start_to_standart(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    subscription = _start_running_out(db)
+
+    client.post("/api/v1/billing/card/autopay", json={"enabled": False}, headers=auth)
+    shown = client.get("/api/v1/billing/card", headers=auth).json()
+
+    assert shown["renews_as"] is None
+    assert services.charge_due(db, now=utcnow()) == 0
+    db.expire_all()
+    kept = db.get(Subscription, subscription.id)
+    assert kept is not None and kept.plan.code == "start"
+    assert db.scalar(select(Invoice)) is None
+
+
+def test_the_start_checkout_says_standart_follows(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _plan(db, code="standart")
+    _plan(db, code="start", price=49000, days=7, one_time=True)
+    db.commit()
+
+    start = client.get("/api/v1/billing?plan=start", headers=auth)
+    pro = client.get("/api/v1/billing?plan=standart", headers=auth)
+
+    assert start.status_code == 200, start.text
+    assert start.json()["renews_as"]["code"] == "standart"
+    assert pro.json()["renews_as"]["code"] == "standart"
 
 
 # --- A bill paid from the card by its owner, with no payment page -----------

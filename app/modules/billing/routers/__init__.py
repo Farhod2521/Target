@@ -53,6 +53,7 @@ from app.modules.billing.schemas import (
     PromoOut,
     SeatsOfferOut,
     StatusOut,
+    renews_as,
 )
 from app.modules.billing.services.invoices import promo_refused
 
@@ -355,8 +356,14 @@ def priced_choice(
             "carried_pages": offer.pages,
             "wallet_balance_minor": wallets.get(chosen.plan.currency, 0),
             "renewal": renewal_out(db, user=user, carried=carried, plan=chosen.plan),
+            "renews_as": renewal_plan_out(db, plan=chosen.plan),
         }
     )
+
+
+def renewal_plan_out(db: Session, *, plan: Plan) -> dict[str, Any] | None:
+    shown = renews_as(selectors.next_term_plan(db, plan=plan))
+    return shown.model_dump() if shown else None
 
 
 def renewal_out(

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.common.money import decimal_places, to_minor
 from app.modules.accounts.models import User
 from app.modules.billing.constants import (
+    AFTER_START_PLAN_CODE,
     DEFAULT_PLAN_CODE,
     HIDDEN_PROVIDERS,
     LIVE_SUBSCRIPTION_STATUSES,
@@ -73,6 +74,22 @@ def is_first_only(plan: Plan) -> bool:
     """Start, by its code or by being one-time: sold once, as the first
     purchase, at its own price."""
     return bool(plan.is_one_time) or plan.code == DEFAULT_PLAN_CODE
+
+
+def next_term_plan(db: Session, *, plan: Plan) -> Plan | None:
+    """The plan the card pays for when ``plan``'s term runs out: the same
+    plan, or Standart after Start, which is never sold twice. None when
+    nothing sellable follows."""
+    if not is_first_only(plan):
+        return plan if plan.is_active and plan.price > 0 else None
+    return db.scalar(
+        select(Plan).where(
+            Plan.code == AFTER_START_PLAN_CODE,
+            Plan.is_active.is_(True),
+            Plan.is_one_time.is_(False),
+            Plan.price > 0,
+        )
+    )
 
 
 def first_purchase_over(db: Session, *, owner: User) -> bool:
