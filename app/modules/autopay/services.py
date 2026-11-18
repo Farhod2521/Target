@@ -52,10 +52,10 @@ from app.modules.autopay.selectors import (
     pending_card,
     renewing_subscription,
 )
-from app.modules.billing.constants import PAYABLE_INVOICE_STATUSES
+from app.modules.billing.constants import PAYABLE_INVOICE_STATUSES, WalletChoice
 from app.modules.billing.exceptions import InvoiceNotPayable
 from app.modules.billing.models import Invoice, Subscription
-from app.modules.billing.services import create_invoice
+from app.modules.billing.services import create_invoice, price_invoice
 from app.modules.billing.services.invoices import receipt_line
 
 logger = logging.getLogger(__name__)
@@ -355,7 +355,14 @@ def _renewal_invoice(
     db: Session, *, card: SavedCard, subscription: Subscription, now: datetime
 ) -> Invoice | None:
     try:
-        return create_invoice(db, owner=card.owner, plan=subscription.plan, now=now)
+        invoice = create_invoice(db, owner=card.owner, plan=subscription.plan, now=now)
+        # Everything the term held goes on with it: the extra pages and the
+        # manager seats beside the plan. Nothing is left out and no code or
+        # wallet money is spent with nobody at the screen; the owner who wants
+        # less renews by hand and unticks it.
+        return price_invoice(
+            db, invoice=invoice, promo_code="", wallet=WalletChoice.KEEP, now=now
+        )
     except DomainError as exc:
         card.charge_attempts = MAX_ATTEMPTS
         card.last_charge_at = now

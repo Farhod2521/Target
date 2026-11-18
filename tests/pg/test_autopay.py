@@ -456,3 +456,26 @@ def test_only_a_cabinet_path_is_returned_to(back: str) -> None:
         "/app/billing?card=bound",
         "/app/billing?card=declined",
     )
+
+
+def test_a_renewal_from_the_card_carries_the_bought_pages(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    subscription = _plan_running_out(db)
+    subscription.plan.extra_page_price = 249000
+    db.commit()
+    bought = client.post(
+        "/api/v1/billing/pages", json={"count": 1, "card": True}, headers=auth
+    )
+    assert bought.status_code == 200, bought.text
+
+    assert services.charge_due(db, now=utcnow()) == 1
+
+    db.expire_all()
+    renewal = db.scalar(select(Invoice).where(Invoice.kind == "plan"))
+    assert renewal is not None and renewal.status == "paid"
+    # The plan and the page bought beside it, in one debit.
+    assert renewal.pages == 1
+    assert renewal.amount_minor == 490000_00 + 249000_00

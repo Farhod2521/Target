@@ -51,7 +51,11 @@ Har soatda (UTC :25):
 - Urinishlar: tugashdan **1 kun oldin** boshlanadi, kuniga ko'pi bilan 1 marta,
   bir muddat uchun ko'pi bilan **3 marta**. Tugaganidan keyin 2 kungacha davom etadi.
 - Faqat pullik, bir martalik bo'lmagan va bekor qilinmagan obuna yangilanadi.
-- Qo'shimcha sahifalar va CRM o'rinlari avtomatik yangilanmaydi, faqat tarif.
+- Tarif bilan birga sotib olingan qo'shimcha sahifalar va band CRM menejer
+  o'rinlari ham shu yechimda uzaytiriladi. Kamroq olmoqchi bo'lgan mijoz
+  «Uzaytirish»ni qo'lda bosib, keraksizini belgidan chiqaradi.
+- «Obunani to'xtatish» — `POST /billing/card/autopay {"enabled": false}`:
+  tarif muddati oxirigacha ishlaydi, keyin pul yechilmaydi. Tiklash — `true`.
 - Javobi noma'lum to'lov (`pending`) qayta yechilmaydi: keyingi urinishda
   uning holati Multicard'dan so'raladi.
 
