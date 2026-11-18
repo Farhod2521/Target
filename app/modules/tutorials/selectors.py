@@ -8,8 +8,9 @@ from urllib.parse import parse_qs, urlparse
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.modules.tutorials.constants import PAGE_SIZE
+from app.modules.tutorials.constants import PAGE_SIZE, TutorialLanguage
 from app.modules.tutorials.models import Tutorial
+from app.modules.tutorials.models.tutorial import column
 
 _YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _YOUTUBE_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com")
@@ -40,8 +41,8 @@ def tutorial_page(
     active: bool | None = None,
     offset: int = 0,
 ) -> TutorialPage:
-    """Newest first. Empty filters narrow nothing; the term is part of the
-    title or the description; a place keeps the lessons that screen shows."""
+    """Newest first. Empty filters narrow nothing; the term is part of a
+    title or a description in any language; a place keeps the lessons that screen shows."""
     query = select(Tutorial)
     if type:
         query = query.where(Tutorial.type == type)
@@ -53,8 +54,11 @@ def tutorial_page(
         like = f"%{_escaped(term)}%"
         query = query.where(
             or_(
-                Tutorial.title.ilike(like, escape="\\"),
-                Tutorial.description.ilike(like, escape="\\"),
+                *(
+                    getattr(Tutorial, column(part, language)).ilike(like, escape="\\")
+                    for language in TutorialLanguage.values
+                    for part in ("title", "description")
+                )
             )
         )
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0

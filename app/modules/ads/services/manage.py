@@ -10,7 +10,7 @@ import logging
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Final
 
@@ -59,7 +59,6 @@ from app.modules.ads.selectors import (
     goal_under,
     in_flight,
     launched_campaign_ids,
-    learning_under,
     managed_target,
     shared_adset_ids,
     shared_campaign_ids,
@@ -497,12 +496,6 @@ def _live(db: Session, user: User) -> None:
     require_live_subscription(db, owner=user)
 
 
-def _has_spent(db: Session, *, owner: User, adset_id: str) -> bool:
-    from app.modules.metrics.selectors import has_spent
-
-    return has_spent(db, owner=owner, adset_id=adset_id)
-
-
 def _ad_context(db: Session, *, owner: User, target: Any) -> AdContext:
     from app.modules.ads.constants import Delivery
 
@@ -654,11 +647,8 @@ def budget_gate(
     )
     account = account_of(target=target, level=level)
     floor = budget_floor(target=target, level=level)
-    state = replace(state_of(target), is_learning=learning_under(target))
-    if state.is_learning:
-        state = replace(state, has_spent=_any_spent(db, user, level, target))
     verdict = check_budget_change(
-        state=state, wanted_minor=daily_budget_minor, floor_minor=floor
+        state=state_of(target), wanted_minor=daily_budget_minor, floor_minor=floor
     )
     if not verdict.allowed:
         if verdict.reason == REFUSED_BELOW_FLOOR:
@@ -671,17 +661,6 @@ def budget_gate(
             )
         raise REFUSALS.get(verdict.reason, ChangeRefused)()
     return target, account
-
-
-def _any_spent(db: Session, user: User, level: str, target: Any) -> bool:
-    """Whether what is learning here has spent: the group, or a campaign's learning ones."""
-    if level == ManagedLevel.ADSET:
-        return _has_spent(db, owner=user, adset_id=target.external_id)
-    return any(
-        _has_spent(db, owner=user, adset_id=row.external_id)
-        for row in target.adsets
-        if row.is_learning
-    )
 
 
 def status_gate(
@@ -1142,12 +1121,6 @@ def _refused(
     elif log.action in LIMIT_ACTIONS:
         verdict = check_limit_change(state=state)
     elif log.action in BUDGET_ACTIONS:
-        if state.is_learning or learning_under(target):
-            state = replace(
-                state,
-                is_learning=True,
-                has_spent=_any_spent(db, log.owner, log.target_level, target),
-            )
         verdict = check_budget_change(
             state=state,
             wanted_minor=int(log.request_payload.get("daily_budget_minor", 0)),

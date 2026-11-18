@@ -5,6 +5,10 @@ and the description, ``offset``); a screen other than Darsliklar asks it
 with its own ``place`` and shows what comes back; each row's ``image_url`` and ``video.stream_url``
 carry their own token and play for a few hours, so a lesson left open past
 that asks the list again. ``/video`` answers 206 one piece at a time.
+
+A lesson is shown in the reader's language: ``lang`` when sent (the site's
+own), else the account's. A lesson not written in it shows its first
+written language of uz, ru, en; ``language`` says which one came back.
 """
 
 import uuid
@@ -14,10 +18,13 @@ from fastapi import APIRouter, Header, Query, Response
 
 from app.api.deps import CurrentUser, Db
 from app.common.db import utcnow
+from app.common.i18n import get_language
 from app.modules.tutorials import playback
 from app.modules.tutorials.constants import (
+    TUTORIAL_LANGUAGE_LABELS,
     TUTORIAL_PLACE_LABELS,
     TUTORIAL_TYPE_LABELS,
+    TutorialLanguage,
     TutorialPlace,
     TutorialType,
 )
@@ -43,11 +50,27 @@ def place_choices() -> list[dict[str, str]]:
     ]
 
 
-def tutorial_out(row: Tutorial, **links: Any) -> dict[str, Any]:
+def language_choices() -> list[dict[str, str]]:
+    return [
+        {"value": str(language), "label": TUTORIAL_LANGUAGE_LABELS[language]}
+        for language in TutorialLanguage
+    ]
+
+
+def reader_language(sent: TutorialLanguage | None) -> str:
+    """The language asked for, else the signed-in account's."""
+    return str(sent) if sent else get_language()
+
+
+def tutorial_out(row: Tutorial, *, wanted: str, **links: Any) -> dict[str, Any]:
+    """The lesson in the language a reader of ``wanted`` sees."""
     kind = TutorialType(row.type) if row.type in TutorialType.values else None
+    language = row.language_for(wanted)
     return {
         "id": str(row.id),
-        "title": row.title,
+        "language": language,
+        "languages": row.languages,
+        "title": row.part("title", language),
         "type": row.type,
         "type_label": TUTORIAL_TYPE_LABELS[kind] if kind else row.type,
         "places": [
@@ -55,8 +78,8 @@ def tutorial_out(row: Tutorial, **links: Any) -> dict[str, Any]:
             for place in row.places or ()
             if place in TutorialPlace.values
         ],
-        "description": row.description,
-        **playback.links(row, base=BASE, **links),
+        "description": row.part("description", language),
+        **playback.links(row, base=BASE, language=language, **links),
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
     }
@@ -70,10 +93,13 @@ def tutorials(
     place: TutorialPlace | None = Query(
         None, description="The lessons one screen shows beside its work."
     ),
-    q: str = Query("", max_length=100, description="Part of the title or description."),
+    q: str = Query("", max_length=100, description="Part of a title or description."),
+    lang: TutorialLanguage | None = Query(
+        None, description="The site's language; empty is the account's."
+    ),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    """The lessons switched on, newest first."""
+    """The lessons switched on, newest first, each in the reader's language."""
     page = tutorial_page(
         db,
         type=str(type or ""),
@@ -83,9 +109,11 @@ def tutorials(
         offset=offset,
     )
     now = utcnow()
+    wanted = reader_language(lang)
     return {
         "rows": [
-            tutorial_out(row, user=user, office=False, now=now) for row in page.rows
+            tutorial_out(row, wanted=wanted, user=user, office=False, now=now)
+            for row in page.rows
         ],
         "total": page.total,
         "offset": page.offset,
@@ -93,23 +121,38 @@ def tutorials(
         "has_more": page.has_more,
         "types": type_choices(),
         "places": place_choices(),
+        "languages": language_choices(),
     }
 
 
 @router.get("/{tutorial_id}")
-def tutorial(tutorial_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, Any]:
+def tutorial(
+    tutorial_id: uuid.UUID,
+    db: Db,
+    user: CurrentUser,
+    lang: TutorialLanguage | None = Query(
+        None, description="The site's language; empty is the account's."
+    ),
+) -> dict[str, Any]:
     row = tutorial_by_id(db, tutorial_id, active_only=True)
     if row is None:
         raise TutorialNotFound
-    return tutorial_out(row, user=user, office=False, now=utcnow())
+    return tutorial_out(
+        row, wanted=reader_language(lang), user=user, office=False, now=utcnow()
+    )
 
 
 @router.get("/{tutorial_id}/image")
 def tutorial_image(
-    tutorial_id: uuid.UUID, db: Db, t: str = Query(description="From `image_url`.")
+    tutorial_id: uuid.UUID,
+    db: Db,
+    t: str = Query(description="From `image_url`."),
+    lang: TutorialLanguage = Query(
+        TutorialLanguage.UZ, description="From `image_url`."
+    ),
 ) -> Response:
     return playback.image_response(
-        playback.playable(db, token=t, tutorial_id=tutorial_id)
+        playback.playable(db, token=t, tutorial_id=tutorial_id), language=str(lang)
     )
 
 
@@ -118,8 +161,11 @@ def tutorial_video(
     tutorial_id: uuid.UUID,
     db: Db,
     t: str = Query(description="From `video.stream_url`."),
+    lang: TutorialLanguage = Query(
+        TutorialLanguage.UZ, description="From `video.stream_url`."
+    ),
     range_header: Annotated[str, Header(alias="Range")] = "",
 ) -> Response:
     """One piece of the video: the range asked for, cut to a couple of MB."""
     row = playback.playable(db, token=t, tutorial_id=tutorial_id)
-    return playback.video_response(row, range_header=range_header)
+    return playback.video_response(row, language=str(lang), range_header=range_header)

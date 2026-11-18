@@ -347,3 +347,144 @@ def test_a_lesson_shows_on_the_screens_it_names(
         client.get(CABINET, headers=customer, params={"place": "crm"}).json()["total"]
         == 0
     ), "a hidden lesson shows on no screen"
+
+
+def test_a_lesson_comes_in_the_readers_language_or_its_only_one(
+    client: TestClient, db: Session, media_root: Path
+) -> None:
+    """Uzbek is the plain fields, Russian and English end in _ru/_en; a reader
+    gets their own language, else the first written of uz, ru, en."""
+    _, office = _staff(db, Role.SUPPORT, email="lang@office.test")
+    customer = sign_up(client)
+    upload_id = _upload(client, office, MP4)
+
+    three = client.post(
+        OFFICE,
+        headers=office,
+        data=_form(video_url="https://youtu.be/dQw4w9WgXcQ")
+        | {
+            "title_ru": "Подключение пикселя",
+            "description_ru": "Как подключить пиксель",
+            "video_upload_id_ru": upload_id,
+            "video_size_ru": str(len(MP4)),
+            "video_name_ru": "urok.mp4",
+            "title_en": "Connecting the pixel",
+            "video_url_en": "https://vimeo.com/7",
+        },
+        files={"image_ru": ("ru.png", PNG, "image/png")},
+    )
+    assert three.status_code == 200, three.text
+    lesson = three.json()["id"]
+    only_ru = client.post(
+        OFFICE,
+        headers=office,
+        data=_form(title="", description="", status="true")
+        | {"title_ru": "Только по-русски", "video_url_ru": "https://vimeo.com/8"},
+    )
+    assert only_ru.status_code == 200, only_ru.text
+
+    def seen(lang: str | None, pk: str = lesson) -> dict[str, Any]:
+        params = {"lang": lang} if lang else {}
+        answer = client.get(f"{CABINET}/{pk}", headers=customer, params=params)
+        assert answer.status_code == 200, answer.text
+        return answer.json()
+
+    uz = seen("uz")
+    assert (uz["language"], uz["title"]) == ("uz", "Pikselni ulash")
+    assert uz["languages"] == ["uz", "ru", "en"]
+    assert uz["video"]["kind"] == "youtube"
+    assert uz["image_url"] and "lang=ru" in uz["image_url"], "another language's cover"
+    ru = seen("ru")
+    assert (ru["language"], ru["title"], ru["description"]) == (
+        "ru",
+        "Подключение пикселя",
+        "Как подключить пиксель",
+    )
+    assert ru["video"]["kind"] == "file"
+    played = client.get(ru["video"]["stream_url"])
+    assert played.status_code == 206 and played.content == MP4[:STREAM_PIECE_BYTES]
+    assert client.get(ru["image_url"]).content == PNG
+    en = seen("en")
+    assert (en["title"], en["video"]["url"]) == (
+        "Connecting the pixel",
+        "https://vimeo.com/7",
+    )
+    client.put("/api/v1/account/language", json={"language": "en"}, headers=customer)
+    assert seen(None)["language"] == "en", "no lang: the account's language"
+
+    for lang in ("uz", "ru", "en"):
+        one = seen(lang, only_ru.json()["id"])
+        assert (one["language"], one["title"]) == ("ru", "Только по-русски")
+
+    listed = client.get(CABINET, headers=customer, params={"lang": "ru"}).json()
+    assert {row["title"] for row in listed["rows"]} == {
+        "Подключение пикселя",
+        "Только по-русски",
+    }
+    assert [c["value"] for c in listed["languages"]] == ["uz", "ru", "en"]
+    found = client.get(CABINET, headers=customer, params={"q": "пиксел", "lang": "uz"})
+    assert [row["title"] for row in found.json()["rows"]] == ["Pikselni ulash"]
+
+    versions = client.get(f"{OFFICE}/{lesson}", headers=office).json()["versions"]
+    assert versions["ru"]["has_video_file"] and versions["ru"]["has_image"]
+    assert versions["uz"]["image_url"] is None and versions["en"]["video_url"]
+
+    half = client.put(
+        f"{OFFICE}/{lesson}",
+        headers=office,
+        data=_form(video_url="https://youtu.be/dQw4w9WgXcQ")
+        | {"title_ru": "Подключение пикселя", "description_en": "Only words"},
+    )
+    assert half.status_code == 422
+    assert set(half.json()["problems"]) == {"title_en", "video_en"}, half.text
+
+    dropped = client.put(
+        f"{OFFICE}/{lesson}",
+        headers=office,
+        data=_form(video_url="https://youtu.be/dQw4w9WgXcQ")
+        | {"remove_video_ru": "true", "remove_image_ru": "true"},
+    )
+    assert dropped.status_code == 200, dropped.text
+    assert seen("ru")["language"] == "uz", "a language sent empty is dropped"
+    assert seen("ru")["languages"] == ["uz"]
+    assert not list((media_root / "tutorials").rglob("*.mp4"))
+    assert not list((media_root / "tutorials" / "images").rglob("*.png"))
+
+    nothing = client.post(OFFICE, headers=office, data=_form(title="", description=""))
+    assert set(nothing.json()["problems"]) == {"title", "video"}
+
+
+def test_the_assistant_offers_a_lesson_in_the_readers_language(
+    db: Session,
+) -> None:
+    from app.modules.assistant.selectors.help import help_found
+
+    db.add(
+        Tutorial(
+            title="Pikselni ulash",
+            video_url="https://vimeo.com/1",
+            title_ru="Подключение пикселя",
+            description_ru="Откройте Events Manager",
+            video_url_ru="https://vimeo.com/2",
+            is_active=True,
+        )
+    )
+    db.add(
+        Tutorial(
+            title="Reklama kabinetini ochish",
+            video_url="https://vimeo.com/3",
+            is_active=True,
+        )
+    )
+    db.commit()
+
+    ru = help_found(db, query="пиксель подключить", language="ru")
+    assert [(f.problem, f.steps) for f in ru if f.lesson_id] == [
+        ("Подключение пикселя", ("Откройте Events Manager",))
+    ]
+    uz = help_found(db, query="piksel ulash", language="uz")
+    assert [f.problem for f in uz if f.lesson_id] == ["Pikselni ulash"]
+    en = help_found(db, query="kabinetini ochish", language="en")
+    assert [f.problem for f in en if f.lesson_id] == ["Reklama kabinetini ochish"]
+    across = help_found(db, query="piksel", language="ru")
+    assert [f.problem for f in across if f.lesson_id] == ["Подключение пикселя"]

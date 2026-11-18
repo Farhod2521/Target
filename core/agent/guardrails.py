@@ -70,10 +70,6 @@ class ObjectState:
     delivery: str
     is_learning: bool = False
     daily_budget_minor: int | None = None
-    # Whether the object has ever spent anything. True unless a caller has
-    # looked and found nothing: an unknown is read as "it has", which keeps
-    # the learning guard where it was.
-    has_spent: bool = True
 
 
 def check_status_change(*, state: ObjectState, wanted: str) -> GuardrailVerdict:
@@ -106,18 +102,11 @@ def check_budget_change(
     the same as everywhere else an unknown provider value appears - the
     provider still refuses a genuinely low budget on its own.
 
-    This is where learning bites. Editing the budget of an ad set the
-    provider is still learning for throws that learning away and starts the
-    spend over, and unlike a pause it buys nothing in return: the ad set
-    keeps delivering either way, just from a worse starting point.
-
-    Except where nothing has been spent. An ad set the provider calls
-    learning that has never been shown has learned nothing, and a budget
-    too small to win a single auction is the usual reason it has not -
-    refusing the one change that could start it would protect nothing.
+    **Learning does not refuse here.** A budget edit may restart the
+    provider's learning, and the screen says so before the person saves
+    (:func:`resets_learning`) - but the money is theirs, so the decision is
+    theirs too, whether they press the button or ask the assistant.
     """
-    if state.is_learning and state.has_spent:
-        return GuardrailVerdict(allowed=False, reason=REFUSED_LEARNING)
     if state.daily_budget_minor == wanted_minor:
         return GuardrailVerdict(allowed=False, reason=REFUSED_ALREADY)
     if floor_minor > 0 and wanted_minor < floor_minor:

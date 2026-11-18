@@ -55,6 +55,22 @@ TUTORIAL_PLACE_LABELS = {
     TutorialPlace.REFERRALS: "Referal",
 }
 
+
+class TutorialLanguage(Choices):
+    """The site's languages a lesson may be written in. A lesson needs one;
+    a reader whose language it lacks gets another, in this order."""
+
+    UZ = "uz"
+    RU = "ru"
+    EN = "en"
+
+
+TUTORIAL_LANGUAGE_LABELS = {
+    TutorialLanguage.UZ: "O'zbekcha",
+    TutorialLanguage.RU: "Ruscha",
+    TutorialLanguage.EN: "Inglizcha",
+}
+
 TITLE_MAX = 200
 DESCRIPTION_MAX = 5000
 VIDEO_URL_MAX = 500

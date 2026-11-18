@@ -38,10 +38,12 @@ from app.modules.tutorials.constants import (
     VIDEO_DIR,
     VIDEO_TYPES,
     VIDEO_URL_MAX,
+    TutorialLanguage,
     TutorialPlace,
     TutorialType,
 )
 from app.modules.tutorials.models import Tutorial
+from app.modules.tutorials.models.tutorial import column
 
 logger = logging.getLogger(__name__)
 _SUFFIX = ".part"
@@ -176,16 +178,24 @@ def _url_problem(url: str) -> str:
 
 
 @dataclass(slots=True)
-class TutorialIn:
-    title: str
-    type: str
-    description: str
-    video_url: str
-    is_active: bool
+class VersionIn:
+    """One language of a lesson, as the form sent it."""
+
+    title: str = ""
+    description: str = ""
+    video_url: str = ""
     image: Any = None
     video: VideoUpload | None = None
     remove_image: bool = False
     remove_video: bool = False
+
+
+@dataclass(slots=True)
+class TutorialIn:
+    type: str
+    is_active: bool
+    # By language; a language left out is as if sent empty.
+    versions: dict[str, VersionIn] = field(default_factory=dict)
     # None keeps the row's places (an edit from a form that has no such field).
     places: list[str] | None = None
 
@@ -199,17 +209,34 @@ class Saved:
     fresh: list[str] = field(default_factory=list)
 
 
-def _problems(body: TutorialIn, *, row: Tutorial | None) -> dict[str, str]:
+def _kept(row: Tutorial | None, part: str, language: str, *, removed: bool) -> bool:
+    return bool(row is not None and row.part(part, language) and not removed)
+
+
+def _given(body: VersionIn, *, row: Tutorial | None, language: str) -> bool:
+    """Whether this language is written at all: anything typed or sent, or
+    a file of it kept from before."""
+    return bool(
+        body.title.strip()
+        or body.description.strip()
+        or body.video_url.strip()
+        or body.image is not None
+        or body.video is not None
+        or _kept(row, "image", language, removed=body.remove_image)
+        or _kept(row, "video_file", language, removed=body.remove_video)
+    )
+
+
+def _version_problems(
+    body: VersionIn, *, row: Tutorial | None, language: str
+) -> dict[str, str]:
+    """A written language's problems, under its own field names."""
     problems: dict[str, str] = {}
     title = body.title.strip()
     if not title:
         problems["title"] = "Sarlavhani yozing."
     elif len(title) > TITLE_MAX:
         problems["title"] = f"Sarlavha {TITLE_MAX} belgidan oshmasin."
-    if body.type not in TutorialType.values:
-        problems["type"] = "Turini tanlang."
-    if any(place not in TutorialPlace.values for place in body.places or ()):
-        problems["places"] = "Bunday oyna yo'q."
     if len(body.description) > DESCRIPTION_MAX:
         problems["description"] = f"Izoh {DESCRIPTION_MAX} belgidan oshmasin."
     if body.image is not None and (problem := _image_problem(body.image)):
@@ -219,8 +246,8 @@ def _problems(body: TutorialIn, *, row: Tutorial | None) -> dict[str, str]:
         problems["video_url"] = problem
     if body.video is not None and (problem := _video_problem(body.video)):
         problems["video"] = problem
-    has_file = body.video is not None or bool(
-        row is not None and row.video_file and not body.remove_video
+    has_file = body.video is not None or _kept(
+        row, "video_file", language, removed=body.remove_video
     )
     if url and has_file:
         problems.setdefault(
@@ -228,7 +255,66 @@ def _problems(body: TutorialIn, *, row: Tutorial | None) -> dict[str, str]:
         )
     elif not url and not has_file:
         problems.setdefault("video", "Video havolasini yozing yoki videoni yuklang.")
+    return {column(name, language): text for name, text in problems.items()}
+
+
+def _problems(body: TutorialIn, *, row: Tutorial | None) -> dict[str, str]:
+    problems: dict[str, str] = {}
+    if body.type not in TutorialType.values:
+        problems["type"] = "Turini tanlang."
+    if any(place not in TutorialPlace.values for place in body.places or ()):
+        problems["places"] = "Bunday oyna yo'q."
+    written = [
+        language
+        for language in TutorialLanguage.values
+        if _given(body.versions.get(language, VersionIn()), row=row, language=language)
+    ]
+    # Nothing in any language: ask for the Uzbek one, as before languages.
+    for language in written or [TutorialLanguage.UZ.value]:
+        problems |= _version_problems(
+            body.versions.get(language, VersionIn()), row=row, language=language
+        )
     return problems
+
+
+def _write_version(
+    row: Tutorial,
+    body: VersionIn,
+    *,
+    language: str,
+    written: bool,
+    saved: Saved,
+    now: datetime,
+) -> None:
+    """One language's columns as the form says; a language not written is
+    emptied, its files with it."""
+    if not written:
+        body = VersionIn(remove_image=True, remove_video=True)
+    row.set_part("title", language, body.title.strip())
+    row.set_part("description", language, body.description.strip())
+    row.set_part("video_url", language, body.video_url.strip())
+    if body.image is not None or body.remove_image:
+        saved.stale.append(row.part("image", language))
+        row.set_part("image", language, "")
+    if body.image is not None:
+        name = storage.save(
+            body.image.file,
+            folder=storage.dated(IMAGE_DIR, now=now),
+            filename=body.image.filename or "cover.jpg",
+        )
+        row.set_part("image", language, name)
+        saved.fresh.append(name)
+    if body.video is not None or body.remove_video or row.part("video_url", language):
+        saved.stale.append(row.part("video_file", language))
+        row.set_part("video_file", language, "")
+    if body.video is not None:
+        name = storage.move(
+            body.video.path,
+            folder=storage.dated(VIDEO_DIR, now=now),
+            filename=body.video.name,
+        )
+        row.set_part("video_file", language, name)
+        saved.fresh.append(name)
 
 
 def save_tutorial(
@@ -238,41 +324,33 @@ def save_tutorial(
     problems = _problems(body, row=row)
     if problems:
         raise InputRefused(problems)
+    written = {
+        language: _given(
+            body.versions.get(language, VersionIn()), row=row, language=language
+        )
+        for language in TutorialLanguage.values
+    }
     if row is None:
         row = Tutorial(created_by_id=actor.id)
         db.add(row)
     saved = Saved(row=row)
-    row.title = body.title.strip()
     row.type = body.type
     if body.places is not None:
         # In the catalogue's order, each once, whatever order the form sent.
         row.places = [place for place in TutorialPlace.values if place in body.places]
     elif row.places is None:
         row.places = []
-    row.description = body.description.strip()
-    row.video_url = body.video_url.strip()
     row.is_active = body.is_active
     now = utcnow()
-    if body.image is not None or body.remove_image:
-        saved.stale.append(row.image)
-        row.image = ""
-    if body.image is not None:
-        row.image = storage.save(
-            body.image.file,
-            folder=storage.dated(IMAGE_DIR, now=now),
-            filename=body.image.filename or "cover.jpg",
+    for language in TutorialLanguage.values:
+        _write_version(
+            row,
+            body.versions.get(language, VersionIn()),
+            language=language,
+            written=written[language],
+            saved=saved,
+            now=now,
         )
-        saved.fresh.append(row.image)
-    if body.video is not None or body.remove_video or row.video_url:
-        saved.stale.append(row.video_file)
-        row.video_file = ""
-    if body.video is not None:
-        row.video_file = storage.move(
-            body.video.path,
-            folder=storage.dated(VIDEO_DIR, now=now),
-            filename=body.video.name,
-        )
-        saved.fresh.append(row.video_file)
     db.flush()
     saved.stale = [name for name in saved.stale if name]
     logger.info("tutorial %s saved by %s", row.id, actor.id)
@@ -281,7 +359,7 @@ def save_tutorial(
 
 def delete_tutorial(db: Session, *, row: Tutorial) -> list[str]:
     """Delete the row. Returns its files, to delete after the commit."""
-    files = [name for name in (row.image, row.video_file) if name]
+    files = row.files()
     db.delete(row)
     db.flush()
     return files

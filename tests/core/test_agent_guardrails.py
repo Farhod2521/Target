@@ -13,7 +13,6 @@ from core.agent.guardrails import (
     REFUSED_ALREADY,
     REFUSED_BELOW_FLOOR,
     REFUSED_FINISHED,
-    REFUSED_LEARNING,
     resets_learning,
 )
 
@@ -93,15 +92,13 @@ def test_a_budget_can_be_changed_on_a_settled_object() -> None:
     assert verdict.allowed
 
 
-def test_a_budget_cannot_be_changed_while_the_provider_is_learning() -> None:
-    """Unlike a pause, this buys nothing: the ad set keeps delivering
-    either way, just from a worse starting point."""
+def test_a_budget_can_be_changed_while_the_provider_is_learning() -> None:
+    """Learning only warns: the money is theirs, so the decision is too."""
     verdict = check_budget_change(
         state=LEARNING, wanted_minor=80_000, floor_minor=20_000
     )
 
-    assert not verdict.allowed
-    assert verdict.reason == REFUSED_LEARNING
+    assert verdict.allowed
 
 
 def test_the_same_budget_again_is_refused() -> None:
@@ -148,21 +145,3 @@ def test_the_screen_is_told_when_going_ahead_costs_the_learning() -> None:
     person pressing deserves to know before rather than after."""
     assert resets_learning(state=LEARNING) is True
     assert resets_learning(state=RUNNING) is False
-
-
-def test_a_learning_ad_set_that_never_spent_may_have_its_budget_moved() -> None:
-    """Never shown, so nothing learned to lose - and a budget too small to
-    win an auction is the usual reason it has not been shown."""
-    state = ObjectState(
-        delivery="active", is_learning=True, daily_budget_minor=1_000, has_spent=False
-    )
-
-    assert check_budget_change(state=state, wanted_minor=1_500, floor_minor=0).allowed
-
-
-def test_a_learning_ad_set_that_has_spent_keeps_its_budget() -> None:
-    state = ObjectState(delivery="active", is_learning=True, daily_budget_minor=1_000)
-
-    verdict = check_budget_change(state=state, wanted_minor=1_500, floor_minor=0)
-
-    assert verdict.reason == REFUSED_LEARNING
