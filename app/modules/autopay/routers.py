@@ -12,7 +12,7 @@ from app.modules.autopay import services
 from app.modules.autopay.exceptions import CardServiceDown
 from app.modules.autopay.schemas import AutopayIn, BindIn, BindOut, CardOut, card_out
 from app.modules.autopay.selectors import active_card
-from app.modules.billing.selectors import live_subscription
+from app.modules.billing.selectors import live_subscription, next_term_plan
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/billing/card", tags=["billing autopay"])
@@ -26,6 +26,7 @@ def _shown(db: Session, user: User, *, pending: bool = False) -> CardOut:
         available=services.autopay_on(),
         expires_at=live.expires_at if live else None,
         pending=pending,
+        next_plan=next_term_plan(db, plan=live.plan) if live else None,
     )
 
 

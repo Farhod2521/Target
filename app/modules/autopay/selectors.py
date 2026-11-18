@@ -34,7 +34,8 @@ def card_by_session(db: Session, *, session_id: str) -> SavedCard | None:
 def renewing_subscription(
     db: Session, *, owner_id: object, now: datetime
 ) -> Subscription | None:
-    """The paid plan this owner's card renews, if it is due within the window."""
+    """The paid plan this owner's card renews, if it is due within the window.
+    Start is among them: its card pays for Standart (``next_term_plan``)."""
     return db.scalar(
         select(Subscription)
         .join(Plan, Plan.id == Subscription.plan_id)
@@ -46,7 +47,6 @@ def renewing_subscription(
             Subscription.expires_at > now - CHARGE_GRACE,
             Plan.price > 0,
             Plan.is_active.is_(True),
-            Plan.is_one_time.is_(False),
         )
         .order_by(Subscription.expires_at.desc())
         .limit(1)
@@ -69,7 +69,6 @@ def due_card_ids(db: Session, *, now: datetime) -> list[object]:
                 Subscription.expires_at > now - CHARGE_GRACE,
                 Plan.price > 0,
                 Plan.is_active.is_(True),
-                Plan.is_one_time.is_(False),
             )
             .distinct()
         )

@@ -111,6 +111,8 @@ TRIAL_MAX_CAMPAIGNS: Final = 3
 MAX_GRANT_DAYS = 120
 MAX_SLOT_CHANGE = 20
 DEFAULT_PLAN_CODE = "start"
+# What the card renews once Start (or another first-only plan) runs out.
+AFTER_START_PLAN_CODE: Final = "standart"
 CHAT_SHARE_PCT: Final = 80
 
 

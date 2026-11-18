@@ -50,7 +50,11 @@ Har soatda (UTC :25):
 
 - Urinishlar: tugashdan **1 kun oldin** boshlanadi, kuniga ko'pi bilan 1 marta,
   bir muddat uchun ko'pi bilan **3 marta**. Tugaganidan keyin 2 kungacha davom etadi.
-- Faqat pullik, bir martalik bo'lmagan va bekor qilinmagan obuna yangilanadi.
+- Faqat pullik va bekor qilinmagan obuna yangilanadi.
+- **Start ikkinchi marta sotilmaydi:** Start tugaganda kartadan **Standart**
+  (`AFTER_START_PLAN_CODE`) to'lanadi va obuna Standart'ga o'tadi. Start'ning
+  qolgan kuni Standart narxidan ayiriladi. Obuna to'xtatilgan bo'lsa (autopay
+  `false`) hech narsa yechilmaydi va Standart'ga o'tilmaydi.
 - Tarif bilan birga sotib olingan qo'shimcha sahifalar va band CRM menejer
   o'rinlari ham shu yechimda uzaytiriladi. Kamroq olmoqchi bo'lgan mijoz
   «Uzaytirish»ni qo'lda bosib, keraksizini belgidan chiqaradi.
@@ -77,6 +81,13 @@ Barcha yo'llar `Authorization: Bearer <access>` bilan. Javoblar snake_case.
   "autopay": true,
   "pending": false,
   "next_charge_at": "2026-12-02T10:00:00Z",
+  "renews_as": {
+    "code": "standart",
+    "name": "Standart",
+    "price_minor": 49000000,
+    "currency": "UZS",
+    "period_days": 30
+  },
   "last_charge": {
     "at": "2026-11-02T10:25:00Z",
     "outcome": "declined",
@@ -91,6 +102,7 @@ Barcha yo'llar `Authorization: Bearer <access>` bilan. Javoblar snake_case.
 | `card` | `null` — karta bog'lanmagan. «Kartani bog'lash» tugmasi |
 | `autopay` | Avtomatik yechish yoqilganmi |
 | `next_charge_at` | Taxminiy keyingi yechish vaqti. Obuna yoki autopay bo'lmasa `null` |
+| `renews_as` | `next_charge_at` da qaysi tarif to'lanadi: joriy tarif, Start bo'lsa Standart. Autopay o'chiq bo'lsa `null` |
 | `last_charge.outcome` | `charged`, `pending`, `declined`, `needs_code` |
 | `last_charge.error` | Tayyor o'zbekcha sabab. Bo'sh bo'lsa xato yo'q |
 
@@ -174,3 +186,10 @@ yoqilgan bo'lsa, so'ralmaydi).
 | 400 | `card_code_stale` | Bu to'lovni tasdiqlab bo'lmaydi, to'lovni qayta boshlang |
 
 Hamma xatoda `detail` — tayyor o'zbekcha matn.
+
+### Tarif sotib olish oynasi — `GET /api/v1/billing?plan=<code>`
+
+Javobda `renews_as` (yuqoridagi shakl): shu tarif tugaganda ulangan kartadan
+qaysi tarif to'lanadi. `start` uchun — Standart. Front buni to'lov oynasida
+ko'rsatadi: «Start tugagach Standart avtomatik to'lanadi, obunani to'xtatsangiz
+o'tmaydi».

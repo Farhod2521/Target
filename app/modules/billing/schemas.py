@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.common.money import to_minor
+from app.modules.billing.models import Plan
 from app.modules.billing.selectors.pages import PageMix
 from app.modules.billing.selectors.plans import TierLine
 from app.modules.billing.selectors.promo import ChatAllowance
@@ -196,6 +198,18 @@ class SalesOfferOut(BaseModel):
     )
 
 
+class RenewsAs(BaseModel):
+    """The plan bought at the end of a term: the same one, Standart after Start."""
+
+    code: str
+    name: str
+    price_minor: int = Field(
+        description="The plan's own price, before credit or discount."
+    )
+    currency: str
+    period_days: int
+
+
 class PricedChoice(BaseModel):
     cards: list[PlanCard]
     promo_typed: str
@@ -217,6 +231,11 @@ class PricedChoice(BaseModel):
     wallet_balance_minor: int | None = None
     renewal: RenewalOut | None = Field(
         None, description="With `plan`: the extra pages and seats `chosen` renews."
+    )
+    renews_as: RenewsAs | None = Field(
+        None,
+        description="With `plan`: what the bound card pays for when `chosen` "
+        "runs out — the same plan, or Standart after Start. Null: nothing.",
     )
 
 
@@ -423,6 +442,18 @@ class InvoiceStatusOut(BaseModel):
     back_url: str = Field(description="Where to send the payer next, if anywhere.")
 
 
+def renews_as(plan: Plan | None) -> RenewsAs | None:
+    if plan is None:
+        return None
+    return RenewsAs(
+        code=plan.code,
+        name=plan.name,
+        price_minor=int(to_minor(amount=str(plan.price), currency=plan.currency)),
+        currency=plan.currency,
+        period_days=plan.period_days,
+    )
+
+
 __all__ = [
     "DetailOut",
     "DisplayOut",
@@ -432,7 +463,9 @@ __all__ = [
     "PaywallOut",
     "PlansOut",
     "PromoOut",
+    "RenewsAs",
     "SeatsOfferOut",
     "ShownPrices",
     "StatusOut",
+    "renews_as",
 ]

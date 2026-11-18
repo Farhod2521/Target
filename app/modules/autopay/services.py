@@ -54,7 +54,8 @@ from app.modules.autopay.selectors import (
 )
 from app.modules.billing.constants import PAYABLE_INVOICE_STATUSES, WalletChoice
 from app.modules.billing.exceptions import InvoiceNotPayable
-from app.modules.billing.models import Invoice, Subscription
+from app.modules.billing.models import Invoice, Plan
+from app.modules.billing.selectors import next_term_plan
 from app.modules.billing.services import create_invoice, price_invoice
 from app.modules.billing.services.invoices import receipt_line
 
@@ -290,6 +291,10 @@ def charge_card(db: Session, *, card: SavedCard, now: datetime) -> bool:
     subscription = renewing_subscription(db, owner_id=card.owner_id, now=now)
     if subscription is None or not card.autopay:
         return False
+    # Start is never sold twice: its card pays for Standart instead.
+    plan = next_term_plan(db, plan=subscription.plan)
+    if plan is None:
+        return False
     if card.charge_term != subscription.expires_at:
         card.charge_term = subscription.expires_at
         card.charge_attempts = 0
@@ -315,7 +320,7 @@ def charge_card(db: Session, *, card: SavedCard, now: datetime) -> bool:
     token = _token(card)
     if not token:
         return False
-    invoice = _renewal_invoice(db, card=card, subscription=subscription, now=now)
+    invoice = _renewal_invoice(db, card=card, plan=plan, now=now)
     if invoice is None:
         return False
     # Counted before Multicard is asked, and committed: the callback that
@@ -333,8 +338,7 @@ def charge_card(db: Session, *, card: SavedCard, now: datetime) -> bool:
             amount_minor=invoice.amount_minor,
             decimal_places=decimal_places(invoice.currency),
             currency=invoice.currency,
-            description=f"TargetologAI obunasi: {subscription.plan.name}, "
-            f"{invoice.period_days} kun",
+            description=f"TargetologAI obunasi: {plan.name}, {invoice.period_days} kun",
         )
     except PaymentError as exc:
         logger.warning("autopay charge for %s not sent: %s", invoice.number, exc)
@@ -352,10 +356,10 @@ def charge_card(db: Session, *, card: SavedCard, now: datetime) -> bool:
 
 
 def _renewal_invoice(
-    db: Session, *, card: SavedCard, subscription: Subscription, now: datetime
+    db: Session, *, card: SavedCard, plan: Plan, now: datetime
 ) -> Invoice | None:
     try:
-        invoice = create_invoice(db, owner=card.owner, plan=subscription.plan, now=now)
+        invoice = create_invoice(db, owner=card.owner, plan=plan, now=now)
         # Everything the term held goes on with it: the extra pages and the
         # manager seats beside the plan. Nothing is left out and no code or
         # wallet money is spent with nobody at the screen; the owner who wants
