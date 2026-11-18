@@ -7,10 +7,16 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import Date, cast, exists, func, or_, select, tuple_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.modules.accounts.models import User
-from app.modules.ads.constants import Delivery, LaunchStatus
+from app.modules.ads.constants import LAUNCH_LOG_PREFIX, Delivery, LaunchStatus
+from app.modules.ads.failure_kinds import (
+    META_CODE_WORDS,
+    META_PROVIDER,
+    PASSING_CODES,
+    SYSTEM_CODES,
+)
 from app.modules.ads.models import Campaign, CampaignLaunch, GoogleLaunch
 from app.modules.audit.constants import (
     ACTION_TYPE_LABELS,
@@ -32,9 +38,9 @@ from app.modules.boards.constants import (
     BILL_FROM_COLUMNS,
     CAMPAIGN_FRESH_HOURS,
     IDLE_NO_LAUNCH_DAYS,
+    META_ERROR_WAIT_MINUTES,
     NO_SPEND_HOURS,
     NO_SPEND_LOOKBACK_DAYS,
-    NOT_META_ERRORS,
     NOTE_MAX,
     OFFER_COLUMNS,
     OFFER_ENDED_REASON,
@@ -704,11 +710,17 @@ def _sales_words(
 
 def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """A launch Meta refused or that was rolled back, and a press of the
-    client's own that Meta refused. The system's own retries are not
-    here, nor refusals that are not Meta's (already paused, and the like)."""
+    client's own on Meta that Meta refused. Each waits half an hour first:
+    a launch created on a later try, or the same press done since, is no
+    ticket. Only Meta's refusals: what passes on its own and our own faults
+    (those go to the Developers) are not here. The system's own presses,
+    a launch's own row in the action log, Google and dry runs neither.
+    The same press refused for the same reason is one fact a day."""
     since = _since(db)
     if since is None:
         return 0
+    settled = now - timedelta(minutes=META_ERROR_WAIT_MINUTES)
+    not_meta = sorted(PASSING_CODES | SYSTEM_CODES)
     finished = func.coalesce(CampaignLaunch.finished_at, CampaignLaunch.updated_at)
     launches = list(
         db.execute(
@@ -723,7 +735,10 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
                 CampaignLaunch.status.in_(
                     [str(LaunchStatus.FAILED), str(LaunchStatus.ROLLED_BACK)]
                 ),
+                CampaignLaunch.provider == META_PROVIDER,
                 finished >= since,
+                finished <= settled,
+                func.coalesce(CampaignLaunch.error_code, "").not_in(not_meta),
                 ~_has_ref(
                     CampaignLaunch.owner_id, func.concat("launch:", CampaignLaunch.id)
                 ),
@@ -732,22 +747,48 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             .limit(limit)
         )
     )
+    code = func.coalesce(ActionLog.error_code, "")
+    day_ref = func.concat(
+        "press:",
+        ActionLog.action,
+        ":",
+        code,
+        ":",
+        func.to_char(func.timezone("UTC", ActionLog.created_at), "YYYY-MM-DD"),
+    )
+    later = aliased(ActionLog)
+    done_since = exists().where(
+        later.owner_id == ActionLog.owner_id,
+        later.action == ActionLog.action,
+        later.target_external_id == ActionLog.target_external_id,
+        later.status == str(ActionStatus.APPLIED),
+        later.created_at > ActionLog.created_at,
+    )
     presses = list(
         db.execute(
             select(
-                ActionLog.id,
                 ActionLog.owner_id,
                 ActionLog.action,
                 ActionLog.error_message,
                 ActionLog.error_code,
                 ActionLog.target_level,
                 ActionLog.target_external_id,
+                ActionLog.id,
+                day_ref,
             )
             .where(
                 ActionLog.status == str(ActionStatus.FAILED),
                 ActionLog.actor_type == str(ActorType.USER),
+                ActionLog.target_provider == META_PROVIDER,
+                ActionLog.dry_run.is_(False),
+                # A launch's own row: the launch above says it.
+                ~ActionLog.idempotency_key.startswith(f"{LAUNCH_LOG_PREFIX}:"),
                 ActionLog.created_at >= since,
-                ActionLog.error_code.not_in(NOT_META_ERRORS),
+                ActionLog.created_at <= settled,
+                code.not_in(not_meta),
+                ~done_since,
+                ~_has_ref(ActionLog.owner_id, day_ref),
+                # Written one fact a press before.
                 ~_has_ref(ActionLog.owner_id, func.concat("action:", ActionLog.id)),
             )
             .order_by(ActionLog.created_at)
@@ -755,7 +796,7 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         )
     )
     written = 0
-    for launch_id, owner_id, message, code, name in launches:
+    for launch_id, owner_id, message, error, name in launches:
         head = (
             f"«{name}» reklamasi ishga tushmadi" if name else "Reklama ishga tushmadi"
         )
@@ -765,13 +806,13 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             reason=TicketReason.META_ERROR,
             ref=f"launch:{launch_id}",
             now=now,
-            detail=_said(head, _plain(code)),
+            detail=_said(head, _plain(error)),
             extra={
                 "raw": _cut(message),
                 "target": {"kind": "launch", "id": str(launch_id), "name": name or ""},
             },
         )
-    for action_id, owner_id, action, message, code, level, external_id in presses:
+    for owner_id, action, message, error, level, external_id, action_id, ref in presses:
         label = (
             str(ACTION_TYPE_LABELS[ActionType(action)])
             if action in ActionType.values
@@ -781,12 +822,12 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             db,
             owner_id=owner_id,
             reason=TicketReason.META_ERROR,
-            ref=f"action:{action_id}",
+            ref=ref,
             now=now,
             # The client's own press: noted on a closed ticket, never
             # reopening it. A refused launch still does.
             reopen=False,
-            detail=_said(f"«{label}» amali bajarilmadi", _plain(code)),
+            detail=_said(f"«{label}» amali bajarilmadi", _plain(error)),
             extra={
                 "raw": _cut(message),
                 "target": {
@@ -812,7 +853,7 @@ def _plain(code: str | None) -> str:
     code nobody wrote a sentence for is left to Meta's words beside it."""
     from app.modules.ads.selectors.failures import SENTENCES
 
-    found = SENTENCES.get(code or "")
+    found = SENTENCES.get(META_CODE_WORDS.get(code or "", code or ""))
     return str(found[0]) if found else "Meta rad etdi."
 
 

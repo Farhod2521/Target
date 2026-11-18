@@ -134,72 +134,121 @@ def test_sales_support_kerak_opens_the_ticket_at_payment_not_an_hour_later(
     )
 
 
+def _press(
+    db: Session,
+    owner: User,
+    key: str,
+    *,
+    code: str = "refused",
+    actor: str = "user",
+    status: str = "failed",
+    provider: str = PROVIDER,
+    action: str = "pause",
+    target: str = "c_1",
+    dry_run: bool = False,
+    minutes_ago: int = 40,
+) -> None:
+    db.add(
+        ActionLog(
+            owner_id=owner.id,
+            action=action,
+            target_level="campaign",
+            target_external_id=target,
+            target_provider=provider,
+            idempotency_key=key,
+            actor_type=actor,
+            status=status,
+            error_code=code if status == "failed" else "",
+            error_message="Meta refused",
+            dry_run=dry_run,
+            created_at=utcnow() - timedelta(minutes=minutes_ago),
+        )
+    )
+
+
 def test_meta_refusals_open_a_ticket_and_the_systems_own_do_not(db: Session) -> None:
     _live(db)
     owner = _client(db, "ads@shop.test")
     account, page = _cabinet(db, owner)
     now = utcnow()
-    db.add_all(
-        [
-            CampaignLaunch(
-                owner_id=owner.id,
-                ad_account_id=account.id,
-                page_id=page.id,
-                provider=PROVIDER,
-                status="failed",
-                error_message="Invalid parameter",
-                finished_at=now,
-            ),
-            CampaignLaunch(
-                owner_id=owner.id,
-                ad_account_id=account.id,
-                page_id=page.id,
-                provider=PROVIDER,
-                status="rolled_back",
-                finished_at=now - timedelta(hours=5),
-            ),
-            CampaignLaunch(
-                owner_id=owner.id,
-                ad_account_id=account.id,
-                page_id=page.id,
-                provider=PROVIDER,
-                status="created",
-                finished_at=now,
-            ),
-        ]
-    )
-    for key, actor, code in (
-        ("u1", "user", "200"),
-        ("u2", "user", "already"),
-        ("s1", "system", "200"),
-        ("a1", "agent", "200"),
-    ):
-        db.add(
-            ActionLog(
-                owner_id=owner.id,
-                action="pause",
-                target_level="campaign",
-                target_external_id="c_1",
-                target_provider=PROVIDER,
-                idempotency_key=key,
-                actor_type=actor,
-                status="failed",
-                error_code=code,
-                error_message="Meta refused",
-            )
+
+    def launch(status: str, code: str, minutes_ago: int) -> CampaignLaunch:
+        row = CampaignLaunch(
+            owner_id=owner.id,
+            ad_account_id=account.id,
+            page_id=page.id,
+            provider=PROVIDER,
+            status=status,
+            error_code=code,
+            error_message="Invalid parameter",
+            finished_at=now - timedelta(minutes=minutes_ago),
         )
+        db.add(row)
+        return row
+
+    refused = launch("failed", "", 40)
+    launch("rolled_back", "refused", 60 * 5)  # before the board went live
+    launch("created", "", 40)
+    fresh = launch("rolled_back", "payment_missing", 10)  # the client may mend it
+    launch("failed", "unknown", 40)  # ours: the Developers'
+    launch("failed", "site_missing", 40)  # the client's own setup
+    launch("failed", "temporary", 40)
+    _press(db, owner, "u1", code="200")
+    _press(db, owner, "u1b", code="200", target="c_9")  # same press, same day
+    _press(db, owner, "u2", code="already")
+    _press(db, owner, "u3", code="not_applied")
+    _press(db, owner, "u4", code="refused", minutes_ago=5)
+    _press(db, owner, "s1", actor="system")
+    _press(db, owner, "a1", actor="agent")
+    _press(db, owner, "g1", provider="google")
+    _press(db, owner, "d1", dry_run=True)
+    _press(db, owner, "launch:x:1", action="create_campaign")
+    # Refused, then the same press went through.
+    _press(db, owner, "r1", action="resume", target="c_2", minutes_ago=50)
+    _press(db, owner, "r2", action="resume", target="c_2", status="applied")
     db.commit()
 
     assert triggers.sweep_support(db, now=utcnow()) == 2
     ticket = _ticket(db, owner)
     assert ticket is not None
     assert [r["code"] for r in ticket.reasons] == ["meta_error", "meta_error"]
+    refs = {r["ref"] for r in ticket.reasons}
+    assert f"launch:{refused.id}" in refs
+    assert any(ref.startswith("press:pause:200:") for ref in refs)
     details = sorted(r["detail"] for r in ticket.reasons)
-    assert details == [
-        "Reklama ishga tushmadi: Meta rad etdi.",
-        "«To'xtatish» amali bajarilmadi: Meta rad etdi.",
-    ]
+    assert details[0] == "Reklama ishga tushmadi: Meta rad etdi."
+    assert details[1].startswith("«To'xtatish» amali bajarilmadi: Ulangan Facebook")
     assert triggers.sweep_support(db, now=utcnow()) == 0
+
+    # Half an hour on, the launch still refused is a ticket; the press done
+    # since is not.
+    assert triggers.meta_errors(db, now=utcnow() + timedelta(minutes=31)) == 2
+    db.refresh(ticket)
+    refs = {r["ref"] for r in ticket.reasons}
+    assert f"launch:{fresh.id}" in refs
+    assert any(ref.startswith("press:pause:refused:") for ref in refs)
+
+
+def test_a_launch_created_on_a_later_try_is_no_ticket(db: Session) -> None:
+    _live(db)
+    owner = _client(db, "retry@shop.test")
+    account, page = _cabinet(db, owner)
+    row = CampaignLaunch(
+        owner_id=owner.id,
+        ad_account_id=account.id,
+        page_id=page.id,
+        provider=PROVIDER,
+        status="rolled_back",
+        error_code="payment_missing",
+        finished_at=utcnow() - timedelta(minutes=10),
+    )
+    db.add(row)
+    db.commit()
+    assert triggers.meta_errors(db, now=utcnow()) == 0
+    row.status = "created"
+    db.commit()
+    assert triggers.meta_errors(db, now=utcnow() + timedelta(minutes=40)) == 0
+    assert _ticket(db, owner) is None
 
 
 def test_one_ticket_per_client_reopened_with_the_same_person(

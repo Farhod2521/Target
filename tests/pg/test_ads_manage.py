@@ -1,5 +1,6 @@
 """Ads against PostgreSQL: the page scope over a mirror, and asking for a change."""
 
+import importlib
 from datetime import datetime, timedelta
 
 import pytest
@@ -14,8 +15,12 @@ from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.exceptions import AlreadyInState, ChangeInFlight
 from app.modules.ads.models import Ad, AdSet, Campaign, CampaignLaunch
 from app.modules.ads.services.manage import close_stalled_changes, start_delivery
-from app.modules.audit.models import ActionLog
+from app.modules.audit.constants import ACTION_TYPE_LABELS, ActionType
+from app.modules.audit.models import ActionLog, ErrorEvent
 from tests.pg.test_cabinet_flows import _cabinet
+
+# The package's own name «faults» is the router; the module holds the titles.
+faults_page = importlib.import_module("app.modules.backoffice.routers.faults")
 
 
 def _mirror(db: Session, owner: User, account_id: object) -> Campaign:
@@ -231,6 +236,16 @@ def test_a_change_no_worker_carried_out_is_closed(db: Session, queued: list) -> 
     assert (old.status, old.error_code) == ("failed", "stalled")
     assert fresh.status == "pending"
     assert other.status == "pending"
+    # Ours: kept for the Developers, its reference on the row.
+    fault = db.scalars(select(ErrorEvent)).one()
+    assert fault.path == f"action:{old.id}"
+    assert fault.context["code"] == "stalled"
+    assert fault.context["action"] == "resume"
+    assert old.result_payload["fault"] == fault.reference
+    # The Developer page names it by the press, with no query of its own.
+    label = ACTION_TYPE_LABELS[ActionType.RESUME]
+    assert faults_page._title(fault) == f"{label} — vaqtida bajarilmadi"
+    assert any(name.endswith("deliver_fault_task") for name, _ in queued)
 
 
 def test_a_campaign_on_with_its_group_off_offers_a_start_that_reaches_it(

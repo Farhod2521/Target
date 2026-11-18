@@ -28,6 +28,7 @@ from app.modules.backoffice.routers.customers import router as customers
 from app.modules.backoffice.routers.dashboard import router as dashboard
 from app.modules.backoffice.routers.directions import router as directions
 from app.modules.backoffice.routers.facebook import router as facebook
+from app.modules.backoffice.routers.faults import router as faults
 from app.modules.backoffice.routers.payments import router as payments
 from app.modules.backoffice.routers.plans import router as plans
 from app.modules.backoffice.routers.promo import router as promo
@@ -63,6 +64,7 @@ router.include_router(dashboard)
 router.include_router(payments)
 router.include_router(plans)
 router.include_router(refusals)
+router.include_router(faults)
 router.include_router(wallet)
 router.include_router(reviews)
 router.include_router(surveys)

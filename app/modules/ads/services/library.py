@@ -39,10 +39,12 @@ from app.modules.ads.constants import (
 from app.modules.ads.exceptions import (
     ChunkOutOfPlace,
     ChunkRefused,
+    ConnectionUnusable,
     MediaDeleteRunning,
     MediaInUse,
     MediaNotStored,
     MediaNotUploaded,
+    NoAdAccount,
     StillNotReady,
     UnknownMedia,
     UploadIncomplete,
@@ -52,7 +54,13 @@ from app.modules.ads.models import CampaignLaunch, LaunchCreative, MediaAsset
 from app.modules.ads.selectors.library import deleting_files, library_file, media_usage
 from app.modules.ads.selectors.schedule import max_creatives
 from app.modules.ads.services.access import launch_account_and_token, token_for
-from app.modules.ads.services.manage import close_log, fail_log, open_log
+from app.modules.ads.services.faults import action_fault
+from app.modules.ads.services.manage import (
+    close_log,
+    fail_log,
+    open_log,
+    provider_failure,
+)
 from app.modules.ads.services.variants import add_media, remove_variant
 from app.modules.audit.constants import ActionStatus, ActionType, EventName
 from app.modules.audit.models import ActionLog
@@ -242,15 +250,26 @@ def upload_to_library(
         _still_going(db, row=row)
         raise UploadInterrupted(str(exc)) from exc
     except (DomainError, ProviderError, OSError) as exc:
+        code = _code_of(exc, account=row.launch.ad_account)
         _refused(
             db,
             row=row,
             log=log,
-            code=_code_of(exc),
-            message=str(exc),
+            code=code,
+            message=f"[{exc.code}] {exc}"
+            if isinstance(exc, ProviderError) and exc.code
+            else str(exc),
             refusal=_kept_refusal(
                 db, exc=exc, owner=row.launch.owner, account=row.launch.ad_account
             ),
+        )
+        action_fault(
+            db,
+            log,
+            code=code,
+            message=str(exc),
+            where="ads.library.upload_to_library",
+            exc=exc,
         )
         return "failed"
     _land(db, row=row, log=log, account=account, media=media, filename=filename)
@@ -475,8 +494,19 @@ def _refused(
     logger.info("library upload refused", extra={"variant": str(row.id), "code": code})
 
 
-def _code_of(exc: Exception) -> str:
-    return str(getattr(exc, "code", "") or type(exc).__name__)
+def _code_of(exc: Exception, *, account: AdAccount | None) -> str:
+    """The word the screens and the boards read: Meta's refusal by its kind,
+    a lost connection as such, a rule of ours under its own code, a file
+    that would not open ours."""
+    if isinstance(exc, ProviderError):
+        return provider_failure(exc, account)
+    if isinstance(exc, (NoAdAccount, ConnectionUnusable)):
+        return "connection"
+    if isinstance(exc, MediaNotUploaded):
+        return "not_applied"
+    if isinstance(exc, DomainError):
+        return str(exc.code)
+    return "unknown"
 
 
 def _kept_refusal(
