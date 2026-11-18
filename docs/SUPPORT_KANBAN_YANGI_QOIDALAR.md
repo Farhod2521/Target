@@ -80,6 +80,22 @@ Sozlamalar (faqat Owner va superuser, boshqalarga **404**):
 - `PUT /api/v2/office/boards/support/kinds/{member_id}` body `{"kinds": ["setup", "meta_error"]}` → bitta xodimning qatori (yuqoridagi shaklda).
   Hamma tur belgilansa `all: true` bo'lib saqlanadi. Bo'sh ro'yxat: **422** `no_kind_chosen`; noma'lum tur: **422** `unknown_kind`; Support xodimi emas: **404** `not_found`.
 
+### 3b. Kunlik hisobot (2026-11-19)
+
+`GET /api/v2/office/boards/support/report?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD` (ikkalasi bo'sh — bugun; ko'pi bilan 1 yil, aks holda **422** `report_period_invalid`). Support xodimi faqat o'z qatorini, Owner va superuser hamma Support xodimini (va davrda zayavka bilan ishlagan boshqa xodimni ham) ko'radi; boshqalarga **404**.
+
+Har bir qator (`total` va `days[]`, kunlar Toshkent vaqti bilan, faqat ish bo'lgan kunlar, yangisi birinchi):
+
+| Maydon | Ma'nosi |
+|---|---|
+| `talked` | Gaplashgan har xil mijozlar: chatda yozgan yoki zayavkasida izoh, «Mijoz kutilmoqda», «Dasturchiga berish», «Hal qilindi» bosgan. Zayavka olish, voz kechish, «Bog'lanib bo'lmadi» — gaplashish emas. Qo'ng'iroqlar hozircha kirmaydi. |
+| `messages` | Chatda yozgan xabarlari |
+| `taken` | «Zayavka olish» bilan olgani |
+| `solved` | «Hal qilindi» bosgani |
+| `confirmed` / `denied` | Mijoz «Ha» / «Yo'q» degani — oxirgi «Hal qilindi» bosgan xodimga yoziladi |
+
+Javob: `{"date_from", "date_to", "total": {...}, "members": [{"id", "name", "email", "total": {...}, "days": [{"day", ...}]}]}`. Davr bo'yicha `talked` har mijozni bir marta sanaydi.
+
 ## 4. Kutish taymeri
 
 `wait` tugmasi vaqt so'raydi (`due_at`, majburiy). Vaqt kelganda zayavka o'zi `Ishlanmoqda` ga qaytadi, tarixga «Kutish vaqti tugadi» (`wait_over`) yoziladi. Mijoz Yordam chatiga yozsa, avvalgidek darhol qaytadi.

@@ -21,6 +21,7 @@ from app.modules.boards import (
     renewal,
     selectors,
     services,
+    support_report,
     view,
 )
 from app.modules.boards import staff as staff_service
@@ -75,6 +76,7 @@ from app.modules.boards.schemas import (
     SupportKindsIn,
     SupportKindsOut,
     SupportMemberKindsOut,
+    SupportReportOut,
     TicketAnswerIn,
     TicketAnswerOut,
     TicketQuestionStateOut,
@@ -510,6 +512,28 @@ def set_renewal_manager(db: Db, user: Staff, body: RenewalManagerIn) -> dict[str
         ) from None
     moved = renewal.set_manager(db, to_id=to_id, actor=user, now=utcnow())
     return {**renewal.manager_view(db), "moved": moved}
+
+
+@router.get("/boards/support/report", responses={200: {"model": SupportReportOut}})
+def support_daily_report(
+    db: Db,
+    user: Staff,
+    date_from: Annotated[
+        date | None, Query(description="The first office day; today if empty.")
+    ] = None,
+    date_to: Annotated[
+        date | None, Query(description="The last office day; today if empty.")
+    ] = None,
+) -> dict[str, Any]:
+    """Each member of Support by day: clients talked to, tickets taken and
+    called solved, and the clients' answers. A member reads their own; the
+    Owner and the superuser read everybody's."""
+    access = access_for(db, user)
+    if not access.sees(Board.SUPPORT):
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    end = date_to or localtime(utcnow()).date()
+    start = date_from or end
+    return support_report.report(db, user=user, access=access, start=start, end=end)
 
 
 @router.get("/boards/support/kinds", responses={200: {"model": SupportKindsOut}})

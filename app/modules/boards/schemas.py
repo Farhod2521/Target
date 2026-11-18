@@ -674,3 +674,49 @@ class SupportKindsIn(BaseModel):
         description="The kinds this member takes first; at least one. Every kind "
         "ticked is saved as `all`.",
     )
+
+
+class SupportReportLineOut(BaseModel):
+    talked: int = Field(
+        description="Different clients the member wrote to in the support chat, "
+        "or on whose ticket they wrote a note, pressed «Mijoz kutilmoqda», "
+        "«Dasturchiga berish» or «Hal qilindi». Calls are not counted yet."
+    )
+    messages: int = Field(description="Messages the member wrote in support chats.")
+    taken: int = Field(description="Tickets taken with «Zayavka olish».")
+    solved: int = Field(description="«Hal qilindi» presses.")
+    confirmed: int = Field(
+        description="The client said solved, after this member's «Hal qilindi»."
+    )
+    denied: int = Field(
+        description="The client said not solved, after this member's «Hal qilindi»."
+    )
+
+
+class SupportReportDayOut(SupportReportLineOut):
+    day: date = Field(description="The office's day (Tashkent).")
+
+
+class SupportReportMemberOut(BaseModel):
+    id: str
+    name: str
+    email: str
+    total: SupportReportLineOut = Field(
+        description="The period; `talked` counts each client once."
+    )
+    days: list[SupportReportDayOut] = Field(
+        description="Days with anything done, newest first."
+    )
+
+
+class SupportReportOut(BaseModel):
+    date_from: date
+    date_to: date
+    total: SupportReportLineOut = Field(
+        description="Everybody listed; `talked` counts each client once."
+    )
+    members: list[SupportReportMemberOut] = Field(
+        description="A member of Support reads their own line only; the Owner and "
+        "the superuser read every member of Support, and anybody else who worked "
+        "tickets in the period."
+    )
