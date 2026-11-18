@@ -57,6 +57,29 @@ Limit faqat `Ishlanmoqda` ni sanaydi. Quyidagilar limitdan oshsa ham o'tadi: Own
 
 `queue` — navbatdagi mas'ulsiz zayavkalar, `working` — o'quvchining `Ishlanmoqda` dagilari. Sotuv doskasida `take: null`.
 
+### 3a. Zayavka turlari (2026-11-18, migratsiya 0066)
+
+Har bir Support xodimiga zayavka turlari belgilanadi: tur — zayavka kelgan sabab (`setup` Sozlash tugamadi, `from_sales`, `meta_error`, `survey`, `idle`, `ai`, `manual`). Default: hech narsa belgilanmagan = **hamma tur**.
+
+- «Zayavka olish» avval xodimning o'z turidagi eng uzoq kutganini beradi; o'z turidan hech biri qolmasa — istalgan turdagi eng uzoq kutganini (ogohlantirishsiz).
+- Zayavkada bir nechta ochiq sabab bo'lsa, ulardan biri xodimning turi bo'lsa — uniki. Olgan xodim hammasini hal qiladi.
+- Hal qilingan sabab turga kirmaydi: faqat ochiq sabablar sanaladi.
+- Owner va superuserning o'zi «Zayavka olish» bossa — hamma tur.
+
+`take` da yangi maydon `own`: `queue` ning o'quvchi turiga tegishlilari (hamma turli xodimda `own == queue`).
+
+```json
+"take": {"queue": 12, "own": 4, "working": 3, "limit": 5}
+```
+
+Sozlamalar (faqat Owner va superuser, boshqalarga **404**):
+
+- `GET /api/v2/office/boards/support/kinds` →
+  `{"kinds": [{"value": "setup", "label": "Sozlash tugamadi"}, …], "members": [{"id", "name", "email", "kinds": ["setup", "ai"], "all": false}]}`.
+  `members` — faol Support xodimlari; `all: true` — hech narsa belgilanmagan (hamma tur, keyin qo'shiladigan tur ham).
+- `PUT /api/v2/office/boards/support/kinds/{member_id}` body `{"kinds": ["setup", "meta_error"]}` → bitta xodimning qatori (yuqoridagi shaklda).
+  Hamma tur belgilansa `all: true` bo'lib saqlanadi. Bo'sh ro'yxat: **422** `no_kind_chosen`; noma'lum tur: **422** `unknown_kind`; Support xodimi emas: **404** `not_found`.
+
 ## 4. Kutish taymeri
 
 `wait` tugmasi vaqt so'raydi (`due_at`, majburiy). Vaqt kelganda zayavka o'zi `Ishlanmoqda` ga qaytadi, tarixga «Kutish vaqti tugadi» (`wait_over`) yoziladi. Mijoz Yordam chatiga yozsa, avvalgidek darhol qaytadi.
@@ -92,7 +115,7 @@ Mijoz tomoni (kabinet, `Authorization` mijozniki):
 
 `stale` — savolga javob berilgan yoki u endi so'ralmayapti; xato emas.
 
-Tasdiq kutayotgan (`confirming`) zayavkaga yangi sabab kelsa, u qayta ochiladi va o'sha xodimga qaytadi. To'liq yopilgan (`resolved`, `closed`) zayavkaga yangi sabab kelsa, u xodimsiz «Yangi» navbatiga tushadi (keyingi «Zayavka olish» bosganga beriladi). Mijozning o'z tugmasidagi Meta xatosi va chatdagi oddiy xabari yopilgan zayavkani ochmaydi: Meta xatosi tarixga `after_close` («Yopilgandan keyin keldi») bo'lib yoziladi. Support xodimi yopilgan zayavkani qo'lda ochsa, u o'ziga tushadi.
+Tasdiq kutayotgan (`confirming`) yoki to'liq yopilgan (`resolved`, `closed`) zayavkaga yangi sabab kelsa, u xodimsiz «Yangi» navbatiga tushadi (keyingi «Zayavka olish» bosganga, turiga qarab, beriladi; 2026-11-18 dan `confirming` ham shunday). Oldingi xodim hal qilgan sabablar uning nomi bilan hal qilingan bo'lib qoladi; mijozga yuborilgan «Hal bo'ldimi?» savoli endi o'tmaydi. Mijozning o'z tugmasidagi Meta xatosi va chatdagi oddiy xabari yopilgan zayavkani ochmaydi: Meta xatosi tarixga `after_close` («Yopilgandan keyin keldi») bo'lib yoziladi. Support xodimi yopilgan zayavkani qo'lda ochsa, u o'ziga tushadi.
 
 ## 6. Zayavkani qo'lda ochish
 

@@ -1,7 +1,7 @@
 """Support tickets: one per client, for every reason. A new reason on a
-ticket waiting for the client's confirmation goes back to its person. On a
-fully closed one (Hal qilindi, Yopildi) it opens a new round in Yangi, for
-whoever takes it next; a soft fact there (``reopen=False``) is only noted."""
+ticket «Hal qilindi» was pressed on (Tasdiq kutilmoqda, Hal qilindi,
+Yopildi) opens a new round in Yangi, for whoever takes it next; a soft fact
+on a fully closed one (``reopen=False``) is only noted."""
 
 import uuid
 from datetime import datetime
@@ -121,14 +121,13 @@ def raise_ticket(
     if card.column_code in SUPPORT_DONE_COLUMNS:
         card.closed_at = None
         card.due_at = None
-        if final:
-            # A new round: the queue's, not the person's who closed it.
-            card.manager_id = None
-        to = SupportColumn.IN_PROGRESS if card.manager_id else SupportColumn.NEW
+        # A new round: the queue's, for whoever takes it next, not the
+        # person's who pressed «Hal qilindi» - their round stays solved.
+        card.manager_id = None
         move(
             db,
             card=card,
-            to=str(to),
+            to=str(SupportColumn.NEW),
             kind=EventKind.REOPENED,
             now=now,
             body=detail,

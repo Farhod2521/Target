@@ -17,6 +17,7 @@ from app.modules.backoffice.services import seen
 from app.modules.boards import (
     client,
     help_options,
+    kinds,
     renewal,
     selectors,
     services,
@@ -71,6 +72,9 @@ from app.modules.boards.schemas import (
     StaffPeopleOut,
     StaffPersonOut,
     StaffRolesIn,
+    SupportKindsIn,
+    SupportKindsOut,
+    SupportMemberKindsOut,
     TicketAnswerIn,
     TicketAnswerOut,
     TicketQuestionStateOut,
@@ -506,6 +510,31 @@ def set_renewal_manager(db: Db, user: Staff, body: RenewalManagerIn) -> dict[str
         ) from None
     moved = renewal.set_manager(db, to_id=to_id, actor=user, now=utcnow())
     return {**renewal.manager_view(db), "moved": moved}
+
+
+@router.get("/boards/support/kinds", responses={200: {"model": SupportKindsOut}})
+def support_kinds(db: Db, user: Staff) -> dict[str, Any]:
+    """Which kinds of ticket each member of Support takes first. For the
+    superuser and the Owner."""
+    _full(db, user)
+    return kinds.kinds_view(db)
+
+
+@router.put(
+    "/boards/support/kinds/{member_id}",
+    responses={200: {"model": SupportMemberKindsOut}},
+)
+def set_support_kinds(
+    db: Db, user: Staff, member_id: str, body: SupportKindsIn
+) -> dict[str, Any]:
+    """Set the kinds a member of Support takes first. «Zayavka olish» gives
+    them those, and the oldest of any kind once none of those waits. For the
+    superuser and the Owner."""
+    _full(db, user)
+    member = _card_id(member_id)
+    kinds.set_kinds(db, member_id=member, kinds=body.kinds, actor=user)
+    db.commit()
+    return kinds.member_view(db, member_id=member)
 
 
 @router.post("/sales/take", responses={200: {"model": CardDetailOut}})

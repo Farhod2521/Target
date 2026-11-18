@@ -251,7 +251,7 @@ def test_a_launch_created_on_a_later_try_is_no_ticket(db: Session) -> None:
     assert _ticket(db, owner) is None
 
 
-def test_one_ticket_per_client_reopened_with_the_same_person(
+def test_one_ticket_per_client_reopened_into_the_queue(
     client: TestClient, db: Session
 ) -> None:
     _live(db)
@@ -320,9 +320,11 @@ def test_one_ticket_per_client_reopened_with_the_same_person(
         detail="Xato",
     )
     db.commit()
-    again = _detail(client.get(f"{URL}/cards/{ticket.id}", headers=zarina))
-    assert again.column == "in_progress" and again.closed_at is None
-    assert again.manager is not None and again.manager.email == "zarina@office.test"
+    # A new round goes to the queue: Zarina no longer holds it.
+    assert client.get(f"{URL}/cards/{ticket.id}", headers=zarina).status_code == 404
+    again = _detail(client.get(f"{URL}/cards/{ticket.id}", headers=boss))
+    assert again.column == "new" and again.closed_at is None
+    assert again.manager is None
     assert again.history[0].kind == "reopened"
     assert [r.code for r in again.ticket_reasons] == ["meta_error", "setup"]
     assert db.scalar(select(func.count()).select_from(BoardCard)) == 1

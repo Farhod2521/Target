@@ -220,10 +220,13 @@ def _room_to_take(db: Session, *, user: User) -> None:
 
 def take_ticket(db: Session, *, member: User, now: datetime) -> BoardCard:
     """«Zayavka olish»: the ticket that waited longest in Yangi with nobody
-    on it, now this person's and in Ishlanmoqda. One a press, and none while
-    they have the limit in Ishlanmoqda."""
+    on it, now this person's and in Ishlanmoqda. Their own kinds first
+    (``kinds``); when none of those waits, the oldest of any kind. One a
+    press, and none while they have the limit in Ishlanmoqda."""
+    from app.modules.boards.kinds import has_kind, kinds_of
+
     _room_to_take(db, user=member)
-    card = db.scalar(
+    waiting = (
         select(BoardCard)
         .where(
             BoardCard.board == str(Board.SUPPORT),
@@ -235,6 +238,10 @@ def take_ticket(db: Session, *, member: User, now: datetime) -> BoardCard:
         .with_for_update(skip_locked=True)
         .execution_options(populate_existing=True)
     )
+    kinds = kinds_of(db, member_id=member.id)
+    card = db.scalar(waiting.where(has_kind(kinds))) if kinds else None
+    if card is None:
+        card = db.scalar(waiting)
     if card is None:
         raise NoTicketToTake
     card.manager_id = member.id

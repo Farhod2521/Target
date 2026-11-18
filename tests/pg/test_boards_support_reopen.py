@@ -1,8 +1,8 @@
 """A fully closed Support ticket (Hal qilindi, Yopildi) is nobody's: a new
 fact opens a new round in Yangi for whoever takes it next, the client's own
 refused press opens nothing, and a member may open it by hand for
-themselves. A ticket waiting for the client's word still goes back to its
-person."""
+themselves. A ticket waiting for the client's word opens a new round in
+the queue too."""
 
 import uuid
 from datetime import timedelta
@@ -64,10 +64,18 @@ def test_a_new_fact_on_a_closed_ticket_goes_to_the_queue(
     assert client.get(f"{URL}/cards/{ticket.id}", headers=zarina).status_code == 404
 
 
-def test_a_ticket_waiting_for_the_client_goes_back_to_its_person(
+def test_a_ticket_waiting_for_the_client_opens_a_new_round_in_the_queue(
     client: TestClient, db: Session
 ) -> None:
-    owner, zarina, ticket = _solved_by(client, db, "asked@shop.test", "confirming")
+    owner, zarina, ticket = _solved_by(client, db, "asked@shop.test", "in_progress")
+    pressed = _detail(
+        client.post(
+            f"{URL}/cards/{ticket.id}/actions",
+            headers=zarina,
+            json={"action": "resolve", "note": "Sozlab berildi"},
+        )
+    )
+    assert pressed.column == "confirming"
     raise_ticket(
         db,
         owner_id=owner.id,
@@ -76,9 +84,20 @@ def test_a_ticket_waiting_for_the_client_goes_back_to_its_person(
         now=utcnow(),
     )
     db.commit()
-    again = _detail(client.get(f"{URL}/cards/{ticket.id}", headers=zarina))
-    assert again.column == "in_progress"
-    assert again.manager is not None and again.manager.email == "zarina-asked@shop.test"
+    ticket = _ticket(db, owner)
+    assert ticket is not None
+    assert ticket.column_code == "new" and ticket.manager_id is None
+    # The round Zarina solved stays hers and solved; the new one is open.
+    solved = [r for r in ticket.reasons if r.get("solved_at")]
+    assert solved and solved[0]["solved_by"] == "zarina-asked@shop.test"
+    assert [r["code"] for r in ticket.reasons if not r.get("solved_at")] == [
+        "meta_error"
+    ]
+    # Anybody in Support takes it.
+    olim = _staff(db, "olim-asked@shop.test", Role.SUPPORT)
+    taken = _detail(client.post(f"{URL}/support/take", headers=olim))
+    assert taken.id == str(ticket.id) and taken.manager is not None
+    assert taken.manager.email == "olim-asked@shop.test"
 
 
 def test_the_clients_own_refused_press_does_not_reopen_a_closed_ticket(

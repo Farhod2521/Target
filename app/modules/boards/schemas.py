@@ -189,6 +189,12 @@ class DueCountsOut(BaseModel):
 
 class TakeOut(BaseModel):
     queue: int = Field(description="Tickets in Yangi with nobody on them.")
+    own: int = Field(
+        description="Of `queue`, the ones of the reader's kinds (an open reason "
+        "of a kind set for them in the Support settings). Equals `queue` for "
+        "somebody who takes every kind. «Zayavka olish» gives these first, "
+        "then any."
+    )
     working: int = Field(description="The reader's tickets in Ishlanmoqda.")
     limit: int = Field(
         description="«Zayavka olish» is refused once `working` reaches this."
@@ -634,3 +640,37 @@ class RenewalReportOut(BaseModel):
     date_to: date
     total: ReportLineOut
     plans: list[ReportLineOut] = Field(description="Standart, then Pro.")
+
+
+class SupportKindOut(BaseModel):
+    value: str = Field(
+        description="`setup`, `from_sales`, `meta_error`, `survey`, `idle`, `ai` "
+        "or `manual`."
+    )
+    label: str
+
+
+class SupportMemberKindsOut(BaseModel):
+    id: str
+    name: str
+    email: str
+    kinds: list[str] = Field(description="The kinds this member takes first.")
+    all: bool = Field(
+        description="Nothing set: every kind, a kind added later too (the default)."
+    )
+
+
+class SupportKindsOut(BaseModel):
+    kinds: list[SupportKindOut] = Field(description="Every kind, in order.")
+    members: list[SupportMemberKindsOut] = Field(
+        description="Each active member of Support."
+    )
+
+
+class SupportKindsIn(BaseModel):
+    kinds: list[str] = Field(
+        min_length=1,
+        max_length=20,
+        description="The kinds this member takes first; at least one. Every kind "
+        "ticked is saved as `all`.",
+    )

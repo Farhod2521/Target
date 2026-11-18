@@ -335,6 +335,12 @@ Rollar: `Sales`, `SalesLead`, `Renewal`, `Support`, `Finance`, `Engineer`, `Owne
 `Owner` rolini faqat superuser beradi va oladi (**403** `owner_role_superuser_only`).
 O'zining rolini o'zgartirib bo'lmaydi; superuserning rollari o'zgarmaydi.
 
+### Support: zayavka turlari
+
+`GET /api/v2/office/boards/support/kinds`, `PUT /api/v2/office/boards/support/kinds/{member_id}` `{"kinds": [...]}`.
+Har bir Support xodimi avval qaysi turdagi zayavkalarni olishi; default — hamma tur. Board javobidagi
+`take.own` — navbatning o'quvchi turidagi qismi. To'liq qoidalar: `docs/SUPPORT_KANBAN_YANGI_QOIDALAR.md` §3a.
+
 ### So'rovnoma: «yordam kerak» variantlari
 
 - `GET /api/v2/office/surveys/questions/{question_id}/help-options`

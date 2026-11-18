@@ -439,10 +439,12 @@ def board_view(
 
 def _take(db: Session, *, user: User) -> dict[str, int]:
     """What «Zayavka olish» shows: how many tickets wait for somebody, how
-    many this person has in Ishlanmoqda, and the most they may."""
+    many of them are of this person's kinds, how many this person has in
+    Ishlanmoqda, and the most they may."""
+    from app.modules.boards.kinds import has_kind, kinds_of
     from app.modules.boards.services import working_count
 
-    queue = db.scalar(
+    waiting = (
         select(func.count())
         .select_from(BoardCard)
         .where(
@@ -451,8 +453,12 @@ def _take(db: Session, *, user: User) -> dict[str, int]:
             BoardCard.manager_id.is_(None),
         )
     )
+    queue = int(db.scalar(waiting) or 0)
+    kinds = kinds_of(db, member_id=user.id)
+    own = int(db.scalar(waiting.where(has_kind(kinds))) or 0) if kinds else queue
     return {
-        "queue": int(queue or 0),
+        "queue": queue,
+        "own": own,
         "working": working_count(db, user_id=user.id),
         "limit": TICKET_TAKE_LIMIT,
     }
