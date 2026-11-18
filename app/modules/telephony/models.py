@@ -98,6 +98,12 @@ class PhoneExtension(Base):
         Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     softphone: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Its holder takes no calls now («Qo'ng'iroq qabul qilmayman»): the
+    # routing passes them over and their browser phone turns a ring away.
+    # Calling out still works.
+    accepts_calls: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     # The exchange no longer lists it. Registering a number that is not
     # there gets the whole office's address blocked, so it is never offered.
     is_gone: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

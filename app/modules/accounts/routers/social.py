@@ -109,6 +109,7 @@ def start(
         next_path=body.next,
         referral_code=body.referral_code,
         language=body.language.value if body.language else "",
+        utm=body.utm,
     )
     return SocialStartOut(url=url)
 

@@ -26,7 +26,7 @@ token for a session - the tokens never ride in an address.
 import logging
 import secrets
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, urlencode
 
@@ -65,7 +65,7 @@ from app.modules.accounts.phone import normalize_email
 from app.modules.accounts.selectors import user_by_email
 from app.modules.accounts.services.authenticate import note_sign_in, refuse_blocked
 from app.modules.accounts.services.members import issue_handoff, safe_destination
-from app.modules.accounts.services.register_user import register_user
+from app.modules.accounts.services.register_user import clean_utm, register_user
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +118,7 @@ class Pending:
     next: str
     label: str = ""
     phone: str = ""
+    utm: dict[str, str] = field(default_factory=dict)
 
 
 def providers() -> list[str]:
@@ -150,6 +151,7 @@ def start(
     referral_code: str = "",
     language: str = "",
     linking: User | None = None,
+    utm: object = None,
 ) -> str:
     """Where to send the browser. ``linking`` is the signed-in owner tying a
     provider account from Settings; without it this is a sign-in or sign-up."""
@@ -169,6 +171,7 @@ def start(
             "referral": referral_code[:32],
             "language": language if language in Language.values else "",
             "verifier": verifier,
+            "utm": clean_utm(utm),
         },
         SOCIAL_STATE_TTL_SECONDS,
     )
@@ -324,6 +327,8 @@ def complete(
             language=held.language or Language.UZ,
             referral_code=held.referral_code,
             role=role,
+            signup_via=held.provider,
+            signup_utm=held.utm,
             commit=False,
         )
         db.add(
@@ -399,6 +404,7 @@ def _sign_in(
                 language=str(found.get("language") or ""),
                 referral=str(found.get("referral") or ""),
                 next_path=str(found.get("next") or ""),
+                utm=found.get("utm"),
             )
         identity = SocialIdentity(
             owner_id=user.id, provider=provider, subject=vouched.subject
@@ -454,7 +460,13 @@ def _link(
 
 
 def _hold(
-    *, provider: str, vouched: Vouched, language: str, referral: str, next_path: str
+    *,
+    provider: str,
+    vouched: Vouched,
+    language: str,
+    referral: str,
+    next_path: str,
+    utm: object = None,
 ) -> str:
     """Keep who the provider vouched for while the finishing form is open."""
     token = secrets.token_urlsafe(SOCIAL_TOKEN_BYTES)
@@ -470,6 +482,7 @@ def _hold(
             "next": next_path,
             "label": vouched.label,
             "phone": vouched.phone,
+            "utm": clean_utm(utm),
         },
         SOCIAL_PENDING_TTL_SECONDS,
     )

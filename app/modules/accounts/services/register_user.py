@@ -1,3 +1,5 @@
+from typing import Any
+
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -6,7 +8,12 @@ from app.common.db import utcnow
 from app.common.exceptions import InputRefused
 from app.common.hooks import fire
 from app.common.passwords import PasswordInvalid, make_password, validate_password
-from app.modules.accounts.constants import Language
+from app.modules.accounts.constants import (
+    SIGNUP_UTM_KEYS,
+    SIGNUP_UTM_MAX,
+    Language,
+    SignupVia,
+)
 from app.modules.accounts.exceptions import EmailTaken
 from app.modules.accounts.models import User
 from app.modules.accounts.phone import normalize_email
@@ -26,6 +33,7 @@ def sign_up(
     language: str,
     referral_code: str = "",
     role: str = "",
+    utm: dict[str, Any] | None = None,
 ) -> User:
     """The signup form opens the account at once; the email is confirmed later."""
     email = normalize_email(email)
@@ -44,7 +52,22 @@ def sign_up(
         language=language,
         referral_code=referral_code,
         role=role,
+        signup_via=SignupVia.EMAIL,
+        signup_utm=utm,
     )
+
+
+def clean_utm(raw: object) -> dict[str, str]:
+    """The landing link's utm_* marks the browser kept, cut to what is
+    known and short: anybody may send anything here."""
+    if not isinstance(raw, dict):
+        return {}
+    found = {}
+    for key in SIGNUP_UTM_KEYS:
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            found[key] = value.strip()[:SIGNUP_UTM_MAX]
+    return found
 
 
 def register_user(
@@ -58,6 +81,8 @@ def register_user(
     language: str = Language.UZ,
     referral_code: str = "",
     role: str = "",
+    signup_via: str = "",
+    signup_utm: object = None,
     commit: bool = True,
 ) -> User:
     """Neither password given leaves none: an account opened by Google signs
@@ -70,6 +95,8 @@ def register_user(
         role=role,
         password=password_hash or (make_password(password) if password else ""),
         date_joined=utcnow(),
+        signup_via=str(signup_via) if signup_via in SignupVia.values else "",
+        signup_utm=clean_utm(signup_utm),
     )
     db.add(user)
     try:

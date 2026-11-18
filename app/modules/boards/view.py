@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.orm import Session, aliased
 
 from app.common.dates import localtime
+from app.modules.accounts.constants import SIGNUP_VIA_LABELS, SignupVia
 from app.modules.accounts.models import User
 from app.modules.billing.constants import (
     LIVE_SUBSCRIPTION_STATUSES,
@@ -29,6 +30,7 @@ from app.modules.boards.constants import (
     CLOSE_REASON_LABELS,
     CONFIRM_HOURS,
     EVENT_KIND_LABELS,
+    LEAD_TAKE_LIMIT,
     OFFER_ENDED_LABEL,
     OFFER_ENDED_REASON,
     RENEWAL_ACTIONS,
@@ -139,6 +141,8 @@ def _scoped(
         query = query.where(or_(open_on, done))
     if board == Board.RENEWAL:
         query = _renewal_scoped(query, filters)
+    elif board == Board.SALES:
+        query = _attempts_scoped(query, filters.attempts)
     if with_due and filters.due in DueFilter.values:
         query = query.where(_due_clause(filters.due, now))
     words = search.strip()[:SEARCH_MAX]
@@ -181,12 +185,17 @@ def _renewal_scoped(query: Select[Any], filters: Filters) -> Select[Any]:
     if filters.term_to is not None:
         _, after = day_bounds(filters.term_to, filters.term_to)
         query = query.where(BoardCard.term_ends_at < after)
-    if filters.attempts == AttemptsFilter.NONE:
-        query = query.where(BoardCard.attempts == 0)
-    elif filters.attempts == AttemptsFilter.FEW:
-        query = query.where(BoardCard.attempts.between(1, 2))
-    elif filters.attempts == AttemptsFilter.MANY:
-        query = query.where(BoardCard.attempts >= 3)
+    return _attempts_scoped(query, filters.attempts)
+
+
+def _attempts_scoped(query: Select[Any], attempts: str) -> Select[Any]:
+    """How many times «Bog'lanib bo'lmadi» was pressed on the card."""
+    if attempts == AttemptsFilter.NONE:
+        return query.where(BoardCard.attempts == 0)
+    if attempts == AttemptsFilter.FEW:
+        return query.where(BoardCard.attempts.between(1, 2))
+    if attempts == AttemptsFilter.MANY:
+        return query.where(BoardCard.attempts >= 3)
     return query
 
 
@@ -229,6 +238,8 @@ class Extras:
     # card id -> what put a ticket in its column, when the client did:
     # ``denied`` (their «Yo'q») or ``client_replied`` (they wrote back).
     marks: dict[uuid.UUID, str] = field(default_factory=dict)
+    # owner id -> how warm the lead is (boards.heat); open Sales cards only.
+    heat: dict[uuid.UUID, Any] = field(default_factory=dict)
 
 
 def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
@@ -254,7 +265,12 @@ def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
         if bill.owner_id is not None:
             bills[bill.owner_id] = bill
     offered = clocks_for(db, sales) if sales else {}
-    return Extras(offered=offered, bills=bills, renewal=renewal, marks=marks)
+    from app.modules.boards.heat import signals_for
+
+    heat = signals_for(
+        db, [card.owner_id for card in sales if card.closed_at is None], now=now
+    )
+    return Extras(offered=offered, bills=bills, renewal=renewal, marks=marks, heat=heat)
 
 
 _CLIENT_KINDS = (str(EventKind.DENIED), str(EventKind.CLIENT_REPLIED))
@@ -332,6 +348,11 @@ def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, A
             "email": owner.email,
             "phone": owner.phone,
             "signed_up_at": owner.date_joined,
+            "signup_via": owner.signup_via,
+            "signup_via_label": str(SIGNUP_VIA_LABELS[SignupVia(owner.signup_via)])
+            if owner.signup_via in SignupVia.values
+            else "",
+            "utm": dict(owner.signup_utm or {}),
         },
         "manager": _person(card.manager),
         "contact_mark": card.contact_mark,
@@ -345,6 +366,9 @@ def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, A
         "overdue": card.due_at is not None and card.due_at <= now,
         "offer": _brief_offer(card, extras, now),
         "has_bill": card.closed_at is None and card.owner_id in extras.bills,
+        "heat": extras.heat[card.owner_id].out()
+        if card.owner_id in extras.heat
+        else None,
         "renewal": extras.renewal.get(card.id),
         "client_denied": mark == EventKind.DENIED,
         "client_replied": mark == EventKind.CLIENT_REPLIED,
@@ -441,7 +465,11 @@ def board_view(
 
     return {
         "board": str(board),
-        "take": _take(db, user=user) if board == Board.SUPPORT else None,
+        "take": _take(db, user=user)
+        if board == Board.SUPPORT
+        else _take_lead(db, user=user)
+        if board == Board.SALES
+        else None,
         "due": {
             "overdue": counted(DueFilter.OVERDUE),
             "today": counted(DueFilter.TODAY),
@@ -474,6 +502,33 @@ def _take(db: Session, *, user: User) -> dict[str, int]:
         "own": own,
         "working": working_count(db, user_id=user.id),
         "limit": TICKET_TAKE_LIMIT,
+    }
+
+
+def _take_lead(db: Session, *, user: User) -> dict[str, int]:
+    """What «Lid olish» shows: leads nobody works yet, the ones this person
+    took and has not called, and the most they may hold so."""
+    from app.modules.boards.constants import OFFER_COLUMNS
+    from app.modules.boards.services import untouched_count
+
+    # Whatever «Lid olish» may give: Ishlanmagan, and a discount running on
+    # a lead nobody works (a Start buyer).
+    queue = db.scalar(
+        select(func.count())
+        .select_from(BoardCard)
+        .where(
+            BoardCard.board == str(Board.SALES),
+            BoardCard.closed_at.is_(None),
+            BoardCard.manager_id.is_(None),
+            BoardCard.column_code.in_([str(SalesColumn.UNWORKED), *OFFER_COLUMNS]),
+        )
+    )
+    return {
+        "queue": int(queue or 0),
+        # Sales has no kinds: every waiting lead is the reader's to take.
+        "own": int(queue or 0),
+        "working": untouched_count(db, user_id=user.id),
+        "limit": LEAD_TAKE_LIMIT,
     }
 
 

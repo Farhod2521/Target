@@ -42,6 +42,7 @@ from app.modules.telephony.constants import (
     Direction,
 )
 from app.modules.telephony.schemas import (
+    AcceptingIn,
     ColleaguesOut,
     ConnectIn,
     ExtensionIn,
@@ -151,6 +152,15 @@ def sip_refused(db: Db, caller: OnPhone) -> JSONResponse:
     is the phone's settings again: `enabled` with a new password means try
     once more; not enabled means stop."""
     found = services.sip_refused(db, user=caller.user)
+    return JSONResponse(MyPhoneOut.model_validate(found).model_dump(), headers=NO_STORE)
+
+
+@router.put("/me/accepting", responses={200: {"model": MyPhoneOut}})
+def accepting(db: Db, caller: OnPhone, body: AcceptingIn) -> JSONResponse:
+    """«Qo'ng'iroq qabul qilmayman»: false, no call is put through to the
+    reader's number and their browser phone turns a ring away; true, calls
+    come again. Calling out works either way. 409 without a number."""
+    found = services.set_accepting(db, user=caller.user, accepts=body.accepts_calls)
     return JSONResponse(MyPhoneOut.model_validate(found).model_dump(), headers=NO_STORE)
 
 

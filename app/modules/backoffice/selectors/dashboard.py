@@ -49,8 +49,6 @@ from app.modules.integrations.models import ProviderConnection
 from app.modules.leads.models import Lead
 from app.modules.metrics.constants import MetricLevel
 from app.modules.metrics.models import MetricsDaily
-from app.modules.sales.constants import Outcome
-from app.modules.sales.models import SalesClaim
 from app.modules.supportchat.models import SupportConversation
 from app.modules.supportchat.selectors.conversations import AWAITING_OFFICE
 
@@ -711,24 +709,38 @@ class ManagerSales:
 
 
 def sales(db: Session, *, window: Window) -> tuple[ManagerSales, ...]:
-    """Per manager: sold in the window, and cards still open now."""
+    """Per manager on the Sales board: sold in the window (the first full
+    plan paid while the card was theirs), and cards still open now."""
+    from app.modules.boards.constants import Board, EventKind, SalesColumn
+    from app.modules.boards.models import BoardCard, BoardCardEvent
+    from app.modules.boards.sales_report import paid_sale
+
     sold = dict(
         db.execute(
-            select(SalesClaim.manager_id, func.count(SalesClaim.id))
+            select(BoardCard.manager_id, func.count(BoardCardEvent.id))
+            .join(BoardCard, BoardCard.id == BoardCardEvent.card_id)
             .where(
-                SalesClaim.outcome == Outcome.SOLD,
-                SalesClaim.closed_at >= window.since,
-                SalesClaim.closed_at < window.until,
-                SalesClaim.manager_id.is_not(None),
+                BoardCard.board == str(Board.SALES),
+                BoardCard.column_code == str(SalesColumn.SOLD),
+                BoardCardEvent.kind == str(EventKind.SOLD),
+                BoardCardEvent.created_at >= window.since,
+                BoardCardEvent.created_at < window.until,
+                BoardCard.manager_id.is_not(None),
+                # Paid, not a plan the office gave.
+                paid_sale(BoardCard.owner_id),
             )
-            .group_by(SalesClaim.manager_id)
+            .group_by(BoardCard.manager_id)
         ).all()
     )
     still_open = dict(
         db.execute(
-            select(SalesClaim.manager_id, func.count(SalesClaim.id))
-            .where(SalesClaim.closed_at.is_(None), SalesClaim.manager_id.is_not(None))
-            .group_by(SalesClaim.manager_id)
+            select(BoardCard.manager_id, func.count(BoardCard.id))
+            .where(
+                BoardCard.board == str(Board.SALES),
+                BoardCard.closed_at.is_(None),
+                BoardCard.manager_id.is_not(None),
+            )
+            .group_by(BoardCard.manager_id)
         ).all()
     )
     ids = {found for found in (*sold, *still_open) if found is not None}

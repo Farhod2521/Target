@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.common.dates import localtime
 from app.modules.accounts.models import User
@@ -19,6 +19,7 @@ from app.modules.boards.constants import (
     ATTEMPTS_MAX,
     DUE_MAX_DAYS,
     DUE_PAST_SLACK_SECONDS,
+    LEAD_TAKE_LIMIT,
     NOTE_MAX,
     OFFER_COLUMNS,
     OFFER_STEPS,
@@ -45,6 +46,7 @@ from app.modules.boards.exceptions import (
     DueInvalid,
     DuePast,
     DueRequired,
+    LeadTakeLimit,
     NoteRequired,
     NothingToTake,
     NoTicketToTake,
@@ -146,16 +148,40 @@ def card_for(
     return card
 
 
+def untouched_count(db: Session, *, user_id: uuid.UUID) -> int:
+    """Leads this person took that still stand in Yangi lead: not called."""
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(BoardCard)
+            .where(
+                BoardCard.board == str(Board.SALES),
+                BoardCard.manager_id == user_id,
+                BoardCard.column_code == str(SalesColumn.NEW_LEAD),
+                BoardCard.closed_at.is_(None),
+            )
+        )
+        or 0
+    )
+
+
 def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
     """The next lead nobody works yet, now this manager's. A client whose
     discount is running (they paid Start) comes first, the 20% ones before
-    the 10% ones: their time is going. Then the newest sign-up. Two managers
-    pressing at once get two different leads."""
+    the 10% ones: their time is going. Then the warmest sign-up (a bill
+    opened, Facebook tied: ``heat``), the newest among equals. Two managers
+    pressing at once get two different leads. None while the person has
+    ``LEAD_TAKE_LIMIT`` leads they took and have not called yet."""
+    from app.modules.boards.heat import points_sql
+
+    db.execute(select(User.id).where(User.id == manager.id).with_for_update())
+    if untouched_count(db, user_id=manager.id) >= LEAD_TAKE_LIMIT:
+        raise LeadTakeLimit(LEAD_TAKE_LIMIT)
     waiting = (
         select(BoardCard)
         .where(BoardCard.board == str(Board.SALES), BoardCard.closed_at.is_(None))
         .limit(1)
-        .with_for_update(skip_locked=True)
+        .with_for_update(of=BoardCard, skip_locked=True)
         .execution_options(populate_existing=True)
     )
     card = None
@@ -173,9 +199,14 @@ def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
         record(db, card=card, kind=EventKind.TAKEN, now=now, actor=manager)
         db.commit()
         return card
+    client = aliased(User)
     card = db.scalar(
-        waiting.where(BoardCard.column_code == str(SalesColumn.UNWORKED)).order_by(
-            BoardCard.opened_at.desc(), BoardCard.id
+        waiting.join(client, client.id == BoardCard.owner_id)
+        .where(BoardCard.column_code == str(SalesColumn.UNWORKED))
+        .order_by(
+            points_sql(BoardCard.owner_id, now=now, user=client).desc(),
+            BoardCard.opened_at.desc(),
+            BoardCard.id,
         )
     )
     if card is None:

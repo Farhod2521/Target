@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.common import crypto
+from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.telephony import utel
 from app.modules.telephony.constants import (
@@ -381,7 +382,6 @@ def journal(
     limit: int,
     offset: int,
 ) -> dict[str, Any]:
-    from app.modules.boards.models import BoardCard
 
     where: list[ColumnElement[bool]] = []
     allowed = _may_see(viewer=viewer, sees_all=sees_all)
@@ -422,33 +422,122 @@ def journal(
             .order_by(User.date_joined)
         ):
             clients.setdefault(person.phone, []).append(person)
-    owners = {person.id for people in clients.values() for person in people}
-    cards: dict[uuid.UUID, dict[str, str]] = {}
-    if owners:
-        for card_id, board, owner_id in db.execute(
-            select(BoardCard.id, BoardCard.board, BoardCard.owner_id).where(
-                BoardCard.owner_id.in_(owners)
-            )
-        ):
-            cards.setdefault(owner_id, {})[board] = str(card_id)
+    shown = callers(db, [person for people in clients.values() for person in people])
     return {
         "total": total,
         "calls": [
             _shown(call, staff=staff)
-            | {
-                "clients": [
-                    {
-                        "id": str(person.id),
-                        "name": person.full_name or person.email,
-                        "email": person.email,
-                        "sales_card_id": cards.get(person.id, {}).get("sales"),
-                        "support_card_id": cards.get(person.id, {}).get("support"),
-                    }
-                    for person in clients.get(call.number, [])
-                ]
-            }
+            | {"clients": [shown[person.id] for person in clients.get(call.number, [])]}
             for call in calls
         ],
+    }
+
+
+def _card_ids(db: Session, owners: set[uuid.UUID]) -> dict[uuid.UUID, dict[str, str]]:
+    """Each client's card on every board: the open one over a closed one,
+    the newest among equals (Uzaytirish keeps a card per term)."""
+    from app.modules.boards.models import BoardCard
+
+    cards: dict[uuid.UUID, dict[str, str]] = {}
+    if not owners:
+        return cards
+    for card_id, board, owner_id in db.execute(
+        select(BoardCard.id, BoardCard.board, BoardCard.owner_id)
+        .where(BoardCard.owner_id.in_(owners))
+        .order_by(
+            BoardCard.closed_at.is_(None),
+            BoardCard.opened_at,
+        )
+    ):
+        # Ordered so the best comes last and stays.
+        cards.setdefault(owner_id, {})[board] = str(card_id)
+    return cards
+
+
+def _standing(db: Session, owners: set[uuid.UUID]) -> dict[uuid.UUID, dict[str, Any]]:
+    """What a staff member wants to know as the phone rings: the plan the
+    client is on and the days left, or that they never bought one."""
+    from app.modules.billing.constants import (
+        LIVE_SUBSCRIPTION_STATUSES,
+        InvoiceKind,
+        InvoiceStatus,
+    )
+    from app.modules.billing.models import Invoice, Plan, Subscription
+
+    if not owners:
+        return {}
+    now = utcnow()
+    paid = set(
+        db.scalars(
+            select(Invoice.owner_id)
+            .where(
+                Invoice.owner_id.in_(owners),
+                Invoice.kind == str(InvoiceKind.PLAN),
+                Invoice.status == str(InvoiceStatus.PAID),
+            )
+            .distinct()
+        )
+    )
+    terms: dict[uuid.UUID, tuple[str, datetime]] = {}
+    for owner_id, name, expires_at in db.execute(
+        select(Subscription.owner_id, Plan.name, Subscription.expires_at)
+        .join(Plan, Plan.id == Subscription.plan_id)
+        .where(
+            Subscription.owner_id.in_(owners),
+            Subscription.status.in_([str(s) for s in LIVE_SUBSCRIPTION_STATUSES]),
+        )
+        .order_by(Subscription.expires_at)
+    ):
+        terms[owner_id] = (name, expires_at)
+    out = {}
+    for owner_id in owners:
+        term = terms.get(owner_id)
+        bought = owner_id in paid
+        if term is None:
+            out[owner_id] = {
+                "paid": bought,
+                "plan": "",
+                "expires_at": None,
+                "days_left": None,
+                "state": "none",
+                "label": "Tarif muddati tugagan" if bought else "Tarif sotib olmagan",
+            }
+            continue
+        name, expires_at = term
+        left = expires_at - now
+        days = max(0, left.days + (1 if left.seconds or left.microseconds else 0))
+        ended = expires_at <= now
+        out[owner_id] = {
+            "paid": bought,
+            "plan": name,
+            # Text: a live call goes out over the hub as plain JSON.
+            "expires_at": expires_at.isoformat(),
+            "days_left": 0 if ended else days,
+            "state": "ended" if ended else "active",
+            "label": f"«{name}» · muddati tugagan"
+            if ended
+            else f"«{name}» · {days} kun qoldi",
+        }
+    return out
+
+
+def callers(db: Session, people: list[User]) -> dict[uuid.UUID, dict[str, Any]]:
+    """Each signed-up client behind a number, as a call shows them: the
+    name, their cards to open, and their plan with the days left."""
+    owners = {person.id for person in people}
+    cards = _card_ids(db, owners)
+    standing = _standing(db, owners)
+    return {
+        person.id: {
+            "id": str(person.id),
+            "name": person.full_name or person.email,
+            "email": person.email,
+            "sales_card_id": cards.get(person.id, {}).get("sales"),
+            "support_card_id": cards.get(person.id, {}).get("support"),
+            "renewal_card_id": cards.get(person.id, {}).get("renewal"),
+            "standing": standing.get(person.id),
+        }
+        for person in people
     }
 
 

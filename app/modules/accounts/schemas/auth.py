@@ -11,6 +11,12 @@ class SignupIn(BaseModel):
     phone: str = Field(min_length=1, max_length=32)
     language: Language = Language.UZ
     referral_code: str = Field(default="", max_length=32)
+    utm: dict[str, str] | None = Field(
+        default=None,
+        description="The landing link's utm_* marks the browser kept "
+        "(`source`, `medium`, `campaign`, `content`, `term`), without the "
+        "`utm_` prefix; unknown keys are dropped. The Sales report reads them.",
+    )
     role: Role | None = Field(
         default=None,
         description="«Siz kimsiz?». The form sends it; an account opened "
@@ -95,6 +101,9 @@ class SocialProvidersOut(BaseModel):
 class SocialStartIn(BaseModel):
     next: str = Field(default="", max_length=512)
     referral_code: str = Field(default="", max_length=32)
+    utm: dict[str, str] | None = Field(
+        default=None, description="As on `SignupIn`: kept for a new account."
+    )
     language: Language | None = None
 
 

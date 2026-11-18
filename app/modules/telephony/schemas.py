@@ -102,12 +102,29 @@ class CallOut(BaseModel):
     )
 
 
+class CallStandingOut(BaseModel):
+    paid: bool = Field(description="The client has paid for a plan at least once.")
+    plan: str = Field(description="The plan they are on; empty: none now.")
+    expires_at: datetime | None
+    days_left: int | None = Field(
+        description="Whole days left; 0: ended; null: no plan."
+    )
+    state: str = Field(description="`active`, `ended` or `none`.")
+    label: str = Field(
+        description="Ready words: «Standart» · 12 kun qoldi, «Tarif sotib olmagan»…"
+    )
+
+
 class CallClientOut(BaseModel):
     id: str
     name: str
     email: str
     sales_card_id: str | None
     support_card_id: str | None
+    renewal_card_id: str | None = None
+    standing: CallStandingOut | None = Field(
+        None, description="The plan and the days left, as the phone rings."
+    )
 
 
 class JournalCallOut(CallOut):
@@ -148,12 +165,25 @@ class MyPhoneOut(BaseModel):
     extension: str | None = Field(description="The reader's internal number.")
     sip: SipOut | None
     rules: SipRulesOut = Field(description="How to register and retry.")
+    accepts_calls: bool = Field(
+        True,
+        description="False: the reader said «Qo'ng'iroq qabul qilmayman». The "
+        "routing passes them over and the browser phone turns a ring away "
+        "(486 Busy Here); calling out still works.",
+    )
+
+
+class AcceptingIn(BaseModel):
+    accepts_calls: bool
 
 
 class ColleagueOut(BaseModel):
     number: str = Field(description="The internal number a call is transferred to.")
     title: str = Field(description="Its name in UTeL.")
     user: PhonePersonOut = Field(description="Who answers it.")
+    accepts_calls: bool = Field(
+        True, description="False: they take no calls now; a transfer is refused."
+    )
 
 
 class ColleaguesOut(BaseModel):

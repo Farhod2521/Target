@@ -23,6 +23,11 @@ SCHEDULE: Final = [
         "15",
     ),
     Periodic(
+        "Sotuv kanbani: Telegram eslatmalari",
+        f"{TASKS}.sales_notices_task",
+        "*",
+    ),
+    Periodic(
         "Uzaytirish kanbani: tugayotgan obunalar",
         f"{TASKS}.sweep_renewal_board_task",
         "*",

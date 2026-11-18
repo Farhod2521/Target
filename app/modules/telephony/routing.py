@@ -16,6 +16,8 @@ from app.modules.telephony.models import PhoneCall, PhoneConnection, PhoneExtens
 
 logger = logging.getLogger(__name__)
 
+# UTeL shows it on a phone's small screen.
+CONTACT_NAME_MAX = 60
 # Never an empty body: UTeL reads one as null and the call drops.
 NOBODY: dict[str, Any] = {"extension": None, "module": None, "contact_name": None}
 
@@ -33,7 +35,7 @@ def _wanted(db: Session, *, phone: str) -> tuple[list[Any], str | None]:
             .order_by(User.date_joined)
         )
     )
-    name = next((c.full_name for c in clients if c.full_name), None)
+    name = _contact_name(db, clients)
     people: list[Any] = []
     if clients:
         people += db.scalars(
@@ -46,6 +48,19 @@ def _wanted(db: Session, *, phone: str) -> tuple[list[Any], str | None]:
             .order_by(BoardCard.column_since.desc())
         )
     return people, name
+
+
+def _contact_name(db: Session, clients: list[User]) -> str | None:
+    """What the staff phone's screen shows: the name and the plan with its
+    days left, so the call is answered knowing who it is."""
+    named = next((c for c in clients if c.full_name), None)
+    if named is None:
+        return None
+    standing = calls.callers(db, [named])[named.id]["standing"]
+    label = standing["label"] if standing else ""
+    return (
+        f"{named.full_name} · {label}"[:CONTACT_NAME_MAX] if label else named.full_name
+    )
 
 
 def _spoke_last(
@@ -89,6 +104,8 @@ def route(
                 PhoneExtension.connection_id == connection.id,
                 PhoneExtension.user_id == person_id,
                 PhoneExtension.is_gone.is_(False),
+                # «Qo'ng'iroq qabul qilmayman»: not put through to them.
+                PhoneExtension.accepts_calls.is_(True),
                 User.is_active.is_(True),
                 User.is_staff.is_(True),
             )
