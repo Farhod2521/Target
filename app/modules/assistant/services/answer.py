@@ -47,6 +47,7 @@ from app.modules.chat.constants import LOOKING_DEFAULT, VISITOR_HEADCOUNT_BELOW
 from app.modules.chat.copy import CARRY_ON, CUT_SHORT
 from core.assistant.tools import (
     CHANGE_TOOL,
+    CRM_TOOL,
     GAP_TOOL,
     HEALTH_TOOL,
     HELP_TOOL,
@@ -190,6 +191,16 @@ class Desk:
         from app.modules.chat.selectors.lookups import answer_lookup
 
         assert self.owner is not None and self._scope is not None
+        if call.name == CRM_TOOL:
+            from app.modules.assistant.selectors.crm_outcomes import crm_outcomes
+
+            return crm_outcomes(
+                self.db,
+                owner=self.owner,
+                scope=self._scope,
+                days=int(getattr(call.arguments, "days", 30)),
+                now=self.now,
+            )
         if call.name == HEALTH_TOOL:
             return account_health(
                 self.db, owner=self.owner, scope=self._scope, now=self.now

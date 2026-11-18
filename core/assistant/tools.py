@@ -1,11 +1,12 @@
 """What the one chat's assistant may call while it answers.
 
 The fifteen look-ups of the old chat are used as they are
-(``core/chat/lookups.py``). Five are new: a check of the account's own
+(``core/chat/lookups.py``). Six are new: a check of the account's own
 state, a search of known problems and their steps, a ticket for a person
 in Support - prepared, never sent, until the client presses its button -
 a note to the team about a question that was left unanswered, and
-the product's own plans, prices and dollar rate.
+the product's own plans, prices and dollar rate, and what the CRM did
+with each campaign's leads.
 
 How to read a result travels with the result (``READING``), not in the
 prompt: the model is told about a look-up's output when it has one in hand,
@@ -17,7 +18,7 @@ from typing import Final, Literal
 from llmkit import Tool
 from pydantic import Field
 
-from core.chat.lookup_arguments import Arguments, Nothing
+from core.chat.lookup_arguments import Arguments, Nothing, Window
 from core.chat.lookups import CHANGE_TOOL
 from core.chat.lookups import TOOLS as LOOKUPS
 
@@ -26,6 +27,7 @@ HELP_TOOL: Final = "help_search"
 TICKET_TOOL: Final = "create_ticket"
 GAP_TOOL: Final = "report_gap"
 PLANS_TOOL: Final = "plans_and_prices"
+CRM_TOOL: Final = "crm_outcomes"
 
 MAX_TICKETS: Final = 1
 MAX_GAPS: Final = 1
@@ -173,6 +175,16 @@ NEW_TOOLS: Final[tuple[Tool, ...]] = (
         "or turning a dollar amount into so'm.",
     ),
     _tool(
+        CRM_TOOL,
+        Window,
+        "What the owner's CRM did with each campaign's leads: how many were",
+        "sold, refused or marked poor quality (Sifatsiz), still new or in",
+        "progress, the share sold, the amount sold for, and the most common",
+        "reasons for refused and poor leads. Counts only. Use it for 'sales",
+        "are low', 'the leads are poor', 'which campaign brings buyers'.",
+        "Lead-form campaigns only: chat and call campaigns have no CRM cards.",
+    ),
+    _tool(
         GAP_TOOL,
         GapReport,
         "Tell the product's team about a question you could not answer, so",
@@ -250,7 +262,8 @@ READING: Final[dict[str, str]] = {
     "daily_figures": (
         "How to read this: one line a day. The latest day is still being "
         "spent, so a small fall there means nothing. Quote days as they are "
-        "written; never work out a percentage yourself."
+        "written; never work out a percentage yourself. There is no hour by "
+        "hour reading anywhere: never offer to look at hours of the day."
     ),
     "lead_counts": (
         "How to read this: counts only. Names, phones and answers are never "
@@ -264,7 +277,9 @@ READING: Final[dict[str, str]] = {
     ),
     "recent_changes": (
         "How to read this: 'by' says who made each change - the owner, the "
-        "agent or the product - and whether it went through. A refused "
+        "agent or the product - and whether it went through. A change made "
+        "in Ads Manager is not here: it was made outside this product, most "
+        "often by the owner - never call it «somebody». A refused "
         "change changed nothing. 'why it failed' is the screen's own "
         "sentence for it, with what Meta wrote; a 'Ready fix' after it is "
         "the steps to give, as they are."
@@ -278,7 +293,18 @@ READING: Final[dict[str, str]] = {
     "open_problems": (
         "How to read this: it is the cabinet's own list of what is waiting, "
         "most urgent first. Say what each means for their advertising, what "
-        "happens if it waits, and which screen fixes it."
+        "happens if it waits, and which screen fixes it. Something switched "
+        "off «in Ads Manager» was done there, outside this product - most "
+        "often by the owner themselves: say where it was done, never that "
+        "«somebody» did it or that access should be checked, unless they "
+        "say it was not them."
+    ),
+    "crm_outcomes": (
+        "How to read this: each line is one campaign's leads as the CRM "
+        "left them. «Sifatsiz lid» is a lead the owner's team judged poor, "
+        "«Rad etildi» one that did not buy; their reasons are the team's "
+        "own words - say them as theirs. Leads still in «Yangi lid» have no "
+        "outcome: never count them as unsold."
     ),
     "preparations": (
         "How to read this: a campaign prepared here may never have reached "

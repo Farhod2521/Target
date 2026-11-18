@@ -47,3 +47,8 @@ Also in `v4`: `plans_and_prices` (the plans this person may buy, their
 discount, the dollar rate in so'm - for a visitor too), and Meta's payment
 standing of each ad account in `account_health` with the Billing Hub
 address.
+And `crm_outcomes`: per campaign, what the owner's CRM made of its leads
+(Sotildi, Rad etildi, Sifatsiz, reasons). Hours of the day are never
+offered (no such reading), and a change made in Ads Manager is said to be
+made there, never by «somebody» - both in the readings that come with the
+look-ups, the base having no room.

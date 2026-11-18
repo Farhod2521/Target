@@ -145,6 +145,7 @@ LOOKING: Final[dict[str, str]] = {
     "help_search": "Yechimlar bazasidan qidiryapman…",
     "create_ticket": "Mutaxassis uchun zayavka tayyorlayapman…",
     "plans_and_prices": "Tariflarni ko'ryapman…",
+    "crm_outcomes": "CRM natijalarini ko'ryapman…",
 }
 RELATED_REFUSAL: Final = "refusal_answer"
 RELATED_ARTICLE: Final = "help_article"
