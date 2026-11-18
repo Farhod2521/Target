@@ -270,3 +270,20 @@ def test_only_som_and_never_nothing() -> None:
         _charge(adapter, currency="USD")
     with pytest.raises(ProviderMisconfigured):
         _charge(adapter, amount_minor=0)
+
+
+def test_a_code_the_payer_typed_confirms_the_payment() -> None:
+    wire = Wire({("PUT", "/payment/p1"): {"uuid": "p1", "status": "success"}})
+
+    charge = _adapter(wire).confirm_charge(uuid="p1", code="50112")
+
+    assert charge.outcome == CHARGED
+    assert wire.body("PUT", "/payment/p1") == {"otp": "50112", "debit_available": False}
+
+
+def test_a_wrong_code_is_a_decline_that_names_itself() -> None:
+    wire = Wire({("PUT", "/payment/p1"): _refused("ERROR_WRONG_OTP")})
+
+    charge = _adapter(wire).confirm_charge(uuid="p1", code="1")
+
+    assert (charge.outcome, charge.code) == (DECLINED, "ERROR_WRONG_OTP")

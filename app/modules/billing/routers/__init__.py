@@ -17,6 +17,8 @@ from app.common.exceptions import DomainError
 from app.common.geo import country_of
 from app.common.money import to_minor
 from app.modules.accounts.models import User
+from app.modules.autopay import services as card_services
+from app.modules.autopay.constants import PROVIDER as CARD_PROVIDER
 from app.modules.billing import selectors, services
 from app.modules.billing.constants import (
     EXPIRY_REMINDER_DAYS,
@@ -602,6 +604,10 @@ class CheckoutIn(BaseModel):
     drop_pages: list[str] = Field(default_factory=list, max_length=100)
     drop_members: list[str] = Field(default_factory=list, max_length=100)
     drop_empty_pages: int = Field(default=0, ge=0, le=100)
+    card: bool = Field(
+        default=False,
+        description="Pay from the saved card, with no payment page. `provider` is not read.",
+    )
 
 
 class PagesCheckoutIn(BaseModel):
@@ -610,19 +616,37 @@ class PagesCheckoutIn(BaseModel):
     wallet: WalletChoice = WalletChoice.KEEP
     add_page: str = Field(default="", max_length=128)
     pay_from: str = Field(default="", max_length=128)
+    card: bool = Field(
+        default=False,
+        description="Pay from the saved card, with no payment page. `provider` is not read.",
+    )
 
 
 class SeatsCheckoutIn(BaseModel):
     count: int = Field(ge=1, le=MAX_SEATS_PER_PURCHASE)
     provider: str = ""
     wallet: WalletChoice = WalletChoice.KEEP
+    card: bool = Field(
+        default=False,
+        description="Pay from the saved card, with no payment page. `provider` is not read.",
+    )
 
 
 class CheckoutOut(BaseModel):
     number: str
-    kind: Literal["redirect", "wait", "covered"]
+    kind: Literal["redirect", "wait", "covered", "code"]
     url: str = ""
     wait_url: str
+    charge: str = Field(
+        default="",
+        description="With `kind: code`: send it back with the SMS code to "
+        "`POST /billing/invoice/{number}/confirm`.",
+    )
+
+
+class CardCodeIn(BaseModel):
+    charge: str = Field(min_length=1, max_length=1024)
+    code: str = Field(min_length=1, max_length=12)
 
 
 def _wait_url(number: str, **query: str) -> str:
@@ -638,6 +662,7 @@ def _start(
     invoice: Invoice,
     provider: str,
     now: datetime,
+    card: bool = False,
     **back: str,
 ) -> CheckoutOut:
     wait = _wait_url(invoice.number, **back)
@@ -645,6 +670,21 @@ def _start(
         services.settle_covered_invoice(db, invoice=invoice, now=now)
         db.commit()
         return CheckoutOut(number=invoice.number, kind="covered", wait_url=wait)
+    if card:
+        # The bill is kept whatever the card says: a refused one is seen in
+        # the history, and the callback of a taken one must find it.
+        db.commit()
+        paid = card_services.pay_from_card(db, user=user, invoice=invoice, now=now)
+        logger.info(
+            "card checkout started",
+            extra={"invoice": invoice.number, "needs_code": paid.needs_code},
+        )
+        via = _wait_url(invoice.number, via=CARD_PROVIDER, **back)
+        if paid.needs_code:
+            return CheckoutOut(
+                number=invoice.number, kind="code", wait_url=via, charge=paid.charge
+            )
+        return CheckoutOut(number=invoice.number, kind="wait", wait_url=via)
     if not provider:
         db.commit()
         raise HTTPException(
@@ -696,7 +736,9 @@ def checkout(body: CheckoutIn, db: Db, user: CurrentUser) -> CheckoutOut:
     except PROMO_REFUSALS as exc:
         db.rollback()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=exc.message) from exc
-    return _start(db, user=user, invoice=invoice, provider=body.provider, now=now)
+    return _start(
+        db, user=user, invoice=invoice, provider=body.provider, now=now, card=body.card
+    )
 
 
 @router.post("/pages", response_model=CheckoutOut)
@@ -711,6 +753,7 @@ def buy_pages(body: PagesCheckoutIn, db: Db, user: CurrentUser) -> CheckoutOut:
         invoice=invoice,
         provider=body.provider,
         now=now,
+        card=body.card,
         add_page=body.add_page,
         pay_from=body.pay_from if body.add_page else "",
     )
@@ -755,7 +798,9 @@ def buy_seats(body: SeatsCheckoutIn, db: Db, user: CurrentUser) -> CheckoutOut:
     invoice = services.create_seat_invoice(
         db, owner=user, count=body.count, wallet=body.wallet, now=now
     )
-    return _start(db, user=user, invoice=invoice, provider=body.provider, now=now)
+    return _start(
+        db, user=user, invoice=invoice, provider=body.provider, now=now, card=body.card
+    )
 
 
 @router.get("/history", responses={200: {"model": HistoryOut}})
@@ -911,6 +956,25 @@ def invoice_status(
         "poll_seconds": POLL_SECONDS,
         "back_url": back_url,
     }
+
+
+@router.post("/invoice/{number}/confirm", response_model=OkOut)
+def confirm_card_payment(
+    number: str, body: CardCodeIn, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    """The SMS code for a bill being paid from the saved card.
+
+    `card_code_wrong` - ask for the code again; `card_code_stale` and
+    `card_declined` - start the payment again. After `ok`, wait for the bill
+    at `wait_url` as after any payment.
+    """
+    invoice = selectors.invoice_for(db, owner=user, number=number)
+    if invoice is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    card_services.confirm_card_payment(
+        db, user=user, invoice=invoice, charge=body.charge, code=body.code, now=utcnow()
+    )
+    return {"ok": True}
 
 
 @webhooks.post("/webhooks/pay/{provider}", include_in_schema=False)

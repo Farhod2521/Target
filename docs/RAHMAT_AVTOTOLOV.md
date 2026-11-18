@@ -129,6 +129,28 @@ Karta saqlanib qoladi, faqat avtomatik yechish to'xtaydi.
 Karta bizdan o'chiriladi, Multicard'da token bekor qilinadi. Javob
 `card: null` bilan.
 
+### Bog'langan kartadan to'lash (to'lov sahifasisiz)
+
+`POST /billing/checkout`, `/billing/pages`, `/billing/seats` tanasiga
+`"card": true` qo'shilsa, hisob Multicard sahifasi ochilmasdan bog'langan
+kartadan yechiladi (`provider` o'qilmaydi). Javob `kind`:
+
+| `kind` | Ma'nosi |
+|---|---|
+| `wait` | Pul yechildi yoki yechilmoqda. `wait_url` da hisobni kuting |
+| `code` | Multicard karta egasiga SMS kod yubordi. `charge` ni saqlang |
+| `covered` | Balans yoki promo to'liq yopdi, kartaga tegilmadi |
+
+`kind: code` bo'lsa — `POST /api/v1/billing/invoice/{number}/confirm`:
+
+```json
+{ "charge": "<javobdagi charge>", "code": "50112" }
+```
+
+`{ "ok": true }` dan keyin `wait_url` ga o'ting. Kod so'raladimi yoki
+yo'qmi — Multicard'dagi do'kon sozlamasiga bog'liq (SMS kodsiz yechish
+yoqilgan bo'lsa, so'ralmaydi).
+
 ### Xatolar
 
 | Status | `code` | Holat |
@@ -138,5 +160,8 @@ Karta bizdan o'chiriladi, Multicard'da token bekor qilinadi. Javob
 | 400 | `autopay_phone_required` | Telefon raqami noto'g'ri |
 | 404 | `autopay_card_not_found` | Karta yoki sessiya topilmadi |
 | 503 | `autopay_unreachable` | Rahmat javob bermadi |
+| 400 | `card_declined` | Karta rad etdi; `detail` da sababi |
+| 400 | `card_code_wrong` | SMS kod noto'g'ri, qayta so'rang |
+| 400 | `card_code_stale` | Bu to'lovni tasdiqlab bo'lmaydi, to'lovni qayta boshlang |
 
 Hamma xatoda `detail` — tayyor o'zbekcha matn.

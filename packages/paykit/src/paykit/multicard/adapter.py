@@ -244,8 +244,18 @@ class MulticardAdapter:
             raise ProviderUnavailable("multicard created a payment without a uuid")
         if created.get("otp_hash"):
             return Charge(outcome=NEEDS_CODE, uuid=uuid, status=DRAFT_STATUS)
+        return self._confirm(uuid, None)
+
+    def confirm_charge(self, *, uuid: str, code: str) -> Charge:
+        """Debit a payment that waited for the code Multicard texted the payer.
+
+        A wrong code comes back :data:`DECLINED` with ``ERROR_WRONG_OTP``.
+        """
+        return self._confirm(uuid, {"otp": code, "debit_available": False})
+
+    def _confirm(self, uuid: str, payload: dict[str, Any] | None) -> Charge:
         try:
-            return charge_of(self._client.confirm_payment(uuid))
+            return charge_of(self._client.confirm_payment(uuid, payload))
         except MulticardRefused as exc:
             outcome = PENDING if exc.code in UNSETTLED_CODES else DECLINED
             return Charge(

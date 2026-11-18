@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.common.config import settings
-from app.common.crypto import decrypt
+from app.common.crypto import decrypt, encrypt
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.autopay import services
@@ -47,6 +47,8 @@ class FakeMulticard:
         self.seen: list[str] = []
         self.confirm: dict[str, Any] = {"status": "success"}
         self.otp_hash: str | None = None
+        self.code = "50112"
+        self.confirmed: list[dict[str, Any]] = []
         self.callbacks: list[httpx.Response] = []
         self.payments: dict[str, dict[str, Any]] = {}
 
@@ -68,6 +70,13 @@ class FakeMulticard:
             return _ok({"uuid": uuid, "status": "draft", "otp_hash": self.otp_hash})
         if request.method == "PUT" and path.startswith("/payment/"):
             uuid = path.rsplit("/", 1)[1]
+            sent = json.loads(request.content or b"{}")
+            self.confirmed.append(sent)
+            if self.otp_hash and sent.get("otp") != self.code:
+                return httpx.Response(
+                    400,
+                    json={"success": False, "error": {"code": "ERROR_WRONG_OTP"}},
+                )
             if self.confirm.get("status") == "success":
                 self.callbacks.append(self._settle(uuid))
             if "error" in self.confirm:
@@ -303,3 +312,110 @@ def test_autopay_off_or_card_removed_charges_nothing(
     assert f"DELETE /payment/card/{TOKEN}" in multicard.seen
     card = db.scalar(select(SavedCard))
     assert card is not None and card.token_encrypted is None
+
+
+# --- A bill paid from the card by its owner, with no payment page -----------
+
+
+def _pay(client: TestClient, auth: dict[str, str]) -> httpx.Response:
+    answer: httpx.Response = client.post(
+        "/api/v1/billing/checkout", json={"plan": "pro", "card": True}, headers=auth
+    )
+    return answer
+
+
+def test_a_bill_is_paid_from_the_card_with_no_payment_page(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    _plan_running_out(db)
+
+    answer = _pay(client, auth)
+
+    assert answer.status_code == 200, answer.text
+    started = answer.json()
+    assert started["kind"] == "wait" and started["url"] == ""
+    assert "POST /payment/invoice" not in multicard.seen
+    assert multicard.confirmed == [{}]
+    assert multicard.callbacks[0].json()["success"] is True
+    db.expire_all()
+    invoice = db.scalar(select(Invoice))
+    assert invoice is not None and invoice.status == "paid"
+    assert invoice.number == started["number"]
+    sent = next(iter(multicard.payments.values()))
+    assert sent["card"] == {"token": TOKEN}
+
+
+def test_a_shop_that_asks_for_a_code_is_paid_once_the_owner_types_it(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    _plan_running_out(db)
+    multicard.otp_hash = "abc"
+
+    started = _pay(client, auth).json()
+    assert started["kind"] == "code" and started["charge"]
+    assert multicard.confirmed == []
+    url = f"/api/v1/billing/invoice/{started['number']}/confirm"
+
+    wrong = client.post(
+        url, json={"charge": started["charge"], "code": "00000"}, headers=auth
+    )
+    assert wrong.status_code == 400 and wrong.json()["code"] == "card_code_wrong"
+    db.expire_all()
+    assert db.scalar(select(Invoice.status)) == "pending"
+
+    right = client.post(
+        url, json={"charge": started["charge"], "code": " 50112 "}, headers=auth
+    )
+    assert right.status_code == 200, right.text
+    assert multicard.confirmed[-1] == {"otp": "50112", "debit_available": False}
+    db.expire_all()
+    assert db.scalar(select(Invoice.status)) == "paid"
+
+
+def test_a_code_confirms_only_the_bill_it_was_sent_for(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    _plan_running_out(db)
+    multicard.otp_hash = "abc"
+    first = _pay(client, auth).json()
+    other = encrypt("1234567890:p1").decode()
+
+    crossed = client.post(
+        f"/api/v1/billing/invoice/{first['number']}/confirm",
+        json={"charge": other, "code": "50112"},
+        headers=auth,
+    )
+    forged = client.post(
+        f"/api/v1/billing/invoice/{first['number']}/confirm",
+        json={"charge": "p1", "code": "50112"},
+        headers=auth,
+    )
+
+    assert crossed.status_code == 400 and crossed.json()["code"] == "card_code_stale"
+    assert forged.status_code == 400 and forged.json()["code"] == "card_code_stale"
+    assert multicard.confirmed == []
+
+
+def test_a_refused_card_says_why_and_no_card_is_not_found(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _plan_running_out(db)
+
+    none = _pay(client, auth)
+    assert none.status_code == 404 and none.json()["code"] == "autopay_card_not_found"
+
+    _bound(client, auth)
+    multicard.confirm = {"error": {"code": "ERROR_INSUFFICIENT_FUNDS"}}
+    refused = _pay(client, auth)
+
+    assert refused.status_code == 400 and refused.json()["code"] == "card_declined"
+    assert refused.json()["detail"] == "Kartada mablag' yetarli emas."
+    db.expire_all()
+    assert set(db.scalars(select(Invoice.status))) == {"pending"}

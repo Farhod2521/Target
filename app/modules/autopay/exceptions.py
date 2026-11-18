@@ -42,3 +42,24 @@ class CardServiceDown(DomainError):
         super().__init__(
             "Rahmat hozir javob bermayapti. Birozdan so'ng urinib ko'ring."
         )
+
+
+class CardDeclined(DomainError):
+    code = "card_declined"
+
+    def __init__(self, reason: str = "") -> None:
+        super().__init__(reason or "Karta to'lovni rad etdi.")
+
+
+class CardCodeWrong(DomainError):
+    code = "card_code_wrong"
+
+    def __init__(self) -> None:
+        super().__init__("SMS kod noto'g'ri. Qaytadan kiriting.")
+
+
+class CardCodeStale(DomainError):
+    code = "card_code_stale"
+
+    def __init__(self) -> None:
+        super().__init__("Bu to'lovni tasdiqlab bo'lmadi. To'lovni qaytadan boshlang.")

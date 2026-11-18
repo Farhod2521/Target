@@ -43,6 +43,9 @@ NEEDS_CODE: Final = "needs_code"
 # for the payment to be read again until it is final.
 UNSETTLED_CODES: Final = frozenset({"ERROR_DEBIT_UNKNOWN", "ERROR_CALLBACK_TIMEOUT"})
 
+# The payer typed a code other than the one Multicard texted.
+WRONG_CODE: Final = "ERROR_WRONG_OTP"
+
 
 @dataclass(frozen=True, slots=True)
 class BindSession:
@@ -116,6 +119,7 @@ __all__ = [
     "NEEDS_CODE",
     "PENDING",
     "UNSETTLED_CODES",
+    "WRONG_CODE",
     "BindSession",
     "BoundCard",
     "Charge",

@@ -10,6 +10,7 @@ from paykit.multicard import (
     DECLINED,
     NEEDS_CODE,
     PENDING,
+    WRONG_CODE,
     Charge,
     MulticardAdapter,
 )
@@ -35,6 +36,9 @@ from app.modules.autopay.constants import (
 )
 from app.modules.autopay.exceptions import (
     AutopayUnavailable,
+    CardCodeStale,
+    CardCodeWrong,
+    CardDeclined,
     CardNotFound,
     CardServiceDown,
     ConsentRequired,
@@ -48,8 +52,11 @@ from app.modules.autopay.selectors import (
     pending_card,
     renewing_subscription,
 )
+from app.modules.billing.constants import PAYABLE_INVOICE_STATUSES
+from app.modules.billing.exceptions import InvoiceNotPayable
 from app.modules.billing.models import Invoice, Subscription
 from app.modules.billing.services import create_invoice
+from app.modules.billing.services.invoices import receipt_line
 
 logger = logging.getLogger(__name__)
 
@@ -345,15 +352,111 @@ def _record(card: SavedCard, charge: Charge, *, now: datetime) -> None:
     )[:CHARGE_ERROR_MAX]
 
 
+# --- Paying a bill from the card, its owner at the screen -------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CardPayment:
+    """How far a bill paid from the saved card got.
+
+    ``charge`` is set when Multicard texted the card's owner a code: it is
+    handed back with that code to :func:`confirm_card_payment`.
+    """
+
+    charge: str = ""
+
+    @property
+    def needs_code(self) -> bool:
+        return bool(self.charge)
+
+
+def pay_from_card(
+    db: Session, *, user: User, invoice: Invoice, now: datetime
+) -> CardPayment:
+    """Take a bill's amount from its owner's saved card.
+
+    The bill itself is settled by Multicard's signed payment callback, as
+    one paid on its page is; a refusal is raised in the owner's words.
+    """
+    if invoice.status not in PAYABLE_INVOICE_STATUSES or invoice.expires_at <= now:
+        raise InvoiceNotPayable
+    adapter = cards()
+    card = active_card(db, owner=user)
+    token = _token(card) if card is not None else ""
+    if not token:
+        raise CardNotFound
+    try:
+        charge = adapter.charge_card(
+            token=token,
+            number=invoice.number,
+            amount_minor=invoice.amount_minor,
+            decimal_places=decimal_places(invoice.currency),
+            currency=invoice.currency,
+            description=receipt_line(invoice),
+        )
+    except PaymentError as exc:
+        logger.warning("card payment for %s not sent: %s", invoice.number, exc)
+        raise CardServiceDown from exc
+    logger.info(
+        "card payment for invoice %s: %s %s",
+        invoice.number,
+        charge.outcome,
+        charge.code,
+        extra={"owner": str(user.id), "invoice": invoice.number},
+    )
+    if charge.outcome == NEEDS_CODE:
+        return CardPayment(charge=encrypt(f"{invoice.number}:{charge.uuid}").decode())
+    if charge.outcome == DECLINED:
+        raise CardDeclined(_refusal(charge))
+    return CardPayment()
+
+
+def confirm_card_payment(
+    db: Session, *, user: User, invoice: Invoice, charge: str, code: str, now: datetime
+) -> None:
+    """Debit a card payment with the code Multicard texted the card's owner."""
+    if invoice.status not in PAYABLE_INVOICE_STATUSES or invoice.expires_at <= now:
+        raise InvoiceNotPayable
+    try:
+        number, _, uuid = decrypt(charge.encode()).partition(":")
+    except DecryptionFailed as exc:
+        raise CardCodeStale from exc
+    if number != invoice.number or not uuid:
+        raise CardCodeStale
+    digits = "".join(ch for ch in code if ch.isdigit())
+    if not digits:
+        raise CardCodeWrong
+    result = cards().confirm_charge(uuid=uuid, code=digits)
+    logger.info(
+        "card payment for invoice %s confirmed: %s %s",
+        invoice.number,
+        result.outcome,
+        result.code,
+        extra={"owner": str(user.id), "invoice": invoice.number},
+    )
+    if result.outcome != DECLINED:
+        return
+    if result.code == WRONG_CODE:
+        raise CardCodeWrong
+    raise CardDeclined(_refusal(result))
+
+
+def _refusal(charge: Charge) -> str:
+    return (CHARGE_ERRORS.get(charge.code) or charge.details or "")[:CHARGE_ERROR_MAX]
+
+
 __all__ = [
     "Binding",
+    "CardPayment",
     "autopay_on",
     "binding_reported",
     "cards",
     "charge_card",
     "charge_due",
     "check_binding",
+    "confirm_card_payment",
     "finish_binding",
+    "pay_from_card",
     "phone_of",
     "remove_card",
     "set_autopay",

@@ -163,7 +163,7 @@ def checkout_for(
                 return_url=return_url,
                 language=language,
                 currency=invoice.currency,
-                description=_receipt_line(invoice),
+                description=receipt_line(invoice),
                 ttl_seconds=max(60, int((invoice.expires_at - now).total_seconds())),
             )
         )
@@ -180,7 +180,7 @@ def checkout_for(
         raise PaymentUnavailable from exc
 
 
-def _receipt_line(invoice: Invoice) -> str:
+def receipt_line(invoice: Invoice) -> str:
     """What the fiscal receipt names the purchase as."""
     plan = invoice.plan.name if invoice.plan is not None else ""
     if invoice.kind == InvoiceKind.PAGES:
