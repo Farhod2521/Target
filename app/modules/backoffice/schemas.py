@@ -1095,7 +1095,9 @@ class RefusalAnswersOut(BaseModel):
         None,
         description=(
             "Questions the assistant could not answer that wait for the "
-            "office (`/office/assistant-gaps`), for the «AI chat» tab. "
+            "office (`/office/assistant-gaps`) and clients' unread words on "
+            "its answers (`/office/assistant-feedback`), for the «AI chat» "
+            "tab. "
             "Null: this reader may not open that tab."
         ),
     )

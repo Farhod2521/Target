@@ -257,6 +257,7 @@ def test_a_ticket_is_prepared_pressed_and_lands_on_the_board_and_in_support(
     assert kept.question == "Pulim yechildi"
     assert kept.ticket_summary == "Kartadan pul yechildi, tarif ochilmadi."
     assert "Pul yechilgan, lekin hisob ochilmagan." in kept.answer
+    assert "kamchilik" not in kept.answer
 
     thread = _thread(client, headers, turn["session_id"])
     answer = thread["messages"][3]

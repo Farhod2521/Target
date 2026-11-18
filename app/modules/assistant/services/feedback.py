@@ -20,6 +20,7 @@ from app.common.exceptions import NotFound
 from app.modules.accounts.models import User
 from app.modules.assistant.constants import (
     FEEDBACK_ANSWER_CHARS,
+    FEEDBACK_ASK,
     FEEDBACK_CHARS,
     FEEDBACK_SKIP,
     FEEDBACK_SKIPPED,
@@ -95,7 +96,7 @@ def take_feedback(
                 session_id=waited.session_id,
                 message_id=waited.id,
                 question=str(ticket.get("question", ""))[:FEEDBACK_CHARS],
-                answer=(waited.text or "")[:FEEDBACK_ANSWER_CHARS],
+                answer=_without_ask(waited.text or "")[:FEEDBACK_ANSWER_CHARS],
                 ticket_summary=str(ticket.get("summary", "")),
                 feedback=text.strip()[:FEEDBACK_CHARS],
                 language=language[:8],
@@ -119,6 +120,15 @@ def take_feedback(
         extra={"owner_id": str(owner.id), "skipped": skipped},
     )
     return words, buttons, html
+
+
+def _without_ask(text: str) -> str:
+    """The answer as the assistant wrote it, without the question the
+    product put after it."""
+    for words in FEEDBACK_ASK.values():
+        if text.endswith(words):
+            return text[: -len(words)].rstrip()
+    return text
 
 
 class FeedbackMissing(NotFound):
