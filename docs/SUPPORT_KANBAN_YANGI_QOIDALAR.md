@@ -96,6 +96,21 @@ Har bir qator (`total` va `days[]`, kunlar Toshkent vaqti bilan, faqat ish bo'lg
 
 Javob: `{"date_from", "date_to", "total": {...}, "members": [{"id", "name", "email", "total": {...}, "days": [{"day", ...}]}]}`. Davr bo'yicha `talked` har mijozni bir marta sanaydi.
 
+### 3c. Staff botda xabarlar (2026-11-19)
+
+Zayavka egasi (kartadagi `manager`) staff botda xabar oladi, agar:
+
+- zayavka unga berilsa (Owner «Berish» yoki chat bilan birga);
+- «Mijoz kutilmoqda» vaqti tugab qaytsa;
+- mijoz chatga yozib qaytsa;
+- mijoz «hal bo'lmadi» desa;
+- ushlab turgan zayavkasiga yangi muammo kelsa;
+- zayavka uning uchun qayta ochilsa.
+
+O'zi qilgan ish haqida xabar bormaydi, egasiz zayavka (navbatdagi) haqida ham. Har daqiqalik tekshiruv bir zayavka bo'yicha bitta xabar yuboradi (qatorlari birga), har hodisa bir marta (`board_card_events.noticed_at`); bir soatdan eski hodisa yuborilmaydi. Staff bot ulanmagan xodimga xabar bormaydi.
+
+Mijozning chat xabari nusxasi: ochiq zayavkasi kimda bo'lsa faqat o'shanga; hech kimda bo'lmasa yoki u staff botni ulamagan bo'lsa — hamma Support xodimiga (avvalgidek).
+
 ## 4. Kutish taymeri
 
 `wait` tugmasi vaqt so'raydi (`due_at`, majburiy). Vaqt kelganda zayavka o'zi `Ishlanmoqda` ga qaytadi, tarixga «Kutish vaqti tugadi» (`wait_over`) yoziladi. Mijoz Yordam chatiga yozsa, avvalgidek darhol qaytadi.
@@ -152,7 +167,7 @@ Frontda bu ofisdagi mijoz sahifasida ham bor: «Zayavka ochish» tugmasi (xodim 
 
 ## 8. Deploy
 
-1. `alembic upgrade head` (0052).
+1. `alembic upgrade head` (0052; 2026-11-19 dan 0066 — zayavka turlari, `noticed_at`, `created_at` indeksi).
 2. `api`, `worker-bot`, `beat` ni qayta ishga tushirish.
 3. Front (ofis va kabinet) shu bilan birga chiqadi.
 

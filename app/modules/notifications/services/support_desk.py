@@ -1,7 +1,8 @@
 """The office's side of the support chat, in the staff bot.
 
-Every message a client writes to Support is copied to each member of
-Support who has linked the staff bot - never the customer bot, which the
+Every message a client writes to Support is copied to the person on their
+open ticket, or, when nobody holds it, to each member of Support who has
+linked the staff bot - never the customer bot, which the
 business owner also uses for their own advertising. A reply to that copy -
 Telegram's own "Reply" - comes back into the client's chat, signed by
 whoever wrote it, through the service the office console uses.
@@ -121,7 +122,8 @@ def question_for(db: Session, *, message: SupportMessage) -> Message:
 
 
 def forward_support_question(db: Session, *, message_id: str, now: datetime) -> int:
-    """Send the copy to every member of Support with the staff bot linked.
+    """Send the copy to the person on the client's ticket, or to every
+    member of Support with the staff bot linked when nobody holds it.
 
     Returns how many went out. Each is recorded against its Telegram id -
     how a reply finds its way back, and which chats already hold a copy, so
@@ -131,7 +133,11 @@ def forward_support_question(db: Session, *, message_id: str, now: datetime) -> 
     if message is None or not staff_bot_configured():
         return 0
     already = relayed_chat_ids(db, message=message)
-    chats = [chat for chat in office_chats(db) if chat.chat_id not in already]
+    chats = [
+        chat
+        for chat in _askers(db, owner_id=message.owner_id)
+        if chat.chat_id not in already
+    ]
     if not chats:
         return 0
     files = message_files(db, message=message)
@@ -342,6 +348,28 @@ def answer_support_reply(
         reply_to=message.message_id,
     )
     return "support_replied"
+
+
+def _askers(db: Session, *, owner_id: uuid.UUID) -> list[StaffChat]:
+    """Who gets the copy: the person on the client's open ticket alone, as
+    only they may answer it; everybody in Support when nobody holds it, or
+    when that person has not linked the staff bot (so it is not lost)."""
+    from app.modules.boards.constants import SUPPORT_FINAL_COLUMNS, Board
+    from app.modules.boards.models import BoardCard
+
+    chats = office_chats(db)
+    holder = db.scalar(
+        select(BoardCard.manager_id).where(
+            BoardCard.board == str(Board.SUPPORT),
+            BoardCard.owner_id == owner_id,
+            BoardCard.term_ends_at.is_(None),
+            BoardCard.column_code.not_in(SUPPORT_FINAL_COLUMNS),
+        )
+    )
+    if holder is None:
+        return chats
+    theirs = [chat for chat in chats if chat.owner_id == holder]
+    return theirs or chats
 
 
 def office_chats(db: Session) -> list[StaffChat]:

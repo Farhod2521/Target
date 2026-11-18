@@ -1,7 +1,10 @@
-"""The kinds of Support ticket each member takes first.
+"""The kinds of Support ticket each member takes first, and the staff bot's
+mark on a ticket's line.
 
 ``board_support_kinds`` is new: a member with no row takes every kind, so
-nothing changes until the Owner sets one. Additive and idempotent.
+nothing changes until the Owner sets one. ``board_card_events.noticed_at``
+says the ticket's person was told of the line; ``created_at`` gets an index
+for the daily report and the notices. Additive and idempotent.
 """
 
 from collections.abc import Sequence
@@ -31,6 +34,17 @@ def upgrade() -> None:
         " ON board_support_kinds (set_by_id)"
     )
 
+    op.execute(
+        "ALTER TABLE board_card_events"
+        " ADD COLUMN IF NOT EXISTS noticed_at timestamptz NULL"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS board_card_events_created_idx"
+        " ON board_card_events (created_at)"
+    )
+
 
 def downgrade() -> None:
+    op.execute("DROP INDEX IF EXISTS board_card_events_created_idx")
+    op.execute("ALTER TABLE board_card_events DROP COLUMN IF EXISTS noticed_at")
     op.execute("DROP TABLE IF EXISTS board_support_kinds")

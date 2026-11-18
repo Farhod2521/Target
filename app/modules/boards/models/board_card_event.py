@@ -16,6 +16,7 @@ class BoardCardEvent(Base):
     __tablename__ = "board_card_events"
     __table_args__ = (
         Index("board_card_events_card_idx", "card_id", "created_at"),
+        Index("board_card_events_created_idx", "created_at"),
         Index("uniq_board_card_event_ref", "card_id", "ref", unique=True, postgresql_where=text("ref <> ''")),
     )
 
@@ -29,3 +30,5 @@ class BoardCardEvent(Base):
     actor_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
     ref: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    # When the ticket's person was told of it in the staff bot (or found there was nobody to tell).
+    noticed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -33,7 +33,7 @@ from app.modules.billing.constants import (
     SubscriptionStatus,
 )
 from app.modules.billing.models import Invoice, Plan, Subscription
-from app.modules.boards import confirm
+from app.modules.boards import confirm, notices
 from app.modules.boards.constants import (
     BILL_FROM_COLUMNS,
     CAMPAIGN_FRESH_HOURS,
@@ -887,6 +887,8 @@ def sweep_support(db: Session, *, now: datetime) -> int:
         + wait_over(db, now=now)
         + confirm.close_unanswered(db, now=now)
         + confirm.ask_clients(db, now=now)
+        # Last: the lines the rules above wrote are told in the same run.
+        + notices.tell_ticket_people(db, now=now)
     )
 
 
