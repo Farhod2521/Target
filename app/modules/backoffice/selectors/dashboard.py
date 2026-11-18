@@ -713,6 +713,7 @@ def sales(db: Session, *, window: Window) -> tuple[ManagerSales, ...]:
     plan paid while the card was theirs), and cards still open now."""
     from app.modules.boards.constants import Board, EventKind, SalesColumn
     from app.modules.boards.models import BoardCard, BoardCardEvent
+    from app.modules.boards.sales_report import paid_sale
 
     sold = dict(
         db.execute(
@@ -725,6 +726,8 @@ def sales(db: Session, *, window: Window) -> tuple[ManagerSales, ...]:
                 BoardCardEvent.created_at >= window.since,
                 BoardCardEvent.created_at < window.until,
                 BoardCard.manager_id.is_not(None),
+                # Paid, not a plan the office gave.
+                paid_sale(BoardCard.owner_id),
             )
             .group_by(BoardCard.manager_id)
         ).all()

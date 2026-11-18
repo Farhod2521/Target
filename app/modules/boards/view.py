@@ -489,15 +489,19 @@ def _take(db: Session, *, user: User) -> dict[str, int]:
 def _take_lead(db: Session, *, user: User) -> dict[str, int]:
     """What «Lid olish» shows: leads nobody works yet, the ones this person
     took and has not called, and the most they may hold so."""
+    from app.modules.boards.constants import OFFER_COLUMNS
     from app.modules.boards.services import untouched_count
 
+    # Whatever «Lid olish» may give: Ishlanmagan, and a discount running on
+    # a lead nobody works (a Start buyer).
     queue = db.scalar(
         select(func.count())
         .select_from(BoardCard)
         .where(
             BoardCard.board == str(Board.SALES),
-            BoardCard.column_code == str(SalesColumn.UNWORKED),
+            BoardCard.closed_at.is_(None),
             BoardCard.manager_id.is_(None),
+            BoardCard.column_code.in_([str(SalesColumn.UNWORKED), *OFFER_COLUMNS]),
         )
     )
     return {

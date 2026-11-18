@@ -29,6 +29,7 @@ from app.modules.billing.models import Invoice
 from app.modules.boards.access import works_on
 from app.modules.boards.constants import (
     DUE_REMIND_WINDOW_MINUTES,
+    OFFER_COLUMNS,
     QUEUE_NOTICE_MINUTES,
     SALES_COLUMN_LABELS,
     SWEEP_BATCH,
@@ -192,10 +193,13 @@ def tell_queue(db: Session, *, client: BotClient, now: datetime) -> int:
     last_at = datetime.fromisoformat(last) if isinstance(last, str) else None
     if last_at is not None and now - last_at < timedelta(minutes=QUEUE_NOTICE_MINUTES):
         return 0
+    # What «Lid olish» may give: Ishlanmagan, and a Start buyer's discount
+    # running with nobody on it.
     waiting = (
         BoardCard.board == str(Board.SALES),
-        BoardCard.column_code == str(SalesColumn.UNWORKED),
+        BoardCard.closed_at.is_(None),
         BoardCard.manager_id.is_(None),
+        BoardCard.column_code.in_([str(SalesColumn.UNWORKED), *OFFER_COLUMNS]),
     )
     total = int(db.scalar(select(func.count()).where(*waiting)) or 0)
     since = last_at or now - timedelta(minutes=QUEUE_NOTICE_MINUTES)

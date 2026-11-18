@@ -264,7 +264,9 @@ def test_telegram_tells_a_due_time_a_bill_and_new_leads_once(
     assert notices.tell_queue(db, client=bot, now=night) == 0  # type: ignore[arg-type]
 
 
-def test_the_dashboard_counts_the_board_s_sales(client: TestClient, db: Session) -> None:
+def test_the_dashboard_counts_the_board_s_sales(
+    client: TestClient, db: Session
+) -> None:
     from app.modules.backoffice.selectors.dashboard import Window, sales
 
     _live(db)
@@ -331,9 +333,12 @@ def test_a_call_shows_the_plan_and_a_person_who_takes_none_is_skipped(
         headers=office["seller"],
     )
     assert off.status_code == 200 and off.json()["accepts_calls"] is False
-    assert client.get(f"{URL}/telephony/me", headers=office["seller"]).json()[
-        "accepts_calls"
-    ] is False
+    assert (
+        client.get(f"{URL}/telephony/me", headers=office["seller"]).json()[
+            "accepts_calls"
+        ]
+        is False
+    )
     route = client.get(f"{office['hook']}/route", params={"number": "901234567"})
     assert route.json()["extension"] is None
     colleagues = client.get(
@@ -348,3 +353,66 @@ def test_a_call_shows_the_plan_and_a_person_who_takes_none_is_skipped(
         f"{URL}/telephony/me/accepting", json={"accepts_calls": False}, headers=lead
     )
     assert refused.status_code == 409
+
+
+def test_a_plan_the_office_gave_is_no_sale(client: TestClient, db: Session) -> None:
+    from app.modules.backoffice.selectors.dashboard import Window, sales
+
+    _live(db)
+    lead = _staff(db, "rahbar@office.test", Role.SALES_LEAD)
+    ali = _staff(db, "ali@office.test", Role.SALES)
+    _client(db, "given@shop.test")
+    _sweep(db)
+    card = _detail(client.post(f"{URL}/sales/take", headers=ali))
+    boss = _person(db, "rahbar@office.test")
+    db.add(
+        Subscription(
+            owner_id=_person(db, card.client.email).id,
+            plan_id=_plan(db).id,
+            status=SubscriptionStatus.ACTIVE,
+            extra_pages=0,
+            started_at=utcnow(),
+            expires_at=utcnow() + timedelta(days=30),
+            note="",
+            activated_by_id=boss.id,
+        )
+    )
+    db.commit()
+    _sweep(db)
+    db.expire_all()
+    found = db.get(BoardCard, card.id)
+    assert found is not None and found.column_code == "sold"
+
+    report = _report(client, lead)
+    assert report.total.sold == 0 and report.total.money == []
+    assert [s.sold for s in report.sources] == [0]
+    today = utcnow().date()
+    window = Window(
+        period="custom", unit="day", start=today, end=today + timedelta(days=1)
+    )
+    assert all(row.sold == 0 for row in sales(db, window=window))
+
+
+def test_the_queue_counts_a_start_buyer_nobody_works(
+    client: TestClient, db: Session
+) -> None:
+    _live(db)
+    ali = _staff(db, "ali@office.test", Role.SALES)
+    buyer = _client(db, "start@shop.test")
+    now = utcnow()
+    db.add(
+        BoardCard(
+            board="sales",
+            owner_id=buyer.id,
+            column_code="discount_20",
+            opened_at=now,
+            column_since=now,
+            reasons=[],
+        )
+    )
+    db.commit()
+    view = client.get(f"{URL}/boards/sales", headers=ali).json()
+    # Ishlanmagan is empty, yet «Lid olish» has a lead to give.
+    assert view["take"]["queue"] == 1
+    taken = _detail(client.post(f"{URL}/sales/take", headers=ali))
+    assert taken.client.email == "start@shop.test" and taken.column == "discount_20"

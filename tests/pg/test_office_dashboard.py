@@ -87,7 +87,9 @@ def test_money_figures_and_who_sees_them(client: TestClient, db: Session) -> Non
 
 
 def test_customers_queues_and_sales(client: TestClient, db: Session) -> None:
-    shop, _ = _shop(db)
+    shop, plan = _shop(db)
+    # A sale is a paid plan: the card's client paid one.
+    _bill(db, plan, shop.id, amount_minor=49000000, status=InvoiceStatus.PAID, paid_at=utcnow())
     fresh = _user(db, "yangi@example.com")
     seller, _ = _staff(db, Role.SALES, email="seller@office.test")
     # The Sales board's cards, not the first board's claims: one sold, one open.

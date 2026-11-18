@@ -23,7 +23,7 @@ from datetime import date, datetime, time, timedelta
 from statistics import median
 from typing import Any
 
-from sqlalchemy import Date, cast, func, literal_column, or_, select
+from sqlalchemy import Date, and_, case, cast, exists, func, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session, aliased
 
@@ -136,6 +136,32 @@ def day_bounds(start: date, end: date) -> tuple[datetime, datetime]:
     zone = office_zone()
     first = datetime.combine(start, time.min, zone)
     return first, datetime.combine(end, time.min, zone) + timedelta(days=1)
+
+
+def paid_sale(owner: Any) -> Any:
+    """The client paid a full plan: what makes a card in Sotildi a sale."""
+    from app.modules.boards.triggers import _full_plans
+
+    return exists().where(
+        Invoice.owner_id == owner,
+        Invoice.status == str(InvoiceStatus.PAID),
+        Invoice.kind == str(InvoiceKind.PLAN),
+        Invoice.plan_id.in_(_full_plans()),
+    )
+
+
+def _sold_column() -> Any:
+    """The card's column, with a given (unpaid) Sotildi read as not sold."""
+    return case(
+        (
+            and_(
+                BoardCard.column_code == str(SalesColumn.SOLD),
+                paid_sale(BoardCard.owner_id),
+            ),
+            str(SalesColumn.SOLD),
+        ),
+        else_="",
+    )
 
 
 def _key(person: uuid.UUID | None) -> str:
@@ -251,7 +277,9 @@ def report(
             BoardCard.id.in_(offered),
         )
         .join(BoardCard, BoardCard.id == BoardCardEvent.card_id)
-        .outerjoin(paid, paid.c.owner_id == BoardCard.owner_id)
+        # Paid, not given: a plan the office handed over is in Sotildi on the
+        # board, but nobody sold it.
+        .join(paid, paid.c.owner_id == BoardCard.owner_id)
         .where(
             BoardCard.board == BOARD,
             BoardCardEvent.kind == str(EventKind.SOLD),
@@ -473,12 +501,16 @@ def _holding(db: Session, *, now: datetime) -> dict[str, tuple[int, int]]:
 
 
 def _queue(db: Session, *, now: datetime) -> dict[str, Any]:
-    """«Ishlanmagan» now: how many wait and since when the oldest."""
+    """What «Lid olish» may give now (Ishlanmagan, and a discount running on
+    a lead nobody works): how many, and since when the oldest waits."""
+    from app.modules.boards.constants import OFFER_COLUMNS
+
     count, oldest = db.execute(
         select(func.count(), func.min(BoardCard.opened_at)).where(
             BoardCard.board == BOARD,
-            BoardCard.column_code == str(SalesColumn.UNWORKED),
+            BoardCard.closed_at.is_(None),
             BoardCard.manager_id.is_(None),
+            BoardCard.column_code.in_([str(SalesColumn.UNWORKED), *OFFER_COLUMNS]),
         )
     ).one()
     return {"waiting": int(count or 0), "oldest_at": oldest}
@@ -503,7 +535,7 @@ def _sources(db: Session, *, first: datetime, after: datetime) -> list[dict[str,
     by now: which door brings buyers."""
     rows: dict[str, list[int]] = {}
     for via, column in db.execute(
-        select(User.signup_via, BoardCard.column_code)
+        select(User.signup_via, _sold_column())
         .join(User, User.id == BoardCard.owner_id)
         .where(
             BoardCard.board == BOARD,
@@ -547,7 +579,7 @@ def _campaigns(
             source_text,
             campaign_text,
             func.count(),
-            func.count().filter(BoardCard.column_code == str(SalesColumn.SOLD)),
+            func.count().filter(_sold_column() == str(SalesColumn.SOLD)),
         )
         .join(User, User.id == BoardCard.owner_id)
         .where(
