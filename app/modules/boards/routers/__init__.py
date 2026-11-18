@@ -16,6 +16,7 @@ from app.modules.backoffice.constants import ADMIN_ROLES, ROLE_LABELS, Role
 from app.modules.backoffice.services import seen
 from app.modules.boards import (
     client,
+    developer,  # noqa: F401 - closes a ticket when its fault is settled
     help_options,
     kinds,
     renewal,

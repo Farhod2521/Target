@@ -179,6 +179,11 @@ class BoardColumnOut(ColumnOut):
     total: int = Field(
         description="Cards in the column for this person, with the search."
     )
+    recent_days: int | None = Field(
+        None,
+        description="Support's Hal qilindi and Yopildi: only cards that came "
+        "there this many days back are counted and listed (a search reads all).",
+    )
     cards: list[CardOut]
 
 

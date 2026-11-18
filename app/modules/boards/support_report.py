@@ -127,6 +127,10 @@ def report(
     ).where(
         BoardCardEvent.created_at >= first,
         BoardCardEvent.created_at < after,
+        # Only the lines the report counts are read.
+        BoardCardEvent.kind.in_(
+            [*_TALKS, str(EventKind.TICKET_TAKEN), *(str(k) for k in _BY_CLIENT)]
+        ),
         BoardCardEvent.card_id.in_(
             select(BoardCard.id).where(BoardCard.board == str(Board.SUPPORT))
         ),
@@ -137,6 +141,10 @@ def report(
             answers.append((card_id, at, kind))
             continue
         if actor is None or (not everybody and actor != user.id):
+            continue
+        # Only what the report counts makes a line: a hand that only moved
+        # or gave tickets (the Owner) or fixed one (a Developer) is not Support's work.
+        if kind not in _TALKS and kind != EventKind.TICKET_TAKEN:
             continue
         day = by[actor][day_of(at)]
         if kind in _TALKS:

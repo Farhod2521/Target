@@ -263,7 +263,10 @@ SUPPORT_ACTION_LABELS: Final = {CardAction.RELEASE: "Voz kechish"}
 # What a button asks for besides the press: `due` is a time, `note` a line,
 # `reason` a close reason. `required` ones are refused when empty.
 ACTION_DUE_REQUIRED: Final = frozenset({CardAction.CALLBACK, CardAction.WAIT})
-ACTION_DUE_OPTIONAL: Final = frozenset({CardAction.NO_CONTACT, CardAction.WILL_PAY})
+ACTION_DUE_OPTIONAL: Final = frozenset(
+    # Support's «Bog'lanib bo'lmadi»: when to call again.
+    {CardAction.NO_CONTACT, CardAction.WILL_PAY, CardAction.UNREACHABLE}
+)
 ACTION_NOTE_REQUIRED: Final = frozenset(
     {
         CardAction.RELEASE,
@@ -381,6 +384,9 @@ SUPPORT_FINAL_COLUMNS: Final = frozenset(
 # than this many in Ishlanmoqda. What comes back on its own (a timer, the
 # client's "no", the Owner's hand) is not held by it.
 TICKET_TAKE_LIMIT: Final = 5
+# Hal qilindi and Yopildi show the tickets that came there this many days
+# back; a search finds the older ones.
+SUPPORT_DONE_SHOWN_DAYS: Final = 7
 # The client has this long to say whether the problem is solved.
 CONFIRM_HOURS: Final = 24
 # How many of the sales manager's notes go with a ticket from Sales.
@@ -576,6 +582,10 @@ class EventKind(Choices):
     CHAT_TAKEN = "chat_taken"
     CHAT_HANDED = "chat_handed"
     CHAT_RELEASED = "chat_released"
+    # The Developer settled the fault the ticket was handed over with.
+    DEV_FIXED = "dev_fixed"
+    # «Bog'lanib bo'lmadi» with a time to call again, and the time came.
+    CALL_AGAIN = "call_again"
 
 
 EVENT_KIND_LABELS = {
@@ -629,6 +639,8 @@ EVENT_KIND_LABELS = {
     EventKind.CHAT_TAKEN: "Chatni oldi: AI javob bermaydi",
     EventKind.CHAT_HANDED: "Chat boshqa xodimga berildi",
     EventKind.CHAT_RELEASED: "Chat AI ga qaytdi",
+    EventKind.DEV_FIXED: "Dasturchi tuzatdi",
+    EventKind.CALL_AGAIN: "Qayta qo'ng'iroq vaqti keldi",
 }
 
 NOTE_MAX: Final = 2000

@@ -1105,9 +1105,23 @@ class RefusalAnswersOut(BaseModel):
     has_more: bool
 
 
+class SupportTicketRefOut(BaseModel):
+    id: str = Field(
+        description="The Support board card: `GET /api/v2/office/cards/{id}`."
+    )
+    column: str = Field(description="The board column's code.")
+    column_label: str
+    manager: PersonOut | None = Field(description="Who holds the ticket; null: nobody.")
+    mine: bool = Field(description="The reader holds it.")
+    closed: bool = Field(description="Hal qilindi or Yopildi.")
+
+
 class SupportRowOut(BaseModel):
     id: str = Field(description="The chat's id: `GET /office/support/{id}`.")
     customer: PersonOut
+    ticket: SupportTicketRefOut | None = Field(
+        None, description="The client's Support ticket; null: they never had one."
+    )
     waiting: bool = Field(description="The client spoke last and nobody settled it.")
     last_message_at: datetime | None
     last_client_at: datetime | None
@@ -1225,6 +1239,9 @@ class ChatHoldOut(BaseModel):
 
 class SupportThreadOut(BaseModel):
     customer: PersonOut
+    ticket: SupportTicketRefOut | None = Field(
+        None, description="The client's Support ticket; null: they never had one."
+    )
     support_bot: SupportBotLinkOut | None = Field(
         None,
         description="The client's support-bot chat; empty when they never wrote there.",

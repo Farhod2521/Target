@@ -318,6 +318,15 @@ def settle_error(db: Session, *, event_id: str, by: User, now: datetime) -> bool
         .values(resolved_at=now, resolved_by_id=by.id, updated_at=now)
     ).rowcount
     db.commit()
+    if closed:
+        from app.common import hooks
+        from app.modules.audit.services.faults import SETTLED_HOOK
+
+        path = db.scalar(
+            select(ErrorEvent.path).where(ErrorEvent.id == uuid.UUID(str(event_id)))
+        )
+        # What the fault was about (a Support ticket) may close with it.
+        hooks.fire(SETTLED_HOOK, db=db, path=path or "", by_id=by.id, now=now)
     return bool(closed)
 
 

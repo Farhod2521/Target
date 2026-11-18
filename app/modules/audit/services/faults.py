@@ -31,6 +31,8 @@ from app.modules.audit.services.records import REFERENCE_TRIES, _ours
 
 logger = logging.getLogger(__name__)
 FAULT_HOOK: Final = "audit.fault"
+# Fired after a fault is settled on the Developer page: db, path, by_id, now.
+SETTLED_HOOK: Final = "audit.fault_settled"
 # The key a launch's error_detail and a press's result_payload keep the
 # fault's reference under.
 FAULT_KEY: Final = "fault"

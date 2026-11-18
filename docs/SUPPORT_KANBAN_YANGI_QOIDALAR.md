@@ -111,6 +111,20 @@ O'zi qilgan ish haqida xabar bormaydi, egasiz zayavka (navbatdagi) haqida ham. H
 
 Mijozning chat xabari nusxasi: ochiq zayavkasi kimda bo'lsa faqat o'shanga; hech kimda bo'lmasa yoki u staff botni ulamagan bo'lsa — hamma Support xodimiga (avvalgidek).
 
+### 3d. «Dasturchiga berish» va «Tuzatildi» (2026-11-19)
+
+- `to_developer` (izoh majburiy) zayavkani «Dasturchiga berildi»ga o'tkazadi va Developer sahifasida xato ochadi (`/api/v1/office/faults`, `url` = `ticket:<karta id>`, sarlavha «Support zayavkasi — Support dasturchiga berdi»). Ichida: Support izohi, ochiq muammolar va Meta'ning asl matni. Staff botda Engineer'ga boshqa xatolar kabi xabar boradi. 6 belgili raqam zayavka tarixidagi «Dasturchiga berildi» qatoriga yoziladi.
+- Engineer `POST /api/v1/office/faults/{ref}/settle` («Tuzatildi — zayavkani yopish») bosganda: zayavka «Dasturchiga berildi»da bo'lsa, ochiq muammolar Engineer nomidan hal qilinadi va zayavka **«Hal qilindi»** ustuniga o'tib yopiladi (mijozdan so'ralmaydi). Tarixda `dev_fixed` («Dasturchi tuzatdi»), zayavka egasiga staff botda xabar boradi. Support zayavkani oldinroq ishga qaytarib olgan bo'lsa, u joyida qoladi, faqat tarixga `dev_fixed` yoziladi.
+
+### 3e. «Bog'lanib bo'lmadi»da qayta qo'ng'iroq vaqti (2026-11-19)
+
+`unreachable` endi `due_at` ni ixtiyoriy oladi (tugma `due: "optional"`). Vaqt kelganda zayavka o'zi `in_progress` ga, o'sha xodimga qaytadi: tarixda `call_again` («Qayta qo'ng'iroq vaqti keldi»), staff botda xabar. Vaqtsiz bo'lsa avvalgidek: mijoz yozmaguncha turadi.
+
+### 3f. Chat va yakuniy ustunlar (2026-11-19)
+
+- `GET /api/v1/office/support` qatorlari va `GET /api/v1/office/support/{id}` da `ticket`: `{id, column, column_label, manager, mine, closed}` yoki `null` (zayavka bo'lmagan).
+- Support kanbanida «Hal qilindi» va «Yopildi» faqat oxirgi 7 kunni sanaydi va ko'rsatadi (`columns[].recent_days = 7`); qidiruvda hammasi chiqadi (`recent_days: null`).
+
 ## 4. Kutish taymeri
 
 `wait` tugmasi vaqt so'raydi (`due_at`, majburiy). Vaqt kelganda zayavka o'zi `Ishlanmoqda` ga qaytadi, tarixga «Kutish vaqti tugadi» (`wait_over`) yoziladi. Mijoz Yordam chatiga yozsa, avvalgidek darhol qaytadi.

@@ -38,6 +38,8 @@ from app.modules.boards.constants import (
     SUPPORT_ACTION_LABELS,
     SUPPORT_ACTIONS,
     SUPPORT_DONE_COLUMNS,
+    SUPPORT_DONE_SHOWN_DAYS,
+    SUPPORT_FINAL_COLUMNS,
     TICKET_REASON_LABELS,
     TICKET_TAKE_LIMIT,
     AttemptsFilter,
@@ -390,6 +392,16 @@ def board_view(
             filters=filters,
             now=now,
         )
+        # Support's done columns hold the last days only; a search reads them all.
+        recent_only = (
+            board == Board.SUPPORT
+            and item.code in SUPPORT_FINAL_COLUMNS
+            and not search.strip()
+        )
+        if recent_only:
+            base = base.where(
+                BoardCard.column_since >= now - timedelta(days=SUPPORT_DONE_SHOWN_DAYS)
+            )
         total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
         cards = list(
             db.scalars(
@@ -407,6 +419,7 @@ def board_view(
                 "kind": item.kind,
                 "is_final": item.is_final,
                 "total": total,
+                "recent_days": SUPPORT_DONE_SHOWN_DAYS if recent_only else None,
                 "cards": [card_brief(card, extras=extras, now=now) for card in cards],
             }
         )

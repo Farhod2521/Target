@@ -485,6 +485,10 @@ def _support_act(
     if action == CardAction.UNREACHABLE:
         card.unreachable_reason_id = found.id
     db.commit()
+    if action == CardAction.TO_DEVELOPER:
+        from app.modules.boards.developer import hand_over
+
+        hand_over(db, card=card, note=note, by=user, now=now)
     return card
 
 

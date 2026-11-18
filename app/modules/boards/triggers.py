@@ -893,14 +893,17 @@ def sweep_support(db: Session, *, now: datetime) -> int:
 
 
 def wait_over(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
-    """«Mijoz kutilmoqda» with its time up: the ticket is back in
-    Ishlanmoqda with its person, whatever they hold already."""
+    """«Mijoz kutilmoqda» with its time up, or «Bog'lanib bo'lmadi» with
+    its time to call again come: the ticket is back in Ishlanmoqda with its
+    person, whatever they hold already."""
     cards = list(
         db.scalars(
             select(BoardCard)
             .where(
                 BoardCard.board == str(Board.SUPPORT),
-                BoardCard.column_code == str(SupportColumn.WAITING),
+                BoardCard.column_code.in_(
+                    [str(SupportColumn.WAITING), str(SupportColumn.UNREACHABLE)]
+                ),
                 BoardCard.due_at <= now,
             )
             .order_by(BoardCard.due_at)
@@ -911,13 +914,12 @@ def wait_over(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     )
     for card in cards:
         card.due_at = None
-        move(
-            db,
-            card=card,
-            to=str(SupportColumn.IN_PROGRESS),
-            kind=EventKind.WAIT_OVER,
-            now=now,
+        kind = (
+            EventKind.CALL_AGAIN
+            if card.column_code == SupportColumn.UNREACHABLE
+            else EventKind.WAIT_OVER
         )
+        move(db, card=card, to=str(SupportColumn.IN_PROGRESS), kind=kind, now=now)
     db.commit()
     return len(cards)
 

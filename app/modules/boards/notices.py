@@ -1,8 +1,9 @@
 """The ticket's person told in the staff bot when their ticket needs them.
 
 What is told: the ticket given to them (by the Owner, or with the chat),
-the wait over, the client writing back, the client saying it is not solved,
-a new problem on a ticket they hold, and the ticket opened again for them.
+the wait over, the time to call again come, the client writing back, the
+client saying it is not solved, a new problem on a ticket they hold, the
+ticket opened again for them, and the Developer fixing it.
 Nothing they did themselves, and nothing on a ticket with nobody on it.
 
 The minute sweep reads the lines not told yet, at most an hour old (a line
@@ -36,6 +37,8 @@ NOTICE_KINDS: Final = frozenset(
         str(EventKind.DENIED),
         str(EventKind.REASON),
         str(EventKind.REOPENED),
+        str(EventKind.DEV_FIXED),
+        str(EventKind.CALL_AGAIN),
     }
 )
 # A line older than this when the sweep meets it is not news any more.
@@ -56,6 +59,10 @@ def _line(kind: str, body: str, actor: User | None) -> str:
         return "Mijoz chatga yozdi: zayavka «Ishlanmoqda»ga qaytdi."
     if kind == EventKind.DENIED:
         return "Mijoz «hal bo'lmadi» dedi: zayavka sizga qaytdi."
+    if kind == EventKind.CALL_AGAIN:
+        return "Qayta qo'ng'iroq vaqti keldi: zayavka «Ishlanmoqda»ga qaytdi."
+    if kind == EventKind.DEV_FIXED:
+        return f"Dasturchi tuzatdi{who}: zayavka yopildi."
     if kind == EventKind.REASON:
         return f"Yangi muammo: {said}" if said else "Yangi muammo keldi."
     return f"Zayavka qayta ochildi{who}." + (f" {said}" if said else "")

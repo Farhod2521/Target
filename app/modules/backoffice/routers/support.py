@@ -98,11 +98,66 @@ def _client(db: Session, customer_id: uuid.UUID) -> User:
     return client
 
 
-def _row_out(row: selectors.QueueRow, drawn: selectors.Drawn) -> dict[str, Any]:
+def _tickets(
+    db: Session, owner_ids: list[uuid.UUID], *, viewer: User
+) -> dict[uuid.UUID, dict[str, Any]]:
+    """Each client's Support ticket, as the chat shows it: where it stands
+    and who holds it."""
+    from app.modules.boards.constants import (
+        SUPPORT_COLUMN_LABELS,
+        SUPPORT_FINAL_COLUMNS,
+        Board,
+        SupportColumn,
+    )
+    from app.modules.boards.models import BoardCard
+
+    if not owner_ids:
+        return {}
+    cards = db.scalars(
+        select(BoardCard).where(
+            BoardCard.board == str(Board.SUPPORT),
+            BoardCard.owner_id.in_(owner_ids),
+            BoardCard.term_ends_at.is_(None),
+        )
+    ).all()
+    people = {
+        p.id: p
+        for p in db.scalars(
+            select(User).where(
+                User.id.in_({c.manager_id for c in cards if c.manager_id})
+            )
+        )
+    }
+    out: dict[uuid.UUID, dict[str, Any]] = {}
+    for card in cards:
+        manager = people.get(card.manager_id) if card.manager_id else None
+        column = card.column_code
+        label = (
+            SUPPORT_COLUMN_LABELS[SupportColumn(column)]
+            if column in SupportColumn.values
+            else column
+        )
+        out[card.owner_id] = {
+            "id": str(card.id),
+            "column": column,
+            "column_label": str(label),
+            "manager": person_out(manager) if manager else None,
+            "mine": card.manager_id == viewer.id,
+            "closed": column in SUPPORT_FINAL_COLUMNS,
+        }
+    return out
+
+
+def _row_out(
+    row: selectors.QueueRow,
+    drawn: selectors.Drawn,
+    tickets: dict[uuid.UUID, dict[str, Any]],
+) -> dict[str, Any]:
     chat, last = row.conversation, row.last
     return {
         "id": str(chat.id),
         "customer": person_out(chat.owner),
+        "ticket": tickets.get(chat.owner_id),
         "waiting": row.waiting,
         "last_message_at": chat.last_message_at,
         "last_client_at": chat.last_client_at,
@@ -170,6 +225,7 @@ def _screen(
     return jsonable_encoder(
         {
             "customer": person_out(client),
+            "ticket": _tickets(db, [client.id], viewer=viewer).get(client.id),
             "support_bot": _support_bot(db, client),
             "conversation_id": str(chat.id) if chat is not None else None,
             "waiting": chat is not None and selectors.is_waiting(conversation=chat),
@@ -266,11 +322,14 @@ def support_queue(
     asked = EVERYONE if state == EVERYONE else WAITING
     page = selectors.staff_conversations(db, state=asked, offset=offset)
     drawn = selectors.drawn(db, [row.last for row in page.rows if row.last])
+    tickets = _tickets(
+        db, [row.conversation.owner_id for row in page.rows], viewer=user
+    )
     return jsonable_encoder(
         {
             "state": asked,
             "states": choices(STATES),
-            "rows": [_row_out(row, drawn) for row in page.rows],
+            "rows": [_row_out(row, drawn, tickets) for row in page.rows],
             "total": page.total,
             "offset": page.offset,
             "next_offset": page.next_offset,

@@ -33,6 +33,7 @@ CODE_TITLES: Final[dict[str, str]] = {
     "not_launchable": "yig'ilgan reklama Meta'ga yaroqsiz",
     "prep_failed": "tayyorlash to'xtadi",
     "ai_failed": "AI ishlamadi",
+    "support_ticket": "Support dasturchiga berdi",
 }
 
 
@@ -126,6 +127,8 @@ def _subject(path: str, action: str) -> str:
     kind = path.partition(":")[0]
     if kind == "launch":
         return "Reklama yaratish"
+    if kind == "ticket":
+        return "Support zayavkasi"
     if kind == "action":
         if action in ActionType.values:
             return str(ACTION_TYPE_LABELS[ActionType(action)])
