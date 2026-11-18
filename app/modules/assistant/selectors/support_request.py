@@ -46,8 +46,7 @@ _STATE: Final = {
         "a specialist passed it to the developers; it is being fixed."
     ),
     str(SupportColumn.WAITING): (
-        "the specialist did their part and waits for the client's answer or "
-        "action."
+        "the specialist did their part and waits for the client's answer or action."
     ),
     str(SupportColumn.UNREACHABLE): (
         "the specialist could not reach the client by phone or Telegram."

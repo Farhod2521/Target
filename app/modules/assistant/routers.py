@@ -56,6 +56,9 @@ from app.modules.backoffice.permissions import staff_required
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 office = APIRouter(prefix="/office/help-articles", tags=["assistant office"])
 office_gaps = APIRouter(prefix="/office/assistant-gaps", tags=["assistant office"])
+office_feedback = APIRouter(
+    prefix="/office/assistant-feedback", tags=["assistant office"]
+)
 Writer = Annotated[User, Depends(staff_required(*AI_ANSWER_ROLES))]
 
 
@@ -904,6 +907,52 @@ def gap_answer(
     )
     db.commit()
     return _gap_out(db, row)
+
+
+class FeedbackStatusIn(BaseModel):
+    status: Literal["open", "done"]
+
+
+@office_feedback.get("")
+def feedback_list(
+    db: Db,
+    user: Writer,
+    tab: str = Query("open", description="`open` or `done`."),
+    q: str = Query("", max_length=100),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """What clients said was wrong with the assistant's answers, asked
+    before each request to Support; the newest first."""
+    from app.modules.assistant.selectors.feedback import feedback_out, feedback_page
+
+    page = feedback_page(db, tab=tab, term=q, offset=offset)
+    return jsonable_encoder(
+        {
+            "tab": "done" if tab == "done" else "open",
+            "rows": [feedback_out(row, owner) for row, owner in page.rows],
+            "open": page.open,
+            "total": page.total,
+            "offset": page.offset,
+            "next_offset": page.next_offset,
+            "has_more": page.has_more,
+        }
+    )
+
+
+@office_feedback.patch("/{pk}")
+def feedback_status(
+    pk: uuid.UUID, body: FeedbackStatusIn, db: Db, user: Writer
+) -> dict[str, Any]:
+    """Mark a client's word as read, or put it back."""
+    from app.modules.accounts.models import User as Person
+    from app.modules.assistant.selectors.feedback import feedback_out
+    from app.modules.assistant.services.feedback import feedback_row, mark_feedback
+
+    row = mark_feedback(
+        db, row=feedback_row(db, pk), done=body.status == "done", now=utcnow()
+    )
+    db.commit()
+    return jsonable_encoder(feedback_out(row, db.get(Person, row.owner_id)))
 
 
 # The support chat's hooks, so Support's replies reach this chat.

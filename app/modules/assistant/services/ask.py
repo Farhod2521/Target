@@ -84,6 +84,14 @@ def start_turn(
         # whatever the page that sent this thought (``boards.chat_hold``).
         if hold_of(db, owner_id=owner.id) is not None:
             raise ChatWithPerson
+        if not item_key:
+            from app.modules.assistant.services.feedback import waiting_answer
+
+            waited = waiting_answer(db, session=session)
+            if waited is not None:
+                return _feedback_turn(
+                    db, owner=owner, session=session, waited=waited, text=text, now=now
+                )
     left = _allowance(db, owner=owner, entitled=entitled, scope=scope, now=now)
 
     said = (
@@ -154,6 +162,56 @@ def start_turn(
         turn_id=turn_id,
         session_id=str(thread.id) if thread is not None else "",
         message_id=str(answer.id) if answer is not None else "",
+        question=text,
+        left=left,
+    )
+
+
+def _feedback_turn(
+    db: Session,
+    *,
+    owner: User,
+    session: AssistantSession | None,
+    waited: AssistantMessage,
+    text: str,
+    now: datetime,
+) -> Turn:
+    """The client's word on the answers, before the request: kept for the
+    office and answered at once, with the send button - no model, nothing
+    counted against the day's questions. The worker finds no turn and stops."""
+    from app.modules.assistant.services.answer import publish
+    from app.modules.assistant.services.feedback import take_feedback
+
+    thread, answer = _record(
+        db, owner=owner, session=session, text=text, quote={}, now=now
+    )
+    assert thread is not None and answer is not None
+    words, buttons, _html = take_feedback(
+        db,
+        owner=owner,
+        waited=waited,
+        answer=answer,
+        text=text,
+        language=get_language() or "",
+        now=now,
+    )
+    turn_id = str(uuid.uuid4())
+    publish(
+        turn_id,
+        words,
+        payload={
+            "owner_id": str(owner.id),
+            "message_id": str(answer.id),
+            "session_id": str(thread.id),
+        },
+        done=True,
+        buttons=buttons,
+    )
+    left, _total = questions_left(db, owner=owner, entitled=True, now=now)
+    return Turn(
+        turn_id=turn_id,
+        session_id=str(thread.id),
+        message_id=str(answer.id),
         question=text,
         left=left,
     )

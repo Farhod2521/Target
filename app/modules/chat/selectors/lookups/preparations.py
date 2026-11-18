@@ -106,9 +106,7 @@ def _guide(launch: CampaignLaunch) -> Guide:
     )
 
 
-def _fixes(
-    db: Session, *, owner: User, launches: list[CampaignLaunch]
-) -> list[str]:
+def _fixes(db: Session, *, owner: User, launches: list[CampaignLaunch]) -> list[str]:
     """The ready fix for each refusal in the list, once per refusal: the one
     Support checked for exactly it when there is one, the help base's
     otherwise. The steps are copied to the person, not composed."""

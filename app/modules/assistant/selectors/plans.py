@@ -2,7 +2,7 @@
 
 Without this the assistant told a client «I cannot see the plan's price» and
 «I do not know the dollar rate» - both are things the product shows on its
-own Tarif page. Read-only; the prices are the ones this person may buy now
+own «Obuna va to'lov» page. Read-only; the prices are the ones this person may buy now
 (Start only as a first purchase), with their discount if Sales gave one.
 """
 
@@ -21,7 +21,7 @@ def plans_text(db: Session, *, owner: User | None, now: datetime) -> str:
     from app.modules.billing.selectors.display import usd_rate
     from app.modules.billing.selectors.plans import is_first_only, sellable_plans
 
-    lines = ["## Plans this person may buy (on the «Tarif» page)"]
+    lines = ["## Plans this person may buy (on «Obuna va to'lov», /app/billing/)"]
     for plan in sellable_plans(db, owner=owner):
         price = format_minor(amount_minor=plan.price, currency=plan.currency)
         parts = [f"- «{plan.name}»: {price} for {plan.period_days} days"]
@@ -31,7 +31,9 @@ def plans_text(db: Session, *, owner: User | None, now: datetime) -> str:
         if plan.extra_page_price:
             parts.append(
                 "each extra page "
-                + format_minor(amount_minor=plan.extra_page_price, currency=plan.currency)
+                + format_minor(
+                    amount_minor=plan.extra_page_price, currency=plan.currency
+                )
             )
         if plan.crm_seat_price:
             parts.append(
@@ -82,12 +84,8 @@ def _own(db: Session, *, owner: User, now: datetime) -> list[str]:
         lines.append(
             f"- a personal discount of {offer.percent}% on a full plan (not "
             f"Start), {hours} more hour(s)"
-            + (
-                f", then {offer.next_percent}%"
-                if offer.next_percent
-                else ""
-            )
-            + "; it is applied on the «Tarif» page by itself."
+            + (f", then {offer.next_percent}%" if offer.next_percent else "")
+            + "; it is applied to the bill by itself."
         )
     return lines
 

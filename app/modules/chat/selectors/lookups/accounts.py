@@ -155,7 +155,9 @@ def _left_out_pages(db: Session, *, owner: User) -> list[str]:
     )
     if not rows:
         return []
-    names = ", ".join(f"«{row.name or row.external_id}»" for row in rows[:LEFT_OUT_ROWS])
+    names = ", ".join(
+        f"«{row.name or row.external_id}»" for row in rows[:LEFT_OUT_ROWS]
+    )
     more = " and more" if len(rows) > LEFT_OUT_ROWS else ""
     return [f"- pages connected but not in the subscription: {names}{more}"]
 

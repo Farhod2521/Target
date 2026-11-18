@@ -26,6 +26,8 @@ from app.common.llm import ASKED, claude, model_for
 from app.modules.accounts.models import User
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.assistant.constants import (
+    FEEDBACK_ASK,
+    FEEDBACK_SKIP,
     GUEST_TICKET_KEY,
     GUEST_TICKET_TTL_SECONDS,
     LOOKING,
@@ -39,6 +41,7 @@ from app.modules.assistant.constants import (
     ButtonKind,
     ButtonState,
     MessageStatus,
+    in_language,
 )
 from app.modules.assistant.models import AssistantMessage, AssistantSession
 from app.modules.audit.constants import LLMPurpose
@@ -49,6 +52,7 @@ from core.assistant.tools import (
     CHANGE_TOOL,
     CRM_TOOL,
     GAP_TOOL,
+    GUARD_TOOL,
     HEALTH_TOOL,
     HELP_TOOL,
     MAX_GAPS,
@@ -57,6 +61,7 @@ from core.assistant.tools import (
     PLANS_TOOL,
     TICKET_TOOL,
     TOOLS,
+    WALLET_TOOL,
     with_reading,
 )
 from core.chat.choices import ChoiceGate, vetted_replies
@@ -77,10 +82,13 @@ NO_ACCOUNT = (
     "prepare a ticket if they need a person."
 )
 TICKET_PREPARED = (
-    "Prepared. The person now sees a «Mutaxassisga yuborish» button under your "
-    "answer; nothing has been sent and nothing will be until they press it. "
-    "Say in one or two sentences what you found and that they can send it to "
-    "a specialist with the button. Never say it was sent."
+    "Prepared, not shown yet, and nothing has been sent. Under your answer "
+    "the product itself asks the "
+    "person one question - what was wrong with your answers - and shows the "
+    "«Mutaxassisga yuborish» button once they reply. Say in one or two "
+    "sentences what you found and that a specialist can take it from here. "
+    "Do not ask that question yourself, do not mention a button, and never "
+    "say it was sent."
 )
 GUEST_TICKET_PREPARED = (
     "Prepared. Under your answer the product now asks this visitor for a name "
@@ -201,6 +209,20 @@ class Desk:
                 days=int(getattr(call.arguments, "days", 30)),
                 now=self.now,
             )
+        if call.name == GUARD_TOOL:
+            from app.modules.assistant.selectors.guard import guard_alerts
+
+            return guard_alerts(
+                self.db,
+                owner=self.owner,
+                scope=self._scope,
+                days=int(getattr(call.arguments, "days", 7)),
+                now=self.now,
+            )
+        if call.name == WALLET_TOOL:
+            from app.modules.assistant.selectors.referrals import referrals_text
+
+            return referrals_text(self.db, owner=self.owner, now=self.now)
         if call.name == HEALTH_TOOL:
             return account_health(
                 self.db, owner=self.owner, scope=self._scope, now=self.now
@@ -582,6 +604,18 @@ def _finish(
         text, replies = f"{text}…\n\n**{CUT_SHORT}**", [str(CARRY_ON)]
     if desk.tickets and desk.owner is None:
         _keep_for_guest(turn_id, payload=payload, ticket=desk.tickets[0], answer=text)
+    waiting: dict[str, Any] = {}
+    if desk.tickets and desk.owner is not None and not result.truncated:
+        # The owner is asked about the answers first; the button follows
+        # their reply (``services.feedback``).
+        language = str(payload.get("language", ""))
+        waiting = {
+            **desk.tickets[0],
+            "question": str(payload.get("question", "")),
+        }
+        buttons = [item for item in buttons if item not in desk.tickets]
+        text = f"{text}\n\n{in_language(FEEDBACK_ASK, language)}".strip()
+        replies = [in_language(FEEDBACK_SKIP, language)]
     lessons = named_lessons(text, found=desk.lessons)
     publish(
         turn_id,
@@ -611,6 +645,7 @@ def _finish(
         replies=replies,
         now=now,
         lessons=lessons,
+        extra={"ticket_waiting": waiting} if waiting else None,
     )
     # Last: the person already has the answer on the screen.
     _note_gap(db, payload=payload, desk=desk, now=now)
@@ -704,6 +739,7 @@ def _store(
     now: datetime,
     stopped: bool = False,
     lessons: list[dict[str, str]] | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> None:
     """Fill in the row that was created empty when the question arrived."""
     key = _uuid(payload.get("message_id", ""))
@@ -731,6 +767,7 @@ def _store(
                 **(meta or {}),
                 **({"stopped": True} if stopped else {}),
                 **({"lessons": lessons} if lessons else {}),
+                **(extra or {}),
             },
             updated_at=now,
         )

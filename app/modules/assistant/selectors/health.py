@@ -29,7 +29,9 @@ def account_health(db: Session, *, owner: User, scope: PageScope, now: datetime)
     """Every check, in the order a person would ask about them."""
     lines: list[str] = []
     for title, rows in (
+        ("Setup", _setup(db, owner=owner)),
         ("Plan and payments", _plan(db, owner=owner, now=now)),
+        ("Card and autopay", _card(db, owner=owner, now=now)),
         ("Account", _block(db, owner=owner)),
         ("Facebook connection", _connection(db, owner=owner)),
         ("Ad accounts", _ad_accounts(db, owner=owner, now=now)),
@@ -60,7 +62,7 @@ def _plan(db: Session, *, owner: User, now: datetime) -> list[str]:
             _line(
                 PROBLEM,
                 "no live plan - the assistant, launches and reports are closed.",
-                fix="choose and pay a plan on Tarif.",
+                fix="choose and pay a plan on «Obuna va to'lov» (/app/billing/).",
             )
         )
     else:
@@ -71,7 +73,9 @@ def _plan(db: Session, *, owner: User, now: datetime) -> list[str]:
                 PROBLEM if soon else OK,
                 f"plan «{subscription.plan.name}», status {subscription.status}, "
                 f"days left: {left if left is not None else 'unknown'}.",
-                fix="renew on Tarif before it ends." if soon else "",
+                fix="renew on «Obuna va to'lov» (/app/billing/) before it ends."
+                if soon
+                else "",
             )
         )
     for bill in list(invoice_history(db, owner=owner))[:RECENT_BILLS]:
@@ -87,7 +91,7 @@ def _plan(db: Session, *, owner: User, now: datetime) -> list[str]:
                     PROBLEM,
                     f"bill {bill.number}: {amount}, opened {when:%Y-%m-%d}, "
                     f"status {bill.status} - not paid, or the payment has not arrived.",
-                    fix="pay it on Tarif; if the money left the card and the "
+                    fix="pay it on «Obuna va to'lov» (/app/billing/); if the money left the card and the "
                     "bill is still open, it needs a person.",
                 )
             )
@@ -98,6 +102,157 @@ def _plan(db: Session, *, owner: User, now: datetime) -> list[str]:
                     f"bill {bill.number}: {amount}, {bill.status} ({when:%Y-%m-%d}).",
                 )
             )
+    return lines
+
+
+# The steps of «Tayyorgarlik» (/app/start/) as its screen names them.
+_STEP_NAMES: Final[dict[str, str]] = {
+    "connect": "Meta akkauntini ulash",
+    "page": "sahifani tanlash",
+    "ad_account": "reklama akkauntini tanlash",
+    "profile": "biznes profili (nomi va turi)",
+    "leads": "lidlarni ulash",
+    "telegram": "Telegram botni ulash",
+    "pixel": "piksel (ixtiyoriy)",
+}
+_STUCK: Final[dict[str, str]] = {
+    "connect": "Meta is connected without every permission it was asked for - "
+    "connect again and tick every permission",
+    "ad_account": "Meta shows no ad account on the connected profile",
+    "page": "Meta shows no Facebook page on the connected profile",
+    "leads": "the page's lead terms (Meta's «leadgen terms») are not accepted",
+}
+
+
+def _setup(db: Session, *, owner: User) -> list[str]:
+    """«Tayyorgarlik»: said only while it is unfinished - a finished one
+    has nothing to report."""
+    from app.modules.billing.selectors.subscription import setup_pending
+    from app.modules.onboarding.selectors import setup_overview
+
+    if not setup_pending(db, owner=owner):
+        return []
+    overview = setup_overview(db, owner=owner)
+    lines = [
+        _line(
+            PROBLEM,
+            f"setup on «Tayyorgarlik» (/app/start/) is not finished: "
+            f"{overview.done} of {overview.total} steps done.",
+        )
+    ]
+    for step in overview.steps:
+        name = _STEP_NAMES.get(step.id, step.id)
+        if step.state == "done":
+            continue
+        if step.state == "attention":
+            lines.append(
+                _line(
+                    PROBLEM,
+                    f"step «{name}» is stuck: {_STUCK.get(step.id, 'it needs a look')}.",
+                )
+            )
+        elif step.state == "current":
+            lines.append(_line(PROBLEM, f"next step: «{name}»."))
+        elif step.state == "optional":
+            lines.append(_line(OK, f"step «{name}» is optional and not done."))
+        else:
+            lines.append(_line(OK, f"step «{name}» waits for the step before it."))
+    if overview.can_finish:
+        lines.append(
+            _line(
+                PROBLEM,
+                "the required choices are made, so «Yakunlash» can be pressed "
+                "now; the other sections of the cabinet open after it, and the "
+                "steps left can be done later.",
+                fix="press «Yakunlash» on «Tayyorgarlik».",
+            )
+        )
+    return lines
+
+
+def _card(db: Session, *, owner: User, now: datetime) -> list[str]:
+    """The bound card and whether it renews the plan by itself."""
+    from paykit.multicard import CHARGED, DECLINED, NEEDS_CODE
+
+    from app.modules.autopay.constants import CHARGE_LEAD, MAX_ATTEMPTS
+    from app.modules.autopay.selectors import active_card
+    from app.modules.autopay.services import autopay_on
+    from app.modules.billing.selectors import live_subscription
+
+    if not autopay_on():
+        return []
+    card = active_card(db, owner=owner)
+    if card is None:
+        return [
+            _line(
+                OK,
+                "no card is bound, so nothing renews by itself; a plan is "
+                "paid by hand, and the pay dialog binds a card on the way.",
+            )
+        ]
+    bound = f" since {card.bound_at:%Y-%m-%d}" if card.bound_at else ""
+    lines = [
+        _line(
+            OK,
+            f"card {card.ps.upper()} {card.pan} is bound{bound}; autopay is "
+            f"{'on' if card.autopay else 'off'}.",
+        )
+    ]
+    subscription = live_subscription(db, owner=owner)
+    if (
+        card.autopay
+        and subscription is not None
+        and subscription.canceled_at is None
+        and subscription.plan.price
+    ):
+        lines.append(
+            _line(
+                OK,
+                f"the card is charged for «{subscription.plan.name}» from "
+                f"{subscription.expires_at - CHARGE_LEAD:%Y-%m-%d}, a day "
+                "before the plan ends; extra pages and manager seats in "
+                "use are renewed with it. The bill is made that day, so its "
+                "sum is the one shown on «Obuna va to'lov» (/app/billing/).",
+            )
+        )
+    if not card.autopay and subscription is not None:
+        lines.append(
+            _line(
+                OK,
+                f"the subscription was stopped: the plan runs to "
+                f"{subscription.expires_at:%Y-%m-%d} and is not renewed by "
+                "itself.",
+                fix="«Obunani tiklash» on «Obuna va to'lov» (/app/billing/) turns "
+                "autopay back on.",
+            )
+        )
+    # An attempt is for one term; once that term was paid another way, its
+    # refusal is history.
+    current = subscription is None or card.charge_term == subscription.expires_at
+    if card.last_charge_outcome in (DECLINED, NEEDS_CODE) and current:
+        when = f" on {card.last_charge_at:%Y-%m-%d}" if card.last_charge_at else ""
+        left = max(0, MAX_ATTEMPTS - card.charge_attempts)
+        again = (
+            f" It is tried again {left} more time(s), a day apart."
+            if card.last_charge_outcome == DECLINED and left
+            else " It is not tried again by itself."
+        )
+        lines.append(
+            _line(
+                PROBLEM,
+                f"the last automatic charge{when} did not go through: "
+                f"{card.last_charge_error or 'the bank refused it.'}{again}",
+                fix="pay the plan by hand on «Obuna va to'lov» (/app/billing/), or "
+                "bind another card there.",
+            )
+        )
+    elif card.last_charge_outcome == CHARGED and card.last_charge_at:
+        lines.append(
+            _line(
+                OK,
+                f"the last automatic charge on {card.last_charge_at:%Y-%m-%d} went through.",
+            )
+        )
     return lines
 
 
@@ -242,9 +397,15 @@ def _ad_accounts(db: Session, *, owner: User, now: datetime) -> list[str]:
             if standing in _MONEY_STANDINGS:
                 fix = fix or _money_fix(row)
             elif standing == "review":
-                fix = fix or "wait for Meta's review; Account Quality (facebook.com/accountquality) shows it."
+                fix = (
+                    fix
+                    or "wait for Meta's review; Account Quality (facebook.com/accountquality) shows it."
+                )
             else:
-                fix = fix or "ask Meta to review it in Account Quality (facebook.com/accountquality); if Meta does not open it, it needs a person."
+                fix = (
+                    fix
+                    or "ask Meta to review it in Account Quality (facebook.com/accountquality); if Meta does not open it, it needs a person."
+                )
         elif row.may_advertise is False or row.payment_due:
             faults.append(
                 "Meta does not let it advertise right now"

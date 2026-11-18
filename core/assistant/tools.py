@@ -1,12 +1,13 @@
 """What the one chat's assistant may call while it answers.
 
 The fifteen look-ups of the old chat are used as they are
-(``core/chat/lookups.py``). Six are new: a check of the account's own
+(``core/chat/lookups.py``). Eight are new: a check of the account's own
 state, a search of known problems and their steps, a ticket for a person
 in Support - prepared, never sent, until the client presses its button -
-a note to the team about a question that was left unanswered, and
-the product's own plans, prices and dollar rate, and what the CRM did
-with each campaign's leads.
+a note to the team about a question that was left unanswered, the
+product's own plans, prices and dollar rate, what the CRM did with each
+campaign's leads, what the half-hourly guard warned about or stopped, and
+the invite link and wallet.
 
 How to read a result travels with the result (``READING``), not in the
 prompt: the model is told about a look-up's output when it has one in hand,
@@ -28,6 +29,8 @@ TICKET_TOOL: Final = "create_ticket"
 GAP_TOOL: Final = "report_gap"
 PLANS_TOOL: Final = "plans_and_prices"
 CRM_TOOL: Final = "crm_outcomes"
+GUARD_TOOL: Final = "guard_alerts"
+WALLET_TOOL: Final = "referrals_and_wallet"
 
 MAX_TICKETS: Final = 1
 MAX_GAPS: Final = 1
@@ -131,15 +134,17 @@ NEW_TOOLS: Final[tuple[Tool, ...]] = (
         HEALTH_TOOL,
         Nothing,
         "The state of the owner's account in this product, read from what is",
-        "already stored - no request is sent to Meta: the plan and its days",
-        "left, the last payments and bills, whether the account is blocked and",
-        "why, the Facebook connection and its permissions, each ad account's",
-        "standing, where leads are delivered (Google Sheets, Telegram) and",
-        "whether delivery is broken, what is waiting on the cabinet's",
-        "list, and the client's request to Support: whether one is open,",
-        "what it is about and where it stands. Call it first for any 'something does not work' question:",
-        "payment, plan, sign-in, connection, leads not arriving, adverts not",
-        "starting.",
+        "already stored - no request is sent to Meta: an unfinished setup",
+        "(«Tayyorgarlik») and its next step, the plan and its days left, the",
+        "last payments and bills, the bound card, autopay and the last",
+        "automatic charge, whether the account is blocked and why, the",
+        "Facebook connection and its permissions, each ad account's standing,",
+        "where leads are delivered (Google Sheets, Telegram) and whether",
+        "delivery is broken, what is waiting on the cabinet's list, and the",
+        "client's request to Support: whether one is open, what it is about",
+        "and where it stands. Call it first for any 'something does not",
+        "work' question: payment, autopay, plan, sign-in, setup, connection,",
+        "leads not arriving, adverts not starting.",
     ),
     _tool(
         HELP_TOOL,
@@ -179,10 +184,31 @@ NEW_TOOLS: Final[tuple[Tool, ...]] = (
         Window,
         "What the owner's CRM did with each campaign's leads: how many were",
         "sold, refused or marked poor quality (Sifatsiz), still new or in",
-        "progress, the share sold, the amount sold for, and the most common",
-        "reasons for refused and poor leads. Counts only. Use it for 'sales",
-        "are low', 'the leads are poor', 'which campaign brings buyers'.",
-        "Lead-form campaigns only: chat and call campaigns have no CRM cards.",
+        "progress, the share sold, the amount sold for, the most common",
+        "reasons for refused and poor leads - and who works them: each",
+        "manager's leads, outcomes, overdue ones and last move in the CRM,",
+        "and leads given to nobody. Counts only. Use it for 'sales are low',",
+        "'the leads are poor', 'which campaign brings buyers', 'does my",
+        "manager call the leads'. Lead-form campaigns only: chat and call",
+        "campaigns have no CRM cards.",
+    ),
+    _tool(
+        GUARD_TOOL,
+        Window,
+        "What the product's guard - it checks every running ad group every",
+        "half hour - warned the owner about or stopped by itself: price far",
+        "above the group's usual, money spent with nothing back, a site that",
+        "does not open, a weak advert; with the exact words the owner got in",
+        "the cabinet and on Telegram, when, and which button they pressed.",
+        "Use it for 'why did my advert stop', 'what was that warning'.",
+    ),
+    _tool(
+        WALLET_TOOL,
+        Nothing,
+        "The owner's invite link, how many friends signed up through it and",
+        "paid, the wallet's balance (earned, spent on plans, taken out), the",
+        "requests to take money out, and whether taking it out to a card is",
+        "open. Use it for referral, bonus, balance or 'pul yechish' questions.",
     ),
     _tool(
         GAP_TOOL,
@@ -263,7 +289,10 @@ READING: Final[dict[str, str]] = {
         "How to read this: one line a day. The latest day is still being "
         "spent, so a small fall there means nothing. Quote days as they are "
         "written; never work out a percentage yourself. There is no hour by "
-        "hour reading anywhere: never offer to look at hours of the day."
+        "hour reading anywhere: never offer to look at hours of the day. "
+        "'Checked against Ads Manager' says which closed days the product "
+        "compared with Ads Manager's own total: a day apart is told as it "
+        "is, with Ads Manager's figure as the right one."
     ),
     "lead_counts": (
         "How to read this: counts only. Names, phones and answers are never "
@@ -304,7 +333,22 @@ READING: Final[dict[str, str]] = {
         "left them. «Sifatsiz lid» is a lead the owner's team judged poor, "
         "«Rad etildi» one that did not buy; their reasons are the team's "
         "own words - say them as theirs. Leads still in «Yangi lid» have no "
-        "outcome: never count them as unsold."
+        "outcome: never count them as unsold. Under 'Who works these leads' "
+        "a manager's name is the owner's own staff: say it. Leads given to "
+        "nobody and leads past their «muddat» are what to point at first."
+    ),
+    GUARD_TOOL: (
+        "How to read this: each finding is the guard's own message, with "
+        "when it was written - 'Bugun' in its words is that day, not today. "
+        "Say what it found and what it did in plain words; a STOPPED one was "
+        "stopped by the product to save money, and switching it back on is "
+        "the owner's choice («Qayta yoqish» under the message, or on "
+        "Reklama). Never say it was Meta, the owner or «somebody»."
+    ),
+    WALLET_TOOL: (
+        "How to read this: the sums are the wallet's own; never add two "
+        "currencies. Friends are counts, never names. Taking money out is "
+        "answered exactly as the last lines say."
     ),
     "preparations": (
         "How to read this: a campaign prepared here may never have reached "
@@ -322,7 +366,10 @@ READING: Final[dict[str, str]] = {
         "with the screen that fixes it where there is one. A line marked "
         "PROBLEM is what to answer about first; OK lines need no mention "
         "unless asked. Give the fix as numbered steps from the line itself "
-        "or from `help_search`. 'needs a person' means no screen fixes it: "
+        "or from `help_search`. A setup step named «next» is the one to do "
+        "now, on «Tayyorgarlik». A card line is the bound card and autopay as "
+        "they stand; never promise a charge's sum. 'needs a person' means no "
+        "screen fixes it: "
         "prepare a ticket. Nothing marked PROBLEM and the person still says "
         "something is wrong: ask one question about what they see, or "
         "prepare a ticket."
@@ -355,6 +402,7 @@ __all__ = [
     "GAP_ANSWER",
     "GAP_BUILD",
     "GAP_TOOL",
+    "GUARD_TOOL",
     "HEALTH_TOOL",
     "HELP_TOOL",
     "MAX_GAPS",
@@ -364,6 +412,7 @@ __all__ = [
     "TICKET_TOOL",
     "TOOLS",
     "TOOL_NAMES",
+    "WALLET_TOOL",
     "GapReport",
     "HelpSearch",
     "TicketDraft",

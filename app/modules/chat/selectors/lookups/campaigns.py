@@ -159,7 +159,9 @@ def campaign_details(
         ),
     ]
     lines += issue_fixes(troubled)
-    lines += _stalled(db, owner=owner, campaign=campaign, since=since, until=until, now=now)
+    lines += _stalled(
+        db, owner=owner, campaign=campaign, since=since, until=until, now=now
+    )
     return "\n".join(lines)
 
 
@@ -176,7 +178,12 @@ def _stalled(
 
     key = campaign.external_id
     sums = figures_by(
-        db, owner=owner, column="campaign_external_id", ids=[key], since=since, until=until
+        db,
+        owner=owner,
+        column="campaign_external_id",
+        ids=[key],
+        since=since,
+        until=until,
     )
     shown = int((sums.get(key) or {}).get("shown") or 0)
     return stalled_lines(db, owner=owner, campaign=campaign, shown=shown, now=now)

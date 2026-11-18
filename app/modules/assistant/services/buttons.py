@@ -219,7 +219,9 @@ def _send_ticket(
     ):
         raise TooManyTickets
     body = ticket_text(
-        question=_question_of(db, row=row),
+        # Asked before the request, the client's word on the answers came
+        # between: the question is the one the request was prepared for.
+        question=str(item.get("question", "")) or _question_of(db, row=row),
         summary=str(item.get("summary", "")),
         checked=[str(line) for line in item.get("checked", ())],
     )

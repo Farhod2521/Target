@@ -67,7 +67,9 @@ def stalled_lines(
     return ["", head, *found]
 
 
-def _groups(db: Session, *, owner: User, campaign: Campaign, now: datetime) -> list[str]:
+def _groups(
+    db: Session, *, owner: User, campaign: Campaign, now: datetime
+) -> list[str]:
     lines: list[str] = []
     groups = list(
         db.scalars(
@@ -85,7 +87,9 @@ def _groups(db: Session, *, owner: User, campaign: Campaign, now: datetime) -> l
     for row in groups:
         name = f"ad group «{row.name or row.external_id}»"
         if row.start_time is not None and row.start_time > now:
-            lines.append(f"- {name} is scheduled to start {row.start_time:%Y-%m-%d %H:%M} UTC")
+            lines.append(
+                f"- {name} is scheduled to start {row.start_time:%Y-%m-%d %H:%M} UTC"
+            )
         if row.end_time is not None and row.end_time < now:
             lines.append(f"- {name} ended {row.end_time:%Y-%m-%d %H:%M} UTC")
         held = HELD.get((row.effective_status or "").upper())
@@ -99,7 +103,9 @@ def _groups(db: Session, *, owner: User, campaign: Campaign, now: datetime) -> l
     return lines
 
 
-def _adverts(db: Session, *, owner: User, campaign: Campaign, now: datetime) -> list[str]:
+def _adverts(
+    db: Session, *, owner: User, campaign: Campaign, now: datetime
+) -> list[str]:
     adverts = list(
         db.scalars(
             select(Ad)
