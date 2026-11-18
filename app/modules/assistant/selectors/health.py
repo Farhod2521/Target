@@ -37,6 +37,7 @@ def account_health(db: Session, *, owner: User, scope: PageScope, now: datetime)
             "Waiting on the cabinet's list",
             _waiting(db, owner=owner, scope=scope, now=now),
         ),
+        ("Request to Support", _support(db, owner=owner, now=now)),
     ):
         lines += [f"## {title}", *(rows or [f"- {OK}: nothing to report"]), ""]
     return "\n".join(lines).rstrip()
@@ -305,6 +306,15 @@ def _waiting(db: Session, *, owner: User, scope: PageScope, now: datetime) -> li
     )
     rows = [line for line in text.splitlines() if line.startswith("- ")]
     return rows or [_line(OK, "nothing is waiting.")]
+
+
+def _support(db: Session, *, owner: User, now: datetime) -> list[str]:
+    from app.modules.assistant.selectors.support_request import (
+        request_lines,
+        support_request,
+    )
+
+    return request_lines(support_request(db, owner=owner, now=now), now=now)
 
 
 __all__ = ["OK", "PROBLEM", "account_health"]

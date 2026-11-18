@@ -37,3 +37,9 @@ who write the missing answer («Meta & AI» in the office) or build the
 missing look-up. The person is never told.
 
 Run the live cases after every change: `python -m tools.assistant_eval`.
+
+`v4`: the client's request to Support is part of `account_health` (where
+it stands, what it is about, whether Support wrote in the chat). A second
+request for a problem Support has in hand is refused by `create_ticket`
+unless the model marks it `new_problem`; the assistant no longer says «the
+reply comes here» - Support usually calls.

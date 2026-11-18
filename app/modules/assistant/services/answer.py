@@ -246,12 +246,21 @@ class Desk:
         self.gate.allow(figures_in(prepared.text))
         return ToolOutput(text=prepared.text, is_error=prepared.item is None)
 
+    def _held_request(self, call: ToolCall) -> str | None:
+        """Support's request in hand, unless the model says this is another."""
+        if self.owner is None or getattr(call.arguments, "new_problem", False):
+            return None
+        return _in_hand_words(self.db, owner=self.owner, now=self.now)
+
     def _ticket(self, call: ToolCall) -> ToolOutput:
         """A request for a person: a button, and nothing sent."""
         if len(self.tickets) >= MAX_TICKETS:
             return ToolOutput(
                 text="A ticket is already prepared for this answer.", is_error=True
             )
+        held = self._held_request(call)
+        if held is not None:
+            return ToolOutput(text=held, is_error=True)
         self._say(TICKET_TOOL)
         summary = " ".join(str(getattr(call.arguments, "summary", "")).split())
         checked = [
@@ -271,6 +280,26 @@ class Desk:
             }
         )
         return ToolOutput(text=GUEST_TICKET_PREPARED if guest else TICKET_PREPARED)
+
+
+def _in_hand_words(db: Session, *, owner: User, now: datetime) -> str | None:
+    """Why a second request is not prepared: Support has the first in hand."""
+    from app.modules.assistant.selectors.support_request import (
+        ago,
+        support_request,
+    )
+
+    request = support_request(db, owner=owner, now=now)
+    if request is None or not request.in_hand:
+        return None
+    about = "; ".join(request.topics) or "no words were given"
+    return (
+        f"Not prepared: Support already has this client's request, opened "
+        f"{ago(request.opened_at, now=now)} ({about}). If the person means "
+        "the same problem, tell them Support has it and will contact them - "
+        "by phone or in this chat - and prepare nothing. Only if it is a "
+        "different problem, call again with new_problem=true."
+    )
 
 
 def answer_turn(

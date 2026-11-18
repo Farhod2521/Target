@@ -73,6 +73,14 @@ class TicketDraft(Arguments):
             "returned."
         ),
     )
+    new_problem: bool = Field(
+        default=False,
+        description=(
+            "True only when `account_health` showed a request Support "
+            "already has in hand and this one is about a different "
+            "problem. Leave it false otherwise."
+        ),
+    )
 
 
 class GapReport(Arguments):
@@ -123,8 +131,9 @@ NEW_TOOLS: Final[tuple[Tool, ...]] = (
         "left, the last payments and bills, whether the account is blocked and",
         "why, the Facebook connection and its permissions, each ad account's",
         "standing, where leads are delivered (Google Sheets, Telegram) and",
-        "whether delivery is broken, and what is waiting on the cabinet's",
-        "list. Call it first for any 'something does not work' question:",
+        "whether delivery is broken, what is waiting on the cabinet's",
+        "list, and the client's request to Support: whether one is open,",
+        "what it is about and where it stands. Call it first for any 'something does not work' question:",
         "payment, plan, sign-in, connection, leads not arriving, adverts not",
         "starting.",
     ),
@@ -148,6 +157,8 @@ NEW_TOOLS: Final[tuple[Tool, ...]] = (
         "problem, when the fix needs a person (a refund, a payment that did",
         "not arrive, an account to unblock, something broken in the product),",
         "or when the person asks for an operator. At most once per answer.",
+        "When Support already has a request in hand, it is refused unless",
+        "this one is about a different problem (`new_problem`).",
     ),
     _tool(
         GAP_TOOL,
