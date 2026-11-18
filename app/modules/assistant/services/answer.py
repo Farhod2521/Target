@@ -26,6 +26,8 @@ from app.common.llm import ASKED, claude, model_for
 from app.modules.accounts.models import User
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.assistant.constants import (
+    FEEDBACK_ASK,
+    FEEDBACK_SKIP,
     GUEST_TICKET_KEY,
     GUEST_TICKET_TTL_SECONDS,
     LOOKING,
@@ -39,6 +41,7 @@ from app.modules.assistant.constants import (
     ButtonKind,
     ButtonState,
     MessageStatus,
+    in_language,
 )
 from app.modules.assistant.models import AssistantMessage, AssistantSession
 from app.modules.audit.constants import LLMPurpose
@@ -47,14 +50,18 @@ from app.modules.chat.constants import LOOKING_DEFAULT, VISITOR_HEADCOUNT_BELOW
 from app.modules.chat.copy import CARRY_ON, CUT_SHORT
 from core.assistant.tools import (
     CHANGE_TOOL,
+    CRM_TOOL,
     GAP_TOOL,
+    GUARD_TOOL,
     HEALTH_TOOL,
     HELP_TOOL,
     MAX_GAPS,
     MAX_TICKETS,
     NEW_TOOLS,
+    PLANS_TOOL,
     TICKET_TOOL,
     TOOLS,
+    WALLET_TOOL,
     with_reading,
 )
 from core.chat.choices import ChoiceGate, vetted_replies
@@ -75,10 +82,13 @@ NO_ACCOUNT = (
     "prepare a ticket if they need a person."
 )
 TICKET_PREPARED = (
-    "Prepared. The person now sees a «Mutaxassisga yuborish» button under your "
-    "answer; nothing has been sent and nothing will be until they press it. "
-    "Say in one or two sentences what you found and that they can send it to "
-    "a specialist with the button. Never say it was sent."
+    "Prepared, not shown yet, and nothing has been sent. Under your answer "
+    "the product itself asks the "
+    "person one question - what was wrong with your answers - and shows the "
+    "«Mutaxassisga yuborish» button once they reply. Say in one or two "
+    "sentences what you found and that a specialist can take it from here. "
+    "Do not ask that question yourself, do not mention a button, and never "
+    "say it was sent."
 )
 GUEST_TICKET_PREPARED = (
     "Prepared. Under your answer the product now asks this visitor for a name "
@@ -92,7 +102,9 @@ GAP_NOTED = (
 )
 # A visitor has no account to look into: only the ones that need none.
 VISITOR_TOOLS = tuple(
-    tool for tool in NEW_TOOLS if tool.name in (HELP_TOOL, TICKET_TOOL, GAP_TOOL)
+    tool
+    for tool in NEW_TOOLS
+    if tool.name in (HELP_TOOL, TICKET_TOOL, GAP_TOOL, PLANS_TOOL)
 )
 
 
@@ -157,6 +169,8 @@ class Desk:
         self._say(call.name)
         if call.name == HELP_TOOL:
             return self._help(call)
+        if call.name == PLANS_TOOL:
+            return self._plans()
         if self.owner is None:
             return ToolOutput(text=NO_ACCOUNT, is_error=True)
         self._scopes()
@@ -185,6 +199,30 @@ class Desk:
         from app.modules.chat.selectors.lookups import answer_lookup
 
         assert self.owner is not None and self._scope is not None
+        if call.name == CRM_TOOL:
+            from app.modules.assistant.selectors.crm_outcomes import crm_outcomes
+
+            return crm_outcomes(
+                self.db,
+                owner=self.owner,
+                scope=self._scope,
+                days=int(getattr(call.arguments, "days", 30)),
+                now=self.now,
+            )
+        if call.name == GUARD_TOOL:
+            from app.modules.assistant.selectors.guard import guard_alerts
+
+            return guard_alerts(
+                self.db,
+                owner=self.owner,
+                scope=self._scope,
+                days=int(getattr(call.arguments, "days", 7)),
+                now=self.now,
+            )
+        if call.name == WALLET_TOOL:
+            from app.modules.assistant.selectors.referrals import referrals_text
+
+            return referrals_text(self.db, owner=self.owner, now=self.now)
         if call.name == HEALTH_TOOL:
             return account_health(
                 self.db, owner=self.owner, scope=self._scope, now=self.now
@@ -211,6 +249,14 @@ class Desk:
         text = help_text(found)
         self.gate.allow(figures_in(text))
         return ToolOutput(text=with_reading(HELP_TOOL, text))
+
+    def _plans(self) -> ToolOutput:
+        """Prices and the rate: for a visitor too, nothing of an account."""
+        from app.modules.assistant.selectors.plans import plans_text
+
+        text = plans_text(self.db, owner=self.owner, now=self.now)
+        self.gate.allow(figures_in(text))
+        return ToolOutput(text=text)
 
     def _gap(self, call: ToolCall) -> ToolOutput:
         """The assistant could not answer: kept for the office, once."""
@@ -246,12 +292,21 @@ class Desk:
         self.gate.allow(figures_in(prepared.text))
         return ToolOutput(text=prepared.text, is_error=prepared.item is None)
 
+    def _held_request(self, call: ToolCall) -> str | None:
+        """Support's request in hand, unless the model says this is another."""
+        if self.owner is None or getattr(call.arguments, "new_problem", False):
+            return None
+        return _in_hand_words(self.db, owner=self.owner, now=self.now)
+
     def _ticket(self, call: ToolCall) -> ToolOutput:
         """A request for a person: a button, and nothing sent."""
         if len(self.tickets) >= MAX_TICKETS:
             return ToolOutput(
                 text="A ticket is already prepared for this answer.", is_error=True
             )
+        held = self._held_request(call)
+        if held is not None:
+            return ToolOutput(text=held, is_error=True)
         self._say(TICKET_TOOL)
         summary = " ".join(str(getattr(call.arguments, "summary", "")).split())
         checked = [
@@ -271,6 +326,26 @@ class Desk:
             }
         )
         return ToolOutput(text=GUEST_TICKET_PREPARED if guest else TICKET_PREPARED)
+
+
+def _in_hand_words(db: Session, *, owner: User, now: datetime) -> str | None:
+    """Why a second request is not prepared: Support has the first in hand."""
+    from app.modules.assistant.selectors.support_request import (
+        ago,
+        support_request,
+    )
+
+    request = support_request(db, owner=owner, now=now)
+    if request is None or not request.in_hand:
+        return None
+    about = "; ".join(request.topics) or "no words were given"
+    return (
+        f"Not prepared: Support already has this client's request, opened "
+        f"{ago(request.opened_at, now=now)} ({about}). If the person means "
+        "the same problem, tell them Support has it and will contact them - "
+        "by phone or in this chat - and prepare nothing. Only if it is a "
+        "different problem, call again with new_problem=true."
+    )
 
 
 def answer_turn(
@@ -398,6 +473,7 @@ def publish(
     replies: list[str] | None = None,
     stopped: bool = False,
     lessons: list[dict[str, str]] | None = None,
+    rateable: bool = True,
 ) -> None:
     """The answer so far, as the stream's door reads it. ``html`` is drawn
     once, with the last frame: the page writes ``delta`` as it arrives."""
@@ -417,6 +493,7 @@ def publish(
             "replies": replies or [],
             "stopped": stopped,
             "lessons": lessons or [],
+            "rateable": rateable,
         },
         TURN_TTL_SECONDS,
     )
@@ -529,6 +606,18 @@ def _finish(
         text, replies = f"{text}…\n\n**{CUT_SHORT}**", [str(CARRY_ON)]
     if desk.tickets and desk.owner is None:
         _keep_for_guest(turn_id, payload=payload, ticket=desk.tickets[0], answer=text)
+    waiting: dict[str, Any] = {}
+    if desk.tickets and desk.owner is not None and not result.truncated:
+        # The owner is asked about the answers first; the button follows
+        # their reply (``services.feedback``).
+        language = str(payload.get("language", ""))
+        waiting = {
+            **desk.tickets[0],
+            "question": str(payload.get("question", "")),
+        }
+        buttons = [item for item in buttons if item not in desk.tickets]
+        text = f"{text}\n\n{in_language(FEEDBACK_ASK, language)}".strip()
+        replies = [in_language(FEEDBACK_SKIP, language)]
     lessons = named_lessons(text, found=desk.lessons)
     publish(
         turn_id,
@@ -558,6 +647,7 @@ def _finish(
         replies=replies,
         now=now,
         lessons=lessons,
+        extra={"ticket_waiting": waiting} if waiting else None,
     )
     # Last: the person already has the answer on the screen.
     _note_gap(db, payload=payload, desk=desk, now=now)
@@ -651,6 +741,7 @@ def _store(
     now: datetime,
     stopped: bool = False,
     lessons: list[dict[str, str]] | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> None:
     """Fill in the row that was created empty when the question arrived."""
     key = _uuid(payload.get("message_id", ""))
@@ -678,6 +769,7 @@ def _store(
                 **(meta or {}),
                 **({"stopped": True} if stopped else {}),
                 **({"lessons": lessons} if lessons else {}),
+                **(extra or {}),
             },
             updated_at=now,
         )

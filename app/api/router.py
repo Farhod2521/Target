@@ -15,6 +15,7 @@ from app.modules.ads.routers.v2 import expert_router as campaigns_expert
 from app.modules.ads.routers.v2 import router as campaigns_v2
 from app.modules.agent.routers import router as agent
 from app.modules.assistant.routers import office as assistant_office_v2
+from app.modules.assistant.routers import office_feedback as assistant_feedback_v2
 from app.modules.assistant.routers import office_gaps as assistant_gaps_v2
 from app.modules.assistant.routers import router as assistant_v2
 from app.modules.autopay.routers import router as autopay
@@ -63,6 +64,7 @@ api_v2_router.include_router(office_telephony_v2)
 api_v2_router.include_router(assistant_v2)
 api_v2_router.include_router(assistant_office_v2)
 api_v2_router.include_router(assistant_gaps_v2)
+api_v2_router.include_router(assistant_feedback_v2)
 api_v2_router.include_router(office_ai_v2)
 
 api_router = APIRouter(prefix="/api/v1")
@@ -73,6 +75,7 @@ api_router.include_router(refusals)
 # The «Meta & AI» screen calls these beside `/office/refusals`, on the same API.
 api_router.include_router(assistant_office_v2)
 api_router.include_router(assistant_gaps_v2)
+api_router.include_router(assistant_feedback_v2)
 api_router.include_router(billing)
 api_router.include_router(autopay)
 api_router.include_router(referrals)

@@ -159,7 +159,34 @@ def campaign_details(
         ),
     ]
     lines += issue_fixes(troubled)
+    lines += _stalled(
+        db, owner=owner, campaign=campaign, since=since, until=until, now=now
+    )
     return "\n".join(lines)
+
+
+def _stalled(
+    db: Session,
+    *,
+    owner: User,
+    campaign: Campaign,
+    since: date,
+    until: date,
+    now: datetime,
+) -> list[str]:
+    from app.modules.chat.selectors.lookups.stalled import stalled_lines
+
+    key = campaign.external_id
+    sums = figures_by(
+        db,
+        owner=owner,
+        column="campaign_external_id",
+        ids=[key],
+        since=since,
+        until=until,
+    )
+    shown = int((sums.get(key) or {}).get("shown") or 0)
+    return stalled_lines(db, owner=owner, campaign=campaign, shown=shown, now=now)
 
 
 def _groups(

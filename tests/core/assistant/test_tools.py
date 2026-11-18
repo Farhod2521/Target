@@ -1,14 +1,18 @@
-"""The one chat's tools: the old look-ups as they are, four new ones, and
+"""The one chat's tools: the old look-ups as they are, eight new ones, and
 the note on how to read each result arriving with the result."""
 
 from core.assistant.tools import (
+    CRM_TOOL,
     GAP_TOOL,
+    GUARD_TOOL,
     HEALTH_TOOL,
     HELP_TOOL,
+    PLANS_TOOL,
     READING,
     TICKET_TOOL,
     TOOL_NAMES,
     TOOLS,
+    WALLET_TOOL,
     GapReport,
     TicketDraft,
     with_reading,
@@ -16,10 +20,20 @@ from core.assistant.tools import (
 from core.chat.lookups import TOOLS as LOOKUPS
 
 
-def test_the_old_look_ups_are_kept_and_four_are_added() -> None:
+def test_the_old_look_ups_are_kept_and_eight_are_added() -> None:
     assert {tool.name for tool in LOOKUPS} <= TOOL_NAMES
-    assert {HEALTH_TOOL, HELP_TOOL, TICKET_TOOL, GAP_TOOL} <= TOOL_NAMES
-    assert len(TOOLS) == len(LOOKUPS) + 4
+    new = {
+        HEALTH_TOOL,
+        HELP_TOOL,
+        TICKET_TOOL,
+        GAP_TOOL,
+        PLANS_TOOL,
+        CRM_TOOL,
+        GUARD_TOOL,
+        WALLET_TOOL,
+    }
+    assert new <= TOOL_NAMES
+    assert len(TOOLS) == len(LOOKUPS) + 8
     assert len(TOOL_NAMES) == len(TOOLS)
 
 

@@ -21,6 +21,7 @@ from app.modules.chat.selectors.lookups.common import (
     section,
     window,
 )
+from app.modules.chat.selectors.lookups.meta_check import meta_check_lines
 from app.modules.chat.selectors.scope import lead_window
 from app.modules.integrations.models import PageAccount
 from app.modules.leads.models import Lead, LeadForm
@@ -119,6 +120,13 @@ def daily_figures(
             empty="no figures and no leads in this window",
         )
         + _in_other_currency(db, owner=owner, ids=apart, since=since, until=until)
+        + (
+            meta_check_lines(
+                db, owner=owner, campaign_ids=wanted, since=since, until=until
+            )
+            if level is None
+            else []
+        )
     )
 
 

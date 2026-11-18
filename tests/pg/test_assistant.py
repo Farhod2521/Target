@@ -25,6 +25,7 @@ from app.common.config import settings
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.assistant.models import (
+    AssistantFeedback,
     AssistantMessage,
     AssistantSession,
     HelpArticle,
@@ -142,6 +143,19 @@ def _ask(
     return turn.json()
 
 
+def _reply(
+    client: TestClient, headers: dict[str, str], words: str, **body: Any
+) -> dict[str, Any]:
+    """A turn the product answers itself, with no model: its last frame."""
+    turn = client.post(f"{URL}/ask", json={"question": words, **body}, headers=headers)
+    assert turn.status_code == 200, turn.text
+    assert turn_payload(turn_id=turn.json()["turn_id"]) is None
+    token = headers["Authorization"].removeprefix("Bearer ")
+    return _frames(
+        client.get(f"{URL}/stream/{turn.json()['turn_id']}?token={token}").text
+    )[-1]
+
+
 def _thread(client: TestClient, headers: dict[str, str], pk: str) -> dict[str, Any]:
     found = client.get(f"{URL}/threads/{pk}", headers=headers)
     assert found.status_code == 200, found.text
@@ -222,8 +236,31 @@ def test_a_ticket_is_prepared_pressed_and_lands_on_the_board_and_in_support(
     # Prepared is not sent: nothing reached Support yet.
     assert db.scalar(select(SupportMessage.id)) is None
 
+    # First the client is asked what was wrong with the answers; the button
+    # comes after their reply.
     thread = _thread(client, headers, turn["session_id"])
-    answer = thread["messages"][1]
+    asked = thread["messages"][1]
+    assert asked["buttons"] == []
+    assert "mening javoblarimda qanday kamchilik bor?" in asked["text"]
+    assert asked["replies"] == ["Fikrim yo'q"]
+    word = _reply(
+        client,
+        headers,
+        "Pul masalasini o'zingiz hal qilmadingiz",
+        session=turn["session_id"],
+    )
+    assert word["done"] is True and "Rahmat" in word["html"]
+    assert word["buttons"][0]["kind"] == "ticket"
+    kept = db.scalar(select(AssistantFeedback))
+    assert kept is not None and kept.owner_id == owner.id
+    assert kept.feedback == "Pul masalasini o'zingiz hal qilmadingiz"
+    assert kept.question == "Pulim yechildi"
+    assert kept.ticket_summary == "Kartadan pul yechildi, tarif ochilmadi."
+    assert "Pul yechilgan, lekin hisob ochilmagan." in kept.answer
+    assert "kamchilik" not in kept.answer
+
+    thread = _thread(client, headers, turn["session_id"])
+    answer = thread["messages"][3]
     ticket = answer["buttons"][0]
     assert ticket["kind"] == "ticket" and ticket["state"] == "open"
     assert ticket["label"] == "Mutaxassisga yuborish"
@@ -242,6 +279,8 @@ def test_a_ticket_is_prepared_pressed_and_lands_on_the_board_and_in_support(
     assert "Mijoz savoli" not in sent.body and "AI javobi" not in sent.body
     assert "Tugma orqali yuboring" not in sent.body
     assert "• Tarif: faol" in sent.body
+    # The client's word on the answers is the office's, never Support's.
+    assert "o'zingiz hal qilmadingiz" not in sent.body
     assert any(name.endswith("deliver_support_question_task") for name, _ in queued)
     card = db.scalar(select(BoardCard).where(BoardCard.owner_id == owner.id))
     assert card is not None and card.column_code == "new"
@@ -256,7 +295,7 @@ def test_a_ticket_is_prepared_pressed_and_lands_on_the_board_and_in_support(
 
     # The question was in the thread already: the ticket adds no row.
     thread = _thread(client, headers, turn["session_id"])
-    assert [m["author"] for m in thread["messages"]] == ["user", "ai"]
+    assert [m["author"] for m in thread["messages"]] == ["user", "ai", "user", "ai"]
     # Sent is not taken: the assistant answers until a person presses
     # «Men javob beraman» in the office.
     assert thread["mode"] == "ai"
@@ -281,8 +320,14 @@ def test_a_ticket_is_prepared_pressed_and_lands_on_the_board_and_in_support(
     assert reply.status_code == 201, reply.text
 
     thread = _thread(client, headers, turn["session_id"])
-    assert [m["author"] for m in thread["messages"]] == ["user", "ai", "staff"]
-    staff = thread["messages"][2]
+    assert [m["author"] for m in thread["messages"]] == [
+        "user",
+        "ai",
+        "user",
+        "ai",
+        "staff",
+    ]
+    staff = thread["messages"][4]
     assert staff["text"] == "Pul qaytarildi, tarif ochildi."
     assert staff["meta"]["author"] and staff["support"]["who"]
     assert thread["mode"] == "support"
@@ -595,6 +640,7 @@ def test_a_visitor_is_asked_for_a_phone_and_a_guest_chat_opens(
         "help_search",
         "create_ticket",
         "report_gap",
+        "plans_and_prices",
     }
     assert "## A visitor" in script.asked[0]["system_tail"]
     last = _frames(client.get(f"{URL}/stream/{turn_id}").text)[-1]

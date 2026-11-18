@@ -144,6 +144,98 @@ LOOKING: Final[dict[str, str]] = {
     "account_health": "Hisobingiz holatini tekshiryapman…",
     "help_search": "Yechimlar bazasidan qidiryapman…",
     "create_ticket": "Mutaxassis uchun zayavka tayyorlayapman…",
+    "plans_and_prices": "Tariflarni ko'ryapman…",
+    "crm_outcomes": "CRM natijalarini ko'ryapman…",
+    "guard_alerts": "Qo'riqchi ogohlantirishlarini ko'ryapman…",
+    "referrals_and_wallet": "Referal va hamyonni ko'ryapman…",
 }
 RELATED_REFUSAL: Final = "refusal_answer"
 RELATED_ARTICLE: Final = "help_article"
+
+
+class FeedbackStatus:
+    """Where a client's word on the assistant's answers has got to."""
+
+    OPEN = "open"
+    # The office has read it.
+    DONE = "done"
+
+
+class FeedbackKind:
+    """What brought a client's word on the answers."""
+
+    # Asked before a request to Support was shown.
+    TICKET = "ticket"
+    # 👍 or 👎 under an answer.
+    RATING = "rating"
+
+
+RATING_UP: Final = "up"
+RATING_DOWN: Final = "down"
+# Why a 👎, as the client picks it under the answer.
+RATING_REASONS: Final[dict[str, str]] = {
+    "wrong": "Noto'g'ri",
+    "unclear": "Tushunarsiz",
+    "incomplete": "To'liq emas",
+    "other": "Boshqa",
+}
+FEEDBACK_CHARS: Final = 2000
+FEEDBACK_ANSWER_CHARS: Final = 4000
+# Before a prepared request is shown, the client is asked what was wrong
+# with the answers (owner's decision, 2026-11-19); their reply goes to the
+# office and the send button follows it. Keyed by the person's language.
+FEEDBACK_ASK: Final[dict[str, str]] = {
+    "uz": (
+        "Zayavkani yuborishdan oldin bitta savol: **mening javoblarimda "
+        "qanday kamchilik bor?** Fikringizni yozing — bu tizimni yangilash "
+        "uchun muhim."
+    ),
+    "ru": (
+        "Перед отправкой заявки один вопрос: **что было не так в моих "
+        "ответах?** Напишите своё мнение — это важно для обновления системы."
+    ),
+    "en": (
+        "One question before the request is sent: **what was wrong with my "
+        "answers?** Please tell us what you think — it matters for improving "
+        "the system."
+    ),
+}
+FEEDBACK_SKIP: Final[dict[str, str]] = {
+    "uz": "Fikrim yo'q",
+    "ru": "Нет замечаний",
+    "en": "Nothing to add",
+}
+FEEDBACK_THANKS: Final[dict[str, str]] = {
+    "uz": (
+        "Rahmat, fikringiz jamoaga yetkazildi. Endi zayavkani yuborishni "
+        "tasdiqlang — mutaxassis shu masala bo'yicha siz bilan bog'lanadi."
+    ),
+    "ru": (
+        "Спасибо, ваш отзыв передан команде. Теперь подтвердите отправку "
+        "заявки — специалист свяжется с вами по этому вопросу."
+    ),
+    "en": (
+        "Thank you, your feedback has reached the team. Now confirm sending "
+        "the request — a specialist will contact you about it."
+    ),
+}
+FEEDBACK_SKIPPED: Final[dict[str, str]] = {
+    "uz": (
+        "Tushunarli. Zayavkani yuborishni tasdiqlang — mutaxassis shu masala "
+        "bo'yicha siz bilan bog'lanadi."
+    ),
+    "ru": (
+        "Понятно. Подтвердите отправку заявки — специалист свяжется с вами "
+        "по этому вопросу."
+    ),
+    "en": (
+        "Understood. Confirm sending the request — a specialist will contact "
+        "you about it."
+    ),
+}
+FEEDBACK_LANGUAGE: Final = "uz"
+
+
+def in_language(words: dict[str, str], language: str) -> str:
+    """The person's language, Uzbek when there is none for it."""
+    return words.get(language) or words[FEEDBACK_LANGUAGE]

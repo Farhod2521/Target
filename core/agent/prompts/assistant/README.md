@@ -37,3 +37,18 @@ who write the missing answer («Meta & AI» in the office) or build the
 missing look-up. The person is never told.
 
 Run the live cases after every change: `python -m tools.assistant_eval`.
+
+`v4`: the client's request to Support is part of `account_health` (where
+it stands, what it is about, whether Support wrote in the chat). A second
+request for a problem Support has in hand is refused by `create_ticket`
+unless the model marks it `new_problem`; the assistant no longer says «the
+reply comes here» - Support usually calls.
+Also in `v4`: `plans_and_prices` (the plans this person may buy, their
+discount, the dollar rate in so'm - for a visitor too), and Meta's payment
+standing of each ad account in `account_health` with the Billing Hub
+address.
+And `crm_outcomes`: per campaign, what the owner's CRM made of its leads
+(Sotildi, Rad etildi, Sifatsiz, reasons). Hours of the day are never
+offered (no such reading), and a change made in Ads Manager is said to be
+made there, never by «somebody» - both in the readings that come with the
+look-ups, the base having no room.

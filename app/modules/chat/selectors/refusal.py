@@ -111,6 +111,27 @@ def ready_answer(db: Session, *, key: str, language: str) -> ReadyAnswer | None:
     return ReadyAnswer(pk=row.id, text=text) if text else None
 
 
+def checked_answer(db: Session, *, key: str, language: str) -> str | None:
+    """The answer a person in the office has read and saved for this
+    refusal, in this language or else in Uzbek; ``None`` while only Claude
+    has written one. The assistant quotes only these (owner's decision,
+    2026-11-18): an unchecked answer is shown on its own dialog, not spread
+    into the chat."""
+    if not key:
+        return None
+    row = db.scalar(
+        select(RefusalAnswer).where(
+            RefusalAnswer.key == key,
+            RefusalAnswer.held.is_(False),
+            RefusalAnswer.edited_at.is_not(None),
+        )
+    )
+    if row is None:
+        return None
+    own = getattr(row, REFUSAL_ANSWER_FIELDS[answer_language(language)])
+    return (own or getattr(row, REFUSAL_ANSWER_FIELDS[DEFAULT]) or "").strip() or None
+
+
 def already_asked(db: Session, *, key: str, language: str) -> bool:
     """Whether Claude need not be asked: this language is written, or the row is held.
 
@@ -286,6 +307,7 @@ __all__ = [
     "answer_language",
     "awaited",
     "being_written",
+    "checked_answer",
     "explained_key",
     "key_for",
     "launch_explanation",

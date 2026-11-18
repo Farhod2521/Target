@@ -37,6 +37,7 @@ from app.common import tokens
 from app.common.cache import cache
 from app.common.dates import localtime
 from app.common.db import utcnow
+from app.common.i18n import get_language
 from app.modules.accounts.models import User
 from app.modules.assistant.constants import (
     MAX_QUESTION_CHARS,
@@ -56,6 +57,9 @@ from app.modules.backoffice.permissions import staff_required
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 office = APIRouter(prefix="/office/help-articles", tags=["assistant office"])
 office_gaps = APIRouter(prefix="/office/assistant-gaps", tags=["assistant office"])
+office_feedback = APIRouter(
+    prefix="/office/assistant-feedback", tags=["assistant office"]
+)
 Writer = Annotated[User, Depends(staff_required(*AI_ANSWER_ROLES))]
 
 
@@ -526,6 +530,9 @@ async def _frames(*, turn_id: str, viewer: str) -> Any:
                         "replies": state.get("replies", []),
                         "lessons": state.get("lessons", []),
                         "stopped": bool(state.get("stopped")),
+                        # The product's own thank-you is not the model's
+                        # answer: the page offers no 👍/👎 under it.
+                        "rateable": state.get("rateable", True) is not False,
                     }
                 sent, last_status = len(text), status_now
                 yield _event(frame)
@@ -646,6 +653,39 @@ def press(message_id: uuid.UUID, key: str, db: Db, user: CurrentUser) -> PressOu
     return PressOut(
         kind=pressed.kind, key=pressed.key, state=pressed.state, text=pressed.text
     )
+
+
+class RateIn(BaseModel):
+    value: Literal["up", "down"]
+    reason: Literal["", "wrong", "unclear", "incomplete", "other"] = Field(
+        "", description="Why a 👎: `wrong`, `unclear`, `incomplete`, `other`."
+    )
+    note: str = Field("", max_length=500, description="A 👎's own words.")
+
+
+class RatedOut(BaseModel):
+    message_id: str
+    value: str
+
+
+@router.post("/messages/{message_id}/rate", response_model=RatedOut)
+def rate(message_id: uuid.UUID, body: RateIn, db: Db, user: CurrentUser) -> RatedOut:
+    """👍 or 👎 under an answer, with a reason for 👎: the office reads the
+    👎 on «Meta & AI» → AI chat. Pressed again, the rating is changed."""
+    from app.modules.assistant.services.feedback import rate_answer
+
+    row = rate_answer(
+        db,
+        owner=user,
+        message_id=message_id,
+        value=body.value,
+        reason=body.reason,
+        note=body.note,
+        language=get_language(),
+        now=utcnow(),
+    )
+    db.commit()
+    return RatedOut(message_id=str(row.id), value=body.value)
 
 
 @router.post("/buttons/{message_id}/{key}/dismiss", response_model=PressOut)
@@ -904,6 +944,67 @@ def gap_answer(
     )
     db.commit()
     return _gap_out(db, row)
+
+
+class FeedbackStatusIn(BaseModel):
+    status: Literal["open", "done"]
+
+
+@office_feedback.get("")
+def feedback_list(
+    db: Db,
+    user: Writer,
+    tab: str = Query("open", description="`open` or `done`."),
+    kind: str = Query(
+        "",
+        description="Empty: both; `down`: only 👎; `ticket`: asked before a request.",
+    ),
+    q: str = Query("", max_length=100),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """What clients said about the assistant's answers - asked before each
+    request to Support, and the 👎 under any answer - the newest first,
+    with the 👍/👎 counts of today and the week."""
+    from app.modules.assistant.selectors.feedback import (
+        feedback_out,
+        feedback_page,
+        rating_counts,
+    )
+
+    page = feedback_page(db, tab=tab, term=q, offset=offset, kind=kind)
+    counts = rating_counts(db, now=utcnow())
+    return jsonable_encoder(
+        {
+            "tab": "done" if tab == "done" else "open",
+            "kind": kind if kind in ("down", "ticket") else "",
+            "ratings": {
+                "today": {"up": counts.today.up, "down": counts.today.down},
+                "week": {"up": counts.week.up, "down": counts.week.down},
+            },
+            "rows": [feedback_out(row, owner) for row, owner in page.rows],
+            "open": page.open,
+            "total": page.total,
+            "offset": page.offset,
+            "next_offset": page.next_offset,
+            "has_more": page.has_more,
+        }
+    )
+
+
+@office_feedback.patch("/{pk}")
+def feedback_status(
+    pk: uuid.UUID, body: FeedbackStatusIn, db: Db, user: Writer
+) -> dict[str, Any]:
+    """Mark a client's word as read, or put it back."""
+    from app.modules.accounts.models import User as Person
+    from app.modules.assistant.selectors.feedback import feedback_out
+    from app.modules.assistant.services.feedback import feedback_row, mark_feedback
+
+    row = mark_feedback(
+        db, row=feedback_row(db, pk), done=body.status == "done", now=utcnow()
+    )
+    db.commit()
+    return jsonable_encoder(feedback_out(row, db.get(Person, row.owner_id)))
 
 
 # The support chat's hooks, so Support's replies reach this chat.

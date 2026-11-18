@@ -92,12 +92,16 @@ def refusals(
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
     """Every kept answer, the most often met first."""
-    from app.modules.assistant.selectors.gaps import open_count
+    from app.modules.assistant.selectors import feedback, gaps
     from app.modules.backoffice.permissions import has_role
 
     page = refusal_answers(db, tab=tab, term=q, offset=offset)
     return {
-        "ai_open": open_count(db) if has_role(db, user, AI_ANSWER_ROLES) else None,
+        # The questions left unanswered and the clients' unread words on the
+        # answers: both wait on the «AI chat» tab.
+        "ai_open": gaps.open_count(db) + feedback.open_count(db)
+        if has_role(db, user, AI_ANSWER_ROLES)
+        else None,
         "tab": tab,
         "tabs": choices(TABS),
         "links": choices(LINK_NAMES),
