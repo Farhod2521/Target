@@ -1,6 +1,6 @@
 """The owner's invite link, the friends it brought, and the wallet.
 
-Read the way the «Referal» page («Taklif qilish», /app/referrals/) reads it:
+Read the way the «Daromad» page (left menu) reads it:
 the same balance, the same rule for taking money out. Counts and sums only -
 an invited friend is never named.
 """
@@ -15,7 +15,7 @@ from app.common.money import format_minor
 from app.modules.accounts.models import User
 
 RECENT: Final = 3
-PAGE: Final = "«Taklif qilish» (/app/referrals/)"
+PAGE: Final = "[[daromad]]"
 
 
 def referrals_text(db: Session, *, owner: User, now: datetime) -> str:

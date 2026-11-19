@@ -48,8 +48,8 @@
     "note": "A screen fixes it: numbered steps, no ticket.",
     "context": "## Business\n- Name: Gul do'koni\n- Currency: USD",
     "tools": {
-      "account_health": "## Plan and payments\n- OK: plan «Start», status active, days left: 9.\n\n## Account\n- OK: the account is not blocked.\n\n## Facebook connection\n- PROBLEM: the Facebook connection (Dilnoza) is expired, error 190 - nothing can be launched, changed or synced. Fix: reconnect on Ulanishlar ('Meta'ni qayta ulash') with the same profile.\n\n## Ad accounts\n- PROBLEM: ad account «Gul»: figures last synced 2026-11-09 06:00 UTC. \n\n## Lead delivery\n- OK: Google Sheets is active.\n\n## Waiting on the cabinet's list\n- [urgent] Meta ulanishi uzildi: Qayta ulang",
-      "help_search": "## Meta'ni qayta ulash (the product's fix for a Meta error)\n1. «Ulanishlar» sahifasida Meta qatoridagi «Qayta ulash» ni bosing.\n2. Avvalgi Facebook profilingiz bilan kiring.\n3. Hamma ruxsatlarni yoqilgan holda qoldiring."
+      "account_health": "## Plan and payments\n- OK: plan «Start», status active, days left: 9.\n\n## Account\n- OK: the account is not blocked.\n\n## Facebook connection\n- PROBLEM: the Facebook connection (Dilnoza) is expired, error 190 - nothing can be launched, changed or synced. Fix: reconnect on «Sozlash → Boshqaruv», «Meta ulanishi» → «Qayta ulash», with the same profile.\n\n## Ad accounts\n- PROBLEM: ad account «Gul»: figures last synced 2026-11-09 06:00 UTC. \n\n## Lead delivery\n- OK: Google Sheets is active.\n\n## Waiting on the cabinet's list\n- [urgent] Meta ulanishi uzildi: Qayta ulang",
+      "help_search": "## Meta'ni qayta ulash (the product's fix for a Meta error)\n1. «Sozlash → Boshqaruv» bo'limida Meta qatoridagi «Qayta ulash» ni bosing.\n2. Avvalgi Facebook profilingiz bilan kiring.\n3. Hamma ruxsatlarni yoqilgan holda qoldiring."
     },
     "must_call": [
       "account_health"
@@ -58,12 +58,14 @@
       "create_ticket"
     ],
     "required": [
-      "Ulanishlar",
+      "Boshqaruv",
       "1."
     ],
     "forbidden": [
       "provider",
-      "token"
+      "token",
+      "/app/",
+      "Ulanishlar sahifa"
     ]
   },
   {
@@ -229,6 +231,28 @@
     ],
     "required": [
       "admin"
+    ]
+  },
+  {
+    "id": "forgotten-password",
+    "question": "Parolimni esdan chiqardim, qanday tiklashim kerak?",
+    "note": "Both ways at once (email, then the bot), the help card last; no ticket, no address.",
+    "context": "",
+    "tools": {},
+    "must_call": [],
+    "must_not_call": [
+      "create_ticket"
+    ],
+    "required": [
+      "[[kirish]]",
+      "Parolni unutdingizmi?",
+      "Telegram",
+      "[[kirish_yordam]]"
+    ],
+    "forbidden": [
+      "/accounts/",
+      "http",
+      "provider"
     ]
   }
 ]

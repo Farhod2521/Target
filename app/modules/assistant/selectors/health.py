@@ -23,6 +23,9 @@ RECENT_BILLS: Final = 3
 DELIVERY_WINDOW: Final = timedelta(days=7)
 STALE_SYNC: Final = timedelta(hours=24)
 PLAN_ENDS_SOON_DAYS: Final = 3
+# Where the person finds it, as a place key (``app.common.places``): the
+# answer shows its name and links it - never an address.
+CONNECT: Final = "[[boshqaruv]]"
 
 
 def account_health(db: Session, *, owner: User, scope: PageScope, now: datetime) -> str:
@@ -62,7 +65,7 @@ def _plan(db: Session, *, owner: User, now: datetime) -> list[str]:
             _line(
                 PROBLEM,
                 "no live plan - the assistant, launches and reports are closed.",
-                fix="choose and pay a plan on «Obuna va to'lov» (/app/billing/).",
+                fix="choose and pay a plan on [[obuna]].",
             )
         )
     else:
@@ -73,9 +76,7 @@ def _plan(db: Session, *, owner: User, now: datetime) -> list[str]:
                 PROBLEM if soon else OK,
                 f"plan «{subscription.plan.name}», status {subscription.status}, "
                 f"days left: {left if left is not None else 'unknown'}.",
-                fix="renew on «Obuna va to'lov» (/app/billing/) before it ends."
-                if soon
-                else "",
+                fix="renew on [[obuna]] before it ends." if soon else "",
             )
         )
     for bill in list(invoice_history(db, owner=owner))[:RECENT_BILLS]:
@@ -91,7 +92,7 @@ def _plan(db: Session, *, owner: User, now: datetime) -> list[str]:
                     PROBLEM,
                     f"bill {bill.number}: {amount}, opened {when:%Y-%m-%d}, "
                     f"status {bill.status} - not paid, or the payment has not arrived.",
-                    fix="pay it on «Obuna va to'lov» (/app/billing/); if the money left the card and the "
+                    fix="pay it on [[obuna]]; if the money left the card and the "
                     "bill is still open, it needs a person.",
                 )
             )
@@ -105,7 +106,7 @@ def _plan(db: Session, *, owner: User, now: datetime) -> list[str]:
     return lines
 
 
-# The steps of «Tayyorgarlik» (/app/start/) as its screen names them.
+# The steps of «Tayyorgarlik» as its screen names them.
 _STEP_NAMES: Final[dict[str, str]] = {
     "connect": "Meta akkauntini ulash",
     "page": "sahifani tanlash",
@@ -136,7 +137,7 @@ def _setup(db: Session, *, owner: User) -> list[str]:
     lines = [
         _line(
             PROBLEM,
-            f"setup on «Tayyorgarlik» (/app/start/) is not finished: "
+            f"setup on [[tayyorgarlik]] is not finished: "
             f"{overview.done} of {overview.total} steps done.",
         )
     ]
@@ -164,7 +165,7 @@ def _setup(db: Session, *, owner: User) -> list[str]:
                 "the required choices are made, so «Yakunlash» can be pressed "
                 "now; the other sections of the cabinet open after it, and the "
                 "steps left can be done later.",
-                fix="press «Yakunlash» on «Tayyorgarlik».",
+                fix="press «Yakunlash» on [[tayyorgarlik]].",
             )
         )
     return lines
@@ -212,7 +213,7 @@ def _card(db: Session, *, owner: User, now: datetime) -> list[str]:
                 f"{subscription.expires_at - CHARGE_LEAD:%Y-%m-%d}, a day "
                 "before the plan ends; extra pages and manager seats in "
                 "use are renewed with it. The bill is made that day, so its "
-                "sum is the one shown on «Obuna va to'lov» (/app/billing/).",
+                "sum is the one shown on [[obuna]].",
             )
         )
     if not card.autopay and subscription is not None:
@@ -222,8 +223,7 @@ def _card(db: Session, *, owner: User, now: datetime) -> list[str]:
                 f"the subscription was stopped: the plan runs to "
                 f"{subscription.expires_at:%Y-%m-%d} and is not renewed by "
                 "itself.",
-                fix="«Obunani tiklash» on «Obuna va to'lov» (/app/billing/) turns "
-                "autopay back on.",
+                fix="«Obunani tiklash» on [[obuna]] turns autopay back on.",
             )
         )
     # An attempt is for one term; once that term was paid another way, its
@@ -242,8 +242,7 @@ def _card(db: Session, *, owner: User, now: datetime) -> list[str]:
                 PROBLEM,
                 f"the last automatic charge{when} did not go through: "
                 f"{card.last_charge_error or 'the bank refused it.'}{again}",
-                fix="pay the plan by hand on «Obuna va to'lov» (/app/billing/), or "
-                "bind another card there.",
+                fix="pay the plan by hand on [[obuna]], or bind another card there.",
             )
         )
     elif card.last_charge_outcome == CHARGED and card.last_charge_at:
@@ -292,7 +291,7 @@ def _connection(db: Session, *, owner: User) -> list[str]:
             _line(
                 PROBLEM,
                 "Facebook is not connected.",
-                fix="connect it on Ulanishlar ('Meta'ni ulash').",
+                fix=f"connect it on {CONNECT}, block «Ulanishlar», «Meta ulanishi» → «Ulash».",
             )
         ]
     lines: list[str] = []
@@ -308,7 +307,7 @@ def _connection(db: Session, *, owner: User) -> list[str]:
                     else ""
                 )
                 + " - nothing can be launched, changed or synced.",
-                fix="reconnect on Ulanishlar ('Meta'ni qayta ulash') with the same profile.",
+                fix=f"reconnect on {CONNECT}, «Meta ulanishi» → «Qayta ulash», with the same profile.",
             )
         )
     else:
@@ -319,7 +318,7 @@ def _connection(db: Session, *, owner: User) -> list[str]:
             _line(
                 PROBLEM,
                 f"permissions not given at connection: {', '.join(lacking)}.",
-                fix="reconnect on Ulanishlar and leave every permission switched on.",
+                fix=f"reconnect on {CONNECT} («Qayta ulash») and leave every permission switched on.",
             )
         )
     if connection.action_required_at is not None:
@@ -450,7 +449,7 @@ def _ad_accounts(db: Session, *, owner: User, now: datetime) -> list[str]:
             _line(
                 PROBLEM,
                 "no ad account is switched on in the subscription.",
-                fix="switch one on on Ulanishlar.",
+                fix=f"switch one on on {CONNECT}: «Obunaga qo'shish» beside the ad account.",
             )
         )
     return lines
@@ -469,14 +468,14 @@ def _delivery(db: Session, *, owner: User, now: datetime) -> list[str]:
     sheet = db.scalar(select(SheetLink).where(SheetLink.owner_id == owner.id))
     if sheet is None or sheet.status == SheetStatus.DISCONNECTED:
         lines.append(
-            _line(OK, "Google Sheets is not connected (leads are in Mijozlar).")
+            _line(OK, "Google Sheets is not connected (leads are in «CRM & Lidlar»).")
         )
     elif sheet.status == SheetStatus.BROKEN:
         lines.append(
             _line(
                 PROBLEM,
                 f"Google Sheets delivery is broken ({sheet.broken_reason or sheet.last_error_code or 'no reason stored'}) - new leads are not written to the sheet.",
-                fix="open the Google Sheets panel in Mijozlar and reconnect; leads kept meanwhile are written after that.",
+                fix="open «CRM & Lidlar» → «Google jadval» and reconnect; leads kept meanwhile are written after that.",
             )
         )
     else:
@@ -494,7 +493,7 @@ def _delivery(db: Session, *, owner: User, now: datetime) -> list[str]:
                 _line(
                     PROBLEM,
                     f"Telegram chat «{title}» stopped receiving leads ({chat.broken_reason or chat.last_error or 'no reason stored'}).",
-                    fix="add the bot back to that group or channel as an admin, then link it again in Mijozlar.",
+                    fix="add the bot back to that group or channel as an admin, then link it again in «CRM & Lidlar» → «Telegramga uzatish».",
                 )
             )
         else:
@@ -522,7 +521,7 @@ def _delivery(db: Session, *, owner: User, now: datetime) -> list[str]:
             lines.append(
                 _line(
                     PROBLEM,
-                    f"{count} lead(s) could not be delivered to {label} in the last 7 days. They are safe in Mijozlar.",
+                    f"{count} lead(s) could not be delivered to {label} in the last 7 days. They are safe in «CRM & Lidlar».",
                 )
             )
     return lines

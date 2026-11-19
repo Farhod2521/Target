@@ -91,7 +91,9 @@ class MessageOut(BaseModel):
         description="`author` (a person's first name) on a `staff` row; `quote` on a "
         "question that replied to a waiting-list line; `stopped: true` on an answer "
         "the client stopped; `lessons` on an answer that names video lessons - "
-        "`[{id, title}]`, each drawn as a card that opens `/tutorials/{id}`."
+        "`[{id, title}]`, each drawn as a card that opens `/tutorials/{id}`; `links` on "
+        "an answer that names cabinet places - `[{key, title, url}]`, each drawn "
+        "as a button that opens `url`."
     )
     to_support: bool = Field(description="A client's words that went to a person.")
     support: dict[str, Any] | None = Field(
@@ -483,8 +485,9 @@ async def stream(
     Each frame is JSON: ``delta`` (what was written since the last frame -
     append it), ``status`` (what is being looked at, while nothing is being
     written), and on the last one ``done: true`` with ``html`` (the whole
-    answer, drawn), ``buttons``, ``replies`` and ``lessons`` (the video
-    lessons the answer names, ``[{id, title}]``). ``error`` is ``failed``,
+    answer, drawn), ``buttons``, ``replies``, ``lessons`` (the video
+    lessons the answer names, ``[{id, title}]``) and ``links`` (the cabinet
+    places it names, ``[{key, title, url}]``). ``error`` is ``failed``,
     ``denied`` or ``timeout``."""
     viewer = _viewer(request, token)
     return StreamingResponse(
@@ -529,6 +532,7 @@ async def _frames(*, turn_id: str, viewer: str) -> Any:
                         "buttons": state.get("buttons", []),
                         "replies": state.get("replies", []),
                         "lessons": state.get("lessons", []),
+                        "links": state.get("links", []),
                         "stopped": bool(state.get("stopped")),
                         # The product's own thank-you is not the model's
                         # answer: the page offers no 👍/👎 under it.

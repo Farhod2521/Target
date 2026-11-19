@@ -123,7 +123,7 @@ def stuck_sweep_items(
             title="Murojaatlarni qayta tekshirish to'xtab qolgan",
             body=body,
             since=first.swept_at,
-            action="Ulanishlar",
+            action="Boshqaruv",
             href=reverse("integrations:connections"),
         )
     ]

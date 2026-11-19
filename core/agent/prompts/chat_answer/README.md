@@ -260,3 +260,8 @@ chat opens with it. The prompt never lets the model say it sent anything:
 the product shows what happened under the answer.
 
 Earlier versions were deleted from the folder on 2026-11-08 and live in git.
+
+`v29`: places as keys (`[[boshqaruv]]`, listed from `app.common.places`
+through `{{ places }}`), drawn as links with the name in the person's
+language; and «A forgotten password» - email, then the Telegram bot, then
+the sign-in page's help card - answered at once, never handed over first.

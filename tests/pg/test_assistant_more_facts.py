@@ -153,7 +153,7 @@ def test_a_refused_automatic_charge_is_a_problem_with_its_fix(
     assert "PROBLEM: the last automatic charge" in section
     assert "Kartada mablag' yetarli emas." in section
     assert "tried again 2 more time(s)" in section
-    assert "«Obuna va to'lov» (/app/billing/)" in section
+    assert "[[obuna]]" in section
 
 
 def test_no_card_says_nothing_renews_by_itself(
@@ -173,7 +173,7 @@ def test_an_unfinished_setup_names_its_next_step(
     _headers, owner = _with_plan(client, db)
     text = account_health(db, owner=owner, scope=_scope(db, owner), now=utcnow())
     section = text.split("## Setup")[1].split("##")[0]
-    assert "setup on «Tayyorgarlik» (/app/start/) is not finished" in section
+    assert "setup on [[tayyorgarlik]] is not finished" in section
     assert "next step: «Meta akkauntini ulash»" in section
 
 

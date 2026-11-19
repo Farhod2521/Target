@@ -17,6 +17,7 @@ PLANNED = {
     "built-in-ads-manager",
     "no-answer-reported",
     "answered-not-reported",
+    "forgotten-password",
 }
 
 
@@ -55,7 +56,7 @@ def test_saying_it_was_sent_fails() -> None:
 def test_a_tool_not_called_or_called_wrongly_fails() -> None:
     case = _case("facebook-disconnected")
     run = Run(
-        answer="Ulanish uzilgan.\n1. Ulanishlar sahifasini oching.",
+        answer="Ulanish uzilgan.\n1. «Sozlash → Boshqaruv» ni oching.",
         called=["create_ticket"],
     )
     failed = {mark.check for mark in marks(case, run) if not mark.passed}

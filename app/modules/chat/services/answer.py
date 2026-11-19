@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from typing import Any, Final
 
 from llmkit import ClaudeClient, LLMError, TextStream, ToolCall, ToolOutput, ToolStream
@@ -14,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.common.config import settings
 from app.common.i18n import override
 from app.common.llm import ASKED, claude, model_for
+from app.common.places import linked, place_html
 from app.modules.accounts.models import User
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.audit.constants import LLMPurpose
@@ -146,6 +148,7 @@ def answer_turn(
                 choices=choices,
                 payload=payload,
                 safe=safe,
+                linked=_places(payload),
             )
     except LLMError as exc:
         _fail(db, turn_id, owner=owner, payload=payload, exc=exc)
@@ -200,7 +203,7 @@ def _finish(
             turn_id=turn_id,
             owner=owner if payload.get("owner_id") else None,
             payload=payload,
-            answer=text,
+            answer=linked(text, language=str(payload.get("language", ""))).text,
             now=now,
         )
     publish(
@@ -212,6 +215,7 @@ def _finish(
         choices=offered,
         replies=replies,
         handoff=handoff,
+        linked=_places(payload),
     )
     record_llm_result(
         db,
@@ -321,6 +325,11 @@ def _message_key(payload: dict[str, Any]) -> uuid.UUID | None:
         return None
 
 
+def _places(payload: dict[str, Any]) -> Callable[[str], str]:
+    """The answer's ``[[key]]`` places drawn as links, in its language."""
+    return partial(place_html, language=str(payload.get("language", "")))
+
+
 def _store(
     db: Session,
     *,
@@ -331,6 +340,7 @@ def _store(
     now: datetime,
 ) -> None:
     """Fill in the row that was created empty when the question arrived."""
+    language = str(payload.get("language", ""))
     key = _message_key(payload)
     if key is None:
         return
@@ -341,8 +351,8 @@ def _store(
         update(ChatMessage)
         .where(ChatMessage.id == key)
         .values(
-            text=text,
-            html=render(text),
+            text=linked(text, language=language).text,
+            html=place_html(render(text), language=language),
             status=ChatMessageStatus.DONE,
             masked_figures=gate.masked,
             choices=choices,

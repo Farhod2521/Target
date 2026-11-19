@@ -53,7 +53,7 @@ def change_key(log: ActionLog) -> str:
 def change_links(account_external_id: str) -> dict[str, Link]:
     """Every address an answer about a refused change may point at."""
     return {
-        "ulanish": Link("Ulanishlar", reverse("integrations:connections")),
+        "ulanish": Link("Boshqaruv", reverse("integrations:connections")),
         "tolov": Link("To'lov sahifasini ochish", billing_url(account_external_id)),
         "ads_manager": Link("Ads Manager'ni ochish", manager_url(account_external_id)),
         "akkaunt_sifati": Link("Akkaunt holati (Meta)", ACCOUNT_QUALITY_URL),

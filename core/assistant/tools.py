@@ -296,7 +296,7 @@ READING: Final[dict[str, str]] = {
     ),
     "lead_counts": (
         "How to read this: counts only. Names, phones and answers are never "
-        "available here - for those the person opens Mijozlar."
+        "available here - for those the person opens [[lidlar]]."
     ),
     "lead_forms": (
         "How to read this: a published form cannot be edited. A running "

@@ -41,7 +41,7 @@ _ACCOUNT_CLOSING: Final = Trouble(
     steps=(
         "«Account Quality» sahifasini oching va akkauntingizni tanlang.",
         "Meta ko'rsatgan muammoni hal qiling yoki qayta ko'rib chiqishni so'rang.",
-        "Shoshilinch bo'lsa, «Ulanishlar» sahifasida boshqa reklama akkauntini tanlang.",
+        "Shoshilinch bo'lsa, «Sozlash → Boshqaruv» bo'limida boshqa reklama akkauntini tanlang.",
     ),
     fix=ACCOUNT_QUALITY,
 )
@@ -51,7 +51,7 @@ _ACCOUNT_OFF: Final = Trouble(
     steps=(
         "«Account Quality» sahifasida cheklov sababini o'qing.",
         "Xato deb hisoblasangiz, «Request review» (Ko'rib chiqishni so'rash) ni bosing.",
-        "Shoshilinch bo'lsa, «Ulanishlar» sahifasida boshqa reklama akkauntini tanlang.",
+        "Shoshilinch bo'lsa, «Sozlash → Boshqaruv» bo'limida boshqa reklama akkauntini tanlang.",
     ),
     fix=ACCOUNT_QUALITY,
 )
@@ -129,7 +129,7 @@ _INSTAGRAM_PAGE: Final = Trouble(
     cause="Reklamadagi Instagram profili shu Facebook sahifasiga ulanmagan.",
     steps=(
         "Facebook sahifangiz sozlamalarida Instagram profilini ulang.",
-        "«Ulanishlar» sahifasida sahifalarni yangilang.",
+        "«Sozlash → Boshqaruv» bo'limida sahifalarni yangilang.",
         "Keyin reklamani qayta yoqing.",
     ),
     fix=RECONNECT,
@@ -150,7 +150,7 @@ _PAGE_RESTRICTED: Final = Trouble(
     steps=(
         "«Account Quality» sahifasida sahifangizni tanlang va sababini o'qing.",
         "Xato deb hisoblasangiz, «Request review» (Ko'rib chiqishni so'rash) ni bosing.",
-        "Shoshilinch bo'lsa, «Ulanishlar» sahifasida boshqa sahifani tanlang.",
+        "Shoshilinch bo'lsa, «Sozlash → Boshqaruv» bo'limida boshqa sahifani tanlang.",
     ),
     fix=ACCOUNT_QUALITY,
 )

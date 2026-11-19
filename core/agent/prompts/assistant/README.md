@@ -52,3 +52,8 @@ And `crm_outcomes`: per campaign, what the owner's CRM made of its leads
 offered (no such reading), and a change made in Ads Manager is said to be
 made there, never by «somebody» - both in the readings that come with the
 look-ups, the base having no room.
+
+`v5`: «Where things are» - the cabinet's menu, pages, blocks and buttons
+as the person sees them, so a place is named «Sozlash → Boshqaruv» and
+never an address or a path. The look-ups' fix lines drop `/app/...` too,
+and «Ulanishlar» is the block inside «Boshqaruv», not a page.

@@ -615,7 +615,7 @@ class UnknownTarget(DomainError):
 class AccountNotConnected(DomainError):
     def __init__(self) -> None:
         super().__init__(
-            "Bu reklama obunangizga ulanmagan akkauntdan yuritilyapti. Uni faqat ko'rsatamiz - o'zgartirish uchun o'sha akkauntni «Ulanishlar» bo'limida yoqing."
+            "Bu reklama obunangizga ulanmagan akkauntdan yuritilyapti. Uni faqat ko'rsatamiz - o'zgartirish uchun o'sha akkauntni «Sozlash → Boshqaruv» bo'limida yoqing."
         )
 
 

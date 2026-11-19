@@ -117,7 +117,9 @@ class NoActivePage(DomainError):
 
 class UnknownPage(DomainError):
     def __init__(self) -> None:
-        super().__init__("Bu sahifa topilmadi. Ulanishlar ro'yxatini yangilang.")
+        super().__init__(
+            "Bu sahifa topilmadi. «Sozlash → Boshqaruv» bo'limida ro'yxatni yangilang."
+        )
 
 
 class ConnectionTooNarrow(DomainError):

@@ -114,13 +114,13 @@ CHANGE_TITLE: Final = "Meta bu o'zgarishni qabul qilmadi"
 FALLBACK: Final = ("Meta bu o'zgarishni rad etdi.", ADS_MANAGER)
 AGAIN: Final = "Shu amalni yana bajaring."
 UNNAMED_STEPS: Final = (
-    "«Ulanishlar» sahifasida Meta ulanishi «Faol» ekanini tekshiring.",
+    "«Sozlash → Boshqaruv» bo'limida Meta ulanishi «Faol» ekanini tekshiring.",
     "Reklama hisobida qizil ogohlantirish yo'qligini business.facebook.com da ko'ring.",
     "Takrorlansa, supportga yozing.",
 )
 _RECONNECT_GUIDE: Final = (
     "Meta ulanishi uzilgan yoki muddati tugagan.",
-    ("«Ulanishlar» sahifasini oching.", "Meta'ni qayta ulang.", AGAIN),
+    ("«Sozlash → Boshqaruv» ni oching.", "Meta'ni qayta ulang.", AGAIN),
 )
 # The sentence above split for the dialog: the cause, then what to do in order.
 # A sentence with nothing to do but read it has no line here.

@@ -61,6 +61,11 @@ def publish(
     linked: Callable[[str], str] | None = None,
     handoff: str = "",
 ) -> None:
+    if linked is not None and not done:
+        # A link still being written stays off the screen until it is whole.
+        from app.common.places import held_back
+
+        text = held_back(text)
     html = render(text)
     cache.set(
         OUT_KEY.format(turn_id=turn_id),
