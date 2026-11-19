@@ -181,7 +181,7 @@ def handoff_redeem(token: str, db: Db) -> HandedOff:
 @router.get("/reset", response_model=ResetLinkOut)
 def reset_link() -> ResetLinkOut:
     """ "Parolni unutdingizmi?" opens the bot, which sends the link to the chat
-    a signed-in cabinet linked. Empty with no bot: the page names Support."""
+    a signed-in cabinet linked. Empty with no bot: the page offers email only."""
     return ResetLinkOut(bot_url=reset_bot_link())
 
 

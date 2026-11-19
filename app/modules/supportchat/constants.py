@@ -132,4 +132,3 @@ GUEST_STARTS_PER_HOUR: Final = 5
 # Every guest chat together: what one spoofed address after another reaches.
 GUEST_STARTS_PER_HOUR_ALL: Final = 100
 GUEST_MESSAGES_SHOWN: Final = 200
-GUEST_FIRST_WORDS: Final = "Parolni tiklash kerak."

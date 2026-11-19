@@ -1,12 +1,11 @@
 """A forgotten password, answered in the bot.
 
-The sign-in page cannot tell who is asking - it is public, and there is no
-email delivery to prove an address with. The bot can: a chat linked from a
-signed-in cabinet is that cabinet's owner's phone. So the page only opens
-the bot, and the bot sends the new-password link to the chat it belongs to.
+A chat linked from a signed-in cabinet is that cabinet's owner's phone, so
+the bot sends the new-password link to the chat it belongs to.
 
-A chat that is not linked, or was switched off, gets the support desk
-instead. A switched-off link is the record of a phone somebody stopped
+A chat that is not linked, or was switched off, is sent to the sign-in
+page instead, where «Parolni unutdingizmi?» mails the link to the account's
+address. A switched-off link is the record of a phone somebody stopped
 using - which may be the phone they sold - and it opens nothing.
 """
 
@@ -42,17 +41,24 @@ def reset_bot_link() -> str:
 def answer_reset_request(
     *, client: BotClient, chat_id: str, known: TelegramChat | None
 ) -> str:
-    """The new-password link for a linked chat, the support desk otherwise."""
+    """The new-password link for a linked chat; otherwise the sign-in page,
+    whose «Parolni unutdingizmi?» sends the link by email."""
     if known is None or not known.is_active or not known.owner.is_active:
         _reply(
             client=client,
             chat_id=chat_id,
             text=(
                 "Bu Telegram hech qaysi kabinetga ulanmagan, shuning uchun "
-                "parolni bu yerda tiklab bo'lmaydi. Yordam xizmatiga yozing - "
-                "parolni tiklashga yordam beramiz."
+                "parolni bu yerda tiklab bo'lmaydi. Kirish sahifasida "
+                "«Parolni unutdingizmi?» ni bosing va emailingizni yozing - "
+                "yangi parol havolasi pochtangizga keladi."
             ),
-            buttons=_support_button(),
+            buttons=(
+                Button(
+                    text="Kirish sahifasi",
+                    url=f"{settings.site_url}{reverse('accounts:login')}",
+                ),
+            ),
         )
         return "reset_unlinked"
 

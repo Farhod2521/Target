@@ -30,7 +30,6 @@ from app.common.throttle import hit
 from app.modules.accounts.models import User
 from app.modules.accounts.phone import clean_phone, normalize_email
 from app.modules.supportchat.constants import (
-    GUEST_FIRST_WORDS,
     GUEST_START_BUCKET,
     GUEST_STARTS_PER_HOUR,
     GUEST_STARTS_PER_HOUR_ALL,
@@ -98,7 +97,7 @@ def start_guest_chat(
     fields = _checked_guest(
         name=name, phone=phone, email=email, email_required=email_required
     )
-    text = _checked_body(body or GUEST_FIRST_WORDS)
+    text = _checked_body(body)
     if not hit(
         bucket=GUEST_START_BUCKET,
         key=address or "-",
