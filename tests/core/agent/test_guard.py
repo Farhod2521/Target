@@ -44,30 +44,28 @@ def test_price_in_usual_prices() -> None:
 
 
 def test_steps() -> None:
-    assert [price_step(t) for t in (299, 300, 399, 400, 499, 500, 999, 1_000)] == [
-        0, 3, 3, 4, 4, 5, 5, 10,
+    assert [price_step(t) for t in (299, 300, 499, 500, 999, 1_000)] == [
+        0, 0, 0, 5, 5, 10,
     ]  # fmt: skip
 
 
-def test_under_three_usual_prices_nothing_is_said() -> None:
+def test_under_five_usual_prices_nothing_is_said() -> None:
     assert judge(_group(spend_minor=299, results=1)) == []
+    assert judge(_group(spend_minor=960, results=3)) == []
+    assert judge(_group(spend_minor=1_230, results=3)) == []
+    assert judge(_group(spend_minor=1_490, results=3)) == []
 
 
-def test_three_usual_prices_is_a_warning() -> None:
-    found = _one(_group(spend_minor=960, results=3))
-    assert (found.kind, found.action, found.step, found.times) == (
-        "price", "warn", 3, 320,
-    )  # fmt: skip
+def test_three_and_four_with_bad_rates_say_nothing_either() -> None:
+    # CPM 320 against 200, CTR 0.4 % against 1 %, at 3.2 usual prices.
+    assert judge(_group(spend_minor=960, results=3, impressions=3_000, link_clicks=12)) == []
 
 
-def test_four_is_a_second_warning_that_advises_the_stop() -> None:
-    found = _one(_group(spend_minor=1_230, results=3))
-    assert (found.action, found.step, found.advice) == ("warn", 4, "pause")
-
-
-def test_five_is_a_third_warning() -> None:
+def test_five_is_the_first_warning() -> None:
     found = _one(_group(spend_minor=1_500, results=3))
-    assert (found.kind, found.action, found.step) == ("price", "warn", 5)
+    assert (found.kind, found.action, found.step, found.times) == (
+        "price", "warn", 5, 500,
+    )  # fmt: skip
     assert found.advice == "pause"
     # Still a warning just under ten.
     assert _one(_group(spend_minor=2_990, results=3)).action == "warn"
@@ -162,24 +160,16 @@ def test_an_unknown_age_is_read_as_old() -> None:
 
 def test_a_price_rise_carries_its_causes_instead_of_more_messages() -> None:
     # Shown 1000 times for 320: CPM 320 against 200; 4 clicks: CTR 0.4 %.
-    group = _group(spend_minor=960, results=3, impressions=3_000, link_clicks=12)
+    group = _group(spend_minor=1_500, results=3, impressions=4_700, link_clicks=19)
     found = _one(group)
     assert found.kind == "price"
     assert found.causes == ("cpm", "ctr")
 
 
-def test_price_advice_by_cause() -> None:
-    # CPM alone: the auction, leave it.
-    # 1000 showings for 600 (three usual CPMs), the usual 1 % clicking, the
-    # usual five clicks a result.
-    cpm_only = _group(spend_minor=900, results=3, impressions=1_500, link_clicks=15)
-    assert causes(cpm_only) == ("cpm",)
-    assert _one(cpm_only).advice == "leave"
-    # The click rate: less money meanwhile - where the budget is the group's.
-    ctr = _group(spend_minor=960, results=3, impressions=6_000, link_clicks=30)
-    assert "ctr" in causes(ctr)
-    assert _one(ctr).advice == "budget_down"
-    assert _one(replace(ctr, own_budget=False)).advice == "leave"
+def test_price_advice_is_the_stop_unless_learning() -> None:
+    group = _group(spend_minor=1_500, results=3)
+    assert _one(group).advice == "pause"
+    assert _one(replace(group, learning=True)).advice == "leave"
 
 
 def test_conversion_is_named_when_clicks_come_and_results_do_not() -> None:
@@ -241,11 +231,10 @@ def test_a_small_share_is_not_the_weak_advert() -> None:
 # -- rates -------------------------------------------------------------------------------
 
 
-def test_a_fallen_click_rate_with_a_climbing_price_asks_for_a_creative() -> None:
+def test_a_fallen_click_rate_under_five_usual_prices_is_not_said() -> None:
     # 0.6 % against 1 %, and a result at 1.6 usual prices.
     group = _group(spend_minor=160, results=1, impressions=1_000, link_clicks=6)
-    found = _one(group)
-    assert (found.kind, found.advice) == ("ctr", "add_creative")
+    assert judge(group) == []
 
 
 def test_a_fallen_click_rate_at_the_usual_price_is_only_a_day() -> None:
@@ -255,7 +244,7 @@ def test_a_fallen_click_rate_at_the_usual_price_is_only_a_day() -> None:
 
 def test_a_fallen_click_rate_with_a_usual_price_gone_and_nothing_back() -> None:
     group = _group(spend_minor=100, results=0, impressions=1_000, link_clicks=6)
-    assert _one(group).kind == "ctr"
+    assert judge(group) == []
 
 
 def test_too_few_showings_say_nothing_about_a_rate() -> None:
@@ -268,11 +257,10 @@ def test_frequency_past_three() -> None:
     assert judge(_group(frequency=299)) == []
 
 
-def test_dear_showings_with_a_climbing_price_are_left() -> None:
+def test_dear_showings_under_five_usual_prices_are_not_said() -> None:
     # CPM 400 against 200, the usual 1 % clicking, a result at twice usual.
     group = _group(spend_minor=400, results=2, impressions=1_000, link_clicks=10)
-    found = _one(group)
-    assert (found.kind, found.advice) == ("cpm", "leave")
+    assert judge(group) == []
 
 
 # -- easing ------------------------------------------------------------------------------
