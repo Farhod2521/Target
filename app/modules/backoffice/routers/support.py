@@ -225,6 +225,7 @@ def _screen(
     return jsonable_encoder(
         {
             "customer": person_out(client),
+            "phone": client.phone or "",
             "ticket": _tickets(db, [client.id], viewer=viewer).get(client.id),
             "support_bot": _support_bot(db, client),
             "conversation_id": str(chat.id) if chat is not None else None,

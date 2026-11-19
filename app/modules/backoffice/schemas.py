@@ -1241,6 +1241,9 @@ class ChatHoldOut(BaseModel):
 
 class SupportThreadOut(BaseModel):
     customer: PersonOut
+    phone: str = Field(
+        "", description="The client's phone as they gave it; empty: none given."
+    )
     ticket: SupportTicketRefOut | None = Field(
         None, description="The client's Support ticket; null: they never had one."
     )

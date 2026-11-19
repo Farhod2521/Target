@@ -51,6 +51,12 @@ def test_the_queue_a_thread_a_reply_and_settling(
 
     thread = client.get(f"{URL}/{chat_id}", headers=office).json()
     assert thread["messages"][0]["who"] == "mijoz"
+    # The chat's «Qo'ng'iroq qilish» reads the number; none given, empty.
+    assert thread["phone"] == ""
+    owner.phone = "+998901234567"
+    db.commit()
+    thread = client.get(f"{URL}/{chat_id}", headers=office).json()
+    assert thread["phone"] == "+998901234567"
     assert thread["ws_path"] == f"/api/v1/office/support/{chat_id}/ws"
     chat = db.get(SupportConversation, chat_id)
     db.refresh(chat)
