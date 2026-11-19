@@ -39,6 +39,5 @@ AUDIENCE_GENDERS: tuple[str, ...] = ("all", "female", "male")
 GENDER_ALL = "all"
 # As Meta numbers them on an ad set: 1 men, 2 women.
 GENDER_CODES: dict[str, list[int]] = {"male": [1], "female": [2]}
-# Where the business works: as many places as a launch may target.
+# Where the business works, for reading only: an advert is never aimed there by itself.
 MAX_REGIONS = 10
-REGION_KINDS: tuple[str, ...] = ("city", "region", "country")

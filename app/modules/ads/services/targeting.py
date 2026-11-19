@@ -53,7 +53,7 @@ from app.modules.ads.selectors.tracking import (
     chosen_url_tags,
     goal_sends_to_a_site,
 )
-from app.modules.businesses.constants import GENDER_CODES, REGION_KINDS
+from app.modules.businesses.constants import GENDER_CODES
 from app.modules.businesses.models import Business
 from app.modules.integrations.models import AdAccount, PageAccount
 from core.targeting import (
@@ -237,27 +237,6 @@ def business_genders(
     return None
 
 
-def business_regions(
-    db: Session, *, owner: User, business: Business
-) -> tuple[GeoPlace, ...]:
-    """Where the business's profile says it works, as places a launch targets."""
-    for row in _profiles(db, owner=owner, business=business):
-        places = tuple(
-            GeoPlace(
-                key=str(item["key"]),
-                name=str(item.get("name") or ""),
-                kind=item["kind"],
-            )
-            for item in row.regions or []
-            if isinstance(item, dict)
-            and item.get("key")
-            and item.get("kind") in REGION_KINDS
-        )
-        if places:
-            return places
-    return ()
-
-
 def suggested_geo(
     db: Session,
     *,
@@ -266,15 +245,11 @@ def suggested_geo(
     page: PageAccount | None = None,
     radius_km: int | None = None,
 ) -> GeoChoice:
-    """What to open the geography question on, before anybody answers it."""
-    regions = business_regions(db, owner=owner, business=business)
-    if regions:
-        return GeoChoice(
-            mode="places",
-            places=regions,
-            radius_km=radius_km,
-            country_code=business.country_code,
-        )
+    """What to open the geography question on, before anybody answers it.
+
+    The business profile's own place (its regions, its pin) is for reading only:
+    an advert is aimed there only when somebody chooses it in «Joy».
+    """
     previous = last_geo(db, owner=owner, page=page)
     if previous is not None:
         earlier = geo_field.to_choice(previous, radius_km=_radius(previous))
@@ -282,14 +257,6 @@ def suggested_geo(
             return replace(
                 earlier, origin="derived", radius_km=radius_km or earlier.radius_km
             )
-    if business.lat is not None and business.lng is not None:
-        return GeoChoice(
-            mode="around",
-            lat=str(business.lat),
-            lng=str(business.lng),
-            radius_km=radius_km,
-            country_code=business.country_code,
-        )
     from_page = page_geo(
         db, owner=owner, business=business, page=page, radius_km=radius_km
     )

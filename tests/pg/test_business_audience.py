@@ -1,7 +1,8 @@
-"""Who the business sells to and where it works: kept on the profile, and a new
-advert's audience starts from them."""
+"""Who the business sells to and where it works: kept on the profile. A new
+advert takes the gender from it; the place is for reading only."""
 
 import uuid
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -135,7 +136,7 @@ def test_a_place_the_search_did_not_offer_is_refused(
     assert refused.json()["detail"] == "Joylardan birini qidiruvdan qayta tanlang."
 
 
-def test_a_new_advert_starts_from_the_profile(
+def test_a_new_advert_takes_the_gender_but_never_the_place_of_the_profile(
     client: TestClient, db: Session, queued: list, meta: Audiences
 ) -> None:
     auth, user = _ready(client, db)
@@ -164,10 +165,11 @@ def test_a_new_advert_starts_from_the_profile(
     db.refresh(launch)
     audience = draft_field.chosen(launch.draft, DraftSection.AUDIENCE)
     assert audience["genders"] == [1]
-    assert audience["geo"]["mode"] == "places"
-    assert [row["key"] for row in audience["geo"]["places"]] == ["2420877"]
+    # The profile's regions are for reading: the advert is not aimed there.
+    places = [row.get("key") for row in audience["geo"].get("places") or []]
+    assert "2420877" not in places
     assert launch.targeting["genders"] == [1]
-    assert launch.targeting["geo_locations"] == {"cities": [{"key": "2420877"}]}
+    assert "2420877" not in str(launch.targeting["geo_locations"])
 
 
 def test_the_account_profile_speaks_where_the_page_profile_is_silent(
@@ -190,7 +192,7 @@ def test_the_account_profile_speaks_where_the_page_profile_is_silent(
 
     assert business_genders(db, owner=user, business=page_profile) == [2]
     geo = suggested_geo(db, owner=user, business=page_profile)
-    assert (geo.mode, [place.key for place in geo.places]) == ("places", ["2420877"])
+    assert "2420877" not in [place.key for place in geo.places]
 
     page_profile.special_ad_category = "HOUSING"
     db.commit()
@@ -208,3 +210,17 @@ def test_with_nothing_on_the_profile_the_advert_starts_as_before(
     assert suggested_geo(db, owner=user, business=business).mode != "places"
     assert db.scalar(select(User)) is not None
     assert db.scalar(select(CampaignLaunch)) is None
+
+
+def test_the_business_pin_is_never_an_adverts_place(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    _auth, user = _ready(client, db)
+    business = business_for(db, user)
+    assert business is not None
+    business.lat, business.lng = Decimal("41.311081"), Decimal("69.240562")
+    db.commit()
+
+    geo = suggested_geo(db, owner=user, business=business)
+
+    assert (geo.lat, geo.lng) != ("41.311081", "69.240562")

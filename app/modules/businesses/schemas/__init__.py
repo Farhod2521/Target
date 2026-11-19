@@ -91,7 +91,7 @@ class ProfileIn(BaseModel):
     regions: list[Region] | None = Field(
         None,
         max_length=MAX_REGIONS,
-        description="Where a new advert is shown, picked from `/business/locations`; left out, kept.",
+        description="Where the business works, picked from `/business/locations`; for reading only, never an advert's place; left out, kept.",
     )
 
     @field_validator("country_code")
