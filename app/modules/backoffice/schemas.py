@@ -2038,3 +2038,356 @@ class BlockSuggestionOut(BaseModel):
 class BlockSuggestionsOut(BaseModel):
     rows: list[BlockSuggestionOut]
     total: int
+
+
+# -- Statistika ------------------------------------------------------------------
+
+
+class StatsLadderSegmentOut(BaseModel):
+    key: str = Field(description="`red`, `yellow`, `green`; `other` only when not 0.")
+    label: str
+    customers: int
+    share_pct: float | None
+    new_in_window: int = Field(description="Reached this colour inside the window.")
+
+
+class StatsLadderOut(BaseModel):
+    total: int = Field(
+        description="Customers with a paid plan bill by the window's end."
+    )
+    segments: list[StatsLadderSegmentOut]
+    yellow_from_start: int = Field(description="Yellow who came through Start.")
+    yellow_direct: int = Field(description="Yellow who bought Standart without Start.")
+
+
+class StatsPlanRowOut(BaseModel):
+    plan_id: str
+    code: str
+    name: str
+    buyers: int
+    bills: int
+    share_pct: float | None = Field(description="Of the window's plan bills.")
+    amount_minor: int = Field(description="In `plans.currency` only.")
+    first_time: int = Field(description="Bills that were the customer's first.")
+    second_time: int
+    third_or_later: int
+    same_plan_again: int = Field(description="The bill before it was the same plan.")
+
+
+class StatsTimesOut(BaseModel):
+    key: str = Field(description="`1`, `2`, `3+`.")
+    label: str
+    customers: int
+    share_pct: float | None
+
+
+class StatsPlansOut(BaseModel):
+    currency: str
+    rows: list[StatsPlanRowOut]
+    bills: int
+    times: list[StatsTimesOut] = Field(
+        description="Paid plan bills per customer, by the window's end."
+    )
+
+
+class StatsNamedCountOut(BaseModel):
+    name: str
+    customers: int
+
+
+class StatsLoyalOut(BaseModel):
+    customers: int = Field(description="Same plan bought `run` times in a row.")
+    share_pct: float | None = Field(description="Of every customer who has paid.")
+    still_live: int = Field(description="Of them, paid up now.")
+    new_in_window: int
+    run: int
+    plans: list[StatsNamedCountOut]
+
+
+class StatsCohortOut(BaseModel):
+    month: str = Field(description="YYYY-MM of the first paid bill.")
+    label: str
+    customers: int
+    kept_pct: list[float | None] = Field(
+        description="Paid up 30, 60, ... 180 days after the first bill; null = not yet due."
+    )
+
+
+class StatsKeepingOut(BaseModel):
+    paid_at_start: int
+    paid_at_end: int
+    lost: int = Field(description="Paid cover ran out in the window, not renewed.")
+    churn_pct: float | None
+    came_back: int = Field(description="Bought again after a gap, inside the window.")
+    cohort_step_days: int
+    cohorts: list[StatsCohortOut]
+
+
+class StatsReasonOut(BaseModel):
+    key: str = Field(description="For `GET /office/stats/start-lost?reason=`.")
+    label: str
+    customers: int
+    share_pct: float | None
+
+
+class StatsStartOut(BaseModel):
+    started: int = Field(description="First Start bill paid inside the window.")
+    in_start: int = Field(description="Their Start has not run out yet.")
+    due: int = Field(description="Moved on, or their Start has run out.")
+    moved: int
+    moved_pct: float | None = Field(description="`moved` of `due`.")
+    moved_to: list[StatsNamedCountOut]
+    median_days_to_move: float | None
+    lost: int
+    lost_reasons: list[StatsReasonOut]
+
+
+class StatsFunnelStepOut(BaseModel):
+    key: str
+    label: str
+    customers: int
+    of_joined_pct: float | None
+    of_previous_pct: float | None
+    dropped: int = Field(description="Stopped right before this step.")
+
+
+class StatsFunnelOut(BaseModel):
+    joined: int
+    steps: list[StatsFunnelStepOut]
+
+
+class StatsAiMonthOut(BaseModel):
+    month: str
+    label: str
+    customers: int
+    cost_micros: int
+    average_micros: int
+    median_micros: int
+
+
+class StatsAiPartOut(BaseModel):
+    key: str
+    label: str = ""
+    cost_micros: int
+    share_pct: float | None
+    customers: int = 0
+    calls: int
+
+
+class StatsAiPlanOut(BaseModel):
+    name: str
+    customers: int
+    cost_micros: int
+    per_customer_month_micros: int
+
+
+class StatsAiTopOut(BaseModel):
+    id: str
+    email: str
+    cost_micros: int
+
+
+class StatsAiOut(BaseModel):
+    currency: str = Field(description="USD on production.")
+    micros_per_unit: int = Field(description="Dollars = micros / this (100 000 000).")
+    cost_micros: int
+    staff_cost_micros: int = Field(description="Staff accounts, kept out of the rest.")
+    calls: int
+    tokens: dict[str, int]
+    customers: int
+    customer_months: int
+    per_customer_month_micros: int
+    months: list[StatsAiMonthOut]
+    purposes: list[StatsAiPartOut]
+    models: list[StatsAiPartOut]
+    plans: list[StatsAiPlanOut] = Field(description="By each customer's plan now.")
+    top: list[StatsAiTopOut]
+
+
+class StatsDirectionOut(BaseModel):
+    key: str = Field(description="A direction's key; `custom`; `none`.")
+    label: str
+    businesses: int
+    share_pct: float | None
+    owners: int
+    paying_owners: int
+    paying_pct: float | None
+    new_in_window: int
+
+
+class StatsLabelCountOut(BaseModel):
+    label: str
+    businesses: int
+    share_pct: float | None = None
+
+
+class StatsBusinessesOut(BaseModel):
+    total: int
+    owners: int
+    directions: list[StatsDirectionOut]
+    custom_top: list[StatsLabelCountOut]
+    cities: list[StatsLabelCountOut]
+    no_city: int
+
+
+class StatsSplitRowOut(BaseModel):
+    key: str = Field(description="`_rest` folds the rest of a long list.")
+    label: str
+    customers: int
+    share_pct: float | None
+    joined_in_window: int
+    ever_paid: int
+    paid_pct: float | None
+    paying_now: int
+
+
+class StatsSplitOut(BaseModel):
+    total: int
+    rows: list[StatsSplitRowOut]
+
+
+class StatsPeopleOut(BaseModel):
+    roles: StatsSplitOut
+    signup_via: StatsSplitOut
+    languages: StatsSplitOut
+    utm_sources: StatsSplitOut
+
+
+class StatsMoneyPartOut(BaseModel):
+    key: str
+    label: str
+    amount_minor: int
+    share_pct: float | None
+    bills: int = 0
+
+
+class StatsMoneyOut(BaseModel):
+    currency: str
+    takings_minor: int
+    bills: int
+    kinds: list[StatsMoneyPartOut]
+    methods: list[StatsMoneyPartOut]
+    plan_payers: int
+    per_payer_minor: int = Field(description="Plan takings per paying customer (ARPU).")
+    lifetime_per_customer_minor: int = Field(
+        description="All plan bills per buyer (LTV)."
+    )
+    wallet_minor: int
+    discount_minor: int
+    refunded: int
+    refunded_minor: int
+    paying_now: int
+    autopay_now: int
+    autopay_pct: float | None
+
+
+class StatsUsagePartOut(BaseModel):
+    key: str
+    label: str
+    customers: int
+    share_pct: float | None
+
+
+class StatsUsageOut(BaseModel):
+    paying_now: int
+    parts: list[StatsUsagePartOut] = Field(description="Of the customers paying now.")
+    launched: int
+    failed: int
+    failed_pct: float | None
+    launchers: int
+    leads: int
+    lead_owners: int
+    leads_per_owner: float | None
+
+
+class StatsKpiOut(BaseModel):
+    key: str = Field(
+        description="`plan_takings_minor`, `signups`, `first_buyers`, `reached_yellow`, "
+        "`reached_green`, `ai_per_customer_month_micros`."
+    )
+    label: str
+    value: int
+    before: int = Field(description="The same number of days just before.")
+    change_pct: float | None
+
+
+class StatsBarOut(BaseModel):
+    key: str = Field(description="The bar's first day, YYYY-MM-DD.")
+    label: str
+    hint: str
+    signups: int
+    first_buyers: int
+    reached_yellow: int
+    reached_green: int
+    plan_takings_minor: int
+
+
+class StatsSeriesOut(BaseModel):
+    unit: str = Field(description="`day`, `week` or `month`.")
+    currency: str
+    bars: list[StatsBarOut]
+
+
+class StatsStatusRowOut(BaseModel):
+    key: str = Field(description="`paying`, `trial`, `ended`, `never`.")
+    label: str
+    customers: int
+    share_pct: float | None
+
+
+class StatsStatusesOut(BaseModel):
+    total: int
+    rows: list[StatsStatusRowOut]
+    ending_7: int = Field(description="Paid time runs out within 7 days.")
+    ending_30: int
+    ending_7_with_card: int = Field(description="Of them, a bound card renews.")
+    ending_30_with_card: int
+
+
+class StatsGrowthOut(BaseModel):
+    currency: str
+    promo_used: int
+    promo_customers: int
+    promo_discount_minor: int
+    promo_days: int
+    referred: int = Field(description="Signed up by a referral link in the window.")
+    referred_paid: int
+    referred_paid_pct: float | None
+    referrers: int
+    rewards: int
+    rewards_minor: int
+
+
+class StatsOut(BaseModel):
+    window: WindowOut
+    headline: list[StatsKpiOut]
+    series: StatsSeriesOut
+    statuses: StatsStatusesOut
+    growth: StatsGrowthOut
+    ladder: StatsLadderOut
+    plans: StatsPlansOut
+    loyal: StatsLoyalOut
+    keeping: StatsKeepingOut
+    start: StatsStartOut
+    funnel: StatsFunnelOut
+    ai: StatsAiOut
+    businesses: StatsBusinessesOut
+    people: StatsPeopleOut
+    money: StatsMoneyOut
+    usage: StatsUsageOut
+
+
+class StatsLostRowOut(BaseModel):
+    customer: PersonOut | None
+    email: str
+    phone: str
+    joined_at: datetime
+
+
+class StatsLostOut(BaseModel):
+    window: WindowOut
+    reason: str
+    label: str
+    total: int
+    deleted: int = Field(description="Deleted accounts: counted, not listed.")
+    rows: list[StatsLostRowOut]
