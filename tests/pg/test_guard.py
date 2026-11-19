@@ -125,6 +125,25 @@ def _rows(db: Session) -> list[GuardAlert]:
     return list(db.scalars(select(GuardAlert).order_by(GuardAlert.created_at)))
 
 
+def _land(db: Session, *, status: str = ActionStatus.APPLIED, **result: str) -> None:
+    """Every change still on its way, answered by the provider."""
+    from app.modules.agent.services.guard_outcome import note_change_settled
+
+    pending = list(
+        db.scalars(select(ActionLog).where(ActionLog.status == ActionStatus.PENDING))
+    )
+    for log in pending:
+        log.status = status
+        if status == ActionStatus.FAILED:
+            log.error_code = result.get("code", "provider_error")
+            log.result_payload = {"user_message": result.get("message", "")}
+        else:
+            log.applied_at = utcnow()
+    db.commit()
+    for log in pending:
+        note_change_settled(db, log_id=str(log.id), now=utcnow())
+
+
 def _pauses(db: Session) -> list[ActionLog]:
     return list(
         db.scalars(select(ActionLog).where(ActionLog.action == str(ActionType.PAUSE)))
@@ -337,11 +356,18 @@ def test_pause_asks_the_provider_once_and_closes_the_finding(
     answer_guard(db, user=owner, alert_id=str(row.id), answer="pause", now=now)
     db.commit()
     (row,) = _rows(db)
-    assert row.answer == "pause" and row.closed_at is not None
+    # Open while the stop is on its way: a refusal must bring the buttons back.
+    assert row.answer == "pause" and row.closed_at is None
+    assert row.answer_log_id == _pauses(db)[0].id
     assert row.baseline["spend_minor"] == 3_060
     assert len(_pauses(db)) == 1
     with pytest.raises(GuardAlertGone):
         answer_guard(db, user=owner, alert_id=str(row.id), answer="pause", now=now)
+    db.rollback()
+
+    _land(db)
+    (row,) = _rows(db)
+    assert (row.result, row.closed_at is not None) == ("applied", True)
 
 
 def test_the_budget_goes_down_a_fifth(
@@ -396,9 +422,11 @@ def test_the_phone_hears_of_a_group_once_a_day_and_of_a_stop_always(
     (row,) = _rows(db)
     assert row.said_step == 5 and row.telegram_sent_at is not None
 
-    # Ten stops it the same day, and a stop is always said.
+    # Ten stops it the same day, and a stop is always said - once it landed.
     _today(db, owner, account, now, spend=6_060, leads=3)
     run_guard(db, owner=owner, now=now)
+    assert announce_guard(db, client=phone, now=now, asleep=set()) == 0
+    _land(db)
     assert announce_guard(db, client=phone, now=now, asleep=set()) == 1
     assert len(phone.texts()) == 2
     subjects = set(db.scalars(select(TelegramNotice.subject)))
@@ -443,6 +471,7 @@ def test_a_warning_waits_for_the_morning_and_a_stop_does_not(
     assert announce_guard(db, client=phone, now=now, asleep=asleep) == 0
     _today(db, owner, account, now, spend=6_060, leads=3)
     run_guard(db, owner=owner, now=now)
+    _land(db)
     assert announce_guard(db, client=phone, now=now, asleep=asleep) == 1
     (text,) = phone.texts()
     assert "To'xtatdim" in text or "Остановил" in text
@@ -626,9 +655,10 @@ def test_a_group_missing_from_one_reading_is_not_said_again(
     assert old.closed_at is not None and new.closed_at is None
     assert (new.step, new.said_step) == (5, 5)
 
-    # A stop is said at once.
+    # A stop is said at once, once it landed.
     _today(db, owner, account, now, spend=6_060, leads=3)
     run_guard(db, owner=owner, now=now)
+    _land(db)
     assert announce_guard(db, client=phone, now=now, asleep=set()) == 1
 
 

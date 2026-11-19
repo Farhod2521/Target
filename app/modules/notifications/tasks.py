@@ -478,3 +478,52 @@ def deliver_admin_report_task() -> int:
 
     with task_session() as db:
         return deliver_admin_report(db, now=utcnow())
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
+def tell_guard_outcome_task(alert_id: str) -> str:
+    """A guard finding's present state on the phone: its sent message
+    rewritten - asked, checked, the question, what the provider did - or,
+    for the guard's own stop now answered, the message it waited for."""
+    import uuid
+
+    from app.modules.agent.models import GuardAlert
+    from app.modules.notifications.bot import bot, is_configured
+    from app.modules.notifications.constants import NoticeKind
+    from app.modules.notifications.models import TelegramChat
+    from app.modules.notifications.selectors import chats_wanting
+    from app.modules.notifications.services.announce_guard import (
+        STOP,
+        _announce,
+        show_state,
+    )
+
+    if not is_configured():
+        return "unconfigured"
+    with task_session() as db:
+        try:
+            row = db.get(GuardAlert, uuid.UUID(str(alert_id)))
+        except ValueError:
+            row = None
+        if row is None:
+            return "gone"
+        with bot() as client:
+            if (
+                row.action == STOP
+                and row.said_step < row.step
+                and row.closed_at is None
+            ):
+                chat = db.scalars(
+                    chats_wanting(db, kind=NoticeKind.GUARD).where(
+                        TelegramChat.owner_id == row.owner_id
+                    )
+                ).first()
+                if chat is None:
+                    return "no_chat"
+                sent = _announce(
+                    db, client=client, chat=chat, rows=[row], now=utcnow(), asleep=True
+                )
+                db.commit()
+                return f"announced:{sent}"
+            shown = show_state(db, client=client, row=row)
+        return "shown" if shown else "no_message"

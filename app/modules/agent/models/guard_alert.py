@@ -43,6 +43,18 @@ class GuardAlert(Base):
             sqlite_where=text("closed_at IS NULL"),
         ),
         Index("agent_guard_owner_open", "owner_id", "closed_at"),
+        Index(
+            "agent_guard_answer_log",
+            "answer_log_id",
+            postgresql_where=text("answer_log_id IS NOT NULL"),
+            sqlite_where=text("answer_log_id IS NOT NULL"),
+        ),
+        Index(
+            "agent_guard_action_log",
+            "action_log_id",
+            postgresql_where=text("action_log_id IS NOT NULL"),
+            sqlite_where=text("action_log_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -97,5 +109,19 @@ class GuardAlert(Base):
     closed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # The change the owner's answer opened at the provider.
+    answer_log_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    # An answer given on figures over half an hour old waits for a second
+    # look: ``checking`` while today's figures are read again, ``confirm``
+    # while the owner is asked whether it is still wanted.
+    pending_answer: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    pending_state: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    pending_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    now_figures: Mapped[Any] = mapped_column(Json, nullable=False, default=dict)
+    # Whether the latest change landed: ``applied`` or ``failed``.
+    result: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    result_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
     ad_account: Mapped["AdAccount"] = relationship(foreign_keys=[ad_account_id], lazy="select")  # noqa: F821

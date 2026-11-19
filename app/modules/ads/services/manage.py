@@ -939,7 +939,20 @@ def apply_change(db: Session, *, log_id: str) -> str:
         except Exception:
             db.rollback()
             logger.exception("a refused start was not written on its launch")
+    if outcome != "done":
+        _tell_guard(db, log_id=log_id)
     return outcome
+
+
+def _tell_guard(db: Session, *, log_id: str) -> None:
+    """A change a guard finding asked for: its outcome goes on the finding."""
+    from app.modules.agent.services.guard_outcome import note_change_settled
+
+    try:
+        note_change_settled(db, log_id=log_id, now=utcnow())
+    except Exception:
+        db.rollback()
+        logger.exception("a guard finding was not told its change's outcome")
 
 
 def _check_change(db: Session, job: Any) -> str:

@@ -137,9 +137,7 @@ def result_lines(
     if kind == "lead" and "leads" in evidence:
         return []
     count_label, cost_label = words
-    lines: list[tuple[Any, str]] = [
-        (count_label, number_format(count))
-    ]
+    lines: list[tuple[Any, str]] = [(count_label, number_format(count))]
     for label, key in (
         (cost_label, "cost_minor"),
         (USUAL_COST_LABEL, "account_cost_minor"),

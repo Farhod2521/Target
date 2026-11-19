@@ -8,6 +8,7 @@ Arguments are ids and plain values; the work is the services'. The
 import logging
 import uuid
 from hashlib import md5
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -232,3 +233,25 @@ def check_all_frequency() -> int:
     for owner_id in owners:
         check_frequency_task.delay(str(owner_id))
     return len(owners)
+
+
+# A sync of the same account already running: come back after it, this often.
+RECHECK_WAIT_SECONDS = 30
+RECHECK_TRIES = 6
+
+
+@celery_app.task(bind=True, queue="agent", ignore_result=True)
+def recheck_guard_task(self: Any, alert_id: str) -> str:
+    """A late answer to a guard finding: today's figures read again, then
+    the change carried out or the owner asked. The phone is told either way."""
+    from app.modules.agent.services.recheck_guard import recheck
+    from app.modules.notifications.tasks import tell_guard_outcome_task
+
+    may_wait = self.request.retries < RECHECK_TRIES
+    with task_session() as db:
+        outcome = recheck(db, alert_id=alert_id, now=utcnow(), may_wait=may_wait)
+    if outcome == "busy":
+        raise self.retry(countdown=RECHECK_WAIT_SECONDS, max_retries=RECHECK_TRIES)
+    if outcome != "skipped":
+        tell_guard_outcome_task.delay(alert_id)
+    return outcome

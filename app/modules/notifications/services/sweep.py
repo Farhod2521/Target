@@ -90,9 +90,7 @@ def deliver_notices(db: Session, *, now: datetime) -> int:
     refused = owners_with_rejected_ads(db)
     launching = owners_with_launches(db)
     guarded = owners_with_findings(db)
-    asleep = _asleep(
-        db, owner_ids={*proposing, *judged, *launching, *guarded}, now=now
-    )
+    asleep = _asleep(db, owner_ids={*proposing, *judged, *launching, *guarded}, now=now)
 
     sent = 0
     with bot() as client:

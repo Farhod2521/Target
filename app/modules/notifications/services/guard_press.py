@@ -3,9 +3,12 @@
 The same answers the cabinet gives - see
 :func:`app.modules.agent.services.answer_guard.answer_guard`. Only the
 chat's own owner answers, and only a finding of theirs; one that is closed
-or already answered with a change is said to be gone.
+or already answered with a change is said to be gone. The pressed message is
+rewritten at once with what became of the press - see
+:func:`app.modules.notifications.services.announce_guard.show_state`.
 """
 
+from collections.abc import Callable
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -13,10 +16,12 @@ from telegramkit import BotClient, ButtonPress
 
 from app.common.exceptions import DomainError
 from app.common.i18n import override
-from app.modules.agent.services.answer_guard import answer_guard
+from app.modules.agent.guard_follow_copy import follow_text
+from app.modules.agent.services.answer_guard import Answered, answer_guard
 from app.modules.notifications.constants import GUARD_CALLBACKS
 from app.modules.notifications.keys import read_press
 from app.modules.notifications.selectors import chat_by_id
+from app.modules.notifications.services.announce_guard import show_state
 from app.modules.notifications.services.send import answer
 
 _ANSWER_OF = {code: name for name, code in GUARD_CALLBACKS.items()}
@@ -49,7 +54,9 @@ def handle_guard_press(
         code, alert_id = found
         chosen = _ANSWER_OF[code]
         try:
-            answer_guard(db, user=chat.owner, alert_id=alert_id, answer=chosen, now=now)
+            done = answer_guard(
+                db, user=chat.owner, alert_id=alert_id, answer=chosen, now=now
+            )
         except DomainError as refused:
             db.rollback()
             answer(
@@ -60,8 +67,17 @@ def handle_guard_press(
             )
             return "refused"
         db.commit()
-        answer(client=client, query_id=press.query_id, text=guard_said(chosen))
-        return f"guard_{chosen}"
+        answer(client=client, query_id=press.query_id, text=_said(done, guard_said))
+        show_state(db, client=client, row=done.row, message_id=press.message_id)
+        return f"guard_{done.answer}:{done.state}"
+
+
+def _said(done: Answered, guard_said: Callable[[str], str]) -> str:
+    if done.state == "checking":
+        return follow_text("said.checking")
+    if done.state == "cancelled":
+        return follow_text("said.cancel")
+    return guard_said(done.answer)
 
 
 __all__ = ["handle_guard_press", "is_guard_press"]
