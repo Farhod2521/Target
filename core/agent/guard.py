@@ -17,13 +17,13 @@ days run without one result ever; the page
 the advert sends people to not opening. A group built in Ads Manager gets
 the same finding as a warning: its owner did not hand it over.
 
-**What only warns.** Three usual prices for one result, then four, then
-five - once
+**What only warns.** Five usual prices for one result - once
 three results are in, or ten usual prices are gone; five usual prices gone
 with nothing back, in a group not ours; an advert
 inside a group taking a third of the money and bringing nothing while
-another brings results; the click rate under 70 % of usual; a thousand
-showings at 150 % of usual; a person shown the advert three times a week.
+another brings results; a person shown the advert three times a week.
+The click rate and the showings' price are only ever named inside a price
+warning, as its causes.
 
 **A new group.** Three results in, their pooled price is its usual one:
 nothing back for three of them - not five - stops it, and a rise in its price is only
@@ -33,7 +33,7 @@ after the switch-on with still not one result it is stopped.
 
 **One finding a group.** A stop leaves no warning beside it, and a price
 rise carries the click rate and the showings' price as its causes instead
-of as two more messages. The steps of a rise - 3, 4, 5, 10 - are what a second
+of as two more messages. The steps of a rise - 5, 10 - are what a second
 message waits for: the same step is never said twice.
 
 **Not in the first day.** A group is judged from 24 hours after it was
@@ -64,7 +64,9 @@ Advice = Literal[
 ]
 
 # A rise is said at each of these, and stops at the last.
-PRICE_STEPS: Final = (3, 4, 5, 10)
+# Three and four usual prices are left unsaid: on a small account a day's
+# price swings that far and back, and a warning at each was noise.
+PRICE_STEPS: Final = (5, 10)
 STOP_STEP: Final = 10
 # Under this many usual prices a rise is over.
 EASE_UNDER: Final = 2
@@ -88,8 +90,6 @@ NEVER_STOP_HOURS: Final = 72
 CTR_LOW_PCT: Final = 70
 CPM_HIGH_PCT: Final = 150
 CONVERSION_LOW_PCT: Final = 70
-# A rate is said only once the price is this far up, in percent of usual.
-RATE_PRICE_PCT: Final = 150
 # Showings before a rate of today's means anything.
 MIN_RATE_IMPRESSIONS: Final = 1_000
 # Frequency over seven days, in hundredths.
@@ -355,7 +355,7 @@ def _money(group: GroupToday) -> Finding | None:
     return Finding(
         kind="price",
         action="warn",
-        advice=_price_advice(group, step=step, why=why),
+        advice=_price_advice(group),
         adset_id=group.adset_id,
         step=step,
         times=times,
@@ -363,21 +363,11 @@ def _money(group: GroupToday) -> Finding | None:
     )
 
 
-def _price_advice(group: GroupToday, *, step: int, why: tuple[Cause, ...]) -> Advice:
-    """Which button a price warning advises.
-
-    Learning is left alone; past four usual prices the stop is advised,
-    long before ours at ten; a rise that is only the showings' price is the auction
-    and usually passes; one in the click rate or the conversion is the
-    advert or the form wearing out, and less money goes to it meanwhile.
-    """
-    if group.learning:
-        return "leave"
-    if step >= 4:
-        return "pause"
-    if why == ("cpm",) or not why:
-        return "leave"
-    return "budget_down" if group.own_budget else "leave"
+def _price_advice(group: GroupToday) -> Advice:
+    """Which button a price warning advises: a group still learning is left
+    alone; any other is advised the stop at five usual prices, long before
+    ours is stopped at ten."""
+    return "leave" if group.learning else "pause"
 
 
 def _weak_ads(group: GroupToday) -> list[Finding]:
@@ -405,34 +395,15 @@ def _weak_ads(group: GroupToday) -> list[Finding]:
 
 
 def _rates(group: GroupToday) -> list[Finding]:
-    """The click rate, the showings' price and the frequency - at most one,
-    the first of them, since each asks for the same look at the advert.
+    """The frequency: a person shown the advert three times a week.
 
-    A rate is said only while the price is already going up with it. On any
-    one day a tenth of all groups sit under 70 % of their usual click rate
-    and cost what they always cost; that is a day, not a problem.
+    The click rate and the showings' price are never a message of their own.
+    Each moved only beside a price already rising, and a rise is said from
+    five usual prices on - with the two named as its causes.
     """
     if group.frequency is not None and group.frequency >= FREQUENCY_BAR:
         return [_rate(group, "frequency", "add_creative")]
-    if not _price_is_climbing(group):
-        return []
-    why = causes(group)
-    if "ctr" in why:
-        return [_rate(group, "ctr", "add_creative")]
-    if "cpm" in why and group.impressions >= MIN_RATE_IMPRESSIONS:
-        return [_rate(group, "cpm", "leave")]
     return []
-
-
-def _price_is_climbing(group: GroupToday) -> bool:
-    """One and a half usual prices for a result - or a usual price's worth
-    gone with none yet. Under three, where the price has its own message."""
-    usual = group.usual.cost_minor
-    if not usual:
-        return False
-    if group.results <= 0:
-        return group.spend_minor >= usual
-    return price_times(group) >= RATE_PRICE_PCT
 
 
 def _rate(group: GroupToday, kind: Kind, advice: Advice) -> Finding:
