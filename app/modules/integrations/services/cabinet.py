@@ -1051,7 +1051,7 @@ def release_summary(*, owner: User, released: Released) -> str:
     if released.emptied:
         return (
             "%(owner)s: %(page)s uzildi. Kabinetda sahifa qolmadi — "
-            "mijoz «Ulanishlar» ekranidan yangisini qo'shishi kerak."
+            "mijoz «Sozlash → Boshqaruv» bo'limidan yangisini qo'shishi kerak."
         ) % {"owner": owner.email, "page": str(page)}
     return "%(owner)s: %(page)s uzildi. O'rin bo'shadi." % {
         "owner": owner.email,

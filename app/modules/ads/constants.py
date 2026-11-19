@@ -897,7 +897,7 @@ GOOGLE_FAILURES: dict[str, Any] = {
     "phone": "Google telefon raqamini qabul qilmadi. Raqam saytingizda ko'rinib turishi kerak.",
     "policy": "Google matnni o'z qoidalariga zid deb topdi. Sarlavha va tavsiflarni o'zgartiring.",
     "busy": "Google hozir band. Bir daqiqadan keyin qayta bosing.",
-    "connection": "Google ruxsati ishlamayapti. «Ulanishlar» sahifasida qayta ulang.",
+    "connection": "Google ruxsati ishlamayapti. «Sozlash → Boshqaruv» bo'limida qayta ulang.",
     "google": "Google kampaniyani qabul qilmadi. Ma'lumotlarni tekshirib, qayta urinib ko'ring.",
 }
 # An unpaid subscription, counted from the moment it ended: its adverts made

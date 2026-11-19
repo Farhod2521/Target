@@ -21,7 +21,7 @@ def plans_text(db: Session, *, owner: User | None, now: datetime) -> str:
     from app.modules.billing.selectors.display import usd_rate
     from app.modules.billing.selectors.plans import is_first_only, sellable_plans
 
-    lines = ["## Plans this person may buy (on «Obuna va to'lov», /app/billing/)"]
+    lines = ["## Plans this person may buy (on [[obuna]])"]
     for plan in sellable_plans(db, owner=owner):
         price = format_minor(amount_minor=plan.price, currency=plan.currency)
         parts = [f"- «{plan.name}»: {price} for {plan.period_days} days"]

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.common.cache import cache
 from app.common.i18n import get_language
 from app.common.llm import prompts
+from app.common.places import keys_line
 from app.modules.accounts.models import User
 from app.modules.chat.constants import (
     ANSWER_MAX_TOKENS,
@@ -116,7 +117,10 @@ def start_turn(
         TURN_KEY.format(turn_id=turn_id),
         {
             "question": text,
-            "system": render(template, {"language": language, "context": ""}).rstrip(),
+            "system": render(
+                template,
+                {"language": language, "context": "", "places": keys_line()},
+            ).rstrip(),
             "system_tail": context.render(),
             "history": said,
             "figures": sorted(context.figures()),

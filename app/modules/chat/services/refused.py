@@ -249,7 +249,7 @@ def _words(exc: ProviderError) -> str | None:
 def _links(account: AdAccount | None) -> dict[str, Link]:
     if account is not None:
         return change_links(account.external_id)
-    return {"ulanish": Link("Ulanishlar", reverse("integrations:connections"))}
+    return {"ulanish": Link("Boshqaruv", reverse("integrations:connections"))}
 
 
 def _html(text: str, links: dict[str, Link]) -> str:

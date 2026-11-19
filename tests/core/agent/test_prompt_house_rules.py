@@ -78,7 +78,8 @@ def test_the_assistant_writes_a_name_the_way_the_screens_write_one() -> None:
     text = latest("chat_answer")
 
     assert "A name goes in «these brackets»" in text
-    assert "A screen is named bare" in text
+    # Since v29 a screen is its place key: the product writes its name, as a link.
+    assert "A screen is named by its key" in text
     assert "**No table**" in text
 
 

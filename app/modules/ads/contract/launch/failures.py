@@ -67,10 +67,10 @@ READY: Final[dict[LaunchErrorCode, Ready]] = {
         steps=(
             "business.facebook.com da «Settings» → «Accounts» → «Pages» ga kiring va sahifani tanlang.",
             "Ulangan profilingizga sahifa ustidan to'liq boshqaruv huquqini bering.",
-            "«Ulanishlar» sahifasida Meta qatoridagi «Qayta ulash» ni bosing.",
+            "«Sozlash → Boshqaruv» bo'limida Meta qatoridagi «Qayta ulash» ni bosing.",
             RETRY,
         ),
-        fix="Ulanishlarni ochish",
+        fix="Boshqaruvni ochish",
         to="connections",
     ),
     "account_action": Ready(
@@ -93,7 +93,7 @@ READY: Final[dict[LaunchErrorCode, Ready]] = {
         steps=(
             "«Account Quality'ni ochish» tugmasini bosing va akkauntingizni tanlang.",
             "Cheklov sababini o'qing. Xato deb hisoblasangiz, «Request review» (Ko'rib chiqishni so'rash) ni bosing.",
-            "Shoshilinch bo'lsa, «Ulanishlar» sahifasida boshqa reklama akkauntini tanlang.",
+            "Shoshilinch bo'lsa, «Sozlash → Boshqaruv» bo'limida boshqa reklama akkauntini tanlang.",
             RETRY,
         ),
         fix="Account Quality'ni ochish",
@@ -105,12 +105,12 @@ READY: Final[dict[LaunchErrorCode, Ready]] = {
         hint="Akkauntga ruxsati bor profil bilan qayta ulang",
         cause="Meta'ga hozir ulangan Facebook profilida bu reklama akkauntiga ruxsat yo'q. Ko'pincha sababi: Meta boshqa Facebook profil bilan qayta ulangan yoki profildan akkaunt roli olib qo'yilgan.",
         steps=(
-            "Agar ilgari boshqa Facebook profil bilan ishlagan bo'lsangiz, «Ulanishlar» sahifasida Meta'ni o'sha profil bilan qayta ulang.",
+            "Agar ilgari boshqa Facebook profil bilan ishlagan bo'lsangiz, «Sozlash → Boshqaruv» bo'limida Meta'ni o'sha profil bilan qayta ulang.",
             "Yoki akkaunt administratori business.facebook.com da «Settings» → «Accounts» → «Ad accounts» ga kirib, hozirgi profilingizga kamida «Advertiser» rolini bersin, keyin Meta'ni qayta ulang va oynada shu akkauntni belgilang.",
-            "Yoki «Ulanishlar» sahifasida shu profil kira oladigan boshqa reklama akkauntini tanlang.",
+            "Yoki «Sozlash → Boshqaruv» bo'limida shu profil kira oladigan boshqa reklama akkauntini tanlang.",
             RETRY,
         ),
-        fix="Ulanishlarni ochish",
+        fix="Boshqaruvni ochish",
         to="connections",
     ),
     "account_role": Ready(
@@ -120,10 +120,10 @@ READY: Final[dict[LaunchErrorCode, Ready]] = {
         steps=(
             "Reklama akkaunti administratoriga yozing.",
             "U business.facebook.com da «Settings» → «Accounts» → «Ad accounts» ga kirib, profilingizga kamida «Advertiser» rolini bersin.",
-            "Rol berilgach, «Ulanishlar» sahifasida Meta qatoridagi «Qayta ulash» ni bosing.",
+            "Rol berilgach, «Sozlash → Boshqaruv» bo'limida Meta qatoridagi «Qayta ulash» ni bosing.",
             RETRY,
         ),
-        fix="Ulanishlarni ochish",
+        fix="Boshqaruvni ochish",
         to="connections",
     ),
     "location_invalid": Ready(
@@ -308,10 +308,10 @@ READY: Final[dict[LaunchErrorCode, Ready]] = {
         cause="Reklama odamlarni Instagram profilga olib boradi, lekin sahifaga profil ulanmagan.",
         steps=(
             "Facebook sahifangiz sozlamalarida Instagram akkauntingizni ulang.",
-            "«Ulanishlar» sahifasida sahifalarni yangilang.",
+            "«Sozlash → Boshqaruv» bo'limida sahifalarni yangilang.",
             RETRY,
         ),
-        fix="Ulanishlarni ochish",
+        fix="Boshqaruvni ochish",
         to="connections",
     ),
     "profile_incomplete": Ready(
@@ -331,10 +331,10 @@ READY: Final[dict[LaunchErrorCode, Ready]] = {
         hint="Reklama akkauntini tanlang",
         cause="Bu reklama uchun reklama akkaunti tanlanmagan.",
         steps=(
-            "«Ulanishlarni ochish» tugmasini bosing va akkauntni tanlang.",
+            "«Boshqaruvni ochish» tugmasini bosing va akkauntni tanlang.",
             RETRY,
         ),
-        fix="Ulanishlarni ochish",
+        fix="Boshqaruvni ochish",
         to="connections",
     ),
     "not_launchable": Ready(
@@ -357,7 +357,7 @@ READY: Final[dict[LaunchErrorCode, Ready]] = {
             "5–10 daqiqa kuting va «Qayta urinish» ni bosing.",
             "Takrorlansa, «Supportga murojaat» ni bosing.",
         ),
-        fix="Ulanishlarni tekshirish",
+        fix="Boshqaruvni tekshirish",
         to="connections",
     ),
 }
@@ -432,11 +432,11 @@ def _help(code: LaunchErrorCode, c: Context) -> dict[str, Any]:
             "say": "Facebook bilan ulanish uzilgan — Meta so'rovimizni qabul qilmadi. Qayta ulash 1 daqiqa oladi.",
             "title": "Facebook bilan ulanish uzilgan",
             "hint": "Facebook'ni qayta ulang",
-            "explain": "Facebook bergan ruxsat muddati tugagan yoki reklama uchun kerakli ruxsat olib tashlangan. Ulanishlar sahifasida Facebook'ni qayta ulang va qayta urining.",
+            "explain": "Facebook bergan ruxsat muddati tugagan yoki reklama uchun kerakli ruxsat olib tashlangan. «Sozlash → Boshqaruv» bo'limida Facebook'ni qayta ulang va qayta urining.",
             "guide": {
                 "cause": "Facebook bergan ruxsat muddati tugagan (Facebook parolini o'zgartirganda ham shunday bo'ladi) yoki ulashda reklama hisobini boshqarish ruxsati olib tashlangan.",
                 "steps": [
-                    "«Facebook'ni qayta ulash» tugmasini bosing — «Ulanishlar» sahifasi ochiladi.",
+                    "«Facebook'ni qayta ulash» tugmasini bosing — «Sozlash → Boshqaruv» bo'limi ochiladi.",
                     "Meta qatoridagi «Qayta ulash» ni bosing va Facebook'ga kiring.",
                     "Ruxsatlar oynasida hamma belgilarni yoqilgan holda qoldiring: sahifa, reklama hisobi va lid formalari. Birortasini o'chirsangiz, reklama yaratilmaydi.",
                     "Reklama hisobi va sahifa to'g'ri tanlanganini tekshiring.",
@@ -458,7 +458,7 @@ def _help(code: LaunchErrorCode, c: Context) -> dict[str, Any]:
                     "«Account Quality'ni ochish» tugmasini bosing — Meta'ning hisob holati sahifasi ochiladi.",
                     "Chapdagi ro'yxatdan sahifangizni tanlang va cheklov sababini o'qing.",
                     "Cheklov xato deb hisoblasangiz, «Request review» (Ko'rib chiqishni so'rash) ni bosing va Meta so'ragan ma'lumotni yuboring. Javob odatda 1–3 kunda keladi.",
-                    "Cheklov olib tashlangach, «Reklamani yaratib bo'lmadi» sahifasiga qaytib «Qayta urinish» ni bosing. Shoshilinch bo'lsa, «Ulanishlar» da boshqa sahifani tanlashingiz mumkin.",
+                    "Cheklov olib tashlangach, «Reklamani yaratib bo'lmadi» sahifasiga qaytib «Qayta urinish» ni bosing. Shoshilinch bo'lsa, «Sozlash → Boshqaruv» bo'limida boshqa sahifani tanlashingiz mumkin.",
                 ],
             },
             "fix": {
@@ -497,13 +497,13 @@ def _help(code: LaunchErrorCode, c: Context) -> dict[str, Any]:
         "guide": {
             "cause": c.detail or "Meta aniq sababini aytmadi.",
             "steps": [
-                "«Ulanishlarni tekshirish» ni bosing va Meta ulanishi «Faol» ekanini ko'ring.",
+                "«Boshqaruvni tekshirish» ni bosing va Meta ulanishi «Faol» ekanini ko'ring.",
                 "business.facebook.com da reklama hisobingizda qizil ogohlantirish yo'qligini tekshiring.",
                 RETRY,
                 "Yana takrorlansa, «Supportga murojaat» ni bosing — Telegram'da mutaxassisga shu sahifadagi xato nomini yozing, u tekshirib javob beradi.",
             ],
         },
-        "fix": {"label": "Ulanishlarni tekshirish", "to": "connections"},
+        "fix": {"label": "Boshqaruvni tekshirish", "to": "connections"},
     }
 
 

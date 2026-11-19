@@ -175,3 +175,64 @@ def test_a_handover_that_breaks_keeps_the_answer(
     thread = client.get(f"/api/v1/chat/threads/{turn['session_id']}", headers=headers)
     assert thread.json()["messages"][-1]["handoff"] == "not_sent"
     assert db.scalar(select(SupportMessage)) is None
+
+
+class _Places(_Unsure):
+    def _answer(self, **asked: Any) -> _Stream:
+        text = [
+            "1. [[kirish]] da «Parolni unutdingizmi?» ni bosing.\n",
+            "2. [[kiri",
+            "sh_yordam]]",
+        ]
+        return _Stream(
+            pieces=text,
+            result=LLMResult(
+                value="".join(text),
+                input_tokens=10,
+                output_tokens=5,
+                cost_micros=1,
+                currency="USD",
+                latency_ms=1,
+                prompt_name=asked.get("prompt_name", ""),
+                prompt_version=asked.get("prompt_version", ""),
+                model="test",
+            ),
+        )
+
+
+def test_a_visitor_gets_the_places_as_links(
+    client: TestClient, db: Session, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    """The site draws the answer's HTML as it is: a place is an anchor with
+    its name, and the stored words carry the name, never the key."""
+
+    @contextmanager
+    def places(**_: Any):  # type: ignore[no-untyped-def]
+        yield _Places()
+
+    monkeypatch.setattr("app.modules.chat.services.answer.claude", places)
+    turn = client.post(
+        "/api/v1/chat/ask",
+        json={"question": "Parolni unutdim", "guest_id": "g"},
+    ).json()
+    _answer(db, turn["turn_id"])
+
+    streamed = client.get(f"/api/v1/chat/stream/{turn['turn_id']}").text
+    assert '/accounts/login/\\" class=\\"underline\\">Страница входа</a>»' in streamed
+    assert "/accounts/login/?yordam=chat" in streamed
+    assert "[[" not in streamed
+
+    headers = sign_up(client)
+    owner, account, page = _account(db)
+    _mirror(db, owner, account, page)
+    asked = client.post(
+        "/api/v1/chat/ask", json={"question": "Parolni unutdim"}, headers=headers
+    ).json()
+    _answer(db, asked["turn_id"])
+    row = db.scalar(
+        select(ChatMessage).where(
+            ChatMessage.owner_id == owner.id, ChatMessage.role == "assistant"
+        )
+    )
+    assert row is not None and row.text.startswith("1. «"), row and row.text
+    assert "[[" not in row.text and "<a href=" in row.html

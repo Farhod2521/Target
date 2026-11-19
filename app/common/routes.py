@@ -357,6 +357,7 @@ ROUTES: dict[str, str] = {
     "surveys:due": "/app/sorovnoma/",
     "surveys:later": "/app/sorovnoma/keyinroq/",
     "telegram_webhook": "/webhooks/telegram/",
+    "tutorials:list": "/app/tutorials/",
 }
 _ARG = re.compile(r"<(?:\w+:)?(\w+)>")
 

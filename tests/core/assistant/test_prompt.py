@@ -32,7 +32,9 @@ def _latest() -> str:
 def test_the_base_is_short_and_every_section_is_marked() -> None:
     prompt = split(_latest())
 
-    assert len(prompt.base.splitlines()) < 300
+    # v5 added «Where things are» (the cabinet's menu) to the cached base:
+    # most answers name a place, and the tail is paid in full every turn.
+    assert len(prompt.base.splitlines()) < 380
     assert set(prompt.sections) == {*BY_HEADING, *BY_WORD, VISITOR}
     assert "<!--" not in prompt.base
     for text in prompt.sections.values():

@@ -474,14 +474,22 @@ def publish(
     stopped: bool = False,
     lessons: list[dict[str, str]] | None = None,
     rateable: bool = True,
+    links: list[dict[str, str]] | None = None,
 ) -> None:
     """The answer so far, as the stream's door reads it. ``html`` is drawn
-    once, with the last frame: the page writes ``delta`` as it arrives."""
+    once, with the last frame: the page writes ``delta`` as it arrives.
+    A place the model named as ``[[key]]`` is shown by its name, and linked
+    under the last frame."""
+    from app.common.places import linked
+
+    placed = linked(text, language=str(payload.get("language", "")), done=done)
+    text = placed.text
     cache.set(
         OUT_KEY.format(turn_id=turn_id),
         {
             "text": text,
             "html": render(text) if done else "",
+            "links": (placed.links if links is None else links) if done else [],
             "done": done,
             "error": error,
             "masked": masked,
@@ -604,6 +612,10 @@ def _finish(
             extra={"prompt_version": payload.get("prompt_version", "")},
         )
         text, replies = f"{text}…\n\n**{CUT_SHORT}**", [str(CARRY_ON)]
+    from app.common.places import linked
+
+    placed = linked(text, language=str(payload.get("language", "")))
+    text = placed.text
     if desk.tickets and desk.owner is None:
         _keep_for_guest(turn_id, payload=payload, ticket=desk.tickets[0], answer=text)
     waiting: dict[str, Any] = {}
@@ -628,6 +640,7 @@ def _finish(
         buttons=buttons,
         replies=replies,
         lessons=lessons,
+        links=placed.links,
     )
     record_llm_result(
         db,
@@ -647,7 +660,11 @@ def _finish(
         replies=replies,
         now=now,
         lessons=lessons,
-        extra={"ticket_waiting": waiting} if waiting else None,
+        extra={
+            **({"ticket_waiting": waiting} if waiting else {}),
+            **({"links": placed.links} if placed.links else {}),
+        }
+        or None,
     )
     # Last: the person already has the answer on the screen.
     _note_gap(db, payload=payload, desk=desk, now=now)

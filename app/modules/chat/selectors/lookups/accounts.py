@@ -139,7 +139,7 @@ def _left_out_accounts(db: Session, *, owner: User) -> list[str]:
     more = " and more" if len(rows) > LEFT_OUT_ROWS else ""
     return [
         f"- connected but not in the subscription: {names}{more}. It is "
-        "switched on on Ulanishlar."
+        "switched on on [[boshqaruv]] («Obunaga qo'shish»)."
     ]
 
 

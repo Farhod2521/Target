@@ -213,7 +213,7 @@ def refusal_links(launch: CampaignLaunch) -> dict[str, Link]:
         "reja": Link("Reklama sozlamalari", reverse("ads:launch_plan", args=[pk])),
         "media": Link("Rasm va video", reverse("ads:launch_media", args=[pk])),
         "forma": Link("Forma", reverse("ads:launch_form", args=[pk])),
-        "ulanish": Link("Ulanishlar", reverse("integrations:connections")),
+        "ulanish": Link("Boshqaruv", reverse("integrations:connections")),
         "tolov": Link("To'lov sahifasini ochish", billing_url(account)),
         "ads_manager": Link("Ads Manager'ni ochish", manager_url(account)),
         "akkaunt_sifati": Link("Akkaunt holati (Meta)", ACCOUNT_QUALITY_URL),

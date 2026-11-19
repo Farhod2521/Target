@@ -613,7 +613,7 @@ def test_account_health_names_the_problem_and_its_fix(
     assert "PROBLEM: the account is blocked" in text
     assert "To'lov tekshirilmoqda" in text
     assert "PROBLEM: Facebook is not connected." in text
-    assert "Fix: connect it on Ulanishlar" in text
+    assert "Fix: connect it on [[boshqaruv]]" in text
 
 
 def test_a_visitor_is_asked_for_a_phone_and_a_guest_chat_opens(
@@ -986,3 +986,34 @@ def test_an_answer_stopped_before_it_began_costs_nothing(
     row = _thread(client, headers, turn["session_id"])["messages"][-1]
     assert (row["status"], row["text"], row["meta"]) == ("done", "", {"stopped": True})
     assert db.scalar(select(func.count()).select_from(LLMCall)) == 0
+
+
+def test_a_place_the_answer_names_is_its_name_and_a_link(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``[[key]]`` reaches the reader as the place's name, never as the key
+    or an address, and rides the answer as ``links`` that open it."""
+    from app.common.config import settings
+
+    headers, _owner = _with_plan(client, db)
+    script = _Script(
+        calls=[],
+        words=["1. [[boshq", "aruv]] → «Meta ulanishi» → «Qayta ulash».", " [[nima]]"],
+    )
+    turn = _ask(client, db, headers, monkeypatch, script, question="Meta uzildi")
+
+    answer = _thread(client, headers, turn["session_id"])["messages"][1]
+    assert answer["text"].startswith("1. «Sozlash → Boshqaruv» → «Meta ulanishi»")
+    assert "[[" not in answer["text"] and "/app/" not in answer["text"]
+    link = {
+        "key": "boshqaruv",
+        "title": "Sozlash → Boshqaruv",
+        "url": f"{settings.site_url}/app/connections/",
+    }
+    assert answer["meta"]["links"] == [link]
+
+    frames = _frames(
+        client.get(f"{URL}/stream/{turn['turn_id']}", headers=headers).text
+    )
+    assert frames[-1]["links"] == [link]
+    assert not any("[[" in str(frame.get("delta", "")) for frame in frames)
