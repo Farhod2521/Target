@@ -16,6 +16,7 @@ from app.modules.ads import refs as ref_field
 from app.modules.ads.constants import (
     LAPSE_LAST_WARNING,
     LAPSE_MARK,
+    LAPSE_PAUSE_AFTER,
     NOT_RUNNING,
     LaunchStatus,
     LaunchStep,
@@ -105,10 +106,17 @@ def _spends(delivery: str) -> bool:
 
 
 def lapse_candidates(db: Session, *, now: datetime) -> dict[uuid.UUID, datetime]:
+    """The unpaid owners whose adverts are due to stop: a day after the end."""
     from app.modules.billing.selectors import lapsed_deadlines
 
     makers = set(_makers(db, CampaignLaunch)) | set(_makers(db, GoogleLaunch))
-    ended = lapsed_deadlines(db, owner_ids=makers, now=now)
+    ended = {
+        owner_id: deadline
+        for owner_id, deadline in lapsed_deadlines(
+            db, owner_ids=makers, now=now
+        ).items()
+        if deadline + LAPSE_PAUSE_AFTER <= now
+    }
     held: dict[uuid.UUID, datetime] = {}
     if ended:
         for owner_id, ended_at in db.execute(
@@ -203,8 +211,10 @@ def stops_in_flight(stops: list[Any]) -> bool:
 
 
 def last_warning_due(*, hold: LapseHold, now: datetime) -> bool:
+    """A day before the deletion."""
     return (
-        hold.is_open and hold.started_at + LAPSE_LAST_WARNING <= now < hold.delete_after
+        hold.is_open
+        and hold.delete_after - LAPSE_LAST_WARNING <= now < hold.delete_after
     )
 
 

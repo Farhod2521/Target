@@ -11,8 +11,10 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.cache import cache
+from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.ads.constants import (
+    LAPSE_DELETE_AFTER,
     MIRROR_SWEEP,
     NOT_RUNNING,
     SYNC_OUTCOME_KEY,
@@ -45,14 +47,23 @@ def _readable() -> Select[Any]:
     )
 
 
-def _frequently(*, now: datetime) -> Select[Any]:
+def _synced_owners(*, now: datetime) -> Select[Any]:
+    """Whose accounts are read at all: a running subscription, or one ended
+    less than 72 hours ago, while its adverts are stopped and then deleted.
+    After that nothing is read until the owner pays again."""
     from app.modules.billing.selectors import recently_entitled_owner_ids
 
+    return recently_entitled_owner_ids(since=now - LAPSE_DELETE_AFTER)
+
+
+def _frequently(*, now: datetime) -> Select[Any]:
+    """The subscription first; of those, only accounts with something running
+    (or never read) are read each half hour - the rest wait for the night."""
     return select(AdAccount).where(
-        or_(AdAccount.synced_at.is_(None), AdAccount.id.in_(_live_campaign_accounts())),
+        AdAccount.owner_id.in_(_synced_owners(now=now)),
         AdAccount.is_active.is_(True),
-        AdAccount.owner_id.in_(recently_entitled_owner_ids(now=now)),
         AdAccount.connection_id.in_(_readable()),
+        or_(AdAccount.synced_at.is_(None), AdAccount.id.in_(_live_campaign_accounts())),
     )
 
 
@@ -74,22 +85,25 @@ def library_swept_account_ids(db: Session, *, now: datetime) -> list[uuid.UUID]:
     return list(db.scalars(query))
 
 
-def _nightly() -> Select[Any]:
-    from app.modules.billing.selectors import subscribed_owner_ids
-
+def _nightly(*, now: datetime) -> Select[Any]:
     return select(AdAccount).where(
+        AdAccount.owner_id.in_(_synced_owners(now=now)),
         AdAccount.is_active.is_(True),
-        AdAccount.owner_id.in_(subscribed_owner_ids()),
         AdAccount.connection_id.in_(_readable()),
     )
 
 
-def nightly_swept_accounts(db: Session) -> list[AdAccount]:
-    return list(db.scalars(_nightly()))
+def nightly_swept_accounts(
+    db: Session, *, now: datetime | None = None
+) -> list[AdAccount]:
+    return list(db.scalars(_nightly(now=now or utcnow())))
 
 
-def nightly_swept_account_ids(db: Session) -> list[uuid.UUID]:
-    return list(db.scalars(_nightly().with_only_columns(AdAccount.id)))
+def nightly_swept_account_ids(
+    db: Session, *, now: datetime | None = None
+) -> list[uuid.UUID]:
+    query = _nightly(now=now or utcnow()).with_only_columns(AdAccount.id)
+    return list(db.scalars(query))
 
 
 def nightly_due_account_ids(
@@ -99,7 +113,7 @@ def nightly_due_account_ids(
     clock, and Meta closes its figures by that clock, not the owner's."""
     return [
         account.id
-        for account in nightly_swept_accounts(db)
+        for account in nightly_swept_accounts(db, now=now)
         if now.astimezone(account.tzinfo()).hour == hour
     ]
 

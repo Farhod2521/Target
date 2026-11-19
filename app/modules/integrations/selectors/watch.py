@@ -199,7 +199,7 @@ def mirror_age(db: Session, *, now: datetime) -> MirrorAge:
 
     watched = [
         account
-        for account in nightly_swept_accounts(db)
+        for account in nightly_swept_accounts(db, now=now)
         if account.connection is not None
         and account.connection.provider == META
         and account.connection.status in USABLE_CONNECTION_STATUSES

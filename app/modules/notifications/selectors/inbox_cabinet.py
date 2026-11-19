@@ -160,8 +160,9 @@ def _subscription(
             level="decision",
             title="Obuna muddati tugayapti",
             body=(
-                "%(days)d kundan keyin platformada yaratilgan reklamalar "
-                "to'xtatiladi, yana 3 kunda to'lanmasa o'chiriladi."
+                "Obuna %(days)d kundan keyin tugaydi. Tugaganidan 24 soat "
+                "o'tib platformada yaratilgan reklamalar to'xtatiladi, "
+                "72 soat ichida to'lanmasa o'chiriladi."
             )
             % {"days": left},
             since=live.expires_at,

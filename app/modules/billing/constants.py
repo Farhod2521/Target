@@ -232,8 +232,6 @@ SETTLED_INVOICE_STATUSES = (
     InvoiceStatus.EXPIRED,
     InvoiceStatus.REFUNDED,
 )
-LAPSED_SWEEP_DAYS: Final = 30
-
 # Multicard's sandbox shop. Never offered in a list of payment methods: a
 # test account reaches it by picking Rahmat (billing.services.providers).
 MULTICARD_TEST_NAME = "multicard_test"

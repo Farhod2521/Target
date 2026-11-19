@@ -16,6 +16,7 @@ from app.modules.accounts.models import User
 from app.modules.ads.constants import (
     BLOCK_DELETE_AFTER,
     LAPSE_DELETE_AFTER,
+    LAPSE_LAST_WARNING,
     LAPSE_MARK,
     ManagedLevel,
 )
@@ -46,7 +47,7 @@ STOP_REASON = (
     "Obuna muddati tugagani uchun to'xtatildi. To'lov qilinsa, o'zi qayta yoqiladi."
 )
 RESUME_REASON = "To'lov qilingani uchun qayta yoqildi."
-REMOVE_REASON = "Obuna 3 kun ichida yangilanmagani uchun o'chirildi."
+REMOVE_REASON = "Obuna 72 soat ichida yangilanmagani uchun o'chirildi."
 PAGE_STOP_REASON = "Sahifa obunadan uzilgani uchun to'xtatildi."
 PAGE_REMOVE_REASON = "Sahifa uzilganiga 3 kun bo'lgani uchun o'chirildi."
 BLOCK_STOP_REASON = "Akkaunt bloklangani uchun to'xtatildi."
@@ -88,6 +89,13 @@ def _mark(db: Session, *, log: ActionLog, hold: LapseHold) -> None:
     db.flush()
 
 
+def lapse_deletion(*, ended: datetime, now: datetime) -> datetime:
+    """72 hours after the end, but never sooner than a day after the stop: a
+    hold opened late (a sweep that did not run, an end long past) still gives
+    the owner the last warning and a day to pay."""
+    return max(ended + LAPSE_DELETE_AFTER, now + LAPSE_LAST_WARNING)
+
+
 def open_lapse_hold(db: Session, *, owner: User, now: datetime) -> LapseHold | None:
     from app.modules.billing.selectors import subscription_ended_at
 
@@ -111,7 +119,7 @@ def open_lapse_hold(db: Session, *, owner: User, now: datetime) -> LapseHold | N
         owner_id=owner.id,
         ended_at=ended,
         started_at=now,
-        delete_after=now + LAPSE_DELETE_AFTER,
+        delete_after=lapse_deletion(ended=ended, now=now),
     )
     try:
         with db.begin_nested():

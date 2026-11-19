@@ -1,7 +1,7 @@
 import math
 import uuid
 from collections.abc import Collection
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from metaads import PROVIDER
 from sqlalchemy import Select, func, select
@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session, joinedload
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.billing.constants import (
-    LAPSED_SWEEP_DAYS,
     LIVE_SUBSCRIPTION_STATUSES,
     SubscriptionStatus,
 )
@@ -166,11 +165,10 @@ def subscribed_owner_ids(db: Session | None = None) -> Select[tuple[uuid.UUID]]:
 
 
 def recently_entitled_owner_ids(
-    db: Session | None = None, *, now: datetime
+    db: Session | None = None, *, since: datetime
 ) -> Select[tuple[uuid.UUID]]:
-    return select(Subscription.owner_id).where(
-        Subscription.expires_at > now - timedelta(days=LAPSED_SWEEP_DAYS)
-    )
+    """The owners whose subscription runs, or ended after ``since``."""
+    return select(Subscription.owner_id).where(Subscription.expires_at > since)
 
 
 def entitled_owner_ids(

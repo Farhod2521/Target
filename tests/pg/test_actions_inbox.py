@@ -157,7 +157,7 @@ def test_subscription_ending(client: TestClient, db: Session) -> None:
     assert item["kind"] == "subscription" and item["level"] == "decision"
     assert item["key"] == f"subscription:{expires:%Y-%m-%d}:3"
     assert item["title"] == "Obuna muddati tugayapti"
-    assert item["body"].startswith("3 kundan keyin platformada yaratilgan reklamalar")
+    assert item["body"].startswith("Obuna 3 kundan keyin tugaydi. Tugaganidan 24 soat")
     assert item["action"] == "Yangilash" and item["href"] == "/app/billing/"
     assert item["ask"] == {
         "label": "AI dan so'rash",

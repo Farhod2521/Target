@@ -15,13 +15,19 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.common.cache import cache
 from app.modules.accounts.models import User
-from app.modules.ads.constants import LaunchStatus
-from app.modules.ads.models import CampaignLaunch
+from app.modules.ads.constants import LAPSE_MARK, NOT_RUNNING, Delivery, LaunchStatus
+from app.modules.ads.models import AdSet, Campaign, CampaignLaunch, LapseHold
+from app.modules.audit.constants import ActionStatus, ActionType
+from app.modules.audit.models import ActionLog
 from app.modules.backoffice.constants import EXPIRING_DAYS, STUCK_HOLD_HOURS, Severity
 from app.modules.backoffice.selectors.days import days_left
 from app.modules.billing.constants import LIVE_SUBSCRIPTION_STATUSES
 from app.modules.billing.models import Subscription
-from app.modules.billing.selectors import expiring_subscriptions, held_transactions
+from app.modules.billing.selectors import (
+    entitled_owner_ids,
+    expiring_subscriptions,
+    held_transactions,
+)
 from app.modules.integrations.models import AdAccount
 from app.modules.integrations.selectors import broken_meta_connections
 from app.modules.leads.constants import SWEEP_STUCK_DAYS
@@ -30,6 +36,7 @@ from app.modules.metrics.selectors import GAP_DAYS, lead_gaps_everywhere
 
 logger = logging.getLogger(__name__)
 ORPHAN_WINDOW_DAYS = 30
+LAPSE_LEFT_DAYS = 7
 EVERY_PROBLEM_KEY = "office:problems:v1"
 EVERY_PROBLEM_SECONDS = 60
 FEED_ROWS = 20
@@ -44,6 +51,7 @@ SHORT_LABELS = {
     "hold": "To'lov tugamagan",
     "expiring": "Obuna tugayapti",
     "setup": "Sozlash tugamagan",
+    "lapse_left": "Reklama o'chirilmadi",
 }
 
 
@@ -121,6 +129,98 @@ def _ad_accounts(db: Session, *, limit: int | None) -> list[Problem]:
             )
         )
     return found
+
+
+def _lapse_left(db: Session, *, now: datetime, limit: int | None) -> list[Problem]:
+    """An unpaid owner's adverts the hold closed over without deleting: Meta
+    refused the delete (a blocked account, most often) and nobody asks again.
+
+    Shown while the owner is still unpaid and the advert is still there at
+    Meta as far as the mirror knows; a person deletes it or the owner pays.
+    """
+    from sqlalchemy import String, cast, func, type_coerce, union_all
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    payload = type_coerce(ActionLog.request_payload, JSONB)
+    deletes = (
+        select(
+            ActionLog.owner_id,
+            ActionLog.target_external_id,
+            ActionLog.status,
+            ActionLog.created_at,
+            func.row_number()
+            .over(
+                partition_by=(ActionLog.owner_id, ActionLog.target_external_id),
+                order_by=ActionLog.created_at.desc(),
+            )
+            .label("newest"),
+        )
+        .join(LapseHold, cast(LapseHold.id, String) == payload[LAPSE_MARK].astext)
+        .where(
+            ActionLog.action.in_(
+                [str(ActionType.DELETE_CAMPAIGN), str(ActionType.DELETE_ADSET)]
+            ),
+            LapseHold.deleted_at.is_not(None),
+            LapseHold.page_id.is_(None),
+            # The mirror stops reading an unpaid owner's accounts with the
+            # deletion, so it cannot see a person deleting the advert by hand:
+            # the warning keeps a week, then the office has had its chance.
+            ActionLog.created_at >= now - timedelta(days=LAPSE_LEFT_DAYS),
+        )
+        .subquery()
+    )
+    still_there = union_all(
+        select(Campaign.owner_id, Campaign.external_id, Campaign.delivery),
+        select(AdSet.owner_id, AdSet.external_id, AdSet.delivery),
+    ).subquery()
+    query = (
+        select(
+            deletes.c.owner_id,
+            func.count().label("left"),
+            func.bool_or(
+                still_there.c.delivery.not_in([str(d) for d in NOT_RUNNING])
+            ).label("running"),
+            func.max(deletes.c.created_at).label("since"),
+        )
+        .join(
+            still_there,
+            (still_there.c.owner_id == deletes.c.owner_id)
+            & (still_there.c.external_id == deletes.c.target_external_id),
+        )
+        .where(
+            deletes.c.newest == 1,
+            deletes.c.status != str(ActionStatus.APPLIED),
+            still_there.c.delivery != str(Delivery.FINISHED),
+            deletes.c.owner_id.not_in(entitled_owner_ids(now=now)),
+        )
+        .group_by(deletes.c.owner_id)
+        .order_by(func.max(deletes.c.created_at))
+    )
+    if limit:
+        query = query.limit(limit)
+    rows = db.execute(query).all()
+    users = {
+        user.id: user
+        for user in db.scalars(
+            select(User).where(User.id.in_([r.owner_id for r in rows]))
+        )
+    }
+    return [
+        Problem(
+            kind="lapse_left",
+            severity=Severity.URGENT if row.running else Severity.WAITING,
+            owner_id=row.owner_id,
+            who=users[row.owner_id].email if row.owner_id in users else "",
+            what=(
+                f"Obuna to'lanmagan, {row.left} ta reklamani Meta o'chirtirmadi"
+                + (" — hali yoqilgan" if row.running else "")
+                + ". Ads Manager'da qo'lda o'chiring"
+            ),
+            since=row.since,
+            action="Ko'rish",
+        )
+        for row in rows
+    ]
 
 
 def _orphans(db: Session, *, now: datetime) -> list[Problem]:
@@ -281,6 +381,7 @@ def problems(
         + _lead_gaps(db, now=now, limit=limit)
         + _stuck_sweeps(db, now=now, limit=limit)
         + _launches(db, limit=limit)
+        + _lapse_left(db, now=now, limit=limit)
         + _orphans(db, now=now)
         + _holds(db, now=now, limit=limit)
         + _expiring(db, now=now, limit=limit)

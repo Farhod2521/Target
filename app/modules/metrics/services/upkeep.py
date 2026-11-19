@@ -182,7 +182,7 @@ def report_unfinished_figures(db: Session, *, now: datetime) -> int:
     ready = now - timedelta(hours=FIGURES_NEW_ACCOUNT_HOURS)
     watched = [
         (account.id, account.external_id)
-        for account in nightly_swept_accounts(db)
+        for account in nightly_swept_accounts(db, now=now)
         if account.created_at < ready
     ]
     if not watched:

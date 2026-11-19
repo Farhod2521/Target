@@ -900,10 +900,15 @@ GOOGLE_FAILURES: dict[str, Any] = {
     "connection": "Google ruxsati ishlamayapti. «Ulanishlar» sahifasida qayta ulang.",
     "google": "Google kampaniyani qabul qilmadi. Ma'lumotlarni tekshirib, qayta urinib ko'ring.",
 }
-LAPSE_DELETE_AFTER: Final = timedelta(days=3)
+# An unpaid subscription, counted from the moment it ended: its adverts made
+# here stop after the first, are deleted after the second, and its accounts
+# are not read from Meta any more after the second either.
+LAPSE_PAUSE_AFTER: Final = timedelta(hours=24)
+LAPSE_DELETE_AFTER: Final = timedelta(hours=72)
 # A blocked account's adverts made here: stopped at once, deleted after this.
 BLOCK_DELETE_AFTER: Final = timedelta(hours=24)
-LAPSE_LAST_WARNING: Final = timedelta(hours=48)
+# The last warning goes this long before the deletion.
+LAPSE_LAST_WARNING: Final = timedelta(hours=24)
 LAPSE_MARK: Final = "lapse_hold"
 
 

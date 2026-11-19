@@ -180,7 +180,7 @@ def expiry_message(*, plan_name: str, until: str, days: int, price: str) -> Mess
     lines += [
         "",
         escaped(
-            "%(count)d kun qoldi. Obuna tugashi bilan platformada yaratilgan reklamalaringiz to'xtatiladi. 3 kun ichida to'lov qilinmasa, ular butunlay o'chiriladi. Lidlar va raqamlar joyida qoladi."
+            "%(count)d kun qoldi. Obuna tugaganidan 24 soat o'tib platformada yaratilgan reklamalaringiz to'xtatiladi. Obuna tugaganidan 72 soat ichida to'lov qilinmasa, ular butunlay o'chiriladi. Lidlar va raqamlar joyida qoladi."
             % {"count": days}
         ),
         "",
