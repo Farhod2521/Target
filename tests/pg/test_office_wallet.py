@@ -423,11 +423,12 @@ def test_a_payout_recorded_by_hand_shows_in_the_history(
     ("role", "sections"),
     [
         (Role.SUPPORT, ["home", "clients", "promo", "plans", "payouts", "reviews", "surveys", "tutorials", "chat", "refusals", "tg"]),
-        (Role.FINANCE, ["home", "clients", "promo", "plans", "payouts", "reviews", "surveys", "tutorials", "refusals", "tg"]),
+        (Role.FINANCE, ["home", "stats", "clients", "promo", "plans", "payouts", "reviews", "surveys", "tutorials", "refusals", "tg"]),
         (
             Role.OWNER,
             [
                 "home",
+                "stats",
                 "ai",
                 "clients",
                 "payments",

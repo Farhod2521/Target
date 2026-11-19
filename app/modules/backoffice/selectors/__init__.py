@@ -84,6 +84,7 @@ class Shell:
         """The office screens this reader may open, in the rail's order."""
         doors = (
             ("home", self.can_give),
+            ("stats", self.can_grant),
             ("ai", self.is_owner),
             ("clients", self.can_give),
             ("payments", self.is_owner),
