@@ -649,13 +649,29 @@ def guard_creative(alert_id: uuid.UUID, db: Db, user: CurrentUser) -> dict[str, 
 def guard_answer(
     alert_id: uuid.UUID, answer: str, db: Db, user: CurrentUser
 ) -> dict[str, Any]:
-    """One answer to a finding: stop, lower the budget, leave, switch back on."""
+    """One answer to a finding: stop, lower the budget, leave, switch back on -
+    or, after a second look found it over, «confirm» / «cancel». A late
+    change is checked against today's figures first; the phone's message
+    about the finding is rewritten with what became of it."""
+    from app.modules.agent.guard_follow_copy import follow_text
     from app.modules.agent.services.answer_guard import answer_guard
+    from app.modules.notifications.tasks import tell_guard_outcome_task
 
     try:
-        answer_guard(db, user=user, alert_id=str(alert_id), answer=answer, now=utcnow())
+        done = answer_guard(
+            db, user=user, alert_id=str(alert_id), answer=answer, now=utcnow()
+        )
     except DomainError:
         db.rollback()
         raise
     db.commit()
-    return _answered(db, user, guard_said(answer))
+    tell_guard_outcome_task.delay(str(done.row.id))
+    if done.state == "checking":
+        said = follow_text("said.checking")
+    elif done.state == "cancelled":
+        said = follow_text("said.cancel")
+    else:
+        said = guard_said(done.answer)
+    # ``state``: «checking» is answered later - the screen reads the list
+    # again until the question or the change is there.
+    return _answered(db, user, said) | {"state": done.state}

@@ -18,7 +18,10 @@ row a group and kind:
   finding stays a warning, and only a page that does not open still stops;
 - a stop pauses the group at the provider, as the agent, and keeps the
   day's figures on the row: switched back on the same day, the group is
-  counted from there.
+  counted from there. A stop the provider refused is not asked again that
+  day: the row stays open as the refusal, with the buttons to press;
+- only a group one of the owner's page and ad account pairs holds is
+  judged: a group of a page no pair has is nobody's to warn about here.
 
 Nothing here sends a message: the rows are what the notices are written from.
 """
@@ -35,8 +38,10 @@ from app.common.exceptions import DomainError
 from app.modules.accounts.models import User
 from app.modules.ads import actions
 from app.modules.ads.constants import ManagedLevel
+from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.ads.services.manage import FOR_ADSET, Origin, switch_of
 from app.modules.agent.constants import GUARD_STOP_MARK
+from app.modules.agent.guard_copy import stop_refused
 from app.modules.agent.models import GuardAlert
 from app.modules.agent.selectors.guard import (
     COUNTED,
@@ -66,19 +71,42 @@ def run_guard(db: Session, *, owner: User, now: datetime, may_stop: bool = True)
     ``may_stop`` is off for an owner who switched the agent off: every
     finding is then a warning, and the stop is theirs to press.
     """
+    from app.modules.ads.selectors.pages import page_scope
     from app.modules.integrations.selectors.slots import enabled_ad_accounts
 
     changed = 0
+    scope: PageScope | None = None
     for account in enabled_ad_accounts(db, owner=owner):
         if fresh(db, owner=owner, account=account, now=now):
+            if scope is None:
+                scope = page_scope(db, owner=owner)
             changed += _account(
-                db, owner=owner, account=account, now=now, may_stop=may_stop
+                db,
+                owner=owner,
+                account=account,
+                now=now,
+                may_stop=may_stop,
+                scope=scope,
             )
     return changed
 
 
+def in_pair(scope: PageScope, *, account: AdAccount, adset_id: str) -> bool:
+    """Whether one of the owner's pairs holds this group, under this account."""
+    return (
+        scope.allows_adset(adset_id)
+        and scope.account_of.get(adset_id, account.external_id) == account.external_id
+    )
+
+
 def _account(
-    db: Session, *, owner: User, account: AdAccount, now: datetime, may_stop: bool
+    db: Session,
+    *,
+    owner: User,
+    account: AdAccount,
+    now: datetime,
+    may_stop: bool,
+    scope: PageScope,
 ) -> int:
     rows = list(
         db.scalars(
@@ -90,8 +118,18 @@ def _account(
             .order_by(GuardAlert.created_at.desc())
         )
     )
-    guarded = guarded_groups(
-        db, owner=owner, account=account, now=now, baselines=_baselines(rows)
+    guarded = [
+        item
+        for item in guarded_groups(
+            db, owner=owner, account=account, now=now, baselines=_baselines(rows)
+        )
+        if in_pair(scope, account=account, adset_id=item.group.adset_id)
+    ]
+    refused = _stops_refused_today(
+        db,
+        owner=owner,
+        adset_ids=[item.group.adset_id for item in guarded],
+        since=_day_start(account, now),
     )
     by_group = {item.group.adset_id: item for item in guarded}
     pausing = _being_paused(db, owner=owner, adset_ids=list(by_group))
@@ -127,7 +165,7 @@ def _account(
             finding=finding,
             row=current,
             now=now,
-            may_stop=may_stop,
+            may_stop=may_stop and finding.adset_id not in refused,
             told=told.get(key),
         )
     db.commit()
@@ -206,9 +244,45 @@ def _being_paused(db: Session, *, owner: User, adset_ids: list[str]) -> set[str]
     }
 
 
+def _day_start(account: AdAccount, now: datetime) -> datetime:
+    clock = account.tzinfo()
+    local = now.astimezone(clock)
+    return datetime(local.year, local.month, local.day, tzinfo=clock)
+
+
+def _stops_refused_today(
+    db: Session, *, owner: User, adset_ids: list[str], since: datetime
+) -> set[str]:
+    """The groups whose stop by the guard the provider refused today: not
+    asked again before tomorrow - the owner has the refusal and the button."""
+    if not adset_ids:
+        return set()
+    rows = db.execute(
+        select(ActionLog.target_external_id, ActionLog.request_payload).where(
+            ActionLog.owner_id == owner.id,
+            ActionLog.action == str(ActionType.PAUSE),
+            ActionLog.status == ActionStatus.FAILED,
+            ActionLog.created_at >= since,
+            ActionLog.request_payload[GUARD_STOP_MARK].is_not(None),
+        )
+    )
+    wanted = set(adset_ids)
+    found = {
+        str((payload or {}).get(FOR_ADSET) or external_id)
+        for external_id, payload in rows
+    }
+    return found & wanted
+
+
 def _over(row: GuardAlert, *, by_group: Mapping[str, Guarded], now: datetime) -> bool:
     """Whether an open row with no finding this pass has ended."""
     item = by_group.get(row.adset_external_id)
+    if stop_refused(row):
+        # A refused stop is the day's news: over when the group stops
+        # running, or tomorrow.
+        if item is None:
+            return True
+        return row.created_at.astimezone(item.account.tzinfo()).date() < item.day
     if row.action == STOP:
         # Stopped by us: it stays said until the group runs again.
         return item is not None
@@ -281,6 +355,11 @@ def _one(
     # is kept, off the list and unsaid, until it runs out.
     kept = (row.answer, row.answered_at) if _held(row, now=now) else None
     row.answer, row.answered_at = "", None
+    # So is what became of it - the change it asked for, its outcome, a
+    # second look or a question waiting on figures this step left behind.
+    row.answer_log_id = None
+    row.result, row.result_text = "", ""
+    row.pending_answer, row.pending_state, row.pending_at = "", "", None
     if kept is not None and finding.action == STOP and action != STOP:
         row.answer, row.answered_at = kept
         row.said_step = finding.step
@@ -292,10 +371,11 @@ def _one(
     row.result_kind = item.kind
     row.currency = item.currency
     row.figures = _figures(item, finding) | {
+        "at": now.isoformat(),
         "sole_group": switch_of(
             db, user=owner, level=ManagedLevel.ADSET, external_id=finding.adset_id
         )[0]
-        == ManagedLevel.CAMPAIGN
+        == ManagedLevel.CAMPAIGN,
     }
     if action != STOP and told is not None and told.said_step >= row.step:
         row.said_step = max(row.said_step or 0, told.said_step)

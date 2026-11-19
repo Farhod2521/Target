@@ -67,3 +67,21 @@ class GuardAlertGone(DomainError):
 class GuardAnswerUnknown(DomainError):
     def __init__(self, message: str = "") -> None:
         super().__init__(message or "Bu ogohlantirishga bunday javob yo'q.")
+
+
+class GuardPairGone(DomainError):
+    def __init__(self, message: str = "") -> None:
+        super().__init__(
+            message
+            or "Bu guruh endi ulangan sahifa va reklama akkaunti juftligida emas. "
+            "Hech narsa o'zgartirilmadi."
+        )
+
+
+class GuardChecking(DomainError):
+    status_code = 409
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__(
+            message or "Hozirgi raqamlar tekshirilyapti. Bir daqiqadan keyin qarang."
+        )

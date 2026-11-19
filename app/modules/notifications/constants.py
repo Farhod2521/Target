@@ -105,7 +105,12 @@ CALLBACK_GUARD_LEAVE: Final = "gl"
 CALLBACK_GUARD_RESUME: Final = "gr"
 CALLBACK_GUARD_KEEP_OFF: Final = "gk"
 CALLBACK_GUARD_PAUSE_AD: Final = "ga"
+# «It works well now - still do it?»: yes and no.
+CALLBACK_GUARD_CONFIRM: Final = "gy"
+CALLBACK_GUARD_CANCEL: Final = "gn"
 GUARD_CALLBACKS: Final[dict[str, str]] = {
+    "confirm": CALLBACK_GUARD_CONFIRM,
+    "cancel": CALLBACK_GUARD_CANCEL,
     "pause": CALLBACK_GUARD_PAUSE,
     "budget_down": CALLBACK_GUARD_BUDGET,
     "leave": CALLBACK_GUARD_LEAVE,

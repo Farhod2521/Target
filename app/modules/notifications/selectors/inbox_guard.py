@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Final, cast
 
 from adskit import ExternalRef, ProviderName
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.routes import reverse
@@ -19,6 +19,7 @@ from app.modules.agent.guard_copy import (
     guard_place,
     guard_title,
 )
+from app.modules.agent.guard_follow_copy import confirm_label, follow_of, follow_text
 from app.modules.agent.models import GuardAlert
 from app.modules.notifications.selectors.inbox_page import InboxPage
 from core.inbox import InboxItem, ItemAction, ItemKind, Level, Subject
@@ -40,14 +41,26 @@ _URGENT: Final = frozenset({"price", "fruitless", "site_down"})
 def open_guard_alerts(db: Session, *, owner: User) -> list[GuardAlert]:
     """The owner's open findings still waiting for an answer, the dearest
     first. One answered - left for now, or given a lower budget - stays open
-    for the guard to watch and comes back here only at its next step."""
+    for the guard to watch and comes back here only at its next step. One
+    whose answer is still being seen to stays here with its state: today's
+    figures read again, the question whether it is still wanted, a change on
+    its way, or one the provider refused."""
     return list(
         db.scalars(
             select(GuardAlert)
             .where(
                 GuardAlert.owner_id == owner.id,
                 GuardAlert.closed_at.is_(None),
-                GuardAlert.answer == "",
+                or_(
+                    GuardAlert.answer == "",
+                    GuardAlert.pending_state != "",
+                    GuardAlert.result == "failed",
+                    and_(
+                        GuardAlert.answer_log_id.is_not(None),
+                        GuardAlert.result == "",
+                        GuardAlert.answer != "budget_down",
+                    ),
+                ),
             )
             .order_by(GuardAlert.times.desc(), GuardAlert.created_at)
         )
@@ -88,12 +101,14 @@ def guard_level(row: GuardAlert) -> Level:
 
 def guard_item(row: GuardAlert) -> InboxItem:
     advised = advised_of(row)
+    line, shown = follow_of(row)
+    body = guard_body(row)
     return InboxItem(
         key=guard_key(row),
         kind=_KINDS.get(row.kind, "price"),
         level=guard_level(row),
         title=guard_title(row),
-        body=guard_body(row),
+        body=f"{body}\n\n{line}" if line else body,
         since=row.created_at,
         subject=Subject(
             ref=ExternalRef(
@@ -104,15 +119,32 @@ def guard_item(row: GuardAlert) -> InboxItem:
             name=row.name,
             place=guard_place(row),
         ),
-        actions=tuple(
+        actions=_actions(row, shown=shown, advised=advised),
+        advice=guard_advice(row) if shown is None else "",
+    )
+
+
+def _actions(
+    row: GuardAlert, *, shown: tuple[str, ...] | None, advised: str
+) -> tuple[ItemAction, ...]:
+    if shown is not None:
+        return tuple(
             ItemAction(
-                label=button_label(answer),
+                label=confirm_label(row.pending_answer)
+                if answer == "confirm"
+                else follow_text("button.cancel"),
                 href=_href(row, answer),
-                advised=answer == advised,
+                advised=answer == "confirm",
             )
-            for answer in buttons_of(row)
-        ),
-        advice=guard_advice(row),
+            for answer in shown
+        )
+    return tuple(
+        ItemAction(
+            label=button_label(answer),
+            href=_href(row, answer),
+            advised=answer == advised,
+        )
+        for answer in buttons_of(row)
     )
 
 

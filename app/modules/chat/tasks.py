@@ -1,6 +1,5 @@
 """Chat's workers: read the prepared turn, ask Claude, publish the answer; and the sweeps."""
 
-
 from app.common.db import utcnow
 from app.worker import celery_app, task_session
 

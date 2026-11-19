@@ -214,7 +214,11 @@ TEXTS: Final[dict[str, dict[str, str]]] = {
 }
 
 # Which buttons a finding carries, in the order they are drawn.
+# The figures' marks of the guard's own stop refused by the provider.
+STOP_REFUSED: Final = "stop_refused"
+STOP_REFUSED_WHY: Final = "stop_refused_why"
 _STOPPED: Final = ("resume", "keep_off")
+_REFUSED_STOP: Final = ("pause", "leave")
 _BUTTONS_FOR: Final[dict[str, tuple[str, ...]]] = {
     "price": ("pause", "budget_down", "leave"),
     "fruitless": ("pause", "leave"),
@@ -243,7 +247,8 @@ def buttons_of(row: GuardAlert) -> tuple[str, ...]:
     """The answers a finding offers. A budget is lowered only where the
     group has one of its own; a stop offers the way back and nothing else."""
     if row.action == "stop":
-        return _STOPPED
+        # The provider refused the guard's stop: the group still runs.
+        return _REFUSED_STOP if stop_refused(row) else _STOPPED
     found = _BUTTONS_FOR.get(row.kind, ("leave",))
     if not (row.figures or {}).get("own_budget"):
         found = tuple(answer for answer in found if answer != "budget_down")
@@ -292,7 +297,16 @@ def guard_place(row: GuardAlert) -> tuple[tuple[str, str], ...]:
     return tuple((labels[level], name) for level, name in found if name)
 
 
+def stop_refused(row: GuardAlert) -> bool:
+    """The guard's own stop of this group, refused by the provider."""
+    return row.action == "stop" and bool((row.figures or {}).get(STOP_REFUSED))
+
+
 def guard_title(row: GuardAlert) -> str:
+    if stop_refused(row):
+        from app.modules.agent.guard_follow_copy import follow_text
+
+        return follow_text("title.stop_failed")
     return _text(f"title.{row.kind}.{row.action}", times=times_of(row.times))
 
 
@@ -304,7 +318,12 @@ def guard_body(row: GuardAlert) -> str:
     figures = row.figures or {}
     # A campaign's one group shares its switch: the campaign is what stops.
     sole = bool(figures.get("sole_group"))
-    if row.action == "stop":
+    if stop_refused(row):
+        from app.modules.agent.guard_follow_copy import follow_text
+
+        why = str((row.figures or {}).get(STOP_REFUSED_WHY) or row.result_text)
+        lines.append(follow_text("stop_failed", why=why))
+    elif row.action == "stop":
         lines.append(_stopped_line(row, sole=sole))
     elif row.kind == "price" and figures.get("ours"):
         # A new group's price is held against its own first days, and a
