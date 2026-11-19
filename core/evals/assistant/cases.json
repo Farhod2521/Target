@@ -232,5 +232,27 @@
     "required": [
       "admin"
     ]
+  },
+  {
+    "id": "forgotten-password",
+    "question": "Parolimni esdan chiqardim, qanday tiklashim kerak?",
+    "note": "Both ways at once (email, then the bot), the help card last; no ticket, no address.",
+    "context": "",
+    "tools": {},
+    "must_call": [],
+    "must_not_call": [
+      "create_ticket"
+    ],
+    "required": [
+      "[[kirish]]",
+      "Parolni unutdingizmi?",
+      "Telegram",
+      "[[kirish_yordam]]"
+    ],
+    "forbidden": [
+      "/accounts/",
+      "http",
+      "provider"
+    ]
   }
 ]

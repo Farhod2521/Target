@@ -17,6 +17,7 @@ PLANNED = {
     "built-in-ads-manager",
     "no-answer-reported",
     "answered-not-reported",
+    "forgotten-password",
 }
 
 
