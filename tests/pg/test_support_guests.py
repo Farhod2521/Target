@@ -22,7 +22,12 @@ from tests.pg.test_supportchat import _auth, _user
 
 URL = "/api/v1/support/guest"
 OFFICE = "/api/v1/office/support/guests"
-GUEST = {"name": "Ali Valiyev", "phone": "+998 90 123 45 67", "email": "Ali@Gmail.com"}
+GUEST = {
+    "name": "Ali Valiyev",
+    "phone": "+998 90 123 45 67",
+    "email": "Ali@Gmail.com",
+    "body": "Reklama haqida savolim bor.",
+}
 
 
 def _start(client: TestClient, address: str = "10.0.0.1", **extra: str) -> object:
@@ -48,7 +53,7 @@ def test_a_guest_writes_and_the_office_answers(
     token = started.json()["token"]
     chat = started.json()["chat"]
     assert chat["phone"] == "+998901234567" and chat["email"] == "ali@gmail.com"
-    assert [m["body"] for m in chat["messages"]] == ["Parolni tiklash kerak."]
+    assert [m["body"] for m in chat["messages"]] == ["Reklama haqida savolim bor."]
     assert chat["messages"][0]["own"] and chat["messages"][0]["who"] == "Siz"
     stored = db.scalar(select(SupportGuestChat))
     assert stored is not None and stored.token_hash != token
@@ -133,7 +138,7 @@ def test_signing_in_moves_the_words_only_into_the_account_named(
 
     screen = client.get("/api/v1/support", headers=_auth(owner)).json()
     assert [(m["body"], m["side"]) for m in screen["messages"]] == [
-        ("Parolni tiklash kerak.", "client"),
+        ("Reklama haqida savolim bor.", "client"),
         ("Parol: abc", "office"),
         ("Eski savol", "client"),
     ]

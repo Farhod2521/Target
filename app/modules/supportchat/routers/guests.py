@@ -41,7 +41,7 @@ class StartIn(BaseModel):
     name: str = Field("", max_length=200)
     phone: str = Field("", max_length=40)
     email: str = Field("", max_length=254)
-    body: str = Field("", description="Empty: `Parolni tiklash kerak.`")
+    body: str = Field("", description="The first words; empty is refused.")
 
 
 class SayIn(BaseModel):
