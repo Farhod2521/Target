@@ -31,6 +31,7 @@ from app.modules.ads.constants import (
     GOAL_TEXT_MIN,
     MAX_CHAT_QUESTION_POLLS,
     MAX_GOAL_POLLS,
+    PIXEL_ID,
     READING_V3,
 )
 from app.modules.ads.inputs.plan import (
@@ -75,6 +76,7 @@ from app.modules.ads.selectors.quality import catalogue_questions, chat_question
 from app.modules.ads.selectors.telegram import shown_goal
 from app.modules.ads.services import launch as launch_services
 from app.modules.ads.services import readings
+from app.modules.ads.services.targeting import repick_conversion_event
 from app.modules.businesses.selectors import business_for_page
 from app.modules.integrations.selectors.connection import instagram_permission_missing
 from core.targeting import MAX_CHAT_QUESTIONS
@@ -201,7 +203,13 @@ def save_plan(
     """Every answer the first screen carries, saved together."""
     launch = writable_launch(db, user=user, launch_id=launch_id)
     answers = check_plan(db, launch=launch, user=user, body=body, now=utcnow())
-    committed(db, lambda: launch_services.save_answers(db, launch=launch, **answers))
+
+    def save() -> None:
+        launch_services.save_answers(db, launch=launch, **answers)
+        if PIXEL_ID in answers:
+            repick_conversion_event(db, launch=launch)
+
+    committed(db, save)
     return launch_head(launch) | {"next": "media"}
 
 

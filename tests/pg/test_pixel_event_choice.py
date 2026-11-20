@@ -12,9 +12,11 @@ from app.common.db import utcnow
 from app.modules.ads.constants import CONVERSION_EVENT, EVENT_FEW, EVENT_NOT_ARRIVING
 from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.routers.launch_common import launch_business
+from app.modules.ads.selectors.advice import conversion_event_recommendation
 from app.modules.ads.selectors.conversion_event import (
     conversion_event_choices,
     effective_conversion_event,
+    offered_keys,
 )
 from app.modules.ads.selectors.pixel import chosen_pixel, pixel_choices, usable_pixels
 from app.modules.ads.services.advanced import choose_conversion_event
@@ -437,3 +439,46 @@ def test_a_refused_conversion_says_so_and_keeps_the_event(
     with pytest.raises(SiteEventRefused):
         choose_conversion_event(db, launch=launch, key="ev:new_lead")
     assert CONVERSION_EVENT not in launch.answers
+
+
+def test_a_lead_goal_is_not_moved_to_what_the_site_happens_to_send(
+    client: TestClient, db: Session
+) -> None:
+    launch = _launch(client, db)
+    _pixel(db, launch, "1", events=[{"event": "ViewContent", "count": 900}])
+
+    advice = conversion_event_recommendation(
+        db, launch=launch, offered=offered_keys(db, launch=launch)
+    )
+
+    # ViewContent would make the builder buy it as sales.
+    assert advice is not None and advice.value == "LEAD"
+
+
+def test_other_alone_is_not_offered(client: TestClient, db: Session) -> None:
+    launch = _launch(client, db)
+    _pixel(db, launch, "1", events=[{"event": "Lead", "count": 9}])
+
+    assert "OTHER" not in offered_keys(db, launch=launch)
+
+
+def test_the_ais_event_follows_a_new_pixel_and_the_owners_stays(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.ads import draft as draft_field
+    from app.modules.ads.services.advanced import choose_pixel
+
+    launch = _launch(client, db)
+    _pixel(db, launch, "1", events=[{"event": "Lead", "count": 30}])
+    _pixel(db, launch, "2", events=[{"event": "Contact", "count": 12}])
+    apply_conversion_event(db, launch=launch)
+    assert draft_field.conversion_event(launch.draft) == "LEAD"
+
+    choose_pixel(db, launch=launch, external_id="2")
+
+    assert draft_field.conversion_event(launch.draft) == "CONTACT"
+
+    choose_conversion_event(db, launch=launch, key="SCHEDULE")
+    choose_pixel(db, launch=launch, external_id="1")
+
+    assert launch.answers[CONVERSION_EVENT] == "SCHEDULE"

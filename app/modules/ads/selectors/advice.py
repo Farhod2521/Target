@@ -92,15 +92,22 @@ class EventRecommendation:
 def conversion_event_recommendation(
     db: Session, *, launch: CampaignLaunch, offered: tuple[str, ...]
 ) -> EventRecommendation | None:
-    """Which event on the owner's own site this campaign should be bought on."""
-    from app.modules.ads.selectors.pixel import chosen_pixel
+    """Which event on the owner's own site this campaign should be bought on.
+
+    Only the goal's own kind: a lead goal is never moved to a page view or a
+    purchase because that is what the site happens to send (the builder
+    would then buy the campaign as sales). The owner may still pick one.
+    """
+    from app.modules.ads.selectors.pixel import chosen_pixel, wanted_events
     from app.modules.integrations.selectors.watch import fired_events
 
     if not offered:
         return None
+    wanted = wanted_events(db, launch=launch)
+    pool = tuple(key for key in offered if key in wanted) or offered
     arriving = fired_events(owner=launch.owner, pixel=chosen_pixel(db, launch=launch))
     advice = conversion_event_advice(
-        offered=offered, fired=arriving, requests=REQUEST_EVENTS
+        offered=pool, fired=arriving, requests=REQUEST_EVENTS
     )
     if advice is None:
         return None

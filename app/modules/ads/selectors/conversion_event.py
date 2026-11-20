@@ -28,10 +28,18 @@ from core.targeting.conversion_events import event_for_snippet
 def offered_events(
     db: Session, *, launch: CampaignLaunch
 ) -> tuple[ConversionEvent, ...]:
-    """TZ 3: every event the provider counts - the objective follows the pick."""
+    """TZ 3: every event the provider counts - the objective follows the pick.
+
+    Not ``OTHER``: alone it names no event, and Meta buys a site's own event
+    only through a custom conversion (offered beside these).
+    """
     if not preset_event(db, launch=launch):
         return ()
-    return conversion_events(provider=launch.provider)
+    return tuple(
+        row
+        for row in conversion_events(provider=launch.provider)
+        if row.key != OTHER_EVENT
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +100,7 @@ def _pixel_for(db: Session, *, launch: CampaignLaunch, pixel_id: str = "") -> An
     return pixel
 
 
+OTHER_EVENT: Final = "OTHER"
 # Every visit fires it: a page seen is not a result to buy.
 NOT_A_RESULT: Final = frozenset({"PageView"})
 

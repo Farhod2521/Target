@@ -310,7 +310,11 @@ def choose_pixel(
         raise PixelLocked
     if external_id not in {row.external_id for row in usable_pixels(db, launch=launch)}:
         raise PixelNotOffered
-    return save_answers(db, launch=launch, **{PIXEL_ID: external_id})
+    from app.modules.ads.services.targeting import repick_conversion_event
+
+    save_answers(db, launch=launch, **{PIXEL_ID: external_id})
+    repick_conversion_event(db, launch=launch)
+    return launch
 
 
 def choose_spend_limits(

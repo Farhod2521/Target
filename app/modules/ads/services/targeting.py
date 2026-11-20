@@ -520,6 +520,28 @@ def apply_conversion_event(db: Session, *, launch: CampaignLaunch) -> None:
     draft_field.set_source(draft, draft_field.CONVERSION_EVENT, draft_field.BY_AI)
 
 
+def repick_conversion_event(db: Session, *, launch: CampaignLaunch) -> None:
+    """The AI's event chosen again for another pixel; the owner's pick stays.
+
+    Run when the pixel changes: an event read off the old pixel's figures
+    may be one the new pixel never receives.
+    """
+    if launch.answers.get(CONVERSION_EVENT):
+        return
+    draft = launch.draft or {}
+    if not draft_field.conversion_event(draft):
+        return
+    if draft_field.source(draft, draft_field.CONVERSION_EVENT) != draft_field.BY_AI:
+        return
+    advice = conversion_event_recommendation(
+        db, launch=launch, offered=offered_keys(db, launch=launch)
+    )
+    if advice is None or advice.value == draft_field.conversion_event(draft):
+        return
+    fresh_draft = _draft(launch)
+    draft_field.set_conversion_event(fresh_draft, advice.value)
+
+
 def apply_url_tags(db: Session, *, launch: CampaignLaunch) -> None:
     draft = _draft(launch)
     if URL_TAGS in launch.answers or draft_field.source(draft, draft_field.URL_TAGS):
