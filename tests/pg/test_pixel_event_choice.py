@@ -16,7 +16,7 @@ from app.modules.ads.selectors.conversion_event import (
     conversion_event_choices,
     effective_conversion_event,
 )
-from app.modules.ads.selectors.pixel import chosen_pixel, usable_pixels
+from app.modules.ads.selectors.pixel import chosen_pixel, pixel_choices, usable_pixels
 from app.modules.ads.services.advanced import choose_conversion_event
 from app.modules.ads.services.targeting import apply_conversion_event, launch_answers
 from app.modules.integrations.models import PixelAccount
@@ -71,7 +71,50 @@ def test_the_pixel_that_sent_most_in_seven_days_is_chosen(
 
     found = chosen_pixel(db, launch=launch)
 
+    # Visits are not leads: the pixel the site sends its leads through wins.
+    assert found is not None and found.external_id == "1"
+
+
+def test_a_pixel_with_no_site_results_falls_back_to_the_busiest(
+    client: TestClient, db: Session
+) -> None:
+    launch = _launch(client, db)
+    _pixel(db, launch, "1", events=[{"event": "ViewContent", "count": 30}])
+    _pixel(db, launch, "2", events=[{"event": "PageView", "count": 900}])
+
+    found = chosen_pixel(db, launch=launch)
+
     assert found is not None and found.external_id == "2"
+
+
+def test_the_crm_pixel_does_not_win_over_the_sites_lead_pixel(
+    client: TestClient, db: Session
+) -> None:
+    """Production, 2026-11-20: the cabinet's pixel got only CRM verdicts."""
+    launch = _launch(client, db)
+    _pixel(
+        db,
+        launch,
+        "1",
+        active=True,
+        events=[{"event": "TargetologAIDisqualifiedLead", "count": 1}],
+    )
+    _pixel(
+        db,
+        launch,
+        "2",
+        events=[
+            {"event": "PageView", "count": 11337},
+            {"event": "Lead", "count": 540, "web": 532, "server": 540},
+        ],
+    )
+
+    found = chosen_pixel(db, launch=launch)
+    options = {row.external_id: row for row in pixel_choices(db, launch=launch)}
+
+    assert found is not None and found.external_id == "2"
+    assert (options["1"].site_results, options["2"].site_results) == (0, 532)
+    assert options["2"].is_chosen
 
 
 def test_the_pixel_chosen_in_the_cabinet_beats_a_busier_one(

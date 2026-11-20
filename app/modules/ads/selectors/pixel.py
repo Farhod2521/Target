@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.modules.ads.constants import PIXEL_ID
 from app.modules.ads.models import CampaignLaunch
+from app.modules.ads.selectors.goals import goal_preset
 from app.modules.integrations.models import PixelAccount
-from core.targeting import ConversionSource
+from core.targeting import EVENT_KEY, REQUEST_EVENTS, ConversionSource
+from core.targeting.conversion_events import event_for_snippet
 
 
 def _usable(launch: CampaignLaunch) -> Select[tuple[PixelAccount]]:
@@ -32,9 +34,12 @@ def usable_pixels(db: Session, *, launch: CampaignLaunch) -> tuple[PixelAccount,
 def chosen_pixel(db: Session, *, launch: CampaignLaunch) -> PixelAccount | None:
     """The tag this launch will name, or ``None`` when there is none to name.
 
-    TZ 3: the owner's pick on this launch; else the pixel they chose in the
-    cabinet; else the one that sent the most events in the last seven days,
-    the name breaking a tie.
+    The owner's pick on this launch; else the pixel the website sends the
+    goal's results through most (a lead for a lead goal); else the pixel
+    chosen in the cabinet; else the one that sent the most events.
+
+    The cabinet's pick is not first: it is also where CRM verdicts go, and a
+    pixel made for those may be on no website at all.
     """
     named = str(launch.answers.get(PIXEL_ID) or "")
     if named:
@@ -44,9 +49,46 @@ def chosen_pixel(db: Session, *, launch: CampaignLaunch) -> PixelAccount | None:
     usable = usable_pixels(db, launch=launch)
     if not usable:
         return None
+    wanted = wanted_events(db, launch=launch)
+    best = max(usable, key=lambda row: site_results(row, wanted))
+    if site_results(best, wanted):
+        return best
     if usable[0].is_active:
         return usable[0]
     return max(usable, key=events_total)
+
+
+def wanted_events(db: Session, *, launch: CampaignLaunch) -> frozenset[str]:
+    """The event keys that count as this goal's result on the website."""
+    preset = goal_preset(db, launch=launch)
+    found = preset.promoted_object.get(EVENT_KEY) if preset is not None else None
+    if not isinstance(found, str) or not found:
+        return REQUEST_EVENTS
+    return REQUEST_EVENTS if found in REQUEST_EVENTS else frozenset({found})
+
+
+def site_results(pixel: PixelAccount, wanted: frozenset[str]) -> int:
+    """How many of the wanted events came from the website's own tag this week.
+
+    Figures read before the tag and the server were told apart have no
+    ``web``; their ``count`` stands in for it.
+    """
+    rows = pixel.recent_events if isinstance(pixel.recent_events, list) else []
+    total = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        found = event_for_snippet(
+            provider=pixel.provider, name=str(row.get("event", ""))
+        )
+        if found is None or found.key not in wanted:
+            continue
+        value = row.get("web") if "web" in row else row.get("count")
+        try:
+            total += int(str(value or 0))
+        except ValueError:
+            continue
+    return total
 
 
 def events_total(pixel: PixelAccount) -> int:
@@ -78,6 +120,8 @@ class PixelOption:
     is_chosen: bool
     last_fired_at: datetime | None
     events_seen: int
+    # The goal's results from the website's tag this week; None before any read.
+    site_results: int | None = None
 
 
 def pixel_choices(db: Session, *, launch: CampaignLaunch) -> tuple[PixelOption, ...]:
@@ -87,6 +131,7 @@ def pixel_choices(db: Session, *, launch: CampaignLaunch) -> tuple[PixelOption, 
         return ()
     chosen = chosen_pixel(db, launch=launch)
     chosen_id = chosen.external_id if chosen is not None else ""
+    wanted = wanted_events(db, launch=launch)
     return tuple(
         PixelOption(
             external_id=row.external_id,
@@ -94,6 +139,9 @@ def pixel_choices(db: Session, *, launch: CampaignLaunch) -> tuple[PixelOption, 
             is_chosen=row.external_id == chosen_id,
             last_fired_at=row.last_fired_at,
             events_seen=events_total(row),
+            site_results=site_results(row, wanted)
+            if row.events_synced_at is not None
+            else None,
         )
         for row in found
     )

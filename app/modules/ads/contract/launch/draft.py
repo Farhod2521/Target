@@ -213,7 +213,12 @@ def draft(
     page = plan.get("page") or {}
     pixel = plan.get("pixel") or {}
     pixels = [
-        {"id": str(row.get("external_id") or ""), "name": str(row.get("name") or "")}
+        {
+            "id": str(row.get("external_id") or ""),
+            "name": str(row.get("name") or ""),
+            "results": row.get("results"),
+            "last_fired_at": row.get("last_fired_at"),
+        }
         for row in plan.get("pixels") or []
         if isinstance(row, dict) and row.get("external_id")
     ]

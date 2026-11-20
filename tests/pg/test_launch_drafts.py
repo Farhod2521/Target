@@ -778,6 +778,9 @@ def test_the_site_form_picks_its_pixel_on_the_plan(
     budget = tapped["minBudget"] | {"minor": 500}
     shown = tapped["page"]
     assert [row["id"] for row in shown["pixels"]] == ["71", "72"]
+    # Read this week with nothing from the site: zero, not unknown.
+    assert [row["results"] for row in shown["pixels"]] == [0, 0]
+    assert all("lastFiredAt" in row for row in shown["pixels"])
     assert shown["pixelId"] == "71" and shown["pixel"] == "Pixel 71"
 
     picked = client.patch(path, json={"pixelId": "72"}, headers=auth).json()["page"]

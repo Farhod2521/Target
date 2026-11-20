@@ -1,5 +1,6 @@
 """The wizard's answers, key for key as ``packages/api/src/launch.ts`` reads them."""
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import Field
@@ -232,6 +233,11 @@ class Failure(Camel):
 class PixelPick(Camel):
     id: str
     name: str
+    results: int | None = Field(
+        None,
+        description="The goal's results from the website this week; null before any read.",
+    )
+    last_fired_at: datetime | None = None
 
 
 class DraftPage(Camel):

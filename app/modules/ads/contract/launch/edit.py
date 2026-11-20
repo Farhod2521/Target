@@ -6,6 +6,7 @@ whole is never sent back empty over the AI's answer.
 """
 
 import re
+from datetime import datetime
 from typing import Any, Final
 
 from pydantic import ValidationError
@@ -375,18 +376,23 @@ def _advanced(found: dict[str, Any]) -> list[dict[str, Any]]:
             ]
     pixels = advanced.get("pixels") or []
     if pixels:
-        chosen = next((row for row in pixels if row.get("is_chosen")), None)
+        names = _pixel_names(pixels)
+        chosen = next(
+            (
+                name
+                for name, row in zip(names, pixels, strict=True)
+                if row.get("is_chosen")
+            ),
+            "",
+        )
         rows.append(
             {
                 "key": "pixel",
                 "en": "Pixel",
-                "value": (chosen or {}).get("name") or "",
+                "value": chosen,
                 "mode": "",
-                "options": [row["name"] for row in pixels],
-                "hints": [
-                    {"meta": _seven_days(row.get("events_seen")), "warn": ""}
-                    for row in pixels
-                ],
+                "options": names,
+                "hints": [_pixel_hint(row) for row in pixels],
             }
         )
     buttons = advanced.get("buttons")
@@ -481,6 +487,41 @@ def _position_options() -> dict[str, list[dict[str, Any]]]:
 
 def _ticked(positions: dict[str, list[str]]) -> dict[str, list[str]]:
     return {app: sorted(items) for app, items in positions.items()}
+
+
+def _pixel_names(pixels: list[dict[str, Any]]) -> list[str]:
+    """Each pixel by its name; two with one name are told apart by their ids."""
+    names = [text(row.get("name")) for row in pixels]
+    return [
+        f"{name} ({row['external_id']})" if names.count(name) > 1 else name
+        for name, row in zip(names, pixels, strict=True)
+    ]
+
+
+def _pixel_hint(row: dict[str, Any]) -> dict[str, str]:
+    """What the website sent through it this week, and when it last fired."""
+    results = row.get("site_results")
+    fired = row.get("last_fired_at")
+    when = ""
+    if fired:
+        stamp = (
+            fired if isinstance(fired, datetime) else datetime.fromisoformat(str(fired))
+        )
+        when = f"oxirgi marta {stamp:%d.%m.%Y}"
+    meta = " · ".join(
+        part
+        for part in (
+            "" if results is None else f"saytdan 7 kunda {results} ta natija",
+            when,
+        )
+        if part
+    )
+    warn = ""
+    if fired is None:
+        warn = "Bu piksel hech qachon ishlamagan."
+    elif results == 0:
+        warn = "Saytingizdan bu piksel orqali natija kelmayapti."
+    return {"meta": meta, "warn": warn}
 
 
 def _seven_days(count: object) -> str:
@@ -685,11 +726,12 @@ def _advanced_patch(
                 [*events["arriving_options"], *events["other_options"]], row["value"]
             )
         if row["key"] == "pixel":
+            listed = advanced.get("pixels") or []
             out["pixel_id"] = next(
                 (
                     pixel["external_id"]
-                    for pixel in advanced.get("pixels") or []
-                    if pixel["name"] == row["value"]
+                    for name, pixel in zip(_pixel_names(listed), listed, strict=True)
+                    if name == row["value"]
                 ),
                 "",
             )
