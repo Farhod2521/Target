@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from metaads.dto import CustomConversionRow, PixelDTO, PixelEventRow
 from sqlalchemy.orm import Session
@@ -306,3 +307,90 @@ def test_a_pixel_meta_stopped_listing_is_kept_unusable(
 
     assert gone.is_unavailable is True and gone.is_active is False
     assert [row.external_id for row in usable_pixels(db, launch=launch)] == ["2"]
+
+
+def _site_pixel(client: TestClient, db: Session) -> tuple[CampaignLaunch, PixelAccount]:
+    launch = _launch(client, db)
+    pixel = _pixel(
+        db,
+        launch,
+        "1",
+        active=True,
+        events=[
+            {"event": "PageView", "count": 900},
+            {"event": "Lead", "count": 40},
+            {"event": "new_lead", "count": 37, "web": 37, "server": 0},
+            {"event": "purchase", "count": 3},
+            {"event": "TargetologAIQualifiedLead", "count": 9},
+            {"event": "good_lead", "count": 12},
+        ],
+        conversions=[
+            {"id": "77", "name": "Yaxshi", "event": "LEAD", "rule_event": "good_lead"}
+        ],
+    )
+    return launch, pixel
+
+
+def test_the_sites_own_events_are_offered_beside_the_standard_ones(
+    client: TestClient, db: Session
+) -> None:
+    launch, _pixel_row = _site_pixel(client, db)
+
+    choices = conversion_event_choices(db, launch=launch)
+    assert choices is not None
+    own = [
+        (row.key, row.label, row.count)
+        for row in (*choices.arriving_options, *choices.other_options)
+        if row.group == "site_event"
+    ]
+
+    # Standard names, our own CRM verdicts and an event a conversion already
+    # counts are not offered again; a lower-case «purchase» is the site's own.
+    assert own == [("ev:new_lead", "new_lead", 37), ("ev:purchase", "purchase", 3)]
+
+
+def test_picking_a_site_event_makes_its_custom_conversion(
+    client: TestClient, db: Session, monkeypatch: Any
+) -> None:
+    from app.modules.ads.services import advanced
+
+    launch, pixel = _site_pixel(client, db)
+    made: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        advanced, "create_custom_conversion", lambda **kw: made.append(kw) or "901"
+    )
+    monkeypatch.setattr("app.modules.ads.services.access.token_for", lambda **_: "t")
+
+    choose_conversion_event(db, launch=launch, key="ev:new_lead")
+    db.refresh(pixel)
+    answers = launch_answers(
+        db, launch=launch, business=launch_business(db, launch=launch)
+    )
+
+    assert [(kw["pixel_id"], kw["event"], kw["custom_event_type"]) for kw in made] == [
+        ("1", "new_lead", "LEAD")
+    ]
+    assert launch.answers[CONVERSION_EVENT] == "cc:901"
+    assert (answers.conversion_event, answers.custom_conversion_id) == ("LEAD", "901")
+    assert pixel.conversions[-1]["rule_event"] == "new_lead"
+
+
+def test_a_refused_conversion_says_so_and_keeps_the_event(
+    client: TestClient, db: Session, monkeypatch: Any
+) -> None:
+    from metaads.errors import MetaError
+
+    from app.modules.ads.exceptions import SiteEventRefused
+    from app.modules.ads.services import advanced
+
+    launch, _pixel_row = _site_pixel(client, db)
+
+    def refuse(**_: Any) -> str:
+        raise MetaError("limit reached")
+
+    monkeypatch.setattr(advanced, "create_custom_conversion", refuse)
+    monkeypatch.setattr("app.modules.ads.services.access.token_for", lambda **_: "t")
+
+    with pytest.raises(SiteEventRefused):
+        choose_conversion_event(db, launch=launch, key="ev:new_lead")
+    assert CONVERSION_EVENT not in launch.answers

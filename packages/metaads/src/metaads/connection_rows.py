@@ -5,6 +5,7 @@ Import from ``metaads.dto`` - the import surface for every row - or from
 here; both are the same class.
 """
 
+import json
 from datetime import UTC, datetime
 
 from pydantic import field_validator, model_validator
@@ -197,10 +198,32 @@ class CustomConversionRow(MetaDTO):
     last_fired_time: datetime | None = None
     is_archived: bool = False
     is_unavailable: bool = False
+    # Meta's rule as JSON text, e.g. {"event":{"eq":"new_lead"}}.
+    rule: str = ""
 
     @property
     def is_usable(self) -> bool:
         return not self.is_archived and not self.is_unavailable
+
+    @property
+    def rule_event(self) -> str:
+        """The one event name the rule counts, or "" for a rule on anything else."""
+        try:
+            found = _event_names(json.loads(self.rule)) if self.rule else []
+        except ValueError:
+            return ""
+        return found[0] if len(found) == 1 else ""
+
+
+def _event_names(node: object) -> list[str]:
+    if isinstance(node, list):
+        return [name for item in node for name in _event_names(item)]
+    if not isinstance(node, dict):
+        return []
+    event = node.get("event")
+    if isinstance(event, dict) and isinstance(event.get("eq"), str):
+        return [event["eq"]]
+    return [name for value in node.values() for name in _event_names(value)]
 
 
 class MediaDTO(MetaDTO):

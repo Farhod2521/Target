@@ -284,6 +284,15 @@ class ConversionEventNotOffered(DomainError):
         super().__init__("Bunday natija hodisasini tanlab bo'lmaydi.")
 
 
+class SiteEventRefused(DomainError):
+    def __init__(self, reason: str = "") -> None:
+        super().__init__(
+            "Meta bu event uchun custom conversion yaratmadi"
+            + (f": {reason}" if reason else ".")
+            + " Boshqa hodisani tanlang yoki keyinroq qayta urinib ko'ring."
+        )
+
+
 class PixelNotOffered(DomainError):
     def __init__(self) -> None:
         super().__init__("Bu pikselni tanlab bo'lmaydi.")

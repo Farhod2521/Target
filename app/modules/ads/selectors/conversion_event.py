@@ -1,7 +1,7 @@
 """Which event on the owner's own site this launch is bought against."""
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,8 @@ from app.modules.ads.constants import (
     EVENT_FEW,
     EVENT_NOT_ARRIVING,
     FEW_EVENTS,
+    OWN_SIGNAL_PREFIX,
+    SITE_EVENT,
 )
 from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.selectors.advice import conversion_event_recommendation
@@ -76,11 +78,87 @@ def offered_conversions(
     )
 
 
+def _pixel_for(db: Session, *, launch: CampaignLaunch, pixel_id: str = "") -> Any:
+    pixel = chosen_pixel(db, launch=launch)
+    if pixel_id:
+        pixel = next(
+            (
+                row
+                for row in usable_pixels(db, launch=launch)
+                if row.external_id == pixel_id
+            ),
+            pixel,
+        )
+    return pixel
+
+
+# Every visit fires it: a page seen is not a result to buy.
+NOT_A_RESULT: Final = frozenset({"PageView"})
+
+
+@dataclass(frozen=True, slots=True)
+class SiteEvent:
+    key: str
+    name: str
+    count: int
+    web: int
+    server: int
+
+
+def site_events(
+    db: Session, *, launch: CampaignLaunch, pixel_id: str = ""
+) -> tuple[SiteEvent, ...]:
+    """Events the chosen pixel got this week under the site's own names.
+
+    Meta buys only its standard events or a custom conversion, so these are
+    offered to be made into one. Our own CRM verdicts are left out, and so
+    is an event a custom conversion already counts (that one is offered).
+    """
+    if not preset_event(db, launch=launch):
+        return ()
+    pixel = _pixel_for(db, launch=launch, pixel_id=pixel_id)
+    if pixel is None:
+        return ()
+    counted = {
+        str(row.get("rule_event") or "")
+        for row in (pixel.conversions if isinstance(pixel.conversions, list) else [])
+        if isinstance(row, dict)
+    }
+    found: list[SiteEvent] = []
+    for row in pixel.recent_events if isinstance(pixel.recent_events, list) else []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("event") or "").strip()
+        if (
+            not name
+            or name.startswith(OWN_SIGNAL_PREFIX)
+            or name in NOT_A_RESULT
+            or name.startswith("__")
+            or name in counted
+            or event_for_snippet(provider=pixel.provider, name=name) is not None
+        ):
+            continue
+        found.append(
+            SiteEvent(
+                key=f"{SITE_EVENT}{name}",
+                name=name,
+                count=_count(row.get("count")) or 0,
+                web=_count(row.get("web")) or 0,
+                server=_count(row.get("server")) or 0,
+            )
+        )
+    return tuple(sorted(found, key=lambda row: (-row.count, row.name)))
+
+
 def offered_keys(
     db: Session, *, launch: CampaignLaunch, pixel_id: str = ""
 ) -> tuple[str, ...]:
-    return tuple(row.key for row in offered_events(db, launch=launch)) + tuple(
-        row.key for row in offered_conversions(db, launch=launch, pixel_id=pixel_id)
+    return (
+        tuple(row.key for row in offered_events(db, launch=launch))
+        + tuple(
+            row.key for row in offered_conversions(db, launch=launch, pixel_id=pixel_id)
+        )
+        + tuple(row.key for row in site_events(db, launch=launch, pixel_id=pixel_id))
     )
 
 
@@ -210,29 +288,47 @@ def conversion_event_choices(
     recommended = advice.value if advice is not None else ""
     arriving = set(advice.arriving if advice is not None else ())
     counts = event_counts(db, launch=launch)
-    options = tuple(
-        ConversionEventOption(
-            key=row.key,
-            label=CONVERSION_EVENT_LABELS.get(row.key, row.key),
-            provider_label=row.provider_label,
-            recommended=row.key == recommended,
-            arriving=row.key in arriving,
-            count=None if counts is None else counts.get(row.key, 0),
-            warning=event_warning(None if counts is None else counts.get(row.key, 0)),
+    options = (
+        tuple(
+            ConversionEventOption(
+                key=row.key,
+                label=CONVERSION_EVENT_LABELS.get(row.key, row.key),
+                provider_label=row.provider_label,
+                recommended=row.key == recommended,
+                arriving=row.key in arriving,
+                count=None if counts is None else counts.get(row.key, 0),
+                warning=event_warning(
+                    None if counts is None else counts.get(row.key, 0)
+                ),
+            )
+            for row in offered
         )
-        for row in offered
-    ) + tuple(
-        ConversionEventOption(
-            key=row.key,
-            label=row.name,
-            provider_label="Custom conversion",
-            recommended=False,
-            arriving=bool(row.count),
-            count=row.count,
-            warning=event_warning(row.count),
-            group="custom",
+        + tuple(
+            ConversionEventOption(
+                key=row.key,
+                label=row.name,
+                provider_label="Custom conversion",
+                recommended=False,
+                arriving=bool(row.count),
+                count=row.count,
+                warning=event_warning(row.count),
+                group="custom",
+            )
+            for row in offered_conversions(db, launch=launch)
         )
-        for row in offered_conversions(db, launch=launch)
+        + tuple(
+            ConversionEventOption(
+                key=row.key,
+                label=row.name,
+                provider_label="Custom event",
+                recommended=False,
+                arriving=bool(row.count),
+                count=row.count,
+                warning=event_warning(row.count),
+                group="site_event",
+            )
+            for row in site_events(db, launch=launch)
+        )
     )
     return ConversionEventChoices(
         arriving_options=tuple(row for row in options if row.arriving),

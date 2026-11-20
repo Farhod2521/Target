@@ -694,6 +694,7 @@ def _sync_conversions(
                 "id": row.id,
                 "name": row.name,
                 "event": row.custom_event_type,
+                "rule_event": row.rule_event,
                 "count": count,
                 "last_fired_at": row.last_fired_time.isoformat()
                 if row.last_fired_time

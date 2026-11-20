@@ -7,6 +7,7 @@ greyed out with a reason, instead of vanishing and leaving them wondering
 where their account went.
 """
 
+import json
 import logging
 import time
 from collections.abc import Iterable, Sequence
@@ -548,8 +549,43 @@ def pixel_events_by_source(
 
 
 CUSTOM_CONVERSION_FIELDS: Final = (
-    "id,name,custom_event_type,pixel{id},last_fired_time,is_archived,is_unavailable"
+    "id,name,custom_event_type,pixel{id},last_fired_time,is_archived,"
+    "is_unavailable,rule"
 )
+
+
+def create_custom_conversion(
+    *,
+    account_id: str,
+    pixel_id: str,
+    event: str,
+    name: str,
+    custom_event_type: str,
+    token: str,
+    client: GraphClient | None = None,
+    dry_run: bool = True,
+) -> str:
+    """A custom conversion counting one event the website fires by its own name.
+
+    Meta optimises an ad set only for its standard events or for a custom
+    conversion, so an event the site's developer named («new_lead») becomes
+    buyable through one of these. Returns its id; "" in a dry run.
+    """
+    if dry_run:
+        return ""
+    graph = client or GraphClient(token=token)
+    try:
+        answer = graph.post(
+            f"{account_id}/customconversions",
+            name=name,
+            event_source_id=pixel_id,
+            rule=json.dumps({"event": {"eq": event}}),
+            custom_event_type=custom_event_type,
+        )
+    finally:
+        if client is None:
+            graph.close()
+    return str(answer["id"])
 
 
 def custom_conversions(

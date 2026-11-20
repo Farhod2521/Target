@@ -292,6 +292,11 @@ CONVERSION_EVENT_LABELS: dict[str, Any] = {
 # TZ 3: a custom conversion's key beside the standard events, and the
 # seven-day warnings. Neither warning refuses the pick.
 CUSTOM_CONVERSION: Final = "cc:"
+# An event the website fires under its own name; picking one makes a custom
+# conversion for it at Meta (Meta buys only standard events or conversions).
+SITE_EVENT: Final = "ev:"
+# Our own CRM verdicts sent to the dataset: not something the website does.
+OWN_SIGNAL_PREFIX: Final = "TargetologAI"
 FEW_EVENTS: Final = 10
 EVENT_NOT_ARRIVING: Final = (
     "Bu event saytingizdan kelmayapti. Reklama o'rgana olmaydi. Avval event'ni sozlang."

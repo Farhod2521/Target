@@ -178,3 +178,48 @@ def test_each_event_is_read_from_the_tag_and_from_the_server_apart() -> None:
         "WEB_ONLY",
         "SERVER_ONLY",
     ]
+
+
+def test_a_custom_conversion_rule_names_its_one_event() -> None:
+    from metaads.dto import CustomConversionRow
+
+    def row(rule: str) -> CustomConversionRow:
+        return CustomConversionRow(id="1", rule=rule)
+
+    assert row('{"and":[{"event":{"eq":"new_lead"}}]}').rule_event == "new_lead"
+    assert row('{"event":{"eq":"Lead"}}').rule_event == "Lead"
+    assert row('{"url":{"i_contains":"rahmat"}}').rule_event == ""
+    assert row("not json").rule_event == ""
+
+
+def test_a_site_event_is_made_a_custom_conversion() -> None:
+    from metaads.accounts import create_custom_conversion
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"id": "901"})
+
+    client = GraphClient(
+        token="t", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+
+    made = create_custom_conversion(
+        account_id="act_5",
+        pixel_id=PIXEL,
+        event="new_lead",
+        name="new_lead · Targetolog AI",
+        custom_event_type="LEAD",
+        token="t",
+        client=client,
+        dry_run=False,
+    )
+
+    assert made == "901"
+    assert seen[0].method == "POST" and seen[0].url.path.endswith(
+        "act_5/customconversions"
+    )
+    body = seen[0].content.decode()
+    assert "event_source_id=777" in body and "custom_event_type=LEAD" in body
+    assert "new_lead" in body

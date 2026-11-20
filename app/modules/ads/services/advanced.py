@@ -6,9 +6,12 @@ from dataclasses import dataclass, replace
 from datetime import date
 from typing import Final
 
+from metaads.accounts import create_custom_conversion
+from metaads.errors import MetaError
 from sitekit import SiteProbe
 from sqlalchemy.orm import Session
 
+from app.common.config import settings
 from app.common.money import format_minor, provider_money
 from app.modules.ads import draft as draft_field
 from app.modules.ads.constants import (
@@ -20,12 +23,14 @@ from app.modules.ads.constants import (
     CALL_TO_ACTION,
     CAMPAIGN_TYPE,
     CONVERSION_EVENT,
+    CUSTOM_CONVERSION,
     FREQUENCY_CAP,
     HIGHER_INTENT,
     LAUNCH_NAME_MAX,
     LAUNCH_RELATED_TYPE,
     NO_PIXEL_CLICKS,
     PIXEL_ID,
+    SITE_EVENT,
     URL_TAGS,
 )
 from app.modules.ads.exceptions import (
@@ -45,6 +50,7 @@ from app.modules.ads.exceptions import (
     PixelLocked,
     PixelNotOffered,
     ProposalLocked,
+    SiteEventRefused,
     SpendLimitsLocked,
     SpendLimitsUnusable,
     UrlTagsLocked,
@@ -54,7 +60,11 @@ from app.modules.ads.models import CampaignLaunch
 from app.modules.ads.naming import campaign_name
 from app.modules.ads.rows import fresh
 from app.modules.ads.selectors.campaign_type import campaign_type_locked
-from app.modules.ads.selectors.conversion_event import offered_keys
+from app.modules.ads.selectors.conversion_event import (
+    offered_keys,
+    preset_event,
+    site_events,
+)
 from app.modules.ads.selectors.delivery_options import (
     MAX_CAP_DAYS,
     goal_builds_a_form,
@@ -142,9 +152,66 @@ def choose_conversion_event(
 ) -> CampaignLaunch:
     if campaign_type_locked(launch=launch):
         raise ConversionEventLocked
+    if key.startswith(SITE_EVENT):
+        key = _conversion_for_site_event(db, launch=launch, key=key)
     if key not in offered_keys(db, launch=launch):
         raise ConversionEventNotOffered
     return save_answers(db, launch=launch, **{CONVERSION_EVENT: key})
+
+
+def _conversion_for_site_event(db: Session, *, launch: CampaignLaunch, key: str) -> str:
+    """Make the custom conversion Meta needs to buy an event the site named itself.
+
+    Kept on the pixel at once, as the nightly read would, so the launch can
+    name it before that read. Returns the conversion's own key.
+    """
+    from app.modules.ads.selectors.pixel import chosen_pixel
+    from app.modules.ads.services.access import token_for
+
+    found = next(
+        (row for row in site_events(db, launch=launch) if row.key == key), None
+    )
+    pixel = chosen_pixel(db, launch=launch)
+    account = launch.ad_account
+    if found is None or pixel is None or account is None:
+        raise ConversionEventNotOffered
+    kind = preset_event(db, launch=launch) or "OTHER"
+    name = f"{found.name} · Targetolog AI"
+    try:
+        made = create_custom_conversion(
+            account_id=account.external_id,
+            pixel_id=pixel.external_id,
+            event=found.name,
+            name=name,
+            custom_event_type=kind,
+            token=token_for(ad_account=account),
+            dry_run=bool(settings.ads_dry_run),
+        )
+    except MetaError as exc:
+        logger.warning(
+            "custom conversion refused",
+            extra={"pixel": pixel.external_id, "event": found.name, "error": str(exc)},
+        )
+        raise SiteEventRefused(str(exc)[:200]) from exc
+    made = made or f"dry-{found.name}"
+    kept = pixel.conversions if isinstance(pixel.conversions, list) else []
+    pixel.conversions = [
+        *kept,
+        {
+            "id": made,
+            "name": name,
+            "event": kind,
+            "rule_event": found.name,
+            "count": found.count,
+            "last_fired_at": None,
+        },
+    ]
+    db.flush()
+    logger.info(
+        "custom conversion made",
+        extra={"pixel": pixel.external_id, "event": found.name, "conversion": made},
+    )
+    return f"{CUSTOM_CONVERSION}{made}"
 
 
 def choose_cost_cap(
