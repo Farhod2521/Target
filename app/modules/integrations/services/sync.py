@@ -34,6 +34,7 @@ from metaads.accounts import (
     owes_payment,
     pixel_events,
     pixel_events_by_source,
+    pixel_hosts,
 )
 from metaads.accounts import (
     create_ad_account as make_ad_account,
@@ -647,6 +648,7 @@ def sync_pixel_events(db: Session, *, ad_account_id: object) -> str:
             for row in found
         ]
         pixel.events_synced_at = utcnow()
+        _read_hosts(pixel, token=token)
         read += 1
         logger.info(
             "pixel stats read",
@@ -655,6 +657,18 @@ def sync_pixel_events(db: Session, *, ad_account_id: object) -> str:
     _sync_conversions(db, account=account, pixels=pixels, token=token)
     db.commit()
     return str(read)
+
+
+def _read_hosts(pixel: PixelAccount, *, token: str) -> None:
+    """The websites it fired on; a refused or empty read about a live pixel keeps the last."""
+    try:
+        found = pixel_hosts(pixel_id=pixel.external_id, token=token)
+    except MetaError as exc:
+        logger.warning("pixel hosts failed for %s: %s", pixel.external_id, exc)
+        return
+    if not found and _fired_lately(pixel):
+        return
+    pixel.hosts = [{"host": host, "count": count} for host, count in found]
 
 
 def _fired_lately(pixel: PixelAccount) -> bool:

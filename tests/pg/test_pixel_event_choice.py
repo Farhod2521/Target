@@ -482,3 +482,104 @@ def test_the_ais_event_follows_a_new_pixel_and_the_owners_stays(
     choose_pixel(db, launch=launch, external_id="1")
 
     assert launch.answers[CONVERSION_EVENT] == "SCHEDULE"
+
+
+def _checked(
+    client: TestClient, db: Session, link: str, **pixel: Any
+) -> tuple[str, tuple[str, ...]] | None:
+    from app.modules.ads.selectors.pixel import pixel_site_check
+
+    launch = _launch(client, db)
+    row = _pixel(db, launch, "1", active=True, events=pixel.get("events", []))
+    row.hosts = pixel.get("hosts", [])
+    row.last_fired_at = pixel.get("fired", utcnow())
+    db.commit()
+    found = pixel_site_check(db, launch=launch, link_url=link)
+    return None if found is None else (found.state, found.hosts)
+
+
+def test_the_pixel_on_the_ads_site_is_ok(client: TestClient, db: Session) -> None:
+    found = _checked(
+        client,
+        db,
+        "https://www.targetolog.ai/kurs",
+        events=[{"event": "Lead", "count": 40, "web": 40}],
+        hosts=[{"host": "targetolog.ai", "count": 900}],
+    )
+
+    assert found == ("ok", ("targetolog.ai",))
+
+
+def test_a_pixel_firing_elsewhere_is_warned_about(
+    client: TestClient, db: Session
+) -> None:
+    found = _checked(
+        client,
+        db,
+        "bahor.uz",
+        events=[{"event": "Lead", "count": 40, "web": 40}],
+        hosts=[{"host": "shop.example.com", "count": 50}],
+    )
+
+    assert found is not None and found[0] == "not_on_site"
+
+
+def test_a_subdomain_counts_as_the_same_site(client: TestClient, db: Session) -> None:
+    found = _checked(
+        client,
+        db,
+        "https://kurs.bahor.uz",
+        events=[{"event": "Lead", "count": 4, "web": 4}],
+        hosts=[{"host": "bahor.uz", "count": 50}],
+    )
+
+    assert found is not None and found[0] == "ok"
+
+
+def test_a_pixel_that_never_fired_is_warned_about(
+    client: TestClient, db: Session
+) -> None:
+    found = _checked(client, db, "bahor.uz", fired=None)
+
+    assert found is not None and found[0] == "never_fired"
+
+
+def test_a_pixel_with_no_results_from_the_site_is_warned_about(
+    client: TestClient, db: Session
+) -> None:
+    found = _checked(
+        client,
+        db,
+        "bahor.uz",
+        events=[{"event": "PageView", "count": 90, "web": 90}],
+        hosts=[{"host": "bahor.uz", "count": 90}],
+    )
+
+    assert found is not None and found[0] == "no_results"
+
+
+def test_the_sweep_keeps_the_hosts_the_pixel_fired_on(
+    client: TestClient, db: Session, monkeypatch: Any
+) -> None:
+    launch = _launch(client, db)
+    pixel = _pixel(db, launch, "1", events=[])
+    account = launch.ad_account
+    assert account is not None
+    monkeypatch.setattr(sync, "_usable_token", lambda connection: "t")
+    monkeypatch.setattr(
+        sync,
+        "pixel_events_by_source",
+        lambda **_: [PixelEventRow(event="Lead", count=9, web=9)],
+    )
+    monkeypatch.setattr(
+        sync, "pixel_hosts", lambda **_: [("bahor.uz", 80), ("www.bahor.uz", 3)]
+    )
+    monkeypatch.setattr(sync, "custom_conversions", lambda **_: [])
+
+    sync.sync_pixel_events(db, ad_account_id=account.id)
+    db.refresh(pixel)
+
+    assert pixel.hosts == [
+        {"host": "bahor.uz", "count": 80},
+        {"host": "www.bahor.uz", "count": 3},
+    ]

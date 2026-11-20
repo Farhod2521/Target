@@ -223,3 +223,27 @@ def test_a_site_event_is_made_a_custom_conversion() -> None:
     body = seen[0].content.decode()
     assert "event_source_id=777" in body and "custom_event_type=LEAD" in body
     assert "new_lead" in body
+
+
+def test_the_hosts_a_pixel_fired_on_are_summed_busiest_first() -> None:
+    from metaads.accounts import pixel_hosts
+
+    client, seen = answering(
+        {
+            "data": [
+                {
+                    "data": [
+                        {"value": "Bahor.uz", "count": 5},
+                        {"value": "x.com", "count": 9},
+                    ]
+                },
+                {"data": [{"value": "bahor.uz", "count": 7}]},
+            ]
+        }
+    )
+
+    assert pixel_hosts(pixel_id=PIXEL, token="t", client=client) == [
+        ("bahor.uz", 12),
+        ("x.com", 9),
+    ]
+    assert seen[0].url.params.get("aggregation") == "host"

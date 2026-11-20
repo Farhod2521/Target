@@ -33,6 +33,8 @@ class PixelAccount(Base):
     # TZ 3: [{"id", "name", "event", "count", "last_fired_at"}] - custom conversions counted on this pixel.
     conversions: Mapped[Any] = mapped_column(Json, nullable=False, default=list)
     events_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # [{"host", "count"}] - the websites the tag fired on this week, busiest first.
+    hosts: Mapped[Any] = mapped_column(Json, nullable=False, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # -- django extras --

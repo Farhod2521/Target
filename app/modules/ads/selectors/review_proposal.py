@@ -160,6 +160,7 @@ def proposal_view(
             db, launch=launch, business=business, preset=preset, now=now
         ),
         "advanced": _advanced(db, launch=launch),
+        "pixel_check": _pixel_check(db, launch=launch),
         "adjustments": [
             note
             for note in draft_field.adjustments(draft)
@@ -475,6 +476,17 @@ def _lead_form(
         "depth": form_depth_choice(db, launch=launch, now=now),
         "privacy_url": privacy_url(business) if business is not None else "",
     }
+
+
+def _pixel_check(db: Session, *, launch: CampaignLaunch) -> Any:
+    from app.modules.ads.selectors.goals import goal_needs_pixel
+    from app.modules.ads.selectors.pixel import pixel_site_check
+
+    if not goal_needs_pixel(db, launch=launch):
+        return None
+    return pixel_site_check(
+        db, launch=launch, link_url=str(launch.answers.get("link_url") or "")
+    )
 
 
 def _advanced(db: Session, *, launch: CampaignLaunch) -> dict[str, Any]:

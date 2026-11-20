@@ -300,6 +300,7 @@ def attention(
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     out.extend(_audience_notes(found or {}))
+    out.extend(_pixel_notes((found or {}).get("pixel_check")))
     posts = state.get("posts_not_promoted") or []
     if posts:
         out.append(
@@ -323,6 +324,47 @@ def attention(
             }
         )
     return out
+
+
+def _pixel_notes(check: Any) -> list[dict[str, Any]]:
+    """Said before launch, never refused: the owner may know their site better."""
+    if not isinstance(check, dict) or check.get("state") in (None, "ok"):
+        return []
+    pixel = text(check.get("pixel"))
+    host = text(check.get("host"))
+    seen = ", ".join(text(row) for row in (check.get("hosts") or [])[:3])
+    texts = {
+        "never_fired": (
+            "Piksel hech qachon ishlamagan",
+            f"«{pixel}» pikseli birorta saytda ishlamagan — saytingizga o'rnatilmagan "
+            "bo'lishi mumkin. Reklama natijani ko'ra olmaydi.",
+        ),
+        "not_on_site": (
+            "Piksel bu saytda ishlamayapti",
+            f"«{pixel}» oxirgi 7 kunda {host} saytida ishlamagan"
+            + (f" (u ishlagan saytlar: {seen})" if seen else "")
+            + ". Boshqa pikselni tanlang yoki pikselni saytingizga o'rnating.",
+        ),
+        "no_results": (
+            "Saytdan natija kelmayapti",
+            f"Oxirgi 7 kunda saytingizdan «{pixel}» orqali birorta ham natija kelmagan. "
+            "Reklama o'rgana olmaydi — formadagi eventni yoki boshqa pikselni tekshiring.",
+        ),
+    }
+    found = texts.get(text(check.get("state")))
+    if found is None:
+        return []
+    title, body = found
+    return [
+        {
+            "id": f"pixel_{check.get('state')}",
+            "icon": "link",
+            "tone": "w",
+            "title": title,
+            "text": body,
+            "action": {"label": "Piksel", "to": "adv", "style": "link"},
+        }
+    ]
 
 
 def _audience_notes(found: dict[str, Any]) -> list[dict[str, Any]]:

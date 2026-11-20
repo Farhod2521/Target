@@ -145,3 +145,58 @@ def pixel_choices(db: Session, *, launch: CampaignLaunch) -> tuple[PixelOption, 
         )
         for row in found
     )
+
+
+@dataclass(frozen=True, slots=True)
+class PixelSiteCheck:
+    """Whether the launch's pixel is seen on the ad's website, said before launch.
+
+    ``state``: ``never_fired`` (it never fired anywhere), ``not_on_site``
+    (it fired this week, not on the ad's host), ``no_results`` (no result
+    came through it from the site this week), or ``ok``.
+    """
+
+    state: str
+    pixel: str
+    host: str
+    hosts: tuple[str, ...]
+
+
+def _bare(host: str) -> str:
+    host = host.strip().lower().rstrip(".")
+    return host[4:] if host.startswith("www.") else host
+
+
+def _same_site(one: str, other: str) -> bool:
+    a, b = _bare(one), _bare(other)
+    return bool(a and b) and (a == b or a.endswith(f".{b}") or b.endswith(f".{a}"))
+
+
+def pixel_site_check(
+    db: Session, *, launch: CampaignLaunch, link_url: str
+) -> PixelSiteCheck | None:
+    """Only warns: the owner may know better (a site behind another domain)."""
+    from urllib.parse import urlsplit
+
+    pixel = chosen_pixel(db, launch=launch)
+    if pixel is None:
+        return None
+    typed = link_url.strip()
+    if typed and "://" not in typed:
+        typed = f"https://{typed}"
+    host = _bare(urlsplit(typed).hostname or "") if typed else ""
+    hosts = tuple(
+        str(row.get("host") or "")
+        for row in (pixel.hosts if isinstance(pixel.hosts, list) else [])
+        if isinstance(row, dict) and row.get("host")
+    )
+    name = pixel.name or pixel.external_id
+    if pixel.last_fired_at is None:
+        return PixelSiteCheck("never_fired", name, host, hosts)
+    if host and hosts and not any(_same_site(host, seen) for seen in hosts):
+        return PixelSiteCheck("not_on_site", name, host, hosts)
+    if pixel.events_synced_at is not None and not site_results(
+        pixel, wanted_events(db, launch=launch)
+    ):
+        return PixelSiteCheck("no_results", name, host, hosts)
+    return PixelSiteCheck("ok", name, host, hosts)

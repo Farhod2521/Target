@@ -514,6 +514,38 @@ def pixel_events(
     ]
 
 
+HOST_AGGREGATION: Final = "host"
+
+
+def pixel_hosts(
+    *, pixel_id: str, token: str, client: GraphClient | None = None
+) -> list[tuple[str, int]]:
+    """The websites the pixel fired on in the window, busiest first.
+
+    The only way Meta offers to see where a pixel is installed: there is no
+    call that checks a given address.
+    """
+    graph = client or GraphClient(token=token)
+    try:
+        rows = graph.get_all(
+            f"{pixel_id}/stats",
+            aggregation=HOST_AGGREGATION,
+            start_time=stats_since(),
+        )
+    finally:
+        if client is None:
+            graph.close()
+    counted: dict[str, int] = {}
+    for row in rows:
+        for entry in row.get("data") or ():
+            if not isinstance(entry, dict):
+                continue
+            host = str(entry.get("value") or "").strip().lower()
+            if host:
+                counted[host] = counted.get(host, 0) + _times(entry.get("count"))
+    return sorted(counted.items(), key=lambda pair: (-pair[1], pair[0]))
+
+
 def pixel_events_by_source(
     *, pixel_id: str, token: str, client: GraphClient | None = None
 ) -> list[PixelEventRow]:

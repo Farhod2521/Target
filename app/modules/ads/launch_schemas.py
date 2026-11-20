@@ -32,7 +32,7 @@ from app.modules.ads.selectors.lead_form import (
     FormChoice,
     FormDepthChoice,
 )
-from app.modules.ads.selectors.pixel import PixelOption
+from app.modules.ads.selectors.pixel import PixelOption, PixelSiteCheck
 from app.modules.ads.selectors.preparing import Preparing, WaitStage
 from app.modules.ads.selectors.proposal_changes import ProposalChange
 from app.modules.ads.selectors.quality import QualityOffer
@@ -333,6 +333,11 @@ class ProposalOut(Shape):
     destination: DestinationOut
     lead_form: LeadFormOut | None
     advanced: AdvancedOut
+    pixel_check: PixelSiteCheck | None = Field(
+        None,
+        description="Site goals only: whether the launch's pixel is seen on the ad's "
+        "website (`ok`, `never_fired`, `not_on_site`, `no_results`); said, never refused.",
+    )
     adjustments: list[dict[str, Any]]
     unconfirmed_names: list[str]
     regenerated: dict[str, bool] = Field(
