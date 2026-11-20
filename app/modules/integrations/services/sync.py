@@ -26,6 +26,7 @@ from metaads.accounts import (
     TWO_FACTOR_REQUIRED,
     custom_conversion_count,
     custom_conversions,
+    dataset_quality,
     list_ad_accounts,
     list_pages,
     list_pixels,
@@ -649,6 +650,7 @@ def sync_pixel_events(db: Session, *, ad_account_id: object) -> str:
         ]
         pixel.events_synced_at = utcnow()
         _read_hosts(pixel, token=token)
+        _read_quality(pixel, token=token)
         read += 1
         logger.info(
             "pixel stats read",
@@ -669,6 +671,19 @@ def _read_hosts(pixel: PixelAccount, *, token: str) -> None:
     if not found and _fired_lately(pixel):
         return
     pixel.hosts = [{"host": host, "count": count} for host, count in found]
+
+
+def _read_quality(pixel: PixelAccount, *, token: str) -> None:
+    """Meta's match quality per event; only for a pixel that fired this week."""
+    if not _fired_lately(pixel):
+        return
+    try:
+        found = dataset_quality(pixel_id=pixel.external_id, token=token)
+    except MetaError as exc:
+        logger.warning("pixel quality failed for %s: %s", pixel.external_id, exc)
+        return
+    if found:
+        pixel.quality = found
 
 
 def _fired_lately(pixel: PixelAccount) -> bool:

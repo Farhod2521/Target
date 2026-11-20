@@ -40,3 +40,11 @@ def test_the_card_holds_the_chosen_twin() -> None:
     )
 
     assert row["value"] == "Asosiy (2)"
+
+
+def test_the_hint_carries_metas_match_quality() -> None:
+    hint = _pixel_hint(
+        {"site_results": 532, "last_fired_at": None, "match_quality": 6.1}
+    )
+
+    assert "sifat 6.1/10" in hint["meta"]

@@ -6,6 +6,7 @@ from app.modules.ads.contract.launch.edit import _advanced
 
 WINDOWS = [
     {"key": "click_7_view_1", "label": "7 kun bosish, 1 kun ko'rish"},
+    {"key": "click_7", "label": "7 kun bosish"},
     {"key": "click_1", "label": "1 kun bosish"},
 ]
 
@@ -25,7 +26,8 @@ def _row(chosen: str) -> dict[str, Any]:
 
 
 def test_no_choice_shows_metas_default() -> None:
-    assert _row("")["value"] == "7 kun bosish, 1 kun ko'rish"
+    """Meta set 7-day click alone on our window-less ad sets (production)."""
+    assert _row("")["value"] == "7 kun bosish"
 
 
 def test_the_owners_choice_is_shown() -> None:

@@ -1,8 +1,12 @@
-"""Pixels: the websites each one fired on this week.
+"""Pixels: the websites each one fired on this week, and its events' quality.
 
-Schema (additive): ``pixel_accounts.hosts``, read from Meta's pixel stats
-by host with the events, so a site-lead launch can say when its pixel is
-not on the ad's website. Empty until the next read; the downgrade drops it.
+Schema (additive), both read from Meta with the events and empty until the
+next read; the downgrade drops them:
+
+- ``pixel_accounts.hosts``: from the pixel stats by host, so a site-lead
+  launch can say when its pixel is not on the ad's website;
+- ``pixel_accounts.quality``: Meta's Dataset Quality answer per event (match
+  quality 0-10, server coverage, dedupe by event id).
 """
 
 from collections.abc import Sequence
@@ -18,9 +22,13 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.execute(
         "ALTER TABLE pixel_accounts "
-        "ADD COLUMN IF NOT EXISTS hosts jsonb NOT NULL DEFAULT '[]'::jsonb"
+        "ADD COLUMN IF NOT EXISTS hosts jsonb NOT NULL DEFAULT '[]'::jsonb, "
+        "ADD COLUMN IF NOT EXISTS quality jsonb NOT NULL DEFAULT '[]'::jsonb"
     )
 
 
 def downgrade() -> None:
-    op.execute("ALTER TABLE pixel_accounts DROP COLUMN IF EXISTS hosts")
+    op.execute(
+        "ALTER TABLE pixel_accounts DROP COLUMN IF EXISTS hosts, "
+        "DROP COLUMN IF EXISTS quality"
+    )

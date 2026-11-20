@@ -247,3 +247,48 @@ def test_the_hosts_a_pixel_fired_on_are_summed_busiest_first() -> None:
         ("x.com", 9),
     ]
     assert seen[0].url.params.get("aggregation") == "host"
+
+
+def test_dataset_quality_is_read_per_web_event() -> None:
+    """The shape production answered on 2026-11-20 for a busy site pixel."""
+    from metaads.accounts import dataset_quality
+
+    client, seen = answering(
+        {
+            "web": [
+                {
+                    "event_name": "Lead",
+                    "event_match_quality": {
+                        "composite_score": 6.1,
+                        "match_key_feedback": [
+                            {"identifier": "fbc", "coverage": {"percentage": 83.2}}
+                        ],
+                    },
+                    "event_coverage": {"percentage": 99},
+                    "dedupe_key_feedback": [
+                        {
+                            "dedupe_key": "event_id",
+                            "browser_events_with_dedupe_key": {"percentage": 100},
+                            "overall_browser_coverage_from_dedupe_key": {
+                                "percentage": 99.48
+                            },
+                        },
+                        {
+                            "dedupe_key": "fbp",
+                            "overall_browser_coverage_from_dedupe_key": {
+                                "percentage": 0
+                            },
+                        },
+                    ],
+                },
+                {"event_name": "PageView"},
+            ]
+        }
+    )
+
+    assert dataset_quality(pixel_id=PIXEL, token="t", client=client) == [
+        {"event": "Lead", "score": 6.1, "coverage": 99.0, "dedupe": 99.48},
+        {"event": "PageView", "score": None, "coverage": None, "dedupe": None},
+    ]
+    assert seen[0].url.path.endswith("/dataset_quality")
+    assert seen[0].url.params.get("dataset_id") == PIXEL

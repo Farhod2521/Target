@@ -28,3 +28,9 @@ def test_never_fired_and_no_results_have_their_own_words() -> None:
 
     assert never[0]["id"] == "pixel_never_fired"
     assert quiet[0]["id"] == "pixel_no_results"
+
+
+def test_a_poor_match_names_its_score() -> None:
+    (note,) = _pixel_notes({"state": "poor_match", "pixel": "X", "match_quality": 2.5})
+
+    assert note["id"] == "pixel_poor_match" and "2.5/10" in note["text"]

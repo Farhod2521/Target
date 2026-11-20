@@ -28,6 +28,7 @@ from core.targeting import (
     mode_rules,
     resolve_mode,
 )
+from core.targeting.attribution import DEFAULT_WINDOW
 from core.targeting.placements import (
     OFFERED_POSITIONS,
     POSITION_NEEDS,
@@ -408,12 +409,12 @@ def _advanced(found: dict[str, Any]) -> list[dict[str, Any]]:
     delivery = advanced.get("delivery") or {}
     if delivery.get("offers_window"):
         windows = delivery.get("windows") or []
-        # Nothing chosen sends no window, and Meta counts by its own default - the list's first.
+        # Nothing chosen sends no window, and Meta then counts by its own default.
         pick(
             "attribution",
             "Attribution",
             windows,
-            delivery.get("chosen_window") or (windows[0].get("key") if windows else ""),
+            delivery.get("chosen_window") or DEFAULT_WINDOW,
             bool(delivery.get("locked")),
             False,
         )
@@ -502,6 +503,7 @@ def _pixel_hint(row: dict[str, Any]) -> dict[str, str]:
     """What the website sent through it this week, and when it last fired."""
     results = row.get("site_results")
     fired = row.get("last_fired_at")
+    score = row.get("match_quality")
     when = ""
     if fired:
         stamp = (
@@ -512,6 +514,7 @@ def _pixel_hint(row: dict[str, Any]) -> dict[str, str]:
         part
         for part in (
             "" if results is None else f"saytdan 7 kunda {results} ta natija",
+            "" if score is None else f"sifat {score:g}/10",
             when,
         )
         if part

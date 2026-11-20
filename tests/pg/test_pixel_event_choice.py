@@ -583,3 +583,55 @@ def test_the_sweep_keeps_the_hosts_the_pixel_fired_on(
         {"host": "bahor.uz", "count": 80},
         {"host": "www.bahor.uz", "count": 3},
     ]
+
+
+def test_a_poorly_matched_result_event_is_warned_about(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.ads.selectors.pixel import pixel_site_check
+
+    launch = _launch(client, db)
+    row = _pixel(
+        db, launch, "1", active=True, events=[{"event": "Lead", "count": 40, "web": 40}]
+    )
+    row.last_fired_at = utcnow()
+    row.quality = [
+        {"event": "Lead", "score": 2.5, "coverage": 0.0, "dedupe": None},
+        {"event": "PageView", "score": 9.0, "coverage": 99.0, "dedupe": 99.0},
+    ]
+    db.commit()
+
+    found = pixel_site_check(db, launch=launch, link_url="")
+    options = pixel_choices(db, launch=launch)
+
+    assert found is not None and (found.state, found.match_quality) == (
+        "poor_match",
+        2.5,
+    )
+    assert options == () or options[0].match_quality == 2.5
+
+
+def test_the_sweep_keeps_metas_quality_reading_of_a_live_pixel(
+    client: TestClient, db: Session, monkeypatch: Any
+) -> None:
+    launch = _launch(client, db)
+    pixel = _pixel(db, launch, "1", events=[])
+    pixel.last_fired_at = utcnow()
+    db.commit()
+    account = launch.ad_account
+    assert account is not None
+    reading = [{"event": "Lead", "score": 6.1, "coverage": 99.0, "dedupe": 99.48}]
+    monkeypatch.setattr(sync, "_usable_token", lambda connection: "t")
+    monkeypatch.setattr(
+        sync,
+        "pixel_events_by_source",
+        lambda **_: [PixelEventRow(event="Lead", count=9)],
+    )
+    monkeypatch.setattr(sync, "pixel_hosts", lambda **_: [])
+    monkeypatch.setattr(sync, "dataset_quality", lambda **_: reading)
+    monkeypatch.setattr(sync, "custom_conversions", lambda **_: [])
+
+    sync.sync_pixel_events(db, ad_account_id=account.id)
+    db.refresh(pixel)
+
+    assert pixel.quality == reading

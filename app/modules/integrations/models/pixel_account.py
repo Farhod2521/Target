@@ -35,6 +35,9 @@ class PixelAccount(Base):
     events_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # [{"host", "count"}] - the websites the tag fired on this week, busiest first.
     hosts: Mapped[Any] = mapped_column(Json, nullable=False, default=list)
+    # [{"event", "score", "coverage", "dedupe"}] - Meta's Dataset Quality per web event:
+    # match quality 0-10, share also sent by a server, share deduplicated by event id.
+    quality: Mapped[Any] = mapped_column(Json, nullable=False, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # -- django extras --

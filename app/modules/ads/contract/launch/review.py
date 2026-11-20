@@ -345,6 +345,12 @@ def _pixel_notes(check: Any) -> list[dict[str, Any]]:
             + (f" (u ishlagan saytlar: {seen})" if seen else "")
             + ". Boshqa pikselni tanlang yoki pikselni saytingizga o'rnating.",
         ),
+        "poor_match": (
+            "Event sifati past",
+            f"Meta «{pixel}» eventlarini odamlarga yomon bog'layapti (sifat "
+            f"{check.get('match_quality')}/10). Reklama sekin o'rganadi — saytdagi "
+            "formadan email yoki telefonni ham yuboring (Conversions API).",
+        ),
         "no_results": (
             "Saytdan natija kelmayapti",
             f"Oxirgi 7 kunda saytingizdan «{pixel}» orqali birorta ham natija kelmagan. "

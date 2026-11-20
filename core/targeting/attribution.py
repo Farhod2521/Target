@@ -24,6 +24,11 @@ WINDOWS: Final[tuple[AttributionWindow, ...]] = (
 
 ATTRIBUTION_GOALS: Final[frozenset[str]] = frozenset({"OFFSITE_CONVERSIONS"})
 
+# What Meta sets on an ad set sent without a window. Read back from two of our
+# own site-lead ad sets in production on 2026-11-20: [{CLICK_THROUGH, 7}],
+# no view window.
+DEFAULT_WINDOW: Final = "click_7"
+
 
 def takes_attribution(optimization_goal: str) -> bool:
     """Whether a window may be sent beside this optimisation goal."""
@@ -51,6 +56,7 @@ def attribution_window(*, provider: str, key: str) -> AttributionWindow | None:
 
 __all__ = [
     "ATTRIBUTION_GOALS",
+    "DEFAULT_WINDOW",
     "WINDOWS",
     "AttributionWindow",
     "attribution_window",

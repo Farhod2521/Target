@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Final
 
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
@@ -113,6 +114,28 @@ def launch_conversion_source(
     return ConversionSource(external_id=pixel.external_id, name=pixel.name)
 
 
+# Below this Meta rates an event's match quality poor (Events Manager: 0-10).
+POOR_MATCH: Final = 4.0
+
+
+def result_quality(pixel: PixelAccount, wanted: frozenset[str]) -> float | None:
+    """Meta's match quality (0-10) of the best of the goal's events on this pixel."""
+    scores = [
+        float(row["score"])
+        for row in (pixel.quality if isinstance(pixel.quality, list) else [])
+        if isinstance(row, dict)
+        and row.get("score") is not None
+        and (
+            found := event_for_snippet(
+                provider=pixel.provider, name=str(row.get("event", ""))
+            )
+        )
+        is not None
+        and found.key in wanted
+    ]
+    return max(scores) if scores else None
+
+
 @dataclass(frozen=True, slots=True)
 class PixelOption:
     external_id: str
@@ -122,6 +145,8 @@ class PixelOption:
     events_seen: int
     # The goal's results from the website's tag this week; None before any read.
     site_results: int | None = None
+    # Meta's match quality (0-10) of those results; None when Meta has none.
+    match_quality: float | None = None
 
 
 def pixel_choices(db: Session, *, launch: CampaignLaunch) -> tuple[PixelOption, ...]:
@@ -142,6 +167,7 @@ def pixel_choices(db: Session, *, launch: CampaignLaunch) -> tuple[PixelOption, 
             site_results=site_results(row, wanted)
             if row.events_synced_at is not None
             else None,
+            match_quality=result_quality(row, wanted),
         )
         for row in found
     )
@@ -160,6 +186,8 @@ class PixelSiteCheck:
     pixel: str
     host: str
     hosts: tuple[str, ...]
+    # Meta's match quality of the goal's events, when Meta rated them.
+    match_quality: float | None = None
 
 
 def _bare(host: str) -> str:
@@ -191,12 +219,14 @@ def pixel_site_check(
         if isinstance(row, dict) and row.get("host")
     )
     name = pixel.name or pixel.external_id
+    wanted = wanted_events(db, launch=launch)
+    score = result_quality(pixel, wanted)
     if pixel.last_fired_at is None:
         return PixelSiteCheck("never_fired", name, host, hosts)
     if host and hosts and not any(_same_site(host, seen) for seen in hosts):
-        return PixelSiteCheck("not_on_site", name, host, hosts)
-    if pixel.events_synced_at is not None and not site_results(
-        pixel, wanted_events(db, launch=launch)
-    ):
-        return PixelSiteCheck("no_results", name, host, hosts)
-    return PixelSiteCheck("ok", name, host, hosts)
+        return PixelSiteCheck("not_on_site", name, host, hosts, score)
+    if pixel.events_synced_at is not None and not site_results(pixel, wanted):
+        return PixelSiteCheck("no_results", name, host, hosts, score)
+    if score is not None and score < POOR_MATCH:
+        return PixelSiteCheck("poor_match", name, host, hosts, score)
+    return PixelSiteCheck("ok", name, host, hosts, score)

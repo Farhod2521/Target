@@ -546,6 +546,66 @@ def pixel_hosts(
     return sorted(counted.items(), key=lambda pair: (-pair[1], pair[0]))
 
 
+QUALITY_FIELDS: Final = (
+    "web{event_name,event_match_quality,event_coverage,dedupe_key_feedback}"
+)
+
+
+def dataset_quality(
+    *, pixel_id: str, token: str, client: GraphClient | None = None
+) -> list[dict[str, Any]]:
+    """Meta's quality reading of each web event the pixel receives.
+
+    ``score`` is Event Match Quality (0-10), ``coverage`` the share of the
+    tag's events a server also sent, ``dedupe`` the share carrying an
+    ``event_id`` so the two copies merge. Absent figures stay ``None``.
+    """
+    graph = client or GraphClient(token=token)
+    try:
+        answer = graph.get(
+            "dataset_quality", dataset_id=pixel_id, fields=QUALITY_FIELDS
+        )
+    finally:
+        if client is None:
+            graph.close()
+    rows: list[dict[str, Any]] = []
+    for row in answer.get("web") or []:
+        if not isinstance(row, dict) or not row.get("event_name"):
+            continue
+        dedupe = next(
+            (
+                item
+                for item in row.get("dedupe_key_feedback") or []
+                if isinstance(item, dict) and item.get("dedupe_key") == "event_id"
+            ),
+            {},
+        )
+        rows.append(
+            {
+                "event": str(row["event_name"]),
+                "score": _number(
+                    (row.get("event_match_quality") or {}).get("composite_score")
+                ),
+                "coverage": _number(
+                    (row.get("event_coverage") or {}).get("percentage")
+                ),
+                "dedupe": _number(
+                    (dedupe.get("overall_browser_coverage_from_dedupe_key") or {}).get(
+                        "percentage"
+                    )
+                ),
+            }
+        )
+    return rows
+
+
+def _number(value: object) -> float | None:
+    try:
+        return None if value is None else float(str(value))
+    except ValueError:
+        return None
+
+
 def pixel_events_by_source(
     *, pixel_id: str, token: str, client: GraphClient | None = None
 ) -> list[PixelEventRow]:
