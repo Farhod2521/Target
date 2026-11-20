@@ -71,13 +71,13 @@ def _billing():  # type: ignore[no-untyped-def]
 
 def _read_the_account(db: Session, account: AdAccount) -> None:
     from app.modules.ads.tasks import sync_ad_account_task, sync_media_task
-    from app.modules.integrations.tasks import sync_pixels_task
+    from app.modules.integrations.tasks import read_pixels
     from app.modules.metrics.tasks import sync_insights_task
 
     key = str(account.id)
     on_commit(db, lambda: sync_ad_account_task.delay(key))
     on_commit(db, lambda: sync_insights_task.delay(key))
-    on_commit(db, lambda: sync_pixels_task.delay(key))
+    on_commit(db, lambda: read_pixels(key))
     on_commit(db, lambda: sync_media_task.delay(key))
 
 

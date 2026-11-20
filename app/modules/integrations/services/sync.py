@@ -20,6 +20,7 @@ from metaads import PROVIDER
 from metaads.accounts import (
     ACCOUNT_IN_BAD_STANDING,
     DEFAULT_ACCOUNT_CURRENCY,
+    PIXEL_STATS_DAYS,
     TASHKENT_TIMEZONE_ID,
     TOO_MANY_ACCOUNTS,
     TWO_FACTOR_REQUIRED,
@@ -32,6 +33,7 @@ from metaads.accounts import (
     may_run_ads,
     owes_payment,
     pixel_events,
+    pixel_events_by_source,
 )
 from metaads.accounts import (
     create_ad_account as make_ad_account,
@@ -45,7 +47,7 @@ from metaads.accounts import (
 from metaads.dto import AdAccountDTO, PageDTO, PixelDTO
 from metaads.errors import MetaAPIError, MetaError
 from metaads.instagram import read_instagram_profile
-from sqlalchemy import delete, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.common.cache import cache
@@ -106,9 +108,11 @@ from app.modules.integrations.services.access import account_ref, port_for, toke
 from app.modules.integrations.services.reach import check_chosen
 
 logger = logging.getLogger(__name__)
-MOST_PIXELS: Final = 5
+# Each pixel costs two stats reads per sweep (the tag's and the server's).
+MOST_PIXELS: Final = 25
 # Meta allows a hundred per account; each costs one stats read per sweep.
-MOST_CONVERSIONS: Final = 20
+# The most recently fired are read first.
+MOST_CONVERSIONS: Final = 50
 _REVOKED_CODE: Final = "revoked"
 EMPTY_PROFILE: Final[dict[str, Any]] = {
     "instagram_name": "",
@@ -576,11 +580,16 @@ def _store_pixels(db: Session, *, account: AdAccount, pixels: list[PixelDTO]) ->
         row.synced_at = now
         stored.append(row)
     db.flush()
+    # A pixel Meta no longer lists for the account is kept as unusable, not
+    # deleted: a launch that named it then says so instead of quietly moving
+    # to another pixel, and it comes back as it was if Meta lists it again.
     db.execute(
-        delete(PixelAccount).where(
+        update(PixelAccount)
+        .where(
             PixelAccount.ad_account_id == account.id,
             PixelAccount.id.not_in([row.id for row in stored]),
         )
+        .values(is_unavailable=True, is_active=False, synced_at=now)
     )
     usable = [row for row in stored if not row.is_unavailable]
     if len(usable) == 1 and not any(row.is_active for row in stored):
@@ -612,18 +621,45 @@ def sync_pixel_events(db: Session, *, ad_account_id: object) -> str:
     read = 0
     for pixel in pixels:
         try:
-            found = pixel_events(pixel_id=pixel.external_id, token=token)
+            found = pixel_events_by_source(pixel_id=pixel.external_id, token=token)
+            if not found and _fired_lately(pixel):
+                # Meta answered nothing for a pixel that fired this week: ask
+                # once more without the source before believing it.
+                found = pixel_events(pixel_id=pixel.external_id, token=token)
         except MetaError as exc:
-            logger.info("pixel stats failed for %s: %s", pixel.external_id, exc)
+            logger.warning("pixel stats failed for %s: %s", pixel.external_id, exc)
+            continue
+        if not found and _fired_lately(pixel):
+            # An empty answer about a live pixel is not "nothing arrives":
+            # the last figures stay, and their date says how old they are.
+            logger.warning(
+                "pixel stats empty although it fired",
+                extra={"pixel": pixel.external_id, "fired": str(pixel.last_fired_at)},
+            )
             continue
         pixel.recent_events = [
-            {"event": row.event, "count": row.count} for row in found
+            {
+                "event": row.event,
+                "count": row.count,
+                "web": row.web,
+                "server": row.server,
+            }
+            for row in found
         ]
         pixel.events_synced_at = utcnow()
         read += 1
+        logger.info(
+            "pixel stats read",
+            extra={"pixel": pixel.external_id, "events": len(found)},
+        )
     _sync_conversions(db, account=account, pixels=pixels, token=token)
     db.commit()
     return str(read)
+
+
+def _fired_lately(pixel: PixelAccount) -> bool:
+    fired = pixel.last_fired_at
+    return fired is not None and fired >= utcnow() - timedelta(days=PIXEL_STATS_DAYS)
 
 
 def _sync_conversions(
@@ -640,7 +676,11 @@ def _sync_conversions(
         logger.info("custom conversions failed for %s: %s", account.external_id, exc)
         return
     by_pixel: dict[str, list[dict[str, Any]]] = {}
-    usable = [row for row in found if row.is_usable and row.pixel_id]
+    usable = sorted(
+        (row for row in found if row.is_usable and row.pixel_id),
+        key=lambda row: row.last_fired_time.timestamp() if row.last_fired_time else 0,
+        reverse=True,
+    )
     for row in usable[:MOST_CONVERSIONS]:
         try:
             count: int | None = custom_conversion_count(

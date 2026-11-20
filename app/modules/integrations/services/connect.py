@@ -156,14 +156,14 @@ def _check_reach(db: Session, *, connection: ProviderConnection) -> None:
 
 
 def _reread_pixels(db: Session, *, connection: ProviderConnection) -> None:
-    from app.modules.integrations.tasks import sync_pixels_task
+    from app.modules.integrations.tasks import read_pixels
 
     for account_id in db.scalars(
         select(AdAccount.id).where(
             AdAccount.connection_id == connection.id, AdAccount.is_active.is_(True)
         )
     ):
-        on_commit(db, lambda key=str(account_id): sync_pixels_task.delay(key))
+        on_commit(db, lambda key=str(account_id): read_pixels(key))
 
 
 def _reread_pages(db: Session, *, connection: ProviderConnection) -> None:

@@ -105,6 +105,13 @@ def sync_pixel_events_task(ad_account_id: str) -> str:
         return sync_pixel_events(db, ad_account_id=ad_account_id)
 
 
+def read_pixels(ad_account_id: str) -> None:
+    """The account's pixels, then what each sent this week - not the next night."""
+    chain(
+        sync_pixels_task.si(ad_account_id), sync_pixel_events_task.si(ad_account_id)
+    ).delay()
+
+
 @celery_app.task(queue="sync", ignore_result=True)
 def sync_all_pixel_events() -> int:
     with task_session() as db:
@@ -123,10 +130,7 @@ def sync_all_pixel_events() -> int:
             )
         )
     for account_id in accounts:
-        chain(
-            sync_pixels_task.si(str(account_id)),
-            sync_pixel_events_task.si(str(account_id)),
-        ).delay()
+        read_pixels(str(account_id))
     logger.info("pixel event sweep: %s accounts queued", len(accounts))
     return len(accounts)
 

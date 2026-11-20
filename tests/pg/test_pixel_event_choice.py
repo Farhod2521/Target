@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi.testclient import TestClient
-from metaads.dto import CustomConversionRow, PixelEventRow
+from metaads.dto import CustomConversionRow, PixelDTO, PixelEventRow
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
@@ -15,7 +15,7 @@ from app.modules.ads.selectors.conversion_event import (
     conversion_event_choices,
     effective_conversion_event,
 )
-from app.modules.ads.selectors.pixel import chosen_pixel
+from app.modules.ads.selectors.pixel import chosen_pixel, usable_pixels
 from app.modules.ads.services.advanced import choose_conversion_event
 from app.modules.ads.services.targeting import apply_conversion_event, launch_answers
 from app.modules.integrations.models import PixelAccount
@@ -216,8 +216,8 @@ def test_the_sweep_keeps_each_pixels_custom_conversions(
     monkeypatch.setattr(sync, "_usable_token", lambda connection: "t")
     monkeypatch.setattr(
         sync,
-        "pixel_events",
-        lambda **_: [PixelEventRow(event="Lead", count=9)],
+        "pixel_events_by_source",
+        lambda **_: [PixelEventRow(event="Lead", count=9, web=9, server=4)],
     )
     monkeypatch.setattr(
         sync,
@@ -239,7 +239,70 @@ def test_the_sweep_keeps_each_pixels_custom_conversions(
     sync.sync_pixel_events(db, ad_account_id=account.id)
     db.refresh(pixel)
 
-    assert pixel.recent_events == [{"event": "Lead", "count": 9}]
+    assert pixel.recent_events == [{"event": "Lead", "count": 9, "web": 9, "server": 4}]
     assert [(row["id"], row["event"], row["count"]) for row in pixel.conversions] == [
         ("55", "LEAD", 7)
     ]
+
+
+def test_an_empty_answer_about_a_pixel_that_fired_keeps_the_last_figures(
+    client: TestClient, db: Session, monkeypatch: Any
+) -> None:
+    launch = _launch(client, db)
+    kept = [{"event": "Lead", "count": 40, "web": 40, "server": 0}]
+    pixel = _pixel(db, launch, "1", events=kept)
+    pixel.last_fired_at = utcnow()
+    synced = pixel.events_synced_at
+    db.commit()
+    account = launch.ad_account
+    assert account is not None
+    asked: list[str] = []
+    monkeypatch.setattr(sync, "_usable_token", lambda connection: "t")
+    monkeypatch.setattr(sync, "pixel_events_by_source", lambda **_: [])
+    monkeypatch.setattr(
+        sync, "pixel_events", lambda **kw: asked.append(kw["pixel_id"]) or []
+    )
+    monkeypatch.setattr(sync, "custom_conversions", lambda **_: [])
+
+    sync.sync_pixel_events(db, ad_account_id=account.id)
+    db.refresh(pixel)
+
+    assert asked == ["1"]
+    assert pixel.recent_events == kept
+    assert pixel.events_synced_at == synced
+
+
+def test_an_empty_answer_about_a_quiet_pixel_is_believed(
+    client: TestClient, db: Session, monkeypatch: Any
+) -> None:
+    launch = _launch(client, db)
+    pixel = _pixel(db, launch, "1", events=[{"event": "Lead", "count": 3}])
+    pixel.last_fired_at = None
+    db.commit()
+    account = launch.ad_account
+    assert account is not None
+    monkeypatch.setattr(sync, "_usable_token", lambda connection: "t")
+    monkeypatch.setattr(sync, "pixel_events_by_source", lambda **_: [])
+    monkeypatch.setattr(sync, "custom_conversions", lambda **_: [])
+
+    sync.sync_pixel_events(db, ad_account_id=account.id)
+    db.refresh(pixel)
+
+    assert pixel.recent_events == []
+
+
+def test_a_pixel_meta_stopped_listing_is_kept_unusable(
+    client: TestClient, db: Session, monkeypatch: Any
+) -> None:
+    launch = _launch(client, db)
+    gone = _pixel(db, launch, "1", events=[], active=True)
+    _pixel(db, launch, "2", events=[])
+    account = launch.ad_account
+    assert account is not None
+
+    sync._store_pixels(db, account=account, pixels=[PixelDTO(id="2", name="Pixel 2")])
+    db.commit()
+    db.refresh(gone)
+
+    assert gone.is_unavailable is True and gone.is_active is False
+    assert [row.external_id for row in usable_pixels(db, launch=launch)] == ["2"]

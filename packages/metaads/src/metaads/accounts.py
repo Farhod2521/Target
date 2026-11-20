@@ -458,8 +458,16 @@ def stats_since(now: float | None = None) -> int:
     return int((time.time() if now is None else now) - PIXEL_STATS_DAYS * 86_400)
 
 
+WEB_ONLY: Final = "WEB_ONLY"
+SERVER_ONLY: Final = "SERVER_ONLY"
+
+
 def pixel_events(
-    *, pixel_id: str, token: str, client: GraphClient | None = None
+    *,
+    pixel_id: str,
+    token: str,
+    client: GraphClient | None = None,
+    event_source: str = "",
 ) -> list[PixelEventRow]:
     """Which events this pixel has reported in the provider's own window.
 
@@ -483,6 +491,7 @@ def pixel_events(
             f"{pixel_id}/stats",
             aggregation=EVENT_AGGREGATION,
             start_time=stats_since(),
+            **({"event_source": event_source} if event_source else {}),
         )
     finally:
         if client is None:
@@ -502,6 +511,40 @@ def pixel_events(
         PixelEventRow(event=name, count=times)
         for name, times in sorted(counted.items(), key=lambda pair: -pair[1])
     ]
+
+
+def pixel_events_by_source(
+    *, pixel_id: str, token: str, client: GraphClient | None = None
+) -> list[PixelEventRow]:
+    """Each event as the website's tag sent it and as a server sent it.
+
+    Asked without a source, Meta adds the two together, so a site that sends
+    its Lead from the page and again through the Conversions API reads twice
+    what it got. Meta keeps one of such a pair, so ``count`` is the larger.
+    """
+    graph = client or GraphClient(token=token)
+    try:
+        web = pixel_events(
+            pixel_id=pixel_id, token=token, client=graph, event_source=WEB_ONLY
+        )
+        server = pixel_events(
+            pixel_id=pixel_id, token=token, client=graph, event_source=SERVER_ONLY
+        )
+    finally:
+        if client is None:
+            graph.close()
+    from_web = {row.event: row.count for row in web}
+    from_server = {row.event: row.count for row in server}
+    rows = [
+        PixelEventRow(
+            event=name,
+            web=from_web.get(name, 0),
+            server=from_server.get(name, 0),
+            count=max(from_web.get(name, 0), from_server.get(name, 0)),
+        )
+        for name in {*from_web, *from_server}
+    ]
+    return sorted(rows, key=lambda row: (-row.count, row.event))
 
 
 CUSTOM_CONVERSION_FIELDS: Final = (

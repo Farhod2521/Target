@@ -175,6 +175,11 @@ class PixelEventRow(MetaDTO):
 
     event: str
     count: int = 0
+    # From the website's tag and from a server (Conversions API). A site that
+    # sends the same event both ways has it counted once by Meta: ``count``
+    # is then the larger of the two, never their sum.
+    web: int = 0
+    server: int = 0
 
 
 class CustomConversionRow(MetaDTO):

@@ -14,6 +14,7 @@ from metaads.accounts import (
     custom_conversion_count,
     custom_conversions,
     pixel_events,
+    pixel_events_by_source,
     stats_since,
 )
 from metaads.client import GraphClient
@@ -148,3 +149,32 @@ def test_a_custom_conversions_fires_are_added_up() -> None:
 
     assert custom_conversion_count(conversion_id="55", token="t", client=client) == 7
     assert seen[0].url.params["aggregation"] == "count"
+
+
+def test_each_event_is_read_from_the_tag_and_from_the_server_apart() -> None:
+    """Meta adds the two when no source is named; a site sending both reads double."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        source = request.url.params.get("event_source")
+        counts = {"WEB_ONLY": 532, "SERVER_ONLY": 540}
+        data = [{"value": "Lead", "count": counts[source]}]
+        if source == "SERVER_ONLY":
+            data.append({"value": "QualifiedLead", "count": 285})
+        return httpx.Response(200, json={"data": [{"data": data}]})
+
+    client = GraphClient(
+        token="t", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+
+    found = pixel_events_by_source(pixel_id=PIXEL, token="t", client=client)
+
+    assert [(row.event, row.count, row.web, row.server) for row in found] == [
+        ("Lead", 540, 532, 540),
+        ("QualifiedLead", 285, 0, 285),
+    ]
+    assert [request.url.params.get("event_source") for request in seen] == [
+        "WEB_ONLY",
+        "SERVER_ONLY",
+    ]
