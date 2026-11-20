@@ -2,6 +2,7 @@
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -15,6 +16,7 @@ from app.common.config import settings
 from app.common.dates import date_format, localtime
 from app.common.db import on_commit, utcnow
 from app.common.deletion import delete_rows
+from app.common.exceptions import DomainError
 from app.common.money import format_minor, to_minor
 from app.common.passwords import PasswordInvalid, validate_password
 from app.modules.accounts.exceptions import EmailTaken as LoginTaken
@@ -28,7 +30,10 @@ from app.modules.crm.constants import (
     BACKFILL_LIMIT,
     CLOSING_KINDS,
     COLORS,
+    CURRENCY_LABELS,
     DEFAULT_LOST_REASONS,
+    MANUAL_NAME_LENGTH,
+    MANUAL_NOTE_LENGTH,
     MAX_AMOUNT,
     MAX_CUSTOM_STAGES,
     MAX_MEMBERS,
@@ -69,12 +74,15 @@ from app.modules.crm.exceptions import (
     NotYours,
     PasswordsDiffer,
     PasswordTooWeak,
+    PhoneOnBoard,
+    PhoneRequired,
     ReasonRequired,
     SamePair,
     StageLocked,
     TooManyMembers,
     TooManyStages,
     UnknownCard,
+    UnknownCurrency,
     UnknownMember,
     UnknownPair,
     UseTheDialog,
@@ -87,6 +95,7 @@ from app.modules.crm.models import (
     CrmSetup,
     CrmStage,
 )
+from app.modules.crm.moves import record_swept
 from app.modules.crm.selectors import (
     LeadPlace,
     Scope,
@@ -480,7 +489,10 @@ def new_card(
     now: datetime,
     after: CrmCard | None = None,
     keeper: User | None = None,
+    added_by: User | None = None,
 ) -> CrmCard:
+    """``added_by`` is whoever typed the customer in by hand; without one
+    the card is an advert's lead arriving."""
     assignee = keeper or next_assignee(setup=setup, members=members)
     card = CrmCard(
         **scope_of(setup).fields(),
@@ -492,11 +504,15 @@ def new_card(
     )
     db.add(card)
     db.flush()
+    if after is not None:
+        arrived = ActivityKind.RETURNED
+    else:
+        arrived = ActivityKind.ADDED if added_by is not None else ActivityKind.ARRIVED
     log_card(
         db,
         card=card,
-        actor=None,
-        kind=ActivityKind.RETURNED if after is not None else ActivityKind.ARRIVED,
+        actor=added_by,
+        kind=arrived,
         text=after.stage.name if after is not None else "",
         event=EventName.CRM_CARD_PLACED,
         now=now,
@@ -646,6 +662,81 @@ def add_lead(db: Session, *, viewer: Viewer, lead_id: str) -> CrmCard:
     return new_card(
         db, setup=setup, lead=lead, first=first, members=_takers(db, scope), now=now
     )
+
+
+def add_manual(
+    db: Session, *, viewer: Viewer, name: str, phone: str, note: str = ""
+) -> CrmCard:
+    """A customer no advert brought - a call, a walk-in, a friend's word -
+    typed onto the board by the owner or a manager.
+
+    The customer is kept as a lead of provider ``manual``, marked organic:
+    a row the card can stand on, which no screen outside the CRM lists, no
+    advertising figure counts and no network is told about. A manager's
+    customer is the manager's card from the start; the owner's goes round
+    as an advert's lead would.
+
+    One telephone is one customer on a board. If the number already has an
+    open or refused card, that card is named and nothing is added; if its
+    card is sold, the new enquiry gets a card of its own, as a returning
+    lead does.
+    """
+    from app.modules.leads.constants import MANUAL_PROVIDER
+    from core.leads.phone import to_e164
+
+    require_open(viewer)
+    if not viewer.may_work:
+        raise NotYours
+    scope = require_pair(viewer)
+    name = " ".join(name.split())[:MANUAL_NAME_LENGTH]
+    if not name:
+        raise NameRequired
+    number = to_e164(raw=phone, region=settings.profile_defaults["country_code"])
+    if not number:
+        raise PhoneRequired
+    setup = setup_for_update(db, scope=scope)
+    if setup.state != SetupState.ON:
+        raise NotRunning
+    first = _first_stage(db, scope)
+    if first is None:
+        raise NotConfigured
+    now = utcnow()
+    lead = Lead(
+        owner_id=scope.owner_id,
+        provider=MANUAL_PROVIDER,
+        leadgen_id=f"manual:{uuid.uuid4().hex}",
+        full_name=name,
+        phone_e164=number,
+        submitted_at=now,
+        received_at=now,
+        is_organic=True,
+    )
+    existing = card_for_phone(db, setup=setup, lead=lead)
+    if existing is not None and existing.stage.kind != StageKind.WON:
+        raise PhoneOnBoard(str(existing.id))
+    db.add(lead)
+    db.flush()
+    keeper = None if viewer.is_owner else viewer.user
+    card = new_card(
+        db,
+        setup=setup,
+        lead=lead,
+        first=first,
+        members=_takers(db, scope),
+        now=now,
+        after=existing,
+        keeper=keeper,
+        added_by=viewer.user,
+    )
+    text = note.strip()[:MANUAL_NOTE_LENGTH]
+    if text:
+        card.last_note = text
+        card.last_note_at = now
+        log_card(
+            db, card=card, actor=viewer.user, kind=ActivityKind.NOTE, text=text, now=now
+        )
+    db.flush()
+    return card
 
 
 def add_member(
@@ -1105,6 +1196,10 @@ def delete_stage(db: Session, *, viewer: Viewer, stage_id: str) -> int:
     first = _first_stage(db, scope)
     if first is None:
         raise NotConfigured
+    # One UPDATE moves the cards past the session, so their steps are
+    # written here, not by the flush listener.
+    record_swept(db, left=stage, entered=first, now=utcnow())
+    db.flush()
     moved = db.execute(
         update(CrmCard)
         .where(CrmCard.owner_id == owner.id, CrmCard.stage_id == stage.id)
@@ -1312,6 +1407,49 @@ def save_flow(
         },
         event=EventName.CRM_SETUP_SAVED,
         now=now,
+    )
+    return setup
+
+
+def save_currency(db: Session, *, viewer: Viewer, currency: str) -> CrmSetup:
+    """The currency this pair's sales are written in from now on.
+
+    A sale already closed keeps the currency it was written in: its amount
+    is what the customer paid, and reports read it at that day's rate. A
+    manager's fixed pay is an amount of the old currency and does not
+    travel - it is cleared, to be typed again; a percent stays.
+    """
+    scope = require_owner(viewer)
+    currency = currency.strip().upper()
+    if currency not in CURRENCY_LABELS:
+        raise UnknownCurrency
+    setup = setup_for_update(db, scope=scope)
+    before = {"currency": setup.currency}
+    if setup.currency == currency:
+        return setup
+    setup.currency = currency
+    cleared = []
+    for member in db.scalars(
+        select(CrmMember).where(
+            scope.holds(CrmMember),
+            CrmMember.kpi_currency != "",
+            CrmMember.kpi_currency != currency,
+        )
+    ):
+        member.kpi_fix_minor = None
+        member.kpi_currency = ""
+        cleared.append(str(member.id))
+    db.flush()
+    record_config(
+        db,
+        owner=viewer.owner,
+        actor=viewer.user,
+        level="setup",
+        target_id=setup.id,
+        before=before,
+        after={"currency": currency, "kpi_fix_cleared": cleared},
+        event=EventName.CRM_SETUP_SAVED,
+        now=utcnow(),
     )
     return setup
 
@@ -1653,6 +1791,45 @@ def assign_card(db: Session, *, viewer: Viewer, card_id: str, user_id: str) -> C
     return card
 
 
+@dataclass(frozen=True, slots=True)
+class BulkResult:
+    done: list[CrmCard]
+    # (card id, the refusal's code, its words) for each card left as it was.
+    refused: list[tuple[str, str, str]]
+
+
+def bulk(
+    db: Session,
+    *,
+    viewer: Viewer,
+    card_ids: Sequence[str],
+    action: str,
+    to: str,
+) -> BulkResult:
+    """Many cards moved to one column, or handed to one manager, in a press.
+
+    Each card goes through the same door as a single one - ``move_card`` or
+    ``assign_card`` - so every rule holds: a manager moves only his own, a
+    column that asks for a sum or a reason is not entered this way, only the
+    owner hands cards out. A card that is refused stays as it was and is
+    named with its reason; the rest go through.
+    """
+    done: list[CrmCard] = []
+    refused: list[tuple[str, str, str]] = []
+    for card_id in dict.fromkeys(card_ids):
+        try:
+            with db.begin_nested():
+                if action == "move":
+                    card = move_card(db, viewer=viewer, card_id=card_id, stage_id=to)
+                else:
+                    card = assign_card(db, viewer=viewer, card_id=card_id, user_id=to)
+        except DomainError as exc:
+            refused.append((card_id, exc.code, exc.message))
+        else:
+            done.append(card)
+    return BulkResult(done=done, refused=refused)
+
+
 def collect_signals(
     db: Session, *, owner: User, until: datetime, now: datetime
 ) -> None:
@@ -1698,6 +1875,10 @@ def collect_signals(
         )
     }
     for card in cards:
+        # A customer typed in by hand came from no advert: nothing of his
+        # is told to a network.
+        if card.lead.is_organic:
+            continue
         stands = {
             signal.stage: signal
             for signal in card_signals(_card_facts(card))

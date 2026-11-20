@@ -14,7 +14,9 @@ from app.common.db import get_db, utcnow
 from app.modules.accounts.models import User
 from app.modules.crm import selectors, services
 from app.modules.crm.constants import (
+    BULK_CARDS,
     COLORS,
+    CURRENCY_LABELS,
     DISTRIBUTION_LABELS,
     MAX_CUSTOM_STAGES,
     PIXEL_NAME_LENGTH,
@@ -32,6 +34,7 @@ from app.modules.crm.exceptions import PixelsUnread
 from app.modules.crm.models import CrmCard, CrmMember, CrmStage
 from app.modules.crm.schemas import (
     BoardOut,
+    BulkOut,
     CardOut,
     CardsMovedOut,
     CardsReleasedOut,
@@ -54,6 +57,7 @@ from app.modules.crm.selectors import Viewer
 from app.modules.integrations.models import AdAccount
 from app.modules.integrations.services.cabinet import choose_pixel
 from app.modules.integrations.services.sync import create_pixel, sync_pixels
+from app.modules.leads.constants import MANUAL_PROVIDER
 
 router = APIRouter(prefix="/crm", tags=["crm"])
 STEPS = (1, 2, 3, 4)
@@ -210,6 +214,7 @@ def card_out(card: CrmCard, *, ads: dict[str, str] | None = None) -> dict[str, A
             "ad_external_id": lead.ad_external_id,
             "ad_title": (ads or {}).get(lead.ad_external_id, ""),
             "submitted_at": lead.submitted_at,
+            "manual": lead.provider == MANUAL_PROVIDER,
         },
     }
 
@@ -262,13 +267,19 @@ def stats(
 ) -> dict[str, Any]:
     """What this pair's CRM did with the leads that came in the period."""
     from app.modules.ads.selectors import ad_labels
+    from app.modules.crm import sales_out
+    from app.modules.crm.selectors.process import process as read_process
     from app.modules.crm.selectors.stats import share
     from app.modules.crm.selectors.stats import stats as read_stats
+    from core.metrics.formulas import typical_minutes
 
+    now = utcnow()
     found = read_stats(
-        db, viewer=viewer, period=period, since=since, until=until, now=utcnow()
+        db, viewer=viewer, period=period, since=since, until=until, now=now
     )
-    total = found.totals
+    # The page's own counts are the board's work, hand-typed customers too;
+    # what is set against the advertising is in ``sales``.
+    total = found.everything
     names = ad_labels(
         db, owner=viewer.owner, external_ids=[key for key, _ in found.ads]
     )
@@ -279,7 +290,8 @@ def stats(
             "until": found.range.until.isoformat(),
             "today": found.range.today.isoformat(),
             "earliest": found.range.earliest.isoformat(),
-            "time_zone": settings.office_timezone,
+            # Whose days these are: the ad account's, as its spend is read.
+            "time_zone": str(found.range.zone or settings.office_timezone),
             "days": found.range.days,
         },
         "currency": found.currency,
@@ -292,12 +304,15 @@ def stats(
             "open": found.open,
             "late": found.late,
             "revenue_minor": total.revenue_minor,
+            "revenue_unpriced": total.unpriced,
             "avg_deal_minor": (
-                round(total.revenue_minor / total.won) if total.won else None
+                round(total.revenue_minor / (total.won - total.unpriced))
+                if total.won > total.unpriced
+                else None
             ),
-            "conversion_pct": total.conversion_pct,
+            "conversion_pct": share(total.won, total.leads),
             "qualified_pct": (share(total.qualified, total.leads)),
-            "first_response_min": total.first_response_min,
+            "first_response_min": typical_minutes(total.waits),
             "leads_delta_pct": found.leads_delta_pct,
             "revenue_delta_pct": found.revenue_delta_pct,
         },
@@ -320,8 +335,8 @@ def stats(
                 "leads": tally.leads,
                 "won": tally.won,
                 "revenue_minor": tally.revenue_minor,
-                "conversion_pct": tally.conversion_pct,
-                "first_response_min": tally.first_response_min,
+                "conversion_pct": share(tally.won, tally.leads),
+                "first_response_min": typical_minutes(tally.waits),
                 "late": late,
             }
             for user, tally, late in found.managers
@@ -334,7 +349,7 @@ def stats(
                 "qualified": tally.qualified,
                 "won": tally.won,
                 "revenue_minor": tally.revenue_minor,
-                "conversion_pct": tally.conversion_pct,
+                "conversion_pct": share(tally.won, tally.leads),
             }
             for key, tally in found.ads
         ],
@@ -346,6 +361,14 @@ def stats(
             }
             for name, count in found.reasons
         ],
+        # Advertising set against these leads' sales: ROAS, CAC and the rest,
+        # each a cell with its value or the reason there is none.
+        "sales": sales_out.summary_out(found)
+        | sales_out.breakdown_out(db, owner=viewer.owner, found=found),
+        # The board now, column by column, and how long cards stay in each.
+        "process": sales_out.process_out(
+            read_process(db, viewer=viewer, span=found.range, now=now)
+        ),
     }
 
 
@@ -375,6 +398,7 @@ def board(
         "no_pair": False,
         "running": setup is not None and setup.state == SetupState.ON,
         "is_owner": viewer.is_owner,
+        "currency": setup.currency if setup is not None else "",
         "columns": [column_out(column, found.ads) for column in found.columns],
         "late": found.late,
         "today": found.today,
@@ -577,6 +601,64 @@ def lose(
     )
 
 
+class BulkIn(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=BULK_CARDS)
+    action: Literal["move", "assign"]
+    to: str = Field(
+        "",
+        max_length=64,
+        description="The column for `move`; for `assign` the manager's user id, "
+        "or empty to take the cards back from whoever holds them.",
+    )
+
+
+@router.post("/cards/bulk", responses={200: {"model": BulkOut}})
+def bulk(body: BulkIn, db: Db, viewer: Viewer = Depends(crm_viewer)) -> dict[str, Any]:
+    """Many cards to one column, or to one manager (the owner only). Every
+    card is judged alone by the rules of a single press: the ones refused
+    stay as they were and come back in `refused` with the reason."""
+    if body.action == "assign" and not viewer.is_owner:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    found = services.bulk(
+        db,
+        viewer=viewer,
+        card_ids=[str(one) for one in body.ids],
+        action=body.action,
+        to=body.to,
+    )
+    db.commit()
+    for card in found.done:
+        db.refresh(card)
+    return {
+        "done": [card_out(card) for card in found.done],
+        "refused": [
+            {"id": card_id, "code": code, "detail": detail}
+            for card_id, code, detail in found.refused
+        ],
+    }
+
+
+class ManualIn(BaseModel):
+    name: str = Field(max_length=200)
+    phone: str = Field(max_length=40)
+    note: str = Field("", max_length=1000)
+
+
+@router.post("/cards", status_code=201, responses={201: {"model": CardOut}})
+def add_manual(
+    body: ManualIn, db: Db, viewer: Viewer = Depends(crm_viewer)
+) -> dict[str, Any]:
+    """A customer no advert brought, typed onto the board. A manager's own
+    card from the start. `phone_on_board` (409) carries `hints.card_id`: the
+    card this telephone already has."""
+    return _done(
+        db,
+        services.add_manual(
+            db, viewer=viewer, name=body.name, phone=body.phone, note=body.note
+        ),
+    )
+
+
 @router.post("/cards/{pk}/assign", responses={200: {"model": CardOut}})
 def assign(
     pk: uuid.UUID, body: AssignIn, db: Db, viewer: Viewer = Depends(card_owner_viewer)
@@ -663,6 +745,9 @@ def settings_out(db: Session, viewer: Viewer) -> dict[str, Any]:
         "since_choices": [{"value": k, "label": v} for k, v in SINCE_LABELS.items()],
         "distribution_choices": [
             {"value": k, "label": v} for k, v in DISTRIBUTION_LABELS.items()
+        ],
+        "currency_choices": [
+            {"value": k, "label": v} for k, v in CURRENCY_LABELS.items()
         ],
         "meta": _meta(db, viewer),
     }
@@ -967,6 +1052,21 @@ def distribution(
     body: DistributionIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
     services.save_distribution(db, viewer=viewer, distribution=body.distribution)
+    db.commit()
+    return settings_out(db, viewer)
+
+
+class CurrencyIn(BaseModel):
+    currency: str = Field(max_length=8)
+
+
+@router.post("/settings/currency", responses={200: {"model": SettingsOut}})
+def currency(
+    body: CurrencyIn, db: Db, viewer: Viewer = Depends(owner_viewer)
+) -> dict[str, Any]:
+    """The currency this pair's sales are written in. Closed sales keep
+    theirs; a manager's fixed pay in the old currency is cleared."""
+    services.save_currency(db, viewer=viewer, currency=body.currency)
     db.commit()
     return settings_out(db, viewer)
 

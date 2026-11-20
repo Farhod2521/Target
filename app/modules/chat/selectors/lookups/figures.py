@@ -147,10 +147,10 @@ def _in_other_currency(
 def _countable(
     owner: User, start: datetime, end: datetime
 ) -> list[ColumnElement[bool]]:
-    from app.modules.leads.selectors import priced
+    from app.modules.leads.selectors import owned, priced
 
     return [
-        Lead.owner_id == owner.id,
+        owned(owner),
         Lead.is_test.is_(False),
         priced(),
         Lead.submitted_at >= start,

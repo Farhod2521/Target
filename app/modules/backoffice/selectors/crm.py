@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import case, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.common.dates import localtime
@@ -20,7 +20,8 @@ from app.modules.crm.models import (
     CrmSetup,
     CrmStage,
 )
-from app.modules.crm.selectors import Scope, countable_leads
+from app.modules.crm.selectors import Scope, countable_leads, setup_of
+from app.modules.crm.selectors.money import Sold, sold
 from app.modules.integrations.selectors import Pair
 
 NOT_SET_UP = "none"
@@ -153,17 +154,22 @@ def pair_figures(
         stage.id: stage.kind
         for stage in db.scalars(select(CrmStage).where(scope.holds(CrmStage)))
     }
+    # Sales are read in the pair's own currency: one closed before the
+    # owner changed it keeps its currency and is priced at its closing day.
+    setup = setup_of(db, scope=scope)
+    inner = select(CrmCard).where(scope.holds(CrmCard)).subquery()
+    target = setup.currency if setup is not None else ""
+    by_stage = sold(db, inner, target=target, key=inner.c.stage_id)
+    by_manager = sold(db, inner, target=target, key=inner.c.assignee_id)
     stages: dict[uuid.UUID, StageFigure] = {}
     for row in db.execute(
-        select(
-            CrmCard.stage_id,
-            func.count(),
-            func.coalesce(func.sum(CrmCard.won_amount_minor), 0),
-        )
+        select(CrmCard.stage_id, func.count())
         .where(scope.holds(CrmCard))
         .group_by(CrmCard.stage_id)
     ):
-        stages[row[0]] = StageFigure(cards=row[1], won_minor=int(row[2] or 0))
+        stages[row[0]] = StageFigure(
+            cards=row[1], won_minor=by_stage.get(row[0], Sold()).minor
+        )
 
     def in_kind(*wanted: str) -> int:
         return sum(
@@ -190,15 +196,14 @@ def pair_figures(
     won_ids = [key for key, kind in kinds.items() if kind == StageKind.WON]
     is_won = CrmCard.stage_id.in_(won_ids)
     managers = {
-        row[0]: ManagerFigure(open=row[1], won=row[2], won_minor=int(row[3] or 0))
+        row[0]: ManagerFigure(
+            open=row[1], won=row[2], won_minor=by_manager.get(row[0], Sold()).minor
+        )
         for row in db.execute(
             select(
                 CrmCard.assignee_id,
                 func.count().filter(still_open),
                 func.count().filter(is_won),
-                func.coalesce(
-                    func.sum(case((is_won, CrmCard.won_amount_minor), else_=0)), 0
-                ),
             )
             .where(scope.holds(CrmCard), CrmCard.assignee_id.is_not(None))
             .group_by(CrmCard.assignee_id)

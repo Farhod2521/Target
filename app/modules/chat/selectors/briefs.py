@@ -34,9 +34,9 @@ _PAGE_CHARS = 120
 
 
 def _costed_leads(owner: User) -> list[Any]:
-    from app.modules.leads.selectors import priced
+    from app.modules.leads.selectors import owned, priced
 
-    return [Lead.owner_id == owner.id, Lead.is_test.is_(False), priced()]
+    return [owned(owner), Lead.is_test.is_(False), priced()]
 
 
 def adset_brief(

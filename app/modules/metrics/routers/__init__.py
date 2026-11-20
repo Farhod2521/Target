@@ -96,6 +96,14 @@ def _crm_qualified(
     )
 
 
+def _sales(
+    db: Session, user: User, *, since: date, until: date, now: datetime
+) -> dict[str, Any] | None:
+    from app.modules.crm.sales_out import pair_summary
+
+    return pair_summary(db, user=user, since=since, until=until, now=now)
+
+
 def _disconnected(db: Session, *, accounts: Any) -> dict[str, Any] | None:
     """The dead connection these figures were read through, or nothing."""
     from app.modules.integrations.selectors import disconnected_of
@@ -147,6 +155,8 @@ def numbers_context(
         "crm_qualified": _crm_qualified(
             db, owner=user, page=page, since=chosen.since, until=chosen.until
         ),
+        # Advertising set against the CRM's sales for the pair on screen.
+        "sales": _sales(db, user, since=chosen.since, until=chosen.until, now=now),
         "lead_quality": lead_quality(
             db, owner=user, page=page, since=chosen.since, until=chosen.until
         ),
@@ -231,7 +241,12 @@ def expert_numbers(
         end=end,
         today=cabinet_today(db, owner=user, account=page.home),
     )
-    return jsonable_encoder(expert_board(db, owner=user, page=page, chosen=chosen))
+    board = expert_board(db, owner=user, page=page, chosen=chosen)
+    # The same sales block the plain dashboard and the CRM page carry.
+    board["sales"] = _sales(
+        db, user, since=chosen.since, until=chosen.until, now=utcnow()
+    )
+    return jsonable_encoder(board)
 
 
 @router.get("/numbers/poll", responses={200: {"model": NumbersOut}})

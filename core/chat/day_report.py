@@ -91,6 +91,12 @@ class DailyReport:
     idle: int = 0
     # The agent's proposals on this pair waiting for an answer: weekly only.
     open_proposals: int = 0
+    # What waits on the pair's CRM board as the message is written: new
+    # enquiries nobody took for an hour, open cards past their due time,
+    # qualified leads untouched for a week. Nought where the CRM is off.
+    crm_untaken: int = 0
+    crm_late: int = 0
+    crm_stale: int = 0
     # What the page spent that day in a currency this report is not in.
     # Named rather than added: nothing here converts money.
     other_currency: tuple[str, ...] = ()

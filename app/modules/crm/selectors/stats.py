@@ -1,33 +1,45 @@
-"""What one pair's CRM did with the leads of a period.
+"""What one pair's CRM did with the leads of a period, and what they cost.
 
 Every figure is counted over one cohort: the cards whose enquiry came in
 the period. A lead of the 3rd sold on the 20th is a sale of the 3rd's
 leads, so leads, quality, sales and conversion always describe the same
 people and conversion can never pass 100%. Only ``open`` and ``late``
 are the board as it stands now.
+
+The cohort is set against the advertising that fed it: the period's spend
+of the adverts this CRM takes leads from (:func:`spend_rows`), read in the
+CRM's currency. The counts are kept as :class:`core.metrics.sales.SalesFigures`
+- for the whole period and for each manager, advert, campaign and day - and
+every metric on them is :func:`core.metrics.sales.answers`. Days are the ad
+account's own, so a lead stands on the same day as the spend that brought
+it.
 """
 
 import uuid
-from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta
-from statistics import median
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Any, Final
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.dates import localtime, office_zone
 from app.modules.accounts.models import User
 from app.modules.crm.constants import SetupState, StageKind
 from app.modules.crm.models import CrmCard, CrmSetup, CrmStage
-from app.modules.crm.selectors import Viewer, holds, setup_of, stages_of
+from app.modules.crm.selectors import Scope, Viewer, holds, setup_of, stages_of
+from app.modules.crm.selectors.money import Pricer
+from app.modules.integrations.models import AdAccount
+from app.modules.leads.constants import MANUAL_PROVIDER
 from app.modules.leads.models import Lead
+from core.metrics.sales import Completeness, SalesFigures, completeness
 
 PERIODS: Final = {"today": 1, "7": 7, "30": 30, "90": 90}
 DEFAULT_DAYS: Final = 30
 # The longest typed range: a year and a day, so «last year to today» fits.
 MAX_DAYS: Final = 367
 ADS_SHOWN: Final = 20
+CAMPAIGNS_SHOWN: Final = 20
 REASONS_SHOWN: Final = 8
 
 
@@ -37,13 +49,16 @@ class Range:
     until: date
     today: date
     earliest: date
+    # Whose days these are: the ad account's, so a lead and the spend that
+    # brought it fall on the same one. The office's where there is no pair.
+    zone: tzinfo | None = None
 
     @property
     def days(self) -> int:
         return (self.until - self.since).days + 1
 
     def bounds(self) -> tuple[datetime, datetime]:
-        zone = office_zone()
+        zone = self.zone or office_zone()
         start = datetime.combine(self.since, time.min).replace(tzinfo=zone)
         end = datetime.combine(self.until + timedelta(days=1), time.min)
         return start, end.replace(tzinfo=zone)
@@ -56,6 +71,7 @@ class Range:
             until=until,
             today=self.today,
             earliest=self.earliest,
+            zone=self.zone,
         )
 
 
@@ -67,11 +83,17 @@ def _day(text: str) -> date | None:
 
 
 def read_range(
-    *, period: str, since: str, until: str, now: datetime, setup: CrmSetup | None
+    *,
+    period: str,
+    since: str,
+    until: str,
+    now: datetime,
+    setup: CrmSetup | None,
+    zone: tzinfo | None = None,
 ) -> Range:
-    today = localtime(now).date()
+    today = localtime(now, zone).date()
     began = setup.leads_since or setup.enabled_at if setup is not None else None
-    earliest = min(localtime(began).date(), today) if began else today
+    earliest = min(localtime(began, zone).date(), today) if began else today
     first, last = _day(since), _day(until)
     if first is None or last is None:
         days = PERIODS.get(period, DEFAULT_DAYS)
@@ -79,26 +101,11 @@ def read_range(
     last = min(last, today)
     first = min(first, last)
     first = max(first, last - timedelta(days=MAX_DAYS - 1))
-    return Range(since=first, until=last, today=today, earliest=earliest)
+    return Range(since=first, until=last, today=today, earliest=earliest, zone=zone)
 
 
-@dataclass(slots=True)
-class Tally:
-    leads: int = 0
-    taken: int = 0
-    qualified: int = 0
-    won: int = 0
-    lost: int = 0
-    revenue_minor: int = 0
-    waits: list[float] = field(default_factory=list)
-
-    @property
-    def conversion_pct(self) -> float:
-        return share(self.won, self.leads)
-
-    @property
-    def first_response_min(self) -> int | None:
-        return round(median(self.waits)) if self.waits else None
+# One group's counts. The name the older callers know it by.
+Tally = SalesFigures
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +125,17 @@ class Stats:
     managers: list[tuple[User, Tally, int]]
     ads: list[tuple[str, Tally]]
     reasons: list[tuple[str, int]]
+    # Each day's own figures, in the order of ``days``.
+    daily: list[Tally]
+    # By the campaign that brought the lead, the most leads first.
+    campaigns: list[tuple[str, Tally]]
+    # The whole period one range earlier, for what changed.
+    earlier: Tally | None
+    # The customers typed in by hand, apart: no advert's spend is theirs.
+    direct: Tally
+    # Advert leads and hand-typed customers together: the board's work.
+    everything: Tally
+    completeness: Completeness
 
 
 def share(part: int, whole: int) -> float:
@@ -138,9 +156,13 @@ def _cohort(viewer: Viewer, span: Range) -> Any:
             CrmCard.taken_at,
             CrmCard.qualified_at,
             CrmCard.won_amount_minor,
+            CrmCard.currency,
+            CrmCard.closed_at,
             CrmCard.lost_reason_name,
             Lead.submitted_at,
             Lead.ad_external_id,
+            Lead.campaign_external_id,
+            Lead.provider,
         )
         .join(Lead, Lead.id == CrmCard.lead_id)
         .where(
@@ -157,6 +179,283 @@ def _state(setup: CrmSetup | None) -> str:
     return "on" if setup.state == SetupState.ON else "off"
 
 
+@dataclass(slots=True)
+class _Groups:
+    """One cohort counted every way a screen cuts it."""
+
+    # The leads adverts brought: what the spend is set against.
+    total: Tally
+    # The customers typed onto the board by hand: sales with no spend
+    # behind them, kept out of ROAS and the price of a customer.
+    direct: Tally
+    # Both together: the board's own work, whoever brought the customer.
+    everything: Tally
+    # Each day's leads and sales, of both kinds.
+    day_leads: dict[date, int]
+    day_won: dict[date, int]
+    by_manager: dict[uuid.UUID, Tally]
+    by_ad: dict[str, Tally]
+    by_campaign: dict[str, Tally]
+    by_day: dict[date, Tally]
+    by_stage: dict[uuid.UUID, int]
+    reasons: dict[str, int]
+
+
+def _minutes(since: datetime, until: datetime | None) -> float | None:
+    if until is None or until < since:
+        return None
+    return (until - since).total_seconds() / 60
+
+
+def _count_cohort(
+    db: Session,
+    *,
+    viewer: Viewer,
+    span: Range,
+    kinds: dict[uuid.UUID, str],
+    pricer: Pricer,
+) -> _Groups:
+    days = [span.since + timedelta(days=n) for n in range(span.days)]
+    groups = _Groups(
+        total=Tally(),
+        direct=Tally(spend_minor=None),
+        everything=Tally(spend_minor=None),
+        day_leads=dict.fromkeys(days, 0),
+        day_won=dict.fromkeys(days, 0),
+        by_manager={},
+        by_ad={},
+        by_campaign={},
+        by_day={day: Tally() for day in days},
+        by_stage={},
+        reasons={},
+    )
+    for (
+        stage_id,
+        holder,
+        taken,
+        qualified,
+        sum_minor,
+        paid_in,
+        closed,
+        reason,
+        came,
+        ad,
+        campaign,
+        provider,
+    ) in db.execute(_cohort(viewer, span)):
+        kind = kinds.get(stage_id)
+        won = kind == StageKind.WON
+        # A sale reads in the pair's currency at the rate of its closing day.
+        sale = (
+            pricer.read(amount_minor=sum_minor or 0, currency=paid_in, at=closed)
+            if won
+            else 0
+        )
+        day = localtime(came, span.zone).date()
+        if provider == MANUAL_PROVIDER:
+            tallies = [groups.direct, groups.everything]
+        else:
+            tallies = [
+                groups.total,
+                groups.everything,
+                groups.by_ad.setdefault(ad or "", Tally()),
+                groups.by_campaign.setdefault(campaign or "", Tally()),
+            ]
+            if day in groups.by_day:
+                tallies.append(groups.by_day[day])
+        if day in groups.day_leads:
+            groups.day_leads[day] += 1
+            groups.day_won[day] += won
+        if holder is not None:
+            # A manager is not an advert: no spend is his.
+            tallies.append(
+                groups.by_manager.setdefault(holder, Tally(spend_minor=None))
+            )
+        wait = _minutes(came, taken)
+        deal = _minutes(came, closed) if won else None
+        for tally in tallies:
+            tally.leads += 1
+            tally.taken += taken is not None
+            tally.judged += kind != StageKind.NEW
+            # Qualified as everywhere else (``crm.quality``): sold, or moved
+            # into a quality column and still open. Refused later is not.
+            tally.qualified += won or (qualified is not None and kind == StageKind.OPEN)
+            tally.won += won
+            tally.lost += kind == StageKind.LOST
+            tally.junk += kind == StageKind.JUNK
+            if sale is None:
+                tally.unpriced += 1
+            else:
+                tally.revenue_minor += sale
+            if wait is not None:
+                tally.waits.append(wait)
+            if deal is not None:
+                tally.deals.append(deal)
+        groups.by_stage[stage_id] = groups.by_stage.get(stage_id, 0) + 1
+        if kind == StageKind.LOST:
+            groups.reasons[reason or "—"] = groups.reasons.get(reason or "—", 0) + 1
+    return groups
+
+
+def spend_rows(
+    db: Session, *, scope: Scope, setup: CrmSetup | None, since: date, until: date
+) -> list[tuple[str, str, date, int, str]]:
+    """The spend this CRM's leads are set against: (advert, campaign, day,
+    minor units, currency), in the ad account's own currency.
+
+    Whose spend it is follows whose leads the CRM takes. A campaign feeds
+    the CRM if a lead of it ever became a card here, or it was built here
+    with a lead form on this pair; inside those campaigns an advert counts
+    by the rule a new lead of it would be taken by
+    (``services.takes_lead``): every advert, or the ticked ones, or - with
+    «yangi reklamalar ham» - the ones that were not there to tick. An
+    advert that brought a card always counts, ticked now or not. So an
+    advert that spent and brought nobody is still in the sum, and a
+    campaign for messages or reach, whose results never reach the CRM, is
+    not.
+    """
+    from app.modules.ads.models import Ad, AdSet, Campaign
+    from app.modules.ads.selectors.owned import campaigns_by_pair
+    from app.modules.integrations.models import PageAccount
+    from app.modules.integrations.selectors import Pair
+    from app.modules.metrics.constants import MetricLevel
+    from app.modules.metrics.models import MetricsDaily as M
+
+    carded = (
+        select(Lead.ad_external_id, Lead.campaign_external_id)
+        .join(CrmCard, CrmCard.lead_id == Lead.id)
+        .where(scope.holds(CrmCard))
+        .distinct()
+    )
+    ads_with_cards: set[str] = set()
+    feeding: set[str] = set()
+    for ad, campaign in db.execute(carded):
+        if ad:
+            ads_with_cards.add(ad)
+        if campaign:
+            feeding.add(campaign)
+    account = db.get(AdAccount, scope.ad_account_id)
+    page = db.get(PageAccount, scope.page_id)
+    if account is None or page is None:
+        return []
+    pair = Pair(page=page, account=account, stored=True, first=True)
+    owner = db.get(User, scope.owner_id)
+    if owner is None:
+        return []
+    own = campaigns_by_pair(db, owner=owner, pairs=[pair]).get(pair.key)
+    built = sorted(own.exact | own.pageless) if own else []
+    if built:
+        feeding.update(
+            db.scalars(
+                select(Campaign.external_id)
+                .join(AdSet, AdSet.campaign_id == Campaign.id)
+                .join(Ad, Ad.adset_id == AdSet.id)
+                .where(
+                    Campaign.owner_id == scope.owner_id,
+                    Campaign.external_id.in_(built),
+                    Ad.lead_form_external_id != "",
+                )
+                .distinct()
+            )
+        )
+    if not feeding and not ads_with_cards:
+        return []
+    rows = db.execute(
+        select(
+            M.external_id,
+            M.campaign_external_id,
+            M.date,
+            func.sum(M.spend_minor),
+            func.max(M.currency),
+        )
+        .where(
+            M.owner_id == scope.owner_id,
+            M.ad_account_id == scope.ad_account_id,
+            M.level == str(MetricLevel.AD),
+            M.date >= since,
+            M.date <= until,
+            M.spend_minor > 0,
+            or_(
+                M.campaign_external_id.in_(feeding),
+                M.external_id.in_(ads_with_cards),
+            ),
+        )
+        .group_by(M.external_id, M.campaign_external_id, M.date)
+    )
+    every = setup is None or setup.every_ad
+    ticked = set(setup.ad_external_ids or []) if setup is not None else set()
+    offered = set(setup.offered_ad_ids or []) if setup is not None else set()
+    new_too = setup is not None and setup.take_new_ads
+
+    def counts(ad: str) -> bool:
+        if every or ad in ticked or ad in ads_with_cards:
+            return True
+        return new_too and ad not in offered
+
+    return [
+        (ad, campaign, day, int(minor), currency or account.currency)
+        for ad, campaign, day, minor, currency in rows
+        if counts(ad)
+    ]
+
+
+def _add_spend(
+    groups: _Groups,
+    rows: list[tuple[str, str, date, int, str]],
+    *,
+    pricer: Pricer,
+) -> None:
+    """Each day's spend, read in the CRM's currency at that day's rate."""
+    unpriced: set[date] = set()
+    for ad, campaign, day, minor, currency in rows:
+        value = pricer.read(amount_minor=minor, currency=currency, at=day)
+        if value is None:
+            unpriced.add(day)
+            continue
+        cells = [
+            groups.total,
+            groups.by_ad.setdefault(ad, Tally()),
+            groups.by_campaign.setdefault(campaign, Tally()),
+        ]
+        on_day = groups.by_day.get(day)
+        if on_day is not None:
+            cells.append(on_day)
+        for tally in cells:
+            tally.spend_minor = (tally.spend_minor or 0) + value
+    groups.total.spend_unpriced_days = len(unpriced)
+    for day in unpriced:
+        if day in groups.by_day:
+            groups.by_day[day].spend_unpriced_days = 1
+
+
+def _counted(
+    db: Session,
+    *,
+    viewer: Viewer,
+    setup: CrmSetup | None,
+    span: Range,
+    kinds: dict[uuid.UUID, str],
+    pricer: Pricer,
+) -> _Groups:
+    groups = _count_cohort(db, viewer=viewer, span=span, kinds=kinds, pricer=pricer)
+    if viewer.scope is not None:
+        _add_spend(
+            groups,
+            spend_rows(
+                db, scope=viewer.scope, setup=setup, since=span.since, until=span.until
+            ),
+            pricer=pricer,
+        )
+    return groups
+
+
+def _most_leads(found: dict[str, Tally], shown: int) -> list[tuple[str, Tally]]:
+    return sorted(
+        ((key, tally) for key, tally in found.items() if key),
+        key=lambda row: (-row[1].leads, -(row[1].spend_minor or 0), row[0]),
+    )[:shown]
+
+
 def stats(
     db: Session,
     *,
@@ -167,51 +466,36 @@ def stats(
     now: datetime,
 ) -> Stats:
     setup = setup_of(db, scope=viewer.scope)
-    span = read_range(period=period, since=since, until=until, now=now, setup=setup)
+    zone = viewer.pair.account.tzinfo() if viewer.pair is not None else None
+    span = read_range(
+        period=period, since=since, until=until, now=now, setup=setup, zone=zone
+    )
     stages = stages_of(db, scope=viewer.scope)
     kinds = {stage.id: stage.kind for stage in stages}
-    total = Tally()
-    by_manager: dict[uuid.UUID, Tally] = {}
-    by_ad: dict[str, Tally] = {}
-    by_stage: dict[uuid.UUID, int] = {}
-    reasons: dict[str, int] = {}
-    days = [span.since + timedelta(days=n) for n in range(span.days)]
-    place = {day: n for n, day in enumerate(days)}
-    daily_leads, daily_won = [0] * len(days), [0] * len(days)
-    for stage_id, holder, taken, qualified, sum_minor, reason, came, ad in db.execute(
-        _cohort(viewer, span)
-    ):
-        kind = kinds.get(stage_id)
-        tallies = [total, by_ad.setdefault(ad or "", Tally())]
-        if holder is not None:
-            tallies.append(by_manager.setdefault(holder, Tally()))
-        wait = (taken - came).total_seconds() / 60 if taken and taken >= came else None
-        for tally in tallies:
-            tally.leads += 1
-            tally.taken += taken is not None
-            tally.qualified += qualified is not None
-            tally.won += kind == StageKind.WON
-            tally.lost += kind == StageKind.LOST
-            if kind == StageKind.WON:
-                tally.revenue_minor += sum_minor or 0
-            if wait is not None:
-                tally.waits.append(wait)
-        by_stage[stage_id] = by_stage.get(stage_id, 0) + 1
-        at = place.get(localtime(came).date())
-        if at is not None:
-            daily_leads[at] += 1
-            daily_won[at] += kind == StageKind.WON
-        if kind == StageKind.LOST:
-            reasons[reason or "—"] = reasons.get(reason or "—", 0) + 1
-
-    earlier = Tally()
-    if span.days > 1:
-        for stage_id, _, _, _, sum_minor, *_ in db.execute(
-            _cohort(viewer, span.before())
-        ):
-            earlier.leads += 1
-            if kinds.get(stage_id) == StageKind.WON:
-                earlier.revenue_minor += sum_minor or 0
+    currency = setup.currency if setup is not None else ""
+    pricer = Pricer(db, target=currency)
+    groups = _counted(
+        db, viewer=viewer, setup=setup, span=span, kinds=kinds, pricer=pricer
+    )
+    total = groups.total
+    total.crm = groups.direct.crm = groups.everything.crm = (
+        setup is not None and setup.state == SetupState.ON
+    )
+    days = sorted(groups.by_day)
+    before = (
+        _counted(
+            db,
+            viewer=viewer,
+            setup=setup,
+            span=span.before(),
+            kinds=kinds,
+            pricer=pricer,
+        )
+        if span.days > 1
+        else None
+    )
+    earlier = before.total if before is not None else None
+    everything = groups.everything
 
     still_open = (
         select(CrmCard.assignee_id, func.count(CrmCard.id))
@@ -223,12 +507,12 @@ def stats(
 
     people = {
         user.id: user
-        for user in db.scalars(select(User).where(User.id.in_(by_manager)))
+        for user in db.scalars(select(User).where(User.id.in_(groups.by_manager)))
     }
     managers = sorted(
         (
             (people[key], tally, int(late_by.get(key, 0)))
-            for key, tally in by_manager.items()
+            for key, tally in groups.by_manager.items()
             if key in people
         ),
         key=lambda row: (-row[1].won, -row[1].leads),
@@ -236,28 +520,33 @@ def stats(
     return Stats(
         state=_state(setup),
         range=span,
-        currency=setup.currency if setup is not None else "",
+        currency=currency,
         totals=total,
         open=open_now,
         late=sum(int(n) for n in late_by.values()),
-        leads_delta_pct=_delta(total.leads, earlier.leads) if span.days > 1 else None,
+        leads_delta_pct=(
+            _delta(everything.leads, before.everything.leads) if before else None
+        ),
         revenue_delta_pct=(
-            _delta(total.revenue_minor, earlier.revenue_minor)
-            if span.days > 1
+            _delta(everything.revenue_minor, before.everything.revenue_minor)
+            if before
             else None
         ),
-        funnel=_funnel(stages, by_stage, total),
+        funnel=_funnel(stages, groups.by_stage, everything),
         days=days,
-        daily_leads=daily_leads,
-        daily_won=daily_won,
+        daily_leads=[groups.day_leads[day] for day in days],
+        daily_won=[groups.day_won[day] for day in days],
         managers=managers,
-        ads=sorted(
-            ((key, tally) for key, tally in by_ad.items() if key),
-            key=lambda row: (-row[1].leads, row[0]),
-        )[:ADS_SHOWN],
-        reasons=sorted(reasons.items(), key=lambda row: (-row[1], row[0]))[
+        ads=_most_leads(groups.by_ad, ADS_SHOWN),
+        reasons=sorted(groups.reasons.items(), key=lambda row: (-row[1], row[0]))[
             :REASONS_SHOWN
         ],
+        daily=[groups.by_day[day] for day in days],
+        campaigns=_most_leads(groups.by_campaign, CAMPAIGNS_SHOWN),
+        earlier=earlier,
+        direct=groups.direct,
+        everything=everything,
+        completeness=completeness(total),
     )
 
 
