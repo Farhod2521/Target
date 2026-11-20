@@ -4,6 +4,7 @@ Attached with ``responses=``: the routes still return plain dicts.
 """
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -86,6 +87,13 @@ class NumbersOut(BaseModel):
     )
     lead_quality: LeadQualityOut | None = Field(
         description="What the CRM told Meta about the range; null with no leads."
+    )
+    sales: dict[str, Any] | None = Field(
+        None,
+        description="Advertising set against the CRM's sales for the pair on "
+        "screen: `currency`, `metrics` (what each key is), `totals` and `earlier` "
+        "(a cell per key: `value` or `missing`), `completeness`, `left_out`. "
+        "Null for a reader with no pair. See docs/FRONTEND_SOTUV_KORSATKICHLARI.md.",
     )
     dashboard: Dashboard
     filters: RangeOut = Field(description="The range applied.")

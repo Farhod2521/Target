@@ -59,6 +59,9 @@ Missing = Literal[
     "mixed_goals",
     # A total over accounts that pay in different currencies.
     "mixed_currency",
+    # The CRM is on and leads came, but no sale has been closed in it yet:
+    # revenue and everything built on it is unknown, not nought.
+    "no_sales",
 ]
 
 # What each reason says to the person looking at the ``–``.
@@ -76,6 +79,7 @@ MISSING_WORDS: Final[dict[str, str]] = {
     "no_crm": "CRM yoqilmagan",
     "mixed_goals": "Maqsadlari har xil, natijalarni qo'shib bo'lmaydi",
     "mixed_currency": "Valyutalari har xil, pulni qo'shib bo'lmaydi",
+    "no_sales": "CRM'da hali sotuv yopilmagan",
 }
 
 type Value = MinorUnits | int | Decimal | str

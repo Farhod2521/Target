@@ -263,11 +263,15 @@ def stats(
 ) -> dict[str, Any]:
     """What this pair's CRM did with the leads that came in the period."""
     from app.modules.ads.selectors import ad_labels
+    from app.modules.crm import sales_out
+    from app.modules.crm.selectors.process import process as read_process
     from app.modules.crm.selectors.stats import share
     from app.modules.crm.selectors.stats import stats as read_stats
+    from core.metrics.formulas import typical_minutes
 
+    now = utcnow()
     found = read_stats(
-        db, viewer=viewer, period=period, since=since, until=until, now=utcnow()
+        db, viewer=viewer, period=period, since=since, until=until, now=now
     )
     total = found.totals
     names = ad_labels(
@@ -280,7 +284,8 @@ def stats(
             "until": found.range.until.isoformat(),
             "today": found.range.today.isoformat(),
             "earliest": found.range.earliest.isoformat(),
-            "time_zone": settings.office_timezone,
+            # Whose days these are: the ad account's, as its spend is read.
+            "time_zone": str(found.range.zone or settings.office_timezone),
             "days": found.range.days,
         },
         "currency": found.currency,
@@ -299,9 +304,9 @@ def stats(
                 if total.won > total.unpriced
                 else None
             ),
-            "conversion_pct": total.conversion_pct,
+            "conversion_pct": share(total.won, total.leads),
             "qualified_pct": (share(total.qualified, total.leads)),
-            "first_response_min": total.first_response_min,
+            "first_response_min": typical_minutes(total.waits),
             "leads_delta_pct": found.leads_delta_pct,
             "revenue_delta_pct": found.revenue_delta_pct,
         },
@@ -324,8 +329,8 @@ def stats(
                 "leads": tally.leads,
                 "won": tally.won,
                 "revenue_minor": tally.revenue_minor,
-                "conversion_pct": tally.conversion_pct,
-                "first_response_min": tally.first_response_min,
+                "conversion_pct": share(tally.won, tally.leads),
+                "first_response_min": typical_minutes(tally.waits),
                 "late": late,
             }
             for user, tally, late in found.managers
@@ -338,7 +343,7 @@ def stats(
                 "qualified": tally.qualified,
                 "won": tally.won,
                 "revenue_minor": tally.revenue_minor,
-                "conversion_pct": tally.conversion_pct,
+                "conversion_pct": share(tally.won, tally.leads),
             }
             for key, tally in found.ads
         ],
@@ -350,6 +355,14 @@ def stats(
             }
             for name, count in found.reasons
         ],
+        # Advertising set against these leads' sales: ROAS, CAC and the rest,
+        # each a cell with its value or the reason there is none.
+        "sales": sales_out.summary_out(found)
+        | sales_out.breakdown_out(db, owner=viewer.owner, found=found),
+        # The board now, column by column, and how long cards stay in each.
+        "process": sales_out.process_out(
+            read_process(db, viewer=viewer, span=found.range, now=now)
+        ),
     }
 
 

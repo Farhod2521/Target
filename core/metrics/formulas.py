@@ -5,7 +5,9 @@ report and rule that holds its counts in a shape of its own. A rate comes
 back exact; whoever shows it rounds it with :mod:`core.metrics.arithmetic`.
 """
 
+from collections.abc import Sequence
 from decimal import Decimal
+from statistics import median
 from typing import Final
 
 from adskit import MinorUnits
@@ -145,11 +147,44 @@ def roas(value_minor: int, spend_minor: int) -> Decimal | None:
     return exact_ratio(part=value_minor, whole=spend_minor)
 
 
+def cac(spend_minor: int, customers: int) -> MinorUnits | None:
+    """What one customer cost to win: the advertising over the sales it
+    brought. A customer is a lead the CRM marked sold."""
+    return cost_per(MinorUnits(spend_minor), customers)
+
+
+def sale_conversion(sales: int, leads: int) -> Decimal | None:
+    """What share of the leads became a sale."""
+    return exact_percent(part=sales, whole=leads)
+
+
+def close_rate(sales: int, qualified: int) -> Decimal | None:
+    """What share of the qualified leads the sellers closed."""
+    return exact_percent(part=sales, whole=qualified)
+
+
+def average_deal(revenue_minor: int, sales: int) -> MinorUnits | None:
+    """The size of one sale. Nothing where nothing was sold."""
+    if sales <= 0 or revenue_minor <= 0:
+        return None
+    return MinorUnits(round(revenue_minor / sales))
+
+
+def typical_minutes(spans: Sequence[float]) -> int | None:
+    """The middle one of a set of waits, in whole minutes: half were shorter.
+    The middle and not the mean, so one deal that lay a month does not
+    speak for the rest."""
+    return round(median(spans)) if spans else None
+
+
 __all__ = [
     "PER_MILLE",
     "RESULT_OF",
     "arrival_rate",
+    "average_deal",
+    "cac",
     "click_quality",
+    "close_rate",
     "completion_rate",
     "cost_index",
     "cost_per_purchase",
@@ -167,8 +202,10 @@ __all__ = [
     "qualified_share",
     "result_per",
     "roas",
+    "sale_conversion",
     "spend_share",
     "step_rate",
     "thruplay_share",
+    "typical_minutes",
     "unique_ctr",
 ]
