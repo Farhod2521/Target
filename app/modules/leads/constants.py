@@ -2,6 +2,12 @@ from typing import Any, Final
 
 from app.common.choices import Choices
 
+# A lead no advert brought: a customer typed onto a CRM board by hand. It is
+# a row of ``leads`` so that a card has somebody on it, and nothing else -
+# it is not on the Lidlar page, in no advertising count, and never told to a
+# network (``selectors.core.owned`` leaves it out for every reader).
+MANUAL_PROVIDER: Final = "manual"
+
 FORMER_SITE_URLS: tuple[str, ...] = ("https://targetolog-ai.uz",)
 
 

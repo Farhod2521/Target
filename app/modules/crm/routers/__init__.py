@@ -14,6 +14,7 @@ from app.common.db import get_db, utcnow
 from app.modules.accounts.models import User
 from app.modules.crm import selectors, services
 from app.modules.crm.constants import (
+    BULK_CARDS,
     COLORS,
     CURRENCY_LABELS,
     DISTRIBUTION_LABELS,
@@ -33,6 +34,7 @@ from app.modules.crm.exceptions import PixelsUnread
 from app.modules.crm.models import CrmCard, CrmMember, CrmStage
 from app.modules.crm.schemas import (
     BoardOut,
+    BulkOut,
     CardOut,
     CardsMovedOut,
     CardsReleasedOut,
@@ -55,6 +57,7 @@ from app.modules.crm.selectors import Viewer
 from app.modules.integrations.models import AdAccount
 from app.modules.integrations.services.cabinet import choose_pixel
 from app.modules.integrations.services.sync import create_pixel, sync_pixels
+from app.modules.leads.constants import MANUAL_PROVIDER
 
 router = APIRouter(prefix="/crm", tags=["crm"])
 STEPS = (1, 2, 3, 4)
@@ -211,6 +214,7 @@ def card_out(card: CrmCard, *, ads: dict[str, str] | None = None) -> dict[str, A
             "ad_external_id": lead.ad_external_id,
             "ad_title": (ads or {}).get(lead.ad_external_id, ""),
             "submitted_at": lead.submitted_at,
+            "manual": lead.provider == MANUAL_PROVIDER,
         },
     }
 
@@ -273,7 +277,9 @@ def stats(
     found = read_stats(
         db, viewer=viewer, period=period, since=since, until=until, now=now
     )
-    total = found.totals
+    # The page's own counts are the board's work, hand-typed customers too;
+    # what is set against the advertising is in ``sales``.
+    total = found.everything
     names = ad_labels(
         db, owner=viewer.owner, external_ids=[key for key, _ in found.ads]
     )
@@ -591,6 +597,64 @@ def lose(
         db,
         services.lose_card(
             db, viewer=viewer, card_id=str(pk), reason_id=body.reason, note=body.note
+        ),
+    )
+
+
+class BulkIn(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=BULK_CARDS)
+    action: Literal["move", "assign"]
+    to: str = Field(
+        "",
+        max_length=64,
+        description="The column for `move`; for `assign` the manager's user id, "
+        "or empty to take the cards back from whoever holds them.",
+    )
+
+
+@router.post("/cards/bulk", responses={200: {"model": BulkOut}})
+def bulk(body: BulkIn, db: Db, viewer: Viewer = Depends(crm_viewer)) -> dict[str, Any]:
+    """Many cards to one column, or to one manager (the owner only). Every
+    card is judged alone by the rules of a single press: the ones refused
+    stay as they were and come back in `refused` with the reason."""
+    if body.action == "assign" and not viewer.is_owner:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    found = services.bulk(
+        db,
+        viewer=viewer,
+        card_ids=[str(one) for one in body.ids],
+        action=body.action,
+        to=body.to,
+    )
+    db.commit()
+    for card in found.done:
+        db.refresh(card)
+    return {
+        "done": [card_out(card) for card in found.done],
+        "refused": [
+            {"id": card_id, "code": code, "detail": detail}
+            for card_id, code, detail in found.refused
+        ],
+    }
+
+
+class ManualIn(BaseModel):
+    name: str = Field(max_length=200)
+    phone: str = Field(max_length=40)
+    note: str = Field("", max_length=1000)
+
+
+@router.post("/cards", status_code=201, responses={201: {"model": CardOut}})
+def add_manual(
+    body: ManualIn, db: Db, viewer: Viewer = Depends(crm_viewer)
+) -> dict[str, Any]:
+    """A customer no advert brought, typed onto the board. A manager's own
+    card from the start. `phone_on_board` (409) carries `hints.card_id`: the
+    card this telephone already has."""
+    return _done(
+        db,
+        services.add_manual(
+            db, viewer=viewer, name=body.name, phone=body.phone, note=body.note
         ),
     )
 

@@ -96,9 +96,12 @@ def records_for(
 
 def _fillable(*, owner: User) -> Select[tuple[str, str, str, str]]:
     from app.modules.leads.models import Lead
+    from app.modules.leads.selectors import owned
 
+    # ``owned`` leaves out the customers typed onto a CRM board by hand:
+    # nobody agreed to their telephone going to an ad network.
     return select(Lead.full_name, Lead.phone_e164, Lead.email, Lead.city).where(
-        Lead.owner_id == owner.id,
+        owned(owner),
         Lead.is_test.is_(False),
         Lead.anonymized_at.is_(None),
         ~((Lead.phone_e164 == "") & (Lead.email == "")),

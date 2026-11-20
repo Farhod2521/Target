@@ -9,6 +9,11 @@ CLOSED_DAYS_ON_BOARD: Final = 30
 BACKFILL_LIMIT: Final = 2000
 # Major units; anything past it would overflow the bigint the minor amount lives in.
 MAX_AMOUNT: Final = 10**15
+# How many cards one bulk press may carry.
+BULK_CARDS: Final = 100
+# A customer typed onto the board by hand: the name and the first note.
+MANUAL_NAME_LENGTH: Final = 120
+MANUAL_NOTE_LENGTH: Final = 300
 SWEEP_WINDOW_HOURS: Final = 6
 SWEEP_LIMIT: Final = 200
 LOST_REASONS_SHOWN: Final = 5
@@ -109,6 +114,8 @@ SINCE_LABELS = {
 
 class ActivityKind(Choices):
     ARRIVED = "arrived"
+    # Typed onto the board by the owner or a manager, with no advert behind.
+    ADDED = "added"
     RETURNED = "returned"
     ASSIGNED = "assigned"
     TAKEN = "taken"
@@ -127,6 +134,7 @@ class ActivityKind(Choices):
 
 ACTIVITY_KIND_LABELS = {
     ActivityKind.ARRIVED: "Reklamadan keldi",
+    ActivityKind.ADDED: "Qo'lda qo'shildi",
     ActivityKind.RETURNED: "Qayta murojaat qildi",
     ActivityKind.ASSIGNED: "Menejerga berildi",
     ActivityKind.TAKEN: "Oldi",

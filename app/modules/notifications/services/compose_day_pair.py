@@ -21,6 +21,7 @@ from telegramkit import Button
 from app.common.money import number_format
 from app.modules.ads.constants import CONVERSION_EVENT_LABELS
 from app.modules.chat.selectors.day_lines import SITE_EVENT
+from app.modules.crm.selectors.backlog import STALE_DAYS as CRM_STALE_DAYS
 from app.modules.notifications.keys import daily_list_data, weekly_list_data
 from app.modules.notifications.services.compose import (
     Message,
@@ -117,6 +118,24 @@ def _notes(book: DayBook, report: DailyReport) -> list[str]:
         )
     if report.open_proposals:
         lines.append(escaped(f"Javob kutayotgan takliflar: {report.open_proposals}"))
+    lines.extend(escaped(line) for line in crm_lines(report))
+    return lines
+
+
+def crm_lines(report: DailyReport) -> list[str]:
+    """What waits on the pair's CRM board: each line is work to go and do.
+    The sales figures - revenue, ROAS, the price of a customer - are only as
+    whole as this list is short."""
+    lines = []
+    if report.crm_untaken:
+        lines.append(f"CRM: {report.crm_untaken} ta yangi lid hali olinmagan")
+    if report.crm_late:
+        lines.append(f"CRM: {report.crm_late} ta kartaning muddati o'tgan")
+    if report.crm_stale:
+        lines.append(
+            f"CRM: {report.crm_stale} ta sifatli lid {CRM_STALE_DAYS} kundan beri "
+            "yopilmagan (sotildi yoki rad etildi deb belgilang)"
+        )
     return lines
 
 

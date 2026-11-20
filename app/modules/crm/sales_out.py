@@ -64,6 +64,9 @@ def summary_out(found: Stats) -> dict[str, Any]:
         "totals": cells(total),
         # The same number of days just before, counted the same way.
         "earlier": cells(found.earlier) if found.earlier is not None else None,
+        # Customers typed onto the board by hand: their sales are real money
+        # and no advert's, so they stand apart and are in no cell above.
+        "direct": cells(found.direct),
         "completeness": completeness_out(found.completeness),
         "left_out": {
             # Sales in another currency on a day no rate is held for.

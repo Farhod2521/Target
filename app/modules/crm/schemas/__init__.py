@@ -42,6 +42,9 @@ class CardLeadOut(BaseModel):
     ad_external_id: str
     ad_title: str = Field(description="Empty outside the board and column lists.")
     submitted_at: datetime
+    manual: bool = Field(
+        False, description="Typed onto the board by hand: no advert brought it."
+    )
 
 
 class CardOut(BaseModel):
@@ -164,6 +167,19 @@ class HistoryOut(BaseModel):
     text: str
     actor: CrmUserOut | None
     created_at: datetime
+
+
+class BulkRefusedOut(BaseModel):
+    id: str
+    code: str = Field(
+        description="As a single press would answer: `not_allowed`, `unknown_card`, ..."
+    )
+    detail: str
+
+
+class BulkOut(BaseModel):
+    done: list[CardOut]
+    refused: list[BulkRefusedOut]
 
 
 class ReasonOut(BaseModel):

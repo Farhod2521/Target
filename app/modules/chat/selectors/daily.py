@@ -38,6 +38,7 @@ from app.modules.chat.selectors.day_figures import (
 from app.modules.chat.selectors.day_groups import pair_report
 from app.modules.chat.selectors.day_lines import change_text, report_money
 from app.modules.chat.selectors.day_tables import (
+    DayPairs,
     PageMoney,
     apart_spend,
     day_pairs,
@@ -48,6 +49,7 @@ from app.modules.chat.selectors.scope import (
     reads_ads_manager,
     subscribed_accounts,
 )
+from app.modules.crm.selectors.backlog import Backlog, backlog_by_pair
 from app.modules.integrations.models import AdAccount
 from app.modules.metrics.constants import INSIGHT_LEVELS, MetricLevel
 from app.modules.metrics.models import MetricsDaily
@@ -162,6 +164,7 @@ def _book(
     money = money_by_pair(db, owner=owner, fallback=currency)
     placed = _by_pair(pairs.of, tables.campaign_of)
     describes_elsewhere = reads_ads_manager(db, owner=owner)
+    waiting = backlog_by_pair(db, owner=owner, now=now)
 
     reports = []
     for pair in pairs.names:
@@ -186,6 +189,7 @@ def _book(
                 )
                 if weekly
                 else 0,
+                crm=_crm_waiting(waiting, pairs, pair),
             )
         )
     reports.sort(key=lambda report: (-report.spend_minor, report.title))
@@ -229,6 +233,16 @@ def _cut_off(db: Session, *, owner: User, until: date, tzinfo: ZoneInfo) -> str:
         return ""
     local = timezone.localtime(read, tzinfo)
     return f"{_date_said(local.date())} {local:%H:%M}"
+
+
+def _crm_waiting(
+    waiting: dict[tuple[str, str], Backlog], pairs: DayPairs, pair: str
+) -> tuple[int, int, int]:
+    """What waits on this pair's CRM board; noughts where it has none on."""
+    found = waiting.get((pairs.pages.get(pair, ""), pairs.account_ids.get(pair, "")))
+    if found is None:
+        return (0, 0, 0)
+    return (found.untaken, found.late, found.stale)
 
 
 def _waiting(

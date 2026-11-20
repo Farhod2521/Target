@@ -40,6 +40,7 @@ def pair_report(
     other_currency: tuple[str, ...],
     describes_elsewhere: bool,
     open_proposals: int = 0,
+    crm: tuple[int, int, int] = (0, 0, 0),
 ) -> DailyReport:
     """One pair's period: every group that spent or brought, by goal."""
     shown = [adset_id for adset_id in adset_ids if _did_something(tables, adset_id)]
@@ -90,6 +91,9 @@ def pair_report(
         change="" if ongoing else change_text(figure.spend_minor, before_minor),
         idle=_idle(tables, adset_ids) if describes_elsewhere else 0,
         open_proposals=open_proposals,
+        crm_untaken=crm[0],
+        crm_late=crm[1],
+        crm_stale=crm[2],
         other_currency=other_currency,
     )
 

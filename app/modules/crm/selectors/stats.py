@@ -30,6 +30,7 @@ from app.modules.crm.models import CrmCard, CrmSetup, CrmStage
 from app.modules.crm.selectors import Scope, Viewer, holds, setup_of, stages_of
 from app.modules.crm.selectors.money import Pricer
 from app.modules.integrations.models import AdAccount
+from app.modules.leads.constants import MANUAL_PROVIDER
 from app.modules.leads.models import Lead
 from core.metrics.sales import Completeness, SalesFigures, completeness
 
@@ -130,6 +131,10 @@ class Stats:
     campaigns: list[tuple[str, Tally]]
     # The whole period one range earlier, for what changed.
     earlier: Tally | None
+    # The customers typed in by hand, apart: no advert's spend is theirs.
+    direct: Tally
+    # Advert leads and hand-typed customers together: the board's work.
+    everything: Tally
     completeness: Completeness
 
 
@@ -157,6 +162,7 @@ def _cohort(viewer: Viewer, span: Range) -> Any:
             Lead.submitted_at,
             Lead.ad_external_id,
             Lead.campaign_external_id,
+            Lead.provider,
         )
         .join(Lead, Lead.id == CrmCard.lead_id)
         .where(
@@ -177,7 +183,16 @@ def _state(setup: CrmSetup | None) -> str:
 class _Groups:
     """One cohort counted every way a screen cuts it."""
 
+    # The leads adverts brought: what the spend is set against.
     total: Tally
+    # The customers typed onto the board by hand: sales with no spend
+    # behind them, kept out of ROAS and the price of a customer.
+    direct: Tally
+    # Both together: the board's own work, whoever brought the customer.
+    everything: Tally
+    # Each day's leads and sales, of both kinds.
+    day_leads: dict[date, int]
+    day_won: dict[date, int]
     by_manager: dict[uuid.UUID, Tally]
     by_ad: dict[str, Tally]
     by_campaign: dict[str, Tally]
@@ -200,12 +215,17 @@ def _count_cohort(
     kinds: dict[uuid.UUID, str],
     pricer: Pricer,
 ) -> _Groups:
+    days = [span.since + timedelta(days=n) for n in range(span.days)]
     groups = _Groups(
         total=Tally(),
+        direct=Tally(spend_minor=None),
+        everything=Tally(spend_minor=None),
+        day_leads=dict.fromkeys(days, 0),
+        day_won=dict.fromkeys(days, 0),
         by_manager={},
         by_ad={},
         by_campaign={},
-        by_day={span.since + timedelta(days=n): Tally() for n in range(span.days)},
+        by_day={day: Tally() for day in days},
         by_stage={},
         reasons={},
     )
@@ -221,6 +241,7 @@ def _count_cohort(
         came,
         ad,
         campaign,
+        provider,
     ) in db.execute(_cohort(viewer, span)):
         kind = kinds.get(stage_id)
         won = kind == StageKind.WON
@@ -230,19 +251,26 @@ def _count_cohort(
             if won
             else 0
         )
-        tallies = [
-            groups.total,
-            groups.by_ad.setdefault(ad or "", Tally()),
-            groups.by_campaign.setdefault(campaign or "", Tally()),
-        ]
+        day = localtime(came, span.zone).date()
+        if provider == MANUAL_PROVIDER:
+            tallies = [groups.direct, groups.everything]
+        else:
+            tallies = [
+                groups.total,
+                groups.everything,
+                groups.by_ad.setdefault(ad or "", Tally()),
+                groups.by_campaign.setdefault(campaign or "", Tally()),
+            ]
+            if day in groups.by_day:
+                tallies.append(groups.by_day[day])
+        if day in groups.day_leads:
+            groups.day_leads[day] += 1
+            groups.day_won[day] += won
         if holder is not None:
             # A manager is not an advert: no spend is his.
             tallies.append(
                 groups.by_manager.setdefault(holder, Tally(spend_minor=None))
             )
-        on_day = groups.by_day.get(localtime(came, span.zone).date())
-        if on_day is not None:
-            tallies.append(on_day)
         wait = _minutes(came, taken)
         deal = _minutes(came, closed) if won else None
         for tally in tallies:
@@ -450,9 +478,11 @@ def stats(
         db, viewer=viewer, setup=setup, span=span, kinds=kinds, pricer=pricer
     )
     total = groups.total
-    total.crm = setup is not None and setup.state == SetupState.ON
+    total.crm = groups.direct.crm = groups.everything.crm = (
+        setup is not None and setup.state == SetupState.ON
+    )
     days = sorted(groups.by_day)
-    earlier = (
+    before = (
         _counted(
             db,
             viewer=viewer,
@@ -460,10 +490,12 @@ def stats(
             span=span.before(),
             kinds=kinds,
             pricer=pricer,
-        ).total
+        )
         if span.days > 1
         else None
     )
+    earlier = before.total if before is not None else None
+    everything = groups.everything
 
     still_open = (
         select(CrmCard.assignee_id, func.count(CrmCard.id))
@@ -492,14 +524,18 @@ def stats(
         totals=total,
         open=open_now,
         late=sum(int(n) for n in late_by.values()),
-        leads_delta_pct=_delta(total.leads, earlier.leads) if earlier else None,
-        revenue_delta_pct=(
-            _delta(total.revenue_minor, earlier.revenue_minor) if earlier else None
+        leads_delta_pct=(
+            _delta(everything.leads, before.everything.leads) if before else None
         ),
-        funnel=_funnel(stages, groups.by_stage, total),
+        revenue_delta_pct=(
+            _delta(everything.revenue_minor, before.everything.revenue_minor)
+            if before
+            else None
+        ),
+        funnel=_funnel(stages, groups.by_stage, everything),
         days=days,
-        daily_leads=[groups.by_day[day].leads for day in days],
-        daily_won=[groups.by_day[day].won for day in days],
+        daily_leads=[groups.day_leads[day] for day in days],
+        daily_won=[groups.day_won[day] for day in days],
         managers=managers,
         ads=_most_leads(groups.by_ad, ADS_SHOWN),
         reasons=sorted(groups.reasons.items(), key=lambda row: (-row[1], row[0]))[
@@ -508,6 +544,8 @@ def stats(
         daily=[groups.by_day[day] for day in days],
         campaigns=_most_leads(groups.by_campaign, CAMPAIGNS_SHOWN),
         earlier=earlier,
+        direct=groups.direct,
+        everything=everything,
         completeness=completeness(total),
     )
 

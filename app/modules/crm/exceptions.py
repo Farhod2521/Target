@@ -135,6 +135,22 @@ class BadKpi(DomainError):
         )
 
 
+class PhoneRequired(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Telefon raqamini to'liq yozing, masalan +998 90 123 45 67.")
+
+
+class PhoneOnBoard(DomainError):
+    """The telephone already has a card on this board; ``hints.card_id`` says
+    which, so the screen can open it."""
+
+    status_code = 409
+
+    def __init__(self, card_id: str = "") -> None:
+        super().__init__("Bu telefon raqami bilan karta doskada bor.")
+        self.hints = {"card_id": card_id}
+
+
 class UnknownCurrency(DomainError):
     def __init__(self) -> None:
         super().__init__("Valyutani ro'yxatdan tanlang.")

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.modules.accounts.models import User
 from app.modules.leads.constants import (
+    MANUAL_PROVIDER,
     SEARCH_DIGITS,
     UNMARKED,
     OutcomeSource,
@@ -79,9 +80,16 @@ def priced(lead: type[Lead] = Lead) -> ColumnElement[bool]:
     return or_(_unpaid(lead), _spend_collected(lead), _in_a_collected_account(lead))
 
 
+def from_adverts(lead: type[Lead] = Lead) -> ColumnElement[bool]:
+    """Not one typed onto a CRM board by hand: those are the CRM's alone."""
+    return lead.provider != MANUAL_PROVIDER
+
+
 def owned(owner: User | uuid.UUID) -> ColumnElement[bool]:
+    """The owner's leads, as every screen and count outside the CRM reads
+    them: the ones typed onto a board by hand are not among them."""
     owner_id = owner if isinstance(owner, uuid.UUID) else owner.id
-    return Lead.owner_id == owner_id
+    return and_(Lead.owner_id == owner_id, from_adverts())
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +192,7 @@ __all__ = [
     "NO_FILTERS",
     "LeadFilters",
     "attach_verdicts",
+    "from_adverts",
     "lead_scope_of_pages",
     "leads_query",
     "narrow",
