@@ -680,11 +680,20 @@ class FormChoices:
 
 
 def _collecting(*, owner: User, page: PageAccount) -> Select[tuple[LeadForm]]:
-    return select(LeadForm).where(
-        LeadForm.owner_id == owner.id,
-        LeadForm.page_id == page.id,
-        LeadForm.status == LeadFormStatus.ACTIVE,
-        LeadForm.external_id != "",
+    """The newest form first: Meta's own creation time, then when we saw it."""
+    return (
+        select(LeadForm)
+        .where(
+            LeadForm.owner_id == owner.id,
+            LeadForm.page_id == page.id,
+            LeadForm.status == LeadFormStatus.ACTIVE,
+            LeadForm.external_id != "",
+        )
+        .order_by(
+            LeadForm.created_time.desc().nulls_last(),
+            LeadForm.created_at.desc(),
+            LeadForm.id,
+        )
     )
 
 
