@@ -170,7 +170,8 @@ def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
     Yangi lead. The manager's own kinds first (``sales_kinds``), any kind
     when none of theirs waits. Among them Start buyers whose discount runs
     (20% before 10%, the soonest to end first), then Start buyers whose
-    discount ended, then new sign-ups; the warmest (``heat``) and then the
+    discount ended while the term runs, then Start buyers whose term ended,
+    then new sign-ups; the warmest (``heat``) and then the
     newest among equals. Two managers pressing at once get two different
     leads. None while the person has ``LEAD_TAKE_LIMIT`` leads they took and
     have not called yet."""
@@ -179,7 +180,6 @@ def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
         kind_order_sql,
         kind_sql,
         kinds_of,
-        start_paid_sql,
         waiting,
     )
 
@@ -187,14 +187,13 @@ def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
     if untouched_count(db, user_id=manager.id) >= LEAD_TAKE_LIMIT:
         raise LeadTakeLimit(LEAD_TAKE_LIMIT)
     client = aliased(User)
-    start_at = start_paid_sql(BoardCard.owner_id)
-    kind = kind_sql(start_at, now=now)
+    kind = kind_sql(BoardCard.owner_id, now=now)
     query = (
         select(BoardCard, kind)
         .join(client, client.id == BoardCard.owner_id)
         .where(*waiting())
         .order_by(
-            *kind_order_sql(start_at, now=now),
+            *kind_order_sql(BoardCard.owner_id, now=now),
             points_sql(BoardCard.owner_id, now=now, user=client).desc(),
             BoardCard.opened_at.desc(),
             BoardCard.id,

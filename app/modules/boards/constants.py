@@ -348,12 +348,15 @@ OFFER_ENDED_LABEL: Final = "Chegirma tugadi"
 
 class SalesKind(Choices):
     """What a lead in Ishlanmagan is, for who takes it: read at the moment
-    from the client's Start payment, never stored on the waiting card."""
+    from the client's Start payment and term, never stored on the waiting
+    card. «Lid olish» gives them in this order."""
 
     # Paid Start, and the discount it started still runs.
     START_LIVE = "start_live"
-    # Paid Start, the discount is over, no full plan yet.
+    # Paid Start, the discount is over, the Start term still runs.
     START_ENDED = "start_ended"
+    # Paid Start, its term ran out, no full plan bought.
+    START_EXPIRED = "start_expired"
     # Signed up, paid nothing.
     NEW = "new"
 
@@ -361,6 +364,7 @@ class SalesKind(Choices):
 SALES_KIND_LABELS = {
     SalesKind.START_LIVE: "Start olgan, chegirmasi bor",
     SalesKind.START_ENDED: "Start olgan, chegirmasi tugagan",
+    SalesKind.START_EXPIRED: "Start olgan, tarifi tugagan",
     SalesKind.NEW: "Yangi lidlar",
 }
 # «Lid olish» gives the kinds in this order.

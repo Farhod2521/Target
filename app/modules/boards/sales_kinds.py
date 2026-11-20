@@ -1,9 +1,9 @@
 """Which kinds of lead each Sales manager takes first, and what kind a
 waiting lead is.
 
-A lead's kind is read at the moment from the client's Start payment
-(``SalesKind``): a discount still running, one that ended, or no Start at
-all. The Owner and the superuser tick, per manager, the kinds that manager
+A lead's kind is read at the moment from the client's Start payment and
+Start term (``SalesKind``): the discount still running, the discount over
+while the term runs, the term over, or no Start at all. The Owner and the superuser tick, per manager, the kinds that manager
 takes; a manager with nothing set takes every kind, and so do the Owner and
 the superuser pressing «Lid olish». When none of a manager's kinds waits,
 «Lid olish» gives any. Taking by phone ignores kinds altogether.
@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.common.exceptions import DomainError, NotFound
 from app.modules.accounts.models import User
 from app.modules.billing.constants import DEFAULT_PLAN_CODE, InvoiceKind, InvoiceStatus
-from app.modules.billing.models import Invoice, Plan
+from app.modules.billing.models import Invoice, Plan, Subscription
 from app.modules.boards.constants import (
     OFFER_HOURS,
     OFFER_STEPS,
@@ -67,21 +67,40 @@ def start_paid_sql(owner: Any) -> Any:
     )
 
 
-def kind_sql(start_at: Any, *, now: datetime) -> ColumnElement[str]:
-    """The kind of a lead whose first Start payment is ``start_at``."""
-    return case(
-        (start_at.is_(None), str(SalesKind.NEW)),
-        (start_at > now - timedelta(hours=OFFER_HOURS), str(SalesKind.START_LIVE)),
-        else_=str(SalesKind.START_ENDED),
+def start_until_sql(owner: Any) -> Any:
+    """When the client ``owner``'s Start term ends (the latest, if more than
+    one), as a correlated subquery; None without a Start subscription."""
+    return (
+        select(func.max(Subscription.expires_at))
+        .join(Plan, Plan.id == Subscription.plan_id)
+        .where(Subscription.owner_id == owner, Plan.code == DEFAULT_PLAN_CODE)
+        .scalar_subquery()
     )
 
 
-def kind_order_sql(start_at: Any, *, now: datetime) -> tuple[Any, ...]:
+def kind_sql(owner: Any, *, now: datetime) -> ColumnElement[str]:
+    """The kind of the lead ``owner`` (a client's id column) at ``now``:
+    no Start → new; Start paid under 96 hours ago → its discount runs; then,
+    while the Start term runs → the discount ended; once it ran out (or
+    with no Start subscription to read) → the term ended."""
+    start_at = start_paid_sql(owner)
+    until = start_until_sql(owner)
+    return case(
+        (start_at.is_(None), str(SalesKind.NEW)),
+        (start_at > now - timedelta(hours=OFFER_HOURS), str(SalesKind.START_LIVE)),
+        (until > now, str(SalesKind.START_ENDED)),
+        else_=str(SalesKind.START_EXPIRED),
+    )
+
+
+def kind_order_sql(owner: Any, *, now: datetime) -> tuple[Any, ...]:
     """How «Lid olish» orders the kinds: Start with its discount running
     first, the 20% ones before the 10% ones and the soonest to end first
-    within each; then Start whose discount ended; then new sign-ups. The
-    caller orders by warmth after these."""
-    kind = kind_sql(start_at, now=now)
+    within each; then Start whose discount ended while the term runs; then
+    Start whose term ended; then new sign-ups. The caller orders by warmth
+    after these."""
+    kind = kind_sql(owner, now=now)
+    start_at = start_paid_sql(owner)
     rank = case(
         *((kind == code, index) for index, code in enumerate(SALES_KIND_ORDER)),
         else_=len(SALES_KIND_ORDER),
@@ -96,17 +115,24 @@ def kind_order_sql(start_at: Any, *, now: datetime) -> tuple[Any, ...]:
     )
 
 
-def kind_at(start_at: datetime | None, *, now: datetime) -> str:
-    """``kind_sql`` in Python."""
-    if start_at is None:
-        return str(SalesKind.NEW)
-    if start_at > now - timedelta(hours=OFFER_HOURS):
-        return str(SalesKind.START_LIVE)
-    return str(SalesKind.START_ENDED)
+def kinds_for(
+    db: Session, owner_ids: list[uuid.UUID], *, now: datetime
+) -> dict[uuid.UUID, str]:
+    """Each of these clients' kind of lead, in one query."""
+    if not owner_ids:
+        return {}
+    return {
+        owner: str(kind)
+        for owner, kind in db.execute(
+            select(User.id, kind_sql(User.id, now=now)).where(
+                User.id.in_(set(owner_ids))
+            )
+        )
+    }
 
 
 def kind_of_client(db: Session, *, owner_id: uuid.UUID, now: datetime) -> str:
-    return kind_at(db.scalar(select(start_paid_sql(owner_id))), now=now)
+    return kinds_for(db, [owner_id], now=now).get(owner_id, str(SalesKind.NEW))
 
 
 def kinds_of(db: Session, *, member_id: uuid.UUID) -> frozenset[str] | None:
@@ -192,7 +218,7 @@ def waiting() -> tuple[ColumnElement[bool], ...]:
 def waiting_counts(db: Session, *, now: datetime) -> dict[str, int]:
     """How many leads of each kind wait in Ishlanmagan."""
     rows = (
-        select(kind_sql(start_paid_sql(BoardCard.owner_id), now=now).label("kind"))
+        select(kind_sql(BoardCard.owner_id, now=now).label("kind"))
         .where(*waiting())
         .subquery()
     )

@@ -50,6 +50,7 @@ from app.modules.boards.constants import (
     DueFilter,
     EventKind,
     SalesColumn,
+    SalesKind,
     SupportColumn,
     TicketReason,
 )
@@ -240,6 +241,8 @@ class Extras:
     marks: dict[uuid.UUID, str] = field(default_factory=dict)
     # owner id -> how warm the lead is (boards.heat); open Sales cards only.
     heat: dict[uuid.UUID, Any] = field(default_factory=dict)
+    # owner id -> the kind of lead the client is now (boards.sales_kinds).
+    kinds: dict[uuid.UUID, str] = field(default_factory=dict)
 
 
 def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
@@ -270,7 +273,17 @@ def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
     heat = signals_for(
         db, [card.owner_id for card in sales if card.closed_at is None], now=now
     )
-    return Extras(offered=offered, bills=bills, renewal=renewal, marks=marks, heat=heat)
+    from app.modules.boards.sales_kinds import kinds_for
+
+    kinds = kinds_for(db, [card.owner_id for card in sales], now=now)
+    return Extras(
+        offered=offered,
+        bills=bills,
+        renewal=renewal,
+        marks=marks,
+        heat=heat,
+        kinds=kinds,
+    )
 
 
 _CLIENT_KINDS = (str(EventKind.DENIED), str(EventKind.CLIENT_REPLIED))
@@ -337,14 +350,11 @@ def _lead_kind(card: BoardCard, extras: Extras, now: datetime) -> dict[str, Any]
     """Sales: what kind of lead the client is now, and how the card came to
     its manager."""
     from app.modules.boards.constants import TAKEN_BY_PHONE, TAKEN_BY_PHONE_LABEL
-    from app.modules.boards.offer import OfferSource
-    from app.modules.boards.sales_kinds import kind_at, label
+    from app.modules.boards.sales_kinds import label
 
     if card.board != str(Board.SALES):
         return {"kind": None, "taken_as": None}
-    clock = extras.offered.get(card.id)
-    start = clock[0] if clock and clock[1] == OfferSource.START else None
-    kind = kind_at(start, now=now)
+    kind = extras.kinds.get(card.owner_id, str(SalesKind.NEW))
     taken = card.taken_as
     return {
         "kind": {"value": kind, "label": label(kind)},

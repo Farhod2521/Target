@@ -180,7 +180,7 @@ class CardOut(BaseModel):
     kind: LeadKindOut | None = Field(
         None,
         description="Sales: the kind of lead the client is now (`start_live`, "
-        "`start_ended`, `new`), what «Lid olish» sorts by.",
+        "`start_ended`, `start_expired`, `new`), what «Lid olish» sorts by.",
     )
     taken_as: LeadKindOut | None = Field(
         None,
@@ -237,7 +237,9 @@ class DueCountsOut(BaseModel):
 
 
 class TakeKindOut(BaseModel):
-    value: str = Field(description="`start_live`, `start_ended` or `new`.")
+    value: str = Field(
+        description="`start_live`, `start_ended`, `start_expired` or `new`."
+    )
     label: str
     count: int
     own: bool = Field(description="One of the reader's kinds.")
@@ -851,7 +853,8 @@ class SalesDayOut(SalesFiguresOut):
 
 class SalesKindLineOut(BaseModel):
     value: str = Field(
-        description="`start_live`, `start_ended`, `new`, `phone` (taken by the "
+        description="`start_live`, `start_ended`, `start_expired`, `new`, `phone` "
+        "(taken by the "
         "client's number), or empty: taken before the kind was kept."
     )
     label: str

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.backoffice.constants import Role
-from app.modules.billing.models import Invoice
+from app.modules.billing.models import Invoice, Subscription
 from app.modules.boards.models import BoardCard, BoardCardEvent
 from tests.pg.test_boards_me import _staff
 from tests.pg.test_boards_offer import _buys_start, _card
@@ -54,7 +54,7 @@ def _kinds(client: TestClient, head: dict[str, str]) -> dict[str, Any]:
     return view.json()["take"]
 
 
-def test_lid_olish_gives_start_live_then_start_ended_then_new(
+def test_lid_olish_gives_start_live_then_ended_then_expired_then_new(
     client: TestClient, db: Session
 ) -> None:
     _live(db, hours_ago=300)
@@ -63,8 +63,17 @@ def test_lid_olish_gives_start_live_then_start_ended_then_new(
     ten = _lead(db, "ten@shop.test", "+998900000003")
     twenty = _lead(db, "twenty@shop.test", "+998900000004")
     ten_soon = _lead(db, "ten.soon@shop.test", "+998900000005")
+    expired = _lead(db, "expired@shop.test", "+998900000006")
     _sweep(db)
     _start_ago(db, ended, 120)
+    _start_ago(db, expired, 200)
+    # Its Start term ran out yesterday; Ended's still runs.
+    db.execute(
+        update(Subscription)
+        .where(Subscription.owner_id == expired.id)
+        .values(expires_at=utcnow() - timedelta(days=1))
+    )
+    db.commit()
     _start_ago(db, ten, 30)
     _start_ago(db, ten_soon, 90)
     _start_ago(db, twenty, 2)
@@ -75,15 +84,16 @@ def test_lid_olish_gives_start_live_then_start_ended_then_new(
 
     ali = _staff(db, "ali@office.test", Role.SALES)
     take = _kinds(client, ali)
-    assert take["queue"] == 5 and take["own"] == 5
+    assert take["queue"] == 6 and take["own"] == 6
     assert [(k["value"], k["count"], k["own"]) for k in take["kinds"]] == [
         ("start_live", 3, True),
         ("start_ended", 1, True),
+        ("start_expired", 1, True),
         ("new", 1, True),
     ]
     order = []
     vali = _staff(db, "vali@office.test", Role.SALES)
-    for head in (ali, ali, ali, vali, vali):
+    for head in (ali, ali, ali, vali, vali, vali):
         card = _detail(client.post(TAKE, headers=head))
         assert card.column == "new_lead"
         order.append((card.client.email, card.taken_as.value if card.taken_as else ""))
@@ -93,8 +103,11 @@ def test_lid_olish_gives_start_live_then_start_ended_then_new(
         ("ten.soon@shop.test", "start_live"),
         ("ten@shop.test", "start_live"),
         ("ended@shop.test", "start_ended"),
+        ("expired@shop.test", "start_expired"),
         ("fresh@shop.test", "new"),
     ]
+    shown = _detail(client.get(f"{URL}/cards/{_card(db, expired).id}", headers=vali))
+    assert shown.kind is not None and shown.kind.label == "Start olgan, tarifi tugagan"
 
 
 def test_a_manager_takes_own_kinds_first_then_any(
@@ -113,7 +126,12 @@ def test_a_manager_takes_own_kinds_first_then_any(
     shown = client.get(f"{URL}/boards/sales/kinds", headers=owner)
     assert shown.status_code == 200, shown.text
     body = shown.json()
-    assert [k["value"] for k in body["kinds"]] == ["start_live", "start_ended", "new"]
+    assert [k["value"] for k in body["kinds"]] == [
+        "start_live",
+        "start_ended",
+        "start_expired",
+        "new",
+    ]
     assert body["members"][0]["all"] is True
     assert client.get(f"{URL}/boards/sales/kinds", headers=ali).status_code == 404
 
@@ -137,7 +155,9 @@ def test_a_manager_takes_own_kinds_first_then_any(
     assert second.taken_as is not None and second.taken_as.value == "start_live"
 
     every = client.put(
-        put, json={"kinds": ["start_live", "start_ended", "new"]}, headers=owner
+        put,
+        json={"kinds": ["start_live", "start_ended", "start_expired", "new"]},
+        headers=owner,
     )
     assert every.json()["all"] is True
 
@@ -247,6 +267,7 @@ def test_take_by_phone_reopens_a_closed_lead_and_claims_a_fresh_sale(
     assert [k["value"] for k in report["kinds"]] == [
         "start_live",
         "start_ended",
+        "start_expired",
         "new",
         "phone",
     ]

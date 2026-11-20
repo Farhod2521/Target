@@ -535,12 +535,15 @@ Chegirma ustunidagi karta chegirma tugaganda **yopilmaydi**: «Bog'lanildi» ga 
 «Qayta aloqa» da joyida qoladi (`start_bought` qatori). Lead kartani qaytarsa (`assign` `staff_id: null`) —
 doim «Ishlanmagan».
 
-**Turlar** (`kind`, kartada va `take.kinds` da): `start_live` — Start olgan, chegirmasi bor; `start_ended` — Start
-olgan, chegirmasi tugagan; `new` — hech narsa to'lamagan. Tur Start to'lovi vaqtidan shu daqiqada hisoblanadi.
+**Turlar** (`kind`, kartada va `take.kinds` da): `start_live` — Start olgan, chegirmasi bor (to'lovdan 96 soat);
+`start_ended` — Start olgan, chegirmasi tugagan, Start tarifi hali ishlayapti; `start_expired` — Start olgan, tarifi
+tugagan (Start obunasining `expires_at` i o'tgan), to'liq tarif olmagan; `new` — hech narsa to'lamagan. Tur shu
+daqiqada hisoblanadi (2026-11-20 dan 4 ta).
 
 **«Lid olish» tartibi**: menejerning o'z turlari, ular qolmasa istalgan tur. Ichida: `start_live` (20% lar 10% lardan
-oldin, tezroq tugaydigani birinchi) → `start_ended` → `new`; keyin `heat`, keyin eng yangi.
-`GET /boards/sales` → `take: {queue, own, working, limit, kinds: [{value, label, count, own}]}`.
+oldin, tezroq tugaydigani birinchi) → `start_ended` → `start_expired` → `new`; keyin `heat`, keyin eng yangi.
+`GET /boards/sales` → `take: {queue, own, working, limit, kinds: [{value, label, count, own}]}`. «Hamma tur» dagi
+menejerga yangi tur o'zi qo'shiladi; ayrim turlari belgilangan menejerga Owner qo'lda qo'shadi.
 
 **Sozlamalar** (superuser va Egasi): `GET /api/v2/office/boards/sales/kinds` → `{kinds: [{value, label}],
 members: [{id, name, email, kinds, all}]}`; `PUT /api/v2/office/boards/sales/kinds/{member_id}` `{"kinds": [...]}`
