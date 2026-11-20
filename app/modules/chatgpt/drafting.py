@@ -24,6 +24,7 @@ from app.modules.chatgpt.constants import (
 )
 from app.modules.chatgpt.exceptions import ChatGPTDraftFailed
 from core.agent import ChatGPTCardDraft
+from core.written import written_or
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,9 @@ def _ask(*, profile: object, target_url: str) -> LLMResult[ChatGPTCardDraft]:
             "city": getattr(profile, "city", "") or "-",
             "country_code": getattr(profile, "country_code", "") or "UZ",
             "offer_text": getattr(profile, "offer_text", "") or "-",
+            "copy_language": written_or(
+                "uz", getattr(profile, "offer_text", "") or ""
+            ).name,
             "target_url": target_url or getattr(profile, "website", "") or "-",
         },
     )

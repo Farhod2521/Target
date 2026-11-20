@@ -15,7 +15,6 @@ from llmkit import render
 from sqlalchemy.orm import Session
 
 from app.common.cache import cache
-from app.common.i18n import get_language
 from app.common.llm import prompts
 from app.common.places import keys_line
 from app.modules.accounts.models import User
@@ -40,9 +39,10 @@ from app.modules.chat.exceptions import (
     FreeQuestionsSpent,
     QuestionTooLong,
 )
-from core.assistant.prompt import language_name, sections_for, split
+from core.assistant.prompt import sections_for, split
 from core.chat.numbers import figures_in
 from core.chat.route import route
+from core.written import reply_language
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,8 +68,11 @@ def start_turn(
     asked: tuple[str, ...] = (),
     focus_id: str = "",
     item_key: str = "",
+    language: str = "",
 ) -> Turn:
-    """Check, record, and hand a prepared turn to the worker."""
+    """Check, record, and hand a prepared turn to the worker. ``language``:
+    the page's; the answer follows the language the question is written in,
+    and the page's only when the question says too little."""
     from app.modules.chat.selectors.choices import offers_for
     from app.modules.chat.selectors.context import chat_context
     from app.modules.chat.selectors.scope import current_page_scope
@@ -91,7 +94,15 @@ def start_turn(
             waited = waiting_answer(db, session=session)
             if waited is not None:
                 return _feedback_turn(
-                    db, owner=owner, session=session, waited=waited, text=text, now=now
+                    db,
+                    owner=owner,
+                    session=session,
+                    waited=waited,
+                    text=text,
+                    now=now,
+                    language=reply_language(
+                        text, (), language, owner.language or ""
+                    ).code,
                 )
     left = _allowance(db, owner=owner, entitled=entitled, scope=scope, now=now)
 
@@ -123,7 +134,9 @@ def start_turn(
     )
     template, version = prompts().get(PROMPT_NAME)
     prompt = split(template)
-    language = get_language() or ""
+    written = reply_language(
+        text, theirs, language, owner.language if owner is not None else ""
+    )
     drawn = context.render()
     turn_id = str(uuid.uuid4())
     cache.set(
@@ -132,7 +145,7 @@ def start_turn(
             "question": text,
             "system": render(
                 prompt.base,
-                {"language": language_name(language), "places": keys_line()},
+                {"language": written.name, "places": keys_line()},
             ),
             "system_tail": render(
                 prompt.tail(
@@ -144,7 +157,7 @@ def start_turn(
                     ),
                     context=drawn,
                 ),
-                {"language": language_name(language)},
+                {"language": written.name},
             ),
             "history": said,
             "figures": sorted(context.figures()),
@@ -156,7 +169,10 @@ def start_turn(
             "message_id": str(answer.id) if answer is not None else "",
             "session_id": str(thread.id) if thread is not None else "",
             "prompt_version": version,
-            "language": language,
+            "language": written.code,
+            # The script-aware key the product's own words follow
+            # (``app.common.shown``): a place's name, a status line.
+            "shown": written.key,
             "max_tokens": ANSWER_MAX_TOKENS,
             "offers": [asdict(item) for item in offers],
         },
@@ -179,6 +195,7 @@ def _feedback_turn(
     waited: AssistantMessage,
     text: str,
     now: datetime,
+    language: str,
 ) -> Turn:
     """The client's word on the answers, before the request: kept for the
     office and answered at once, with the send button - no model, nothing
@@ -196,7 +213,7 @@ def _feedback_turn(
         waited=waited,
         answer=answer,
         text=text,
-        language=get_language() or "",
+        language=language,
         now=now,
     )
     turn_id = str(uuid.uuid4())

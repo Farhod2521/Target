@@ -9,7 +9,6 @@ from llmkit import render
 from sqlalchemy.orm import Session
 
 from app.common.cache import cache
-from app.common.i18n import get_language
 from app.common.llm import prompts
 from app.common.places import keys_line
 from app.modules.accounts.models import User
@@ -37,6 +36,7 @@ from app.modules.chat.selectors.sessions import history
 from app.modules.chat.services.quota import Allowance, allowance, consume
 from core.chat.numbers import figures_in
 from core.chat.route import route
+from core.written import reply_language
 
 TURN_KEY: Final = "chat:turn:{turn_id}"
 TITLE_CHARS: Final = 60
@@ -72,8 +72,11 @@ def start_turn(
     asked: tuple[str, ...] = (),
     focus_id: str = "",
     item_key: str = "",
+    language: str = "",
 ) -> Turn:
-    """Check, record, and hand a prepared turn to the worker."""
+    """Check, record, and hand a prepared turn to the worker. ``language``:
+    the page's; the answer follows the language the question is written in,
+    and the page's only when the question says too little."""
     text = question.strip() or (str(ASK_ABOUT_ITEM) if item_key else "")
     if len(text) > MAX_QUESTION_CHARS:
         raise QuestionTooLong(MAX_QUESTION_CHARS)
@@ -112,14 +115,16 @@ def start_turn(
         quote=context.quote(),
     )
     template, version = prompts().get(PROMPT_NAME)
-    language = get_language() or ""
+    written = reply_language(
+        text, _their_own(said), language, owner.language if owner is not None else ""
+    )
     cache.set(
         TURN_KEY.format(turn_id=turn_id),
         {
             "question": text,
             "system": render(
                 template,
-                {"language": language, "context": "", "places": keys_line()},
+                {"language": written.name, "context": "", "places": keys_line()},
             ).rstrip(),
             "system_tail": context.render(),
             "history": said,
@@ -128,7 +133,10 @@ def start_turn(
             "owner_id": str(owner.id) if owner is not None else "",
             "message_id": str(message.id) if message is not None else "",
             "prompt_version": version,
-            "language": language,
+            "language": written.code,
+            # The script-aware key the product's own words follow
+            # (``app.common.shown``): a place's name, a status line.
+            "shown": written.key,
             "max_tokens": ANSWER_MAX_TOKENS,
             "offers": [asdict(item) for item in offers],
             "lookups": entitled and owner is not None,

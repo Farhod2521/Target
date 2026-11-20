@@ -28,6 +28,7 @@ from app.modules.businesses.models import Business
 from app.modules.businesses.selectors import category_label
 from core.agent import CreativeProposal, Finding
 from core.agent.copy_check import AdWords, check_against_offer
+from core.written import UZBEK, written_in, written_or
 
 logger = logging.getLogger(__name__)
 PROMPT: Final = "ad_refresh"
@@ -227,6 +228,11 @@ def _variables(
         "current_primary_text": creative.message or "-",
         "current_headline": creative.headline or "-",
         "current_description": creative.description or "-",
+        # The running advert's own language and script, else the offer's.
+        "copy_language": (
+            written_in(creative.message, creative.headline, creative.description)
+            or written_or(UZBEK, offer)
+        ).name,
         "what_is_wrong": _what_is_wrong(finding.evidence),
     }
 

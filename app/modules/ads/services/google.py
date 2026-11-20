@@ -97,6 +97,7 @@ from app.modules.audit.models import ActionLog
 from app.modules.billing.exceptions import NoEntitlement
 from app.modules.businesses.models import Business
 from core.agent import GoogleSearchDraft
+from core.written import written_or
 
 logger = logging.getLogger(__name__)
 OPEN_STATUSES = (
@@ -565,6 +566,7 @@ def _ask(*, launch: GoogleLaunch, profile: Business) -> LLMResult[GoogleSearchDr
             "city": profile.city or "-",
             "country_code": profile.country_code,
             "offer_text": profile.offer_text or "-",
+            "copy_language": written_or("uz", profile.offer_text or "").name,
             "final_url": launch.final_url,
             "places": ", ".join(str(row["name"]) for row in launch.places or [])
             or profile.country_code,

@@ -7,6 +7,7 @@ from core.agent import PROMPT_DIR
 from core.agent.schemas import ChatGPTCardDraft
 
 FILLED = {
+    "copy_language",
     "business_name",
     "business_category",
     "city",

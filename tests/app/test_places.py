@@ -60,3 +60,22 @@ def test_the_prompt_lists_every_key() -> None:
         template, _version = prompts().get(name)
         assert "{{ places }}" in template, name
     assert all(f"[[{key}]]" in keys_line() for key in PLACES)
+
+
+def test_a_place_is_named_in_the_script_the_person_wrote() -> None:
+    from app.common.places import linked
+
+    assert linked("[[kirish]]", language="uz").text == "«Kirish sahifasi»"
+    assert linked("[[kirish]]", language="uz-cyrl").text == "«Кириш саҳифаси»"
+    assert linked("[[kirish]]", language="ru").text == "«Страница входа»"
+
+
+def test_status_lines_follow_the_answer() -> None:
+    from app.common.shown import shown, shown_language
+
+    assert shown("Qidiryapman…", "ru") == "Ищу…"
+    assert shown("Qidiryapman…", "uz-cyrl") == "Қидиряпман…"
+    assert shown("Qidiryapman…", "uz") == "Qidiryapman…"
+    assert shown("Unknown line", "en") == "Unknown line"
+    assert shown_language({"language": "uz", "shown": "uz-cyrl"}) == "uz-cyrl"
+    assert shown_language({"language": "ru"}) == "ru"

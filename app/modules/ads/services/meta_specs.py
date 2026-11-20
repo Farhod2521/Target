@@ -38,6 +38,7 @@ from app.modules.ads.selectors.lead_form import (
     business_page_url,
     default_title,
     effective_ending,
+    form_language,
     privacy_url,
 )
 from app.modules.ads.selectors.schedule import effective_campaign_name
@@ -348,13 +349,19 @@ def form_spec(
 ) -> LeadFormSpec:
     """The form itself, and the promise Meta requires beside it."""
     ending = effective_ending(launch=launch, business=business).ending
+    questions = _questions(launch)
+    written = form_language(
+        launch=launch,
+        business=business,
+        labels=tuple(item.label for item in questions if item.label),
+    )
     return LeadFormSpec(
         name=naming.form_name(launch=launch, business=business, attempt=attempt),
         privacy_policy_url=privacy_url(business),
-        questions=_questions(launch),
-        thank_you_title=ending.title or default_title(business),
+        questions=questions,
+        thank_you_title=ending.title or default_title(business, written),
         thank_you_body=ending.body,
-        **_button(ending, business=business),
+        **_button(ending, business=business, language=written.key),
         higher_intent=bool(launch.answers.get(HIGHER_INTENT)),
     )
 
@@ -396,11 +403,13 @@ def _contact_keys(questions: list[dict[str, Any]]) -> dict[int, str]:
     return keys
 
 
-def _button(ending: FormEnding, *, business: Business) -> dict[str, str]:
+def _button(
+    ending: FormEnding, *, business: Business, language: str = "uz"
+) -> dict[str, str]:
     if ending.kind in (ENDING_WEBSITE, ENDING_TELEGRAM):
         return {
             "thank_you_button": THANK_YOU_WEBSITE,
-            "thank_you_button_text": ending.words,
+            "thank_you_button_text": ending.words_in(language),
             "thank_you_url": telegram_url(ending.target)
             if ending.kind == ENDING_TELEGRAM
             else ending.target,
@@ -408,7 +417,7 @@ def _button(ending: FormEnding, *, business: Business) -> dict[str, str]:
     if ending.kind == ENDING_CALL:
         return {
             "thank_you_button": THANK_YOU_CALL,
-            "thank_you_button_text": ending.words,
+            "thank_you_button_text": ending.words_in(language),
             "thank_you_phone": ending.target,
             "thank_you_country": business.country_code.upper(),
         }

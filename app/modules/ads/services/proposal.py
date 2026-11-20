@@ -49,6 +49,7 @@ from app.modules.ads.selectors.audiences_chosen import KnownTerm, confirmed_term
 from app.modules.ads.selectors.copy_notes import (
     AdvertFacts,
     button_action,
+    copy_language,
     facts_by_advert,
     offer_text,
 )
@@ -270,6 +271,7 @@ def prompt_variables(
             launch.owner.language, PROMPT_LANGUAGE["uz"]
         ),
         "offer_text": offer_text(db, launch=launch, business=business),
+        "copy_language": copy_language(db, launch=launch, business=business).name,
         "goal_label": str(label),
         "goal_text": str(launch.answers.get("goal_text") or "").strip() or "—",
         "button_action": button_action(db, launch=launch),
@@ -585,6 +587,7 @@ def review_copy(
     try:
         result = _ask_review(
             business=business,
+            language=copy_language(db, launch=launch, business=business).name,
             creatives=creatives,
             findings=findings,
             facts=facts,
@@ -610,6 +613,7 @@ def _facts_for(
 def _ask_review(
     *,
     business: Business,
+    language: str,
     creatives: list[CreativeProposal],
     findings: list[tuple[CopyFinding, ...]],
     facts: list[AdvertFacts],
@@ -630,6 +634,7 @@ def _ask_review(
         "offer_text": (facts[0].offer if facts else "") or "-",
         "button_action": sends_to,
         "creative_count": str(len(creatives)),
+        "copy_language": language,
         "adverts": adverts,
     }
     with claude() as client:

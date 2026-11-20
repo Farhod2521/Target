@@ -218,9 +218,21 @@ def test_a_visitor_gets_the_places_as_links(
     _answer(db, turn["turn_id"])
 
     streamed = client.get(f"/api/v1/chat/stream/{turn['turn_id']}").text
-    assert '/accounts/login/\\" class=\\"underline\\">Страница входа</a>»' in streamed
+    assert '/accounts/login/\\" class=\\"underline\\">Kirish sahifasi</a>»' in streamed
     assert "/accounts/login/?yordam=chat" in streamed
     assert "[[" not in streamed
+
+    for question, name in (
+        ("Паролимни унутдим", "Кириш саҳифаси"),
+        ("Я забыл пароль", "Страница входа"),
+    ):
+        other = client.post(
+            "/api/v1/chat/ask",
+            json={"question": question, "guest_id": "g", "language": "uz"},
+        ).json()
+        _answer(db, other["turn_id"])
+        drawn = client.get(f"/api/v1/chat/stream/{other['turn_id']}").text
+        assert f'class=\\"underline\\">{name}</a>»' in drawn
 
     headers = sign_up(client)
     owner, account, page = _account(db)
