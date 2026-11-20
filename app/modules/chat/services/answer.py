@@ -16,6 +16,7 @@ from app.common.config import settings
 from app.common.i18n import override
 from app.common.llm import ASKED, claude, model_for
 from app.common.places import linked, place_html
+from app.common.shown import shown, shown_language
 from app.modules.accounts.models import User
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.audit.constants import LLMPurpose
@@ -203,7 +204,7 @@ def _finish(
             turn_id=turn_id,
             owner=owner if payload.get("owner_id") else None,
             payload=payload,
-            answer=linked(text, language=str(payload.get("language", ""))).text,
+            answer=linked(text, language=shown_language(payload)).text,
             now=now,
         )
     publish(
@@ -251,7 +252,8 @@ def _cut_short(
             "max_tokens": payload.get("max_tokens", 0),
         },
     )
-    note, carry_on = str(CUT_SHORT), str(CARRY_ON)
+    language = shown_language(payload)
+    note, carry_on = shown(str(CUT_SHORT), language), shown(str(CARRY_ON), language)
     return f"{text}…\n\n**{note}**", [carry_on]
 
 
@@ -327,7 +329,7 @@ def _message_key(payload: dict[str, Any]) -> uuid.UUID | None:
 
 def _places(payload: dict[str, Any]) -> Callable[[str], str]:
     """The answer's ``[[key]]`` places drawn as links, in its language."""
-    return partial(place_html, language=str(payload.get("language", "")))
+    return partial(place_html, language=shown_language(payload))
 
 
 def _store(
@@ -340,7 +342,7 @@ def _store(
     now: datetime,
 ) -> None:
     """Fill in the row that was created empty when the question arrived."""
-    language = str(payload.get("language", ""))
+    language = shown_language(payload)
     key = _message_key(payload)
     if key is None:
         return

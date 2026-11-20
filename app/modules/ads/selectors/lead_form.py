@@ -47,6 +47,7 @@ from core.leads.ending import (
     ending_from_answer,
     line_of,
 )
+from core.written import UZBEK_LATIN, Written, written_in, written_or
 
 ADVERT_TEXT_MAX: Final = 1200
 PENDING_MINUTES: Final = 3
@@ -88,11 +89,39 @@ class EndingChoice:
         return "owner" if self.by_owner else "ai"
 
 
-def default_title(business: Business) -> str:
-    title = f"{business.name}: tez orada siz bilan bog'lanamiz."
+# "We will be in touch soon", in the language and script of the form.
+_SOON: Final[dict[str, str]] = {
+    "uz": "Tez orada siz bilan bog'lanamiz.",
+    "uz-cyrl": "Тез орада сиз билан боғланамиз.",
+    "ru": "Скоро мы с вами свяжемся.",
+    "en": "We will be in touch soon.",
+}
+
+
+def default_title(business: Business, written: Written = UZBEK_LATIN) -> str:
+    soon = _SOON.get(written.key, _SOON["uz"])
+    title = f"{business.name}: {soon[0].lower()}{soon[1:]}"
     if len(title) <= ENDING_TITLE_MAX:
         return title
-    return "Tez orada siz bilan bog'lanamiz."
+    return soon
+
+
+def form_language(
+    *, launch: CampaignLaunch, business: Business, labels: tuple[str, ...] = ()
+) -> Written:
+    """The language a form's fixed words go out in: its own questions',
+    else what the owner wrote for this launch, else the profile's offer,
+    else Uzbek in Latin letters - the same order the copy is written in."""
+    answers = launch.answers or {}
+    return (
+        written_in(*labels)
+        or written_in(
+            str(answers.get("goal_text") or ""),
+            str(answers.get("offer_text") or ""),
+            str(answers.get("shared_text") or ""),
+        )
+        or written_or("uz", str(business.offer_text or ""))
+    )
 
 
 def privacy_url(business: Business) -> str:

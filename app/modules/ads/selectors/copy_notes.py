@@ -13,6 +13,7 @@ from app.modules.ads.selectors.telegram import TELEGRAM_BUTTON, is_telegram
 from app.modules.ads.selectors.variants import post_caption, variants_needing_words
 from app.modules.businesses.models import Business
 from core.agent.copy_check import AdWords, CopyFinding, check_against_offer, check_words
+from core.written import UZBEK, Written, written_in, written_or
 
 NO_BUTTON: Final = "nothing"
 
@@ -29,6 +30,28 @@ def offer_text(db: Session, *, launch: CampaignLaunch, business: Business) -> st
         str(launch.answers.get("offer_text", ""))
         or post_caption(db, launch=launch)
         or str(business.offer_text or "")
+    )
+
+
+def copy_language(
+    db: Session, *, launch: CampaignLaunch, business: Business
+) -> Written:
+    """The language and script the adverts are written in: the owner's own.
+
+    This launch's words come first - what they want, what they sell, each
+    picture's note - then the business profile and the post's caption, then
+    Uzbek in Latin letters. Cyrillic Uzbek stays Cyrillic, Russian stays
+    Russian; the copy is never moved into another script.
+    """
+    answers = launch.answers or {}
+    launch_words = (
+        str(answers.get("goal_text") or ""),
+        str(answers.get("offer_text") or ""),
+        str(answers.get("shared_text") or ""),
+        *(row.brief for row in variants_needing_words(db, launch=launch)),
+    )
+    return written_in(*launch_words) or written_or(
+        UZBEK, offer_text(db, launch=launch, business=business)
     )
 
 

@@ -12,6 +12,8 @@ from typing import Final
 
 from app.common.config import settings
 from app.common.routes import reverse
+from app.common.shown import CYRILLIC_UZBEK
+from core.written import to_cyrillic
 
 TOKEN: Final = re.compile(r"\[\[([a-z_]+)\]\]")
 # A token still being written at the end of a streamed answer: held back so
@@ -141,7 +143,11 @@ class Linked:
 
 
 def name_of(key: str, language: str) -> str:
+    """The place's name in this language (a ``Written.key``): Uzbek in
+    Cyrillic is its Latin name transliterated."""
     place = PLACES[key]
+    if language == CYRILLIC_UZBEK:
+        return to_cyrillic(place.names["uz"])
     return place.names.get(language) or place.names["uz"]
 
 

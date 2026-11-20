@@ -23,6 +23,7 @@ from app.common.cache import cache
 from app.common.config import settings
 from app.common.i18n import override
 from app.common.llm import ASKED, claude, model_for
+from app.common.shown import shown, shown_language
 from app.modules.accounts.models import User
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.assistant.constants import (
@@ -139,6 +140,8 @@ class Desk:
     now: datetime
     gate: FigureGate
     language: str = ""
+    # The key the product's own words follow (``app.common.shown``).
+    shown_in: str = ""
     made: int = 0
     announce: Callable[[str], None] | None = None
     halt: Halt | None = None
@@ -319,7 +322,7 @@ class Desk:
             {
                 "kind": ButtonKind.GUEST_TICKET if guest else ButtonKind.TICKET,
                 "key": f"{TICKET_KEY}{len(self.tickets) + 1}",
-                "label": "Mutaxassisga yuborish",
+                "label": shown("Mutaxassisga yuborish", self.shown_in),
                 "state": ButtonState.OPEN,
                 "summary": summary[:TICKET_SUMMARY_CHARS],
                 "checked": checked,
@@ -377,7 +380,8 @@ def answer_turn(
             _show_stopped(turn_id, payload=payload, halt=halt, masked=gate.masked)
             return
         halt.shown = "".join(safe)
-        publish(turn_id, halt.shown, payload=payload, masked=gate.masked, status=words)
+        status = shown(words, shown_language(payload))
+        publish(turn_id, halt.shown, payload=payload, masked=gate.masked, status=status)
         if working is not None:
             working()
 
@@ -387,6 +391,7 @@ def answer_turn(
         now=now,
         gate=gate,
         language=str(payload.get("language", "")),
+        shown_in=shown_language(payload),
         announce=announce,
         halt=halt,
     )
@@ -482,7 +487,7 @@ def publish(
     under the last frame."""
     from app.common.places import linked
 
-    placed = linked(text, language=str(payload.get("language", "")), done=done)
+    placed = linked(text, language=shown_language(payload), done=done)
     text = placed.text
     cache.set(
         OUT_KEY.format(turn_id=turn_id),
@@ -611,10 +616,12 @@ def _finish(
             "assistant answer cut at max_tokens",
             extra={"prompt_version": payload.get("prompt_version", "")},
         )
-        text, replies = f"{text}…\n\n**{CUT_SHORT}**", [str(CARRY_ON)]
+        language = shown_language(payload)
+        note = shown(str(CUT_SHORT), language)
+        text, replies = f"{text}…\n\n**{note}**", [shown(str(CARRY_ON), language)]
     from app.common.places import linked
 
-    placed = linked(text, language=str(payload.get("language", "")))
+    placed = linked(text, language=shown_language(payload))
     text = placed.text
     if desk.tickets and desk.owner is None:
         _keep_for_guest(turn_id, payload=payload, ticket=desk.tickets[0], answer=text)
@@ -622,7 +629,7 @@ def _finish(
     if desk.tickets and desk.owner is not None and not result.truncated:
         # The owner is asked about the answers first; the button follows
         # their reply (``services.feedback``).
-        language = str(payload.get("language", ""))
+        language = shown_language(payload)
         waiting = {
             **desk.tickets[0],
             "question": str(payload.get("question", "")),

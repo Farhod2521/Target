@@ -13,6 +13,7 @@ from core.agent import PROMPT_DIR
 from core.agent.schemas import GoogleSearchDraft
 
 FILLED = {
+    "copy_language",
     "goal_rule",
     "business_name",
     "business_category",

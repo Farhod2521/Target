@@ -237,5 +237,10 @@ FEEDBACK_LANGUAGE: Final = "uz"
 
 
 def in_language(words: dict[str, str], language: str) -> str:
-    """The person's language, Uzbek when there is none for it."""
+    """The person's language (a ``Written.key``), Uzbek when there is none
+    for it; Uzbek in Cyrillic is the Uzbek transliterated."""
+    if language == "uz-cyrl":
+        from core.written import to_cyrillic
+
+        return to_cyrillic(words[FEEDBACK_LANGUAGE])
     return words.get(language) or words[FEEDBACK_LANGUAGE]

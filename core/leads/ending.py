@@ -26,6 +26,26 @@ DEFAULT_BUTTON_TEXT: Final[Mapping[str, str]] = {
     ENDING_CALL: "Qo'ng'iroq qilish",
 }
 
+# The same three in the language and script the form is written in.
+BUTTON_TEXT_IN: Final[Mapping[str, Mapping[str, str]]] = {
+    "uz": DEFAULT_BUTTON_TEXT,
+    "uz-cyrl": {
+        ENDING_WEBSITE: "Сайтга ўтиш",
+        ENDING_TELEGRAM: "Telegram'да ёзиш",
+        ENDING_CALL: "Қўнғироқ қилиш",
+    },
+    "ru": {
+        ENDING_WEBSITE: "Перейти на сайт",
+        ENDING_TELEGRAM: "Написать в Telegram",
+        ENDING_CALL: "Позвонить",
+    },
+    "en": {
+        ENDING_WEBSITE: "Visit website",
+        ENDING_TELEGRAM: "Message on Telegram",
+        ENDING_CALL: "Call now",
+    },
+}
+
 AI_ENDINGS: Final[Mapping[str, EndingKind]] = {
     "agriculture": ENDING_CALL,
     "auto": ENDING_CALL,
@@ -69,9 +89,15 @@ class FormEnding:
     @property
     def words(self) -> str:
         """What the button says, the default when nothing was written."""
+        return self.words_in("uz")
+
+    def words_in(self, language: str) -> str:
+        """What the button says, the default in this language (a
+        ``Written.key``) when nothing was written."""
         if not self.has_button:
             return ""
-        return self.button_text or DEFAULT_BUTTON_TEXT.get(self.kind, "")
+        defaults = BUTTON_TEXT_IN.get(language, DEFAULT_BUTTON_TEXT)
+        return self.button_text or defaults.get(self.kind, "")
 
     def as_answer(self) -> dict[str, str]:
         return {
@@ -180,6 +206,7 @@ def ai_ending_kind(*, category: str) -> EndingKind:
 
 __all__ = [
     "AI_ENDINGS",
+    "BUTTON_TEXT_IN",
     "DEFAULT_BUTTON_TEXT",
     "ENDING_CALL",
     "ENDING_KINDS",

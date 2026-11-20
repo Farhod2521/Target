@@ -182,6 +182,15 @@ class AskIn(BaseModel):
         description="A visitor's own earlier questions, from their browser.",
     )
     guest_id: str = Field("", max_length=64, description="A visitor's browser id.")
+    language: str = Field(
+        "",
+        max_length=8,
+        description=(
+            "The page's language (`uz`, `ru`, `en`). The answer follows the "
+            "language the question is written in; this only when the "
+            "question says too little."
+        ),
+    )
 
 
 class TurnOut(BaseModel):
@@ -448,6 +457,7 @@ def ask(body: AskIn, request: Request, db: Db, user: OptionalUser) -> TurnOut:
         asked=tuple(str(item) for item in body.asked if str(item).strip()),
         focus_id=body.suggestion,
         item_key=body.item,
+        language=body.language,
     )
     db.commit()
     answer_assistant_turn.delay(turn.turn_id)

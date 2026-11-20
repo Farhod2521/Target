@@ -11,6 +11,7 @@ from sqlalchemy import and_, delete, or_, update
 from sqlalchemy.orm import Session
 
 from app.common.cache import cache
+from app.common.shown import shown, shown_language
 from app.modules.chat.constants import (
     ANSWER_STUCK_AFTER_MINUTES,
     SESSION_TTL_DAYS,
@@ -96,7 +97,8 @@ def announcer(
     """What to call when a look-up starts, for whoever is waiting."""
 
     def announce(words: str) -> None:
-        publish(turn_id, "".join(safe), gate=gate, payload=payload, status=words)
+        status = shown(words, shown_language(payload))
+        publish(turn_id, "".join(safe), gate=gate, payload=payload, status=status)
         if working is not None:
             working()
 

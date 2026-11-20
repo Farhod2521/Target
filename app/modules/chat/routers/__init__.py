@@ -210,6 +210,15 @@ class AskIn(BaseModel):
     launch: str = ""
     asked: list[str] = Field(default_factory=list, max_length=50)
     guest_id: str = Field(default="", max_length=64)
+    language: str = Field(
+        default="",
+        max_length=8,
+        description=(
+            "The page's language (`uz`, `ru`, `en`). The answer follows the "
+            "language the question is written in; this only when the "
+            "question says too little."
+        ),
+    )
 
 
 class TurnOut(BaseModel):
@@ -260,6 +269,7 @@ def ask(body: AskIn, request: Request, db: Db, user: OptionalUser) -> TurnOut:
         asked=asked,
         focus_id=body.suggestion,
         item_key=body.item,
+        language=body.language,
     )
     db.commit()
     answer_chat_turn.delay(turn.turn_id)

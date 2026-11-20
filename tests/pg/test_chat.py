@@ -471,6 +471,32 @@ def test_a_visitor_spends_the_free_allowance(
     assert db.scalar(select(ChatMessage.id)) is None
 
 
+def test_a_visitor_is_answered_in_the_language_they_wrote(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    """An Uzbek question on any page is answered in Uzbek; Cyrillic in
+    Cyrillic; a word too short to tell follows the page's language."""
+    cases = (
+        (
+            "Parolimni esdan chiqardim nima qilsam bo'ladi?",
+            "ru",
+            "Uzbek, in the Latin script",
+        ),
+        ("Паролимни эсдан чиқардим", "uz", "Uzbek, in the Cyrillic script"),
+        ("Я забыл пароль", "uz", "Russian"),
+        ("ok", "uz", "Uzbek, in the Latin script"),
+    )
+    for number, (question, page, name) in enumerate(cases):
+        asked = client.post(
+            "/api/v1/chat/ask",
+            json={"question": question, "guest_id": f"lang{number}", "language": page},
+        )
+        assert asked.status_code == 200, asked.text
+        payload = services.turn_payload(turn_id=asked.json()["turn_id"])
+        assert payload is not None
+        assert f"Answer in **{name}**" in payload["system"]
+
+
 def test_a_choice_is_rechecked_before_it_is_carried_out(
     client: TestClient, db: Session, queued: list
 ) -> None:
