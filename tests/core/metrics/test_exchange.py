@@ -33,7 +33,31 @@ def test_dollars_become_som_at_the_days_rate() -> None:
 def test_a_day_off_reads_the_rate_set_before_it() -> None:
     assert RATES.rate("USD", SAT) == Decimal("12000")
     assert RATES.rate("USD", MON) == Decimal("12500")
-    assert RATES.rate("USD", date(2027, 1, 1)) == Decimal("12500")
+    assert RATES.rate("USD", date(2026, 11, 26)) == Decimal("12500")
+
+
+def test_a_rate_too_old_to_stand_for_the_day_is_no_rate() -> None:
+    # Ten days is the longest the bank leaves a rate standing; past that the
+    # rates have stopped being read, and last month's is not this day's.
+    assert RATES.rate("USD", date(2026, 11, 27)) is None
+    assert (
+        RATES.convert(
+            amount_minor=100, source="USD", target="UZS", day=date(2027, 1, 1)
+        )
+        is None
+    )
+
+
+def test_more_currencies_are_added_as_they_turn_up() -> None:
+    rates = Rates([("USD", FRI, Decimal("12000"))])
+    assert rates.holds("USD") and rates.holds("UZS") and not rates.holds("TRY")
+
+    rates.extend([("TRY", FRI, Decimal("300"))])
+
+    assert rates.holds("TRY")
+    assert (
+        rates.convert(amount_minor=1000, source="USD", target="TRY", day=FRI) == 40_000
+    )
 
 
 def test_a_day_before_the_first_rate_has_no_answer() -> None:

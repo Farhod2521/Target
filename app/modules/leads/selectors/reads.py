@@ -1295,10 +1295,12 @@ def owners_holding_leads(db: Session) -> list[User]:
 
 
 def unerased_lead_ids(db: Session, *, owner: User, limit: int) -> list[uuid.UUID]:
+    """Every lead still holding a person's details - the customers typed
+    onto a CRM board by hand too: what is erased is people, not adverts."""
     return list(
         db.scalars(
             select(Lead.id)
-            .where(owned(owner), Lead.anonymized_at.is_(None))
+            .where(Lead.owner_id == owner.id, Lead.anonymized_at.is_(None))
             .order_by(Lead.submitted_at)
             .limit(limit)
         )
@@ -1309,7 +1311,7 @@ def unerased_count(db: Session, *, owner: User) -> int:
     return int(
         db.scalar(
             select(func.count(Lead.id)).where(
-                owned(owner), Lead.anonymized_at.is_(None)
+                Lead.owner_id == owner.id, Lead.anonymized_at.is_(None)
             )
         )
         or 0

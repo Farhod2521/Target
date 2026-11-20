@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 
 from app.common.config import settings
 from app.common.dates import localtime
-from app.modules.crm.constants import CURRENCY_LABELS
 from core.metrics.exchange import Rates
 
 
@@ -29,14 +28,24 @@ class Sold:
 
 
 class Pricer:
-    """Reads amounts in ``target``. The rates are read from the database
-    only when the first amount of another currency turns up - until a pair
-    changes its currency, never."""
+    """Reads amounts in ``target``. A currency's rates are read from the
+    database when the first amount in it turns up - each currency once,
+    and none at all while everything is in the target's own."""
 
     def __init__(self, db: Session, *, target: str) -> None:
         self._db = db
         self.target = target.upper()
-        self._rates: Rates | None = None
+        self._rates = Rates([])
+        self._asked: set[str] = set()
+
+    def _know(self, *currencies: str) -> None:
+        wanted = {c for c in currencies if c not in self._asked}
+        if not wanted:
+            return
+        from app.modules.metrics.services.rates import rates_rows
+
+        self._asked |= wanted
+        self._rates.extend(rates_rows(self._db, currencies=wanted))
 
     def read(
         self, *, amount_minor: int, currency: str, at: datetime | date | None
@@ -46,12 +55,7 @@ class Pricer:
             return amount_minor
         if at is None:
             return None
-        if self._rates is None:
-            from app.modules.metrics.services.rates import rates_for
-
-            self._rates = rates_for(
-                self._db, currencies={*CURRENCY_LABELS, self.target, currency}
-            )
+        self._know(currency, self.target)
         day = localtime(at).date() if isinstance(at, datetime) else at
         return self._rates.convert(
             amount_minor=amount_minor, source=currency, target=self.target, day=day

@@ -18,8 +18,9 @@ through: :func:`completeness` says how far that is.
 
 **One currency.** Every amount is in the CRM's currency. The spend is
 crossed from the ad account's at each day's rate and a sale written in
-another currency at its closing day's rate; what no rate could price is
-left out and counted (``spend_unpriced_days``, ``unpriced``).
+another currency at its closing day's rate. What no rate could price is
+counted (``spend_unpriced_days``, ``unpriced``) and the sum it is missing
+from answers nothing: a figure with a hole in it is wrong, not small.
 
 **Never a nought for "not known".** With the CRM off, with no sale closed
 yet, with nothing spent, an answer carries the reason in place of a value.
@@ -32,7 +33,7 @@ from adskit import MinorUnits
 
 from core.metrics import formulas as f
 from core.metrics.arithmetic import hundredths
-from core.metrics.catalogue.spec import Answer, cost, known, missing
+from core.metrics.catalogue.spec import Answer, Missing, cost, known, missing
 
 SalesUnit = Literal["money", "count", "percent", "ratio", "minutes"]
 
@@ -52,6 +53,10 @@ class SalesFigures:
     spend_minor: int | None = 0
     # Days whose spend no rate could price; their money is not in the sum.
     spend_unpriced_days: int = 0
+    # Why the spend is not whole, if it is not: ``no_rate`` (days no rate
+    # prices) or ``not_kept`` (the range reaches past what is kept). A sum
+    # with a hole in it prices nothing: every answer built on it is missing.
+    spend_gap: Missing | None = None
     leads: int = 0
     # A manager holds the card.
     taken: int = 0
@@ -110,7 +115,7 @@ SALES: Final[tuple[SalesMetric, ...]] = (
     SalesMetric(
         "roas",
         "ROAS",
-        "Daromad ÷ Sarflandi. 3 bo'lsa, reklamaga sarflangan har 1 so'm 3 so'm sotuv keltirgan.",
+        "Daromad ÷ Sarflandi. 3 bo'lsa, reklamaga sarflangan pul 3 baravar sotuv keltirgan.",
         "ratio",
     ),
     SalesMetric(
@@ -216,7 +221,11 @@ def answers(figures: SalesFigures) -> dict[str, Answer]:
             hundredths(f.close_rate(figures.won, figures.qualified))
         )
     else:
-        found["revenue"] = _money(figures.revenue_minor)
+        # A sale no rate prices is money missing from the revenue: the sum
+        # would be wrong, not small.
+        found["revenue"] = (
+            missing("no_rate") if figures.unpriced else _money(figures.revenue_minor)
+        )
         found["conversion"] = known(
             hundredths(f.sale_conversion(figures.won, figures.leads))
         )
@@ -231,16 +240,21 @@ def answers(figures: SalesFigures) -> dict[str, Answer]:
         for key in _OF_SPEND:
             found[key] = missing("not_here")
         return found
+    if figures.spend_gap is not None:
+        for key in _OF_SPEND:
+            found[key] = missing(figures.spend_gap)
+        return found
     found["spend"] = Answer(value=MinorUnits(spend))
     found["cpl"] = cost(f.cpl(spend, figures.leads), spend_minor=spend)
     found["cpql"] = cost(f.cpql(spend, figures.qualified), spend_minor=spend)
     if sold:
         found["cac"] = cost(f.cac(spend, figures.won), spend_minor=spend)
-        found["roas"] = (
-            known(hundredths(f.roas(figures.revenue_minor, spend)))
-            if spend > 0
-            else missing("no_spend")
-        )
+        if figures.unpriced:
+            found["roas"] = missing("no_rate")
+        elif spend <= 0:
+            found["roas"] = missing("no_spend")
+        else:
+            found["roas"] = known(hundredths(f.roas(figures.revenue_minor, spend)))
     return found
 
 

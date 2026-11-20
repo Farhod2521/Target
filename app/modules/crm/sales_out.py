@@ -59,6 +59,11 @@ def summary_out(found: Stats) -> dict[str, Any]:
             "until": found.range.until.isoformat(),
             "days": found.range.days,
         },
+        # The first day anything is counted from: the range's, or the day
+        # this CRM began taking leads when that is later. Spend before it
+        # brought no card and is not in ``spend``.
+        "counted_since": max(found.range.since, found.range.earliest).isoformat(),
+        "pair": found.pair,
         "metrics": metrics_out(),
         "missing_words": MISSING_WORDS,
         "totals": cells(total),

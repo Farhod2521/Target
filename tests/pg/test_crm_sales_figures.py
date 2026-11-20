@@ -1,18 +1,20 @@
 """A pair's leads set against the advertising that brought them: whose spend
 counts, in which currency, and what the answers are."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.common.dates import localtime
 from app.common.db import utcnow
 from app.modules.accounts.models import User
+from app.modules.ads.models import Ad, AdSet, Campaign, CampaignLaunch
 from app.modules.crm import selectors
+from app.modules.crm.models import CrmSetup
 from app.modules.crm.selectors.stats import Stats, stats
 from app.modules.integrations.models import AdAccount
 from app.modules.metrics.models import FxRate, MetricsDaily
@@ -181,8 +183,16 @@ def test_spend_no_rate_prices_is_left_out_and_counted(
     told = answers(total)
 
     assert (total.spend_minor, total.spend_unpriced_days) == (0, 1)
-    assert told["roas"].missing == "no_spend"
+    # Not «nothing was spent»: money was spent and could not be read.
+    for key in ("spend", "roas", "cac", "cpl"):
+        assert told[key].missing == "no_rate"
     assert told["revenue"].value == 60_000_000
+    # The advert, the campaign and the day that lost the money say so too.
+    found = _read(db, owner)
+    assert answers(dict(found.ads)["ad_1"])["cpl"].missing == "no_rate"
+    assert answers(dict(found.campaigns)["c_1"])["spend"].missing == "no_rate"
+    on_day = found.daily[found.days.index(_lead_day(db))]
+    assert answers(on_day)["spend"].missing == "no_rate"
 
 
 def test_the_same_currency_on_both_sides_needs_no_rate(
@@ -333,3 +343,226 @@ def test_with_the_crm_not_set_up_the_dashboard_says_so_in_every_cell(
     assert sales["state"] == "draft"
     assert {cell["missing"] for cell in sales["totals"].values()} == {"no_crm"}
     assert sales["completeness"]["level"] == "off"
+
+
+def test_a_rate_gone_stale_prices_nothing(client: TestClient, db: Session) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    _som(client, head)
+    _spend(db, owner, "ad_1", "c_1", 10)
+    db.add(
+        FxRate(
+            day=_lead_day(db) - timedelta(days=40), currency="USD", rate=Decimal("9000")
+        )
+    )
+    db.commit()
+
+    total = _read(db, owner).totals
+
+    assert (total.spend_minor, total.spend_gap) == (0, "no_rate")
+
+
+def test_spend_from_before_the_crm_took_leads_is_set_against_nothing(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    day = _lead_day(db)
+    _spend(db, owner, "ad_1", "c_1", 10)
+    _spend(db, owner, "ad_1", "c_1", 40, day=day - timedelta(days=3))
+    # The CRM began taking leads the day the three came.
+    db.execute(
+        update(CrmSetup).values(
+            leads_since=datetime.combine(day, time.min).replace(
+                tzinfo=db.scalar(select(AdAccount)).tzinfo()
+            )
+        )
+    )
+    db.commit()
+
+    found = _read(db, owner)
+    page = client.get(f"{CRM}/stats?period=7", headers=head).json()
+
+    # $40 was spent before any lead could become a card: it brought none.
+    assert found.totals.spend_minor == 1000
+    assert sum(cell.spend_minor or 0 for cell in found.daily) == 1000
+    assert page["sales"]["counted_since"] == day.isoformat()
+    assert page["sales"]["pair"] == {
+        "key": "page_1:act_1",
+        "page": "Sahifa",
+        "account": "Asosiy",
+    }
+
+
+def test_a_range_past_what_is_kept_has_no_spend_figure(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    _spend(db, owner, "ad_1", "c_1", 10)
+    db.execute(update(CrmSetup).values(leads_since=utcnow() - timedelta(days=300)))
+    db.commit()
+    viewer = selectors.viewer_for(db, user=db.get(User, owner.id), wanted="")
+    today = _lead_day(db)
+
+    def read(days: int) -> Stats:
+        return stats(
+            db,
+            viewer=viewer,
+            since=(today - timedelta(days=days)).isoformat(),
+            until=today.isoformat(),
+            now=utcnow(),
+        )
+
+    kept, past = read(170), read(200)
+
+    assert answers(kept.totals)["spend"].value == 1000
+    assert answers(past.totals)["spend"].missing == "not_kept"
+    assert answers(past.totals)["cpl"].missing == "not_kept"
+    # The leads are all there; only the spend is not whole.
+    assert answers(past.totals)["leads"].value == 3
+    assert answers(past.daily[-1])["spend"].missing == "not_kept"
+
+
+def test_a_campaign_built_with_no_page_is_not_every_pairs_spend(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    account = db.scalar(select(AdAccount))
+    assert account is not None
+    # A launch on the account with no page named, a lead form on its advert,
+    # and no lead of it on this board.
+    db.add(
+        CampaignLaunch(
+            owner_id=owner.id,
+            ad_account_id=account.id,
+            page_id=None,
+            provider="meta",
+            status="created",
+            created_refs={"campaign": "c_free"},
+        )
+    )
+    campaign = Campaign(
+        owner_id=owner.id,
+        provider="meta",
+        external_id="c_free",
+        ad_account_id=account.id,
+    )
+    db.add(campaign)
+    db.flush()
+    adset = AdSet(
+        owner_id=owner.id,
+        provider="meta",
+        external_id="s_free",
+        campaign_id=campaign.id,
+    )
+    db.add(adset)
+    db.flush()
+    db.add(
+        Ad(
+            owner_id=owner.id,
+            provider="meta",
+            external_id="ad_free",
+            adset_id=adset.id,
+            lead_form_external_id="f_other",
+        )
+    )
+    db.commit()
+    _spend(db, owner, "ad_1", "c_1", 10)
+    _spend(db, owner, "ad_free", "c_free", 99)
+
+    assert _read(db, owner).totals.spend_minor == 1000
+
+
+def test_a_sale_in_one_currency_does_not_hide_the_spend_of_another(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    board = _running(client, head)
+    card = board["columns"][0]["cards"][0]["id"]
+    # Sold in dollars, then the CRM moves to so'm; the account pays in lira.
+    assert client.post(
+        f"{CRM}/cards/{card}/win", headers=head, json={"amount": "10"}
+    ).is_success
+    _som(client, head)
+    db.execute(update(AdAccount).values(currency="TRY"))
+    db.commit()
+    day = _lead_day(db) - timedelta(days=5)
+    db.add_all(
+        [
+            FxRate(day=day, currency="USD", rate=Decimal("12000")),
+            FxRate(day=day, currency="TRY", rate=Decimal("300")),
+        ]
+    )
+    db.add(
+        MetricsDaily(
+            owner_id=owner.id,
+            provider="meta",
+            external_id="ad_1",
+            ad_account_id=db.scalar(select(AdAccount.id)),
+            level="ad",
+            campaign_external_id="c_1",
+            date=_lead_day(db),
+            spend_minor=50_000,
+            currency="TRY",
+            synced_at=utcnow(),
+        )
+    )
+    db.commit()
+
+    total = _read(db, owner).totals
+
+    # 500 lira at 300 = 150 000 so'm; $10 at 12 000 = 120 000 so'm.
+    assert (total.spend_minor, total.spend_gap) == (15_000_000, None)
+    assert (total.revenue_minor, total.unpriced) == (12_000_000, 0)
+
+
+def test_with_the_crm_switched_off_every_cut_says_so(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    _spend(db, owner, "ad_1", "c_1", 10)
+    off = client.post(f"{CRM}/settings/state", headers=head, json={"state": "off"})
+    assert off.is_success, off.text
+
+    found = _read(db, owner)
+
+    cuts = [found.totals, found.earlier, *found.daily, *dict(found.ads).values()]
+    assert cuts and all(
+        {a.missing for a in answers(cut).values()} == {"no_crm"} for cut in cuts if cut
+    )
+
+
+def test_the_pages_old_list_of_adverts_is_still_the_ones_that_brought_leads(
+    client: TestClient, db: Session
+) -> None:
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    _spend(db, owner, "ad_1", "c_1", 10)
+    _spend(db, owner, "ad_2", "c_1", 5)
+
+    page = client.get(f"{CRM}/stats?period=7", headers=head).json()
+
+    assert [row["id"] for row in page["ads"]] == ["ad_1"]
+    assert sorted(row["id"] for row in page["sales"]["ads"]) == ["ad_1", "ad_2"]
+
+
+def test_a_dashboard_with_no_crm_reads_no_cards(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+
+    sales = client.get("/api/v1/metrics/numbers?period=7", headers=head).json()["sales"]
+
+    assert sales["state"] == "draft"
+    assert sales["totals"]["leads"] == {"value": None, "missing": "no_crm"}
+    assert sales["direct"]["leads"]["missing"] == "no_crm"

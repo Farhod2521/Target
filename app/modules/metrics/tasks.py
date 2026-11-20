@@ -268,7 +268,7 @@ def report_unfinished_figures_task() -> int:
 
 @celery_app.task(queue="webhooks", ignore_result=True)
 def store_rates_task() -> int:
-    from app.modules.metrics.services.rates import DAYS_PER_RUN, store_rates
+    from app.modules.metrics.services.rates import RECENT_DAYS, store_rates
 
     with task_session() as db:
-        return store_rates(db, now=utcnow(), limit=DAYS_PER_RUN)
+        return store_rates(db, now=utcnow(), back=RECENT_DAYS)

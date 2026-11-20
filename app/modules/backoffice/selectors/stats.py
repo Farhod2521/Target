@@ -66,6 +66,7 @@ from app.modules.content_studio.models import Montage
 from app.modules.crm.models import CrmSetup
 from app.modules.destinations.models import FormSheet, LeadChat
 from app.modules.integrations.models import ProviderConnection
+from app.modules.leads.constants import MANUAL_PROVIDER
 from app.modules.leads.models import Lead
 from app.modules.referrals.models import ReferralBinding, ReferralReward
 from app.modules.telephony.models import PhoneConnection
@@ -1350,7 +1351,8 @@ def usage(db: Session, *, window: Window, now: datetime) -> dict[str, Any]:
             CampaignLaunch.created_at >= now - timedelta(days=30),
         )),
         ("leads", "Lid olgan (30 kun)", select(Lead.owner_id).where(
-            Lead.created_at >= now - timedelta(days=30)
+            Lead.created_at >= now - timedelta(days=30),
+            Lead.provider != MANUAL_PROVIDER,
         )),
         ("crm", "CRM ochgan", select(CrmSetup.owner_id)),
         ("templates", "Chat shabloni", select(ChatTemplate.owner_id)),
@@ -1396,6 +1398,7 @@ def usage(db: Session, *, window: Window, now: datetime) -> dict[str, Any]:
     leads = db.execute(
         select(func.count(Lead.id), func.count(distinct(Lead.owner_id))).where(
             Lead.owner_id.in_(customer_ids()),
+            Lead.provider != MANUAL_PROVIDER,
             Lead.created_at >= window.since,
             Lead.created_at < window.until,
         )
