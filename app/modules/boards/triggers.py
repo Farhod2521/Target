@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Date, cast, exists, func, or_, select, tuple_
+from sqlalchemy import Date, and_, cast, exists, func, or_, select, tuple_
 from sqlalchemy.orm import Session, aliased
 
 from app.modules.accounts.models import User
@@ -43,11 +43,11 @@ from app.modules.boards.constants import (
     NO_SPEND_LOOKBACK_DAYS,
     NOTE_MAX,
     OFFER_COLUMNS,
-    OFFER_ENDED_REASON,
     OFFER_HOURS,
     OFFER_STEPS,
     SALES_NOTES_CARRIED,
     SETUP_GRACE_MINUTES,
+    START_TALKED_COLUMNS,
     SURVEY_LOOKBACK_HOURS,
     SWEEP_BATCH,
     Board,
@@ -59,7 +59,6 @@ from app.modules.boards.constants import (
 from app.modules.boards.models import BoardCard, BoardCardEvent, SurveyHelpOption
 from app.modules.boards.offer import (
     OFFERED_REF,
-    OfferSource,
     column_at,
     start_paid_at,
 )
@@ -247,11 +246,13 @@ def _mark_given(db: Session, *, now: datetime, limit: int) -> int:
 
 def start_bought(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """A client paid Start: their discount on a full plan starts at that
-    payment, and their Sales card stands in its column: 20% for a day, then
-    10%. A card that was closed, or sold by this very payment under the old
-    rule, opens again; a client without a card gets one. The card keeps its
-    manager; one without a manager is given out by «Lid olish». Once per
-    payment, and only while the discount still runs."""
+    payment (``offer``), but the card reaches a discount column only once a
+    manager talked to them. So a client without a card gets one in
+    Ishlanmagan; a closed card (or one the old rule sold on this payment)
+    opens there again, with nobody on it; a card the manager talked on
+    (Bog'lanildi, or a discount column on an earlier talk's clock) goes to
+    the column this payment's clock stands at; any other card stays where it
+    is, with a line. Once per payment, while the discount still runs."""
     paid = start_paid_at().subquery()
     start_bill = (
         select(Invoice.id)
@@ -314,7 +315,7 @@ def start_bought(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
             card = BoardCard(
                 board=str(Board.SALES),
                 owner_id=owner_id,
-                column_code=to,
+                column_code=str(SalesColumn.UNWORKED),
                 opened_at=paid_at,
                 column_since=now,
                 reasons=[],
@@ -326,23 +327,35 @@ def start_bought(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
                 card=card,
                 kind=EventKind.START_BOUGHT,
                 now=now,
-                to_column=to,
+                to_column=card.column_code,
                 ref=ref,
             )
             moved += 1
             continue
-        # The old rule sold the card on this payment; it is a lead again,
-        # and the full plan paid later writes the sale.
-        for line in db.scalars(
-            select(BoardCardEvent).where(
-                BoardCardEvent.card_id == card.id, BoardCardEvent.ref == _SOLD_REF
-            )
-        ):
-            line.ref = _SOLD_BY_START_REF
-        card.closed_at = None
-        card.close_reason = ""
-        card.close_note = ""
-        move(db, card=card, to=to, kind=EventKind.START_BOUGHT, now=now, ref=ref)
+        if card.closed_at is not None:
+            # The old rule sold the card on this payment; it is a lead again,
+            # and the full plan paid later writes the sale.
+            for line in db.scalars(
+                select(BoardCardEvent).where(
+                    BoardCardEvent.card_id == card.id, BoardCardEvent.ref == _SOLD_REF
+                )
+            ):
+                line.ref = _SOLD_BY_START_REF
+            card.closed_at = None
+            card.close_reason = ""
+            card.close_note = ""
+            card.manager_id = None
+            card.due_at = None
+            to = str(SalesColumn.UNWORKED)
+        elif card.column_code not in START_TALKED_COLUMNS:
+            # Not talked to yet: the card waits where it is for the talk.
+            record(db, card=card, kind=EventKind.START_BOUGHT, now=now, ref=ref)
+            moved += 1
+            continue
+        if to == card.column_code:
+            record(db, card=card, kind=EventKind.START_BOUGHT, now=now, ref=ref)
+        else:
+            move(db, card=card, to=to, kind=EventKind.START_BOUGHT, now=now, ref=ref)
         moved += 1
     db.commit()
     return moved
@@ -361,12 +374,11 @@ def _has_card(db: Session, *, owner_id: uuid.UUID) -> bool:
 
 
 def step_offers(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
-    """A discount card follows its clock: 20% → 10% a day after the start,
-    → Yopildi («Chegirma tugadi») when the fourth day ends. The clock is the
-    client's Start payment, or without one the manager's talk. Each step
-    once per clock: a card the Owner moved back by hand stays where they put
-    it. Runs after ``mark_sold``, so a client who paid is in Sotildi, not
-    here."""
+    """A discount card follows its clock: 20% → 10% a day after the start;
+    when the fourth day ends the discount is over and the card goes to
+    Bog'lanildi, still its manager's (to Ishlanmagan if nobody has it). The
+    clock is the client's Start payment, or without one the manager's talk.
+    Runs after ``mark_sold``, so a client who paid is in Sotildi, not here."""
     paid = start_paid_at().subquery()
     by_start = (
         select(paid.c.at)
@@ -383,66 +395,43 @@ def step_offers(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         .scalar_subquery()
     )
     started = func.coalesce(by_start, by_talk)
-    first_step = OFFER_STEPS[0][1]
+    # Only cards whose clock left their column: a step's column once its
+    # hours are past, any once the last step is.
+    due = [
+        and_(
+            BoardCard.column_code == str(column),
+            started <= now - timedelta(hours=hours),
+        )
+        for _percent, hours, column in OFFER_STEPS
+    ]
     rows = list(
         db.execute(
-            select(BoardCard, by_start, by_talk)
+            select(BoardCard, started)
             .where(
                 BoardCard.board == str(Board.SALES),
                 BoardCard.closed_at.is_(None),
                 BoardCard.column_code.in_(OFFER_COLUMNS),
-                started <= now - timedelta(hours=first_step),
+                or_(started.is_(None), *due),
             )
-            .order_by(started)
+            .order_by(BoardCard.column_since)
             .limit(limit)
             .with_for_update(of=BoardCard, skip_locked=True)
             .execution_options(populate_existing=True)
         )
     )
     moved = 0
-    for card, start_at, talk_at in rows:
-        at = start_at or talk_at
-        # Each clock writes its own lines: a lead talked to and stepped
-        # down, who then pays Start, steps down once more on that clock.
-        mark = f":{OfferSource.START}" if start_at else ""
-        to = column_at(at, now)
-        if to is None:
-            ref = f"{OFFER_ENDED_REASON}{mark}"
-            if _has_step(db, card=card, ref=ref):
-                continue
-            card.closed_at = now
-            card.close_reason = OFFER_ENDED_REASON
-            card.close_note = ""
-            card.due_at = None
-            move(
-                db,
-                card=card,
-                to=str(SalesColumn.CLOSED),
-                kind=EventKind.OFFER_ENDED,
-                now=now,
-                ref=ref,
-            )
-            moved += 1
+    for card, at in rows:
+        to = column_at(at, now) if at is not None else None
+        if to == card.column_code:
             continue
-        ref = f"{to}{mark}"
-        if to == card.column_code or _has_step(db, card=card, ref=ref):
-            continue
-        move(db, card=card, to=to, kind=EventKind.OFFER_STEP, now=now, ref=ref)
+        if to is not None:
+            move(db, card=card, to=to, kind=EventKind.OFFER_STEP, now=now)
+        else:
+            to = str(SalesColumn.CONTACTED if card.manager_id else SalesColumn.UNWORKED)
+            move(db, card=card, to=to, kind=EventKind.OFFER_ENDED, now=now)
         moved += 1
     db.commit()
     return moved
-
-
-def _has_step(db: Session, *, card: BoardCard, ref: str) -> bool:
-    return bool(
-        db.scalar(
-            select(
-                exists().where(
-                    BoardCardEvent.card_id == card.id, BoardCardEvent.ref == ref
-                )
-            )
-        )
-    )
 
 
 def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:

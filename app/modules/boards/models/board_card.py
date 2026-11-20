@@ -58,6 +58,9 @@ class BoardCard(Base):
     needs_support: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Sales: how many times «Bog'lanilmadi» was pressed.
     attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0, server_default="0")
+    # Sales: how the card came to its manager: the kind it was when taken
+    # (``SalesKind``), or ``phone``; empty until somebody has it.
+    taken_as: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
     # The time the person working the card set for its next step.
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Support: why the ticket is open, each reason once, oldest first.

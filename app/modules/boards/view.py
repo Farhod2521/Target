@@ -333,6 +333,30 @@ def _brief_offer(
     }
 
 
+def _lead_kind(card: BoardCard, extras: Extras, now: datetime) -> dict[str, Any]:
+    """Sales: what kind of lead the client is now, and how the card came to
+    its manager."""
+    from app.modules.boards.constants import TAKEN_BY_PHONE, TAKEN_BY_PHONE_LABEL
+    from app.modules.boards.offer import OfferSource
+    from app.modules.boards.sales_kinds import kind_at, label
+
+    if card.board != str(Board.SALES):
+        return {"kind": None, "taken_as": None}
+    clock = extras.offered.get(card.id)
+    start = clock[0] if clock and clock[1] == OfferSource.START else None
+    kind = kind_at(start, now=now)
+    taken = card.taken_as
+    return {
+        "kind": {"value": kind, "label": label(kind)},
+        "taken_as": {
+            "value": taken,
+            "label": TAKEN_BY_PHONE_LABEL if taken == TAKEN_BY_PHONE else label(taken),
+        }
+        if taken
+        else None,
+    }
+
+
 def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, Any]:
     owner = card.owner
     # What the ticket is about now, not everything it ever held.
@@ -365,6 +389,7 @@ def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, A
         "due_at": card.due_at,
         "overdue": card.due_at is not None and card.due_at <= now,
         "offer": _brief_offer(card, extras, now),
+        **_lead_kind(card, extras, now),
         "has_bill": card.closed_at is None and card.owner_id in extras.bills,
         "heat": extras.heat[card.owner_id].out()
         if card.owner_id in extras.heat
@@ -467,7 +492,7 @@ def board_view(
         "board": str(board),
         "take": _take(db, user=user)
         if board == Board.SUPPORT
-        else _take_lead(db, user=user)
+        else _take_lead(db, user=user, now=now)
         if board == Board.SALES
         else None,
         "due": {
@@ -505,30 +530,30 @@ def _take(db: Session, *, user: User) -> dict[str, int]:
     }
 
 
-def _take_lead(db: Session, *, user: User) -> dict[str, int]:
-    """What «Lid olish» shows: leads nobody works yet, the ones this person
-    took and has not called, and the most they may hold so."""
-    from app.modules.boards.constants import OFFER_COLUMNS
+def _take_lead(db: Session, *, user: User, now: datetime) -> dict[str, Any]:
+    """What «Lid olish» shows: leads waiting in Ishlanmagan, by kind and how
+    many of them are of this person's kinds, the ones this person took and
+    has not called, and the most they may hold so."""
+    from app.modules.boards.sales_kinds import kinds_of, label, waiting_counts
     from app.modules.boards.services import untouched_count
 
-    # Whatever «Lid olish» may give: Ishlanmagan, and a discount running on
-    # a lead nobody works (a Start buyer).
-    queue = db.scalar(
-        select(func.count())
-        .select_from(BoardCard)
-        .where(
-            BoardCard.board == str(Board.SALES),
-            BoardCard.closed_at.is_(None),
-            BoardCard.manager_id.is_(None),
-            BoardCard.column_code.in_([str(SalesColumn.UNWORKED), *OFFER_COLUMNS]),
-        )
-    )
+    counts = waiting_counts(db, now=now)
+    kinds = kinds_of(db, member_id=user.id)
+    queue = sum(counts.values())
     return {
-        "queue": int(queue or 0),
-        # Sales has no kinds: every waiting lead is the reader's to take.
-        "own": int(queue or 0),
+        "queue": queue,
+        "own": sum(n for code, n in counts.items() if kinds is None or code in kinds),
         "working": untouched_count(db, user_id=user.id),
         "limit": LEAD_TAKE_LIMIT,
+        "kinds": [
+            {
+                "value": code,
+                "label": label(code),
+                "count": total,
+                "own": kinds is None or code in kinds,
+            }
+            for code, total in counts.items()
+        ],
     }
 
 

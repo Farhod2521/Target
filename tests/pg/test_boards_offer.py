@@ -1,6 +1,8 @@
 """The Sales discount against PostgreSQL. It starts on its own: when the
 manager presses «Gaplashildi» on a lead, or when the client pays Start. 20%
-for a day, 10% for three more, then the card closes. The percent is taken
+for a day, 10% for three more, then the card goes to Bog'lanildi. A Start
+buyer's card waits in Ishlanmagan until a manager talks to them. The
+percent is taken
 off the plan's price less the unused Start days; a promo code comes off what
 is left, and the wallet pays from the rest."""
 
@@ -91,7 +93,8 @@ def test_gaplashildi_starts_the_discount_once(client: TestClient, db: Session) -
     assert given.offer.next_ends_at - given.offer.started_at == timedelta(hours=96)
     assert given.history[0].kind == "offered"
 
-    # Moved out by hand and talked to again: no second discount, same clock.
+    # Moved out by hand and talked to again: no second discount, the same
+    # clock, and the card back in its column.
     boss = _staff(db, "boss@office.test", superuser=True)
     back = client.post(
         f"{URL}/cards/{given.id}/move",
@@ -101,7 +104,7 @@ def test_gaplashildi_starts_the_discount_once(client: TestClient, db: Session) -
     assert back.status_code == 200, back.text
     press = f"{URL}/cards/{given.id}/actions"
     again = _detail(client.post(press, json={"action": "contacted"}, headers=ali))
-    assert again.column == "contacted"
+    assert again.column == "discount_20"
     assert [h.kind for h in again.history].count("offered") == 1
     assert again.offer is not None
     assert again.offer.started_at == given.offer.started_at
@@ -109,7 +112,7 @@ def test_gaplashildi_starts_the_discount_once(client: TestClient, db: Session) -
     assert _bill(db, ali["owner"]).offer_minor == PRICE * 20 // 100
 
 
-def test_the_sweep_steps_the_discount_and_closes_the_card(
+def test_the_sweep_steps_the_discount_and_its_end_leaves_the_card_open(
     client: TestClient, db: Session
 ) -> None:
     given, ali = _offered(client, db, "clock@shop.test")
@@ -127,22 +130,24 @@ def test_the_sweep_steps_the_discount_and_closes_the_card(
     _sweep(db)
     db.expire_all()
     steps = db.scalars(
-        select(BoardCardEvent.ref).where(BoardCardEvent.card_id == given.id)
+        select(BoardCardEvent.kind).where(BoardCardEvent.card_id == given.id)
     ).all()
-    assert steps.count("discount_10") == 1
+    assert steps.count("offer_step") == 1
 
     # 10% lasts three days after the first: still on at hour 95.
     _age(db, given.id, hours=95)
     _sweep(db)
     assert _column(db, given.id) == "discount_10"
 
+    # Over: Bog'lanildi, still the manager's, nothing closed.
     _age(db, given.id, hours=97)
     _sweep(db)
-    assert _column(db, given.id) == "closed"
+    assert _column(db, given.id) == "contacted"
     over = _detail(client.get(f"{URL}/cards/{given.id}", headers=ali))
-    assert over.closed_at is not None and over.close_reason == "offer_ended"
-    assert over.close_reason_label == "Chegirma tugadi"
-    assert over.history[0].kind == "offer_ended" and over.actions == []
+    assert over.closed_at is None and over.close_reason == ""
+    assert over.manager is not None
+    assert over.history[0].kind == "offer_ended"
+    assert [a.value for a in over.actions] == ["callback", "needs_support", "close"]
     assert over.offer is not None and over.offer.percent == 0
     assert over.offer.ends_at is None
     assert _sweep(db) == (0, 0)
@@ -452,7 +457,7 @@ def _card(db: Session, owner: User) -> BoardCard:
     return card
 
 
-def test_a_start_payment_puts_the_card_in_20_and_it_is_not_a_sale(
+def test_a_start_card_waits_in_ishlanmagan_until_the_talk(
     client: TestClient, db: Session
 ) -> None:
     _live(db)
@@ -463,32 +468,69 @@ def test_a_start_payment_puts_the_card_in_20_and_it_is_not_a_sale(
     _buys_start(db, owner)
     _sweep(db)
     card = _card(db, owner)
-    assert card.column_code == "discount_20" and card.closed_at is None
+    assert card.column_code == "unworked" and card.closed_at is None
     assert card.manager_id is None
     assert _sweep(db) == (0, 0)
 
-    # «Lid olish» gives the Start buyer before a plain sign-up.
+    # «Lid olish» gives the Start buyer before a plain sign-up, in Yangi lead.
     _client(db, "fresh@shop.test", minutes_ago=1)
     _sweep(db)
     ali = _staff(db, "ali@office.test", Role.SALES)
     taken = _detail(client.post(f"{URL}/sales/take", headers=ali))
     assert taken.client.email == "starter@shop.test"
-    assert taken.column == "discount_20" and taken.manager is not None
-    assert [a.value for a in taken.actions] == DISCOUNT_BUTTONS
+    assert taken.column == "new_lead" and taken.manager is not None
     assert taken.offer is not None and taken.offer.percent == 20
     assert taken.offer.source == "start"
+    assert taken.kind is not None and taken.kind.value == "start_live"
+    assert taken.taken_as is not None and taken.taken_as.value == "start_live"
     assert [h.kind for h in taken.history[:2]] == ["taken", "start_bought"]
     nxt = _detail(client.post(f"{URL}/sales/take", headers=ali))
     assert nxt.client.email == "fresh@shop.test" and nxt.column == "new_lead"
+    assert nxt.taken_as is not None and nxt.taken_as.value == "new"
 
-    # The manager talks: a mark, no second clock, the card stays.
+    # The manager talks: the card goes to its discount column, no new clock.
     press = f"{URL}/cards/{taken.id}/actions"
     talked = _detail(client.post(press, json={"action": "contacted"}, headers=ali))
     assert talked.column == "discount_20" and talked.contact_mark == "contacted"
     assert "offered" not in [h.kind for h in talked.history]
+    assert [a.value for a in talked.actions] == DISCOUNT_BUTTONS
 
 
-def test_a_start_card_steps_to_10_closes_and_a_full_plan_sells_it(
+def _paid_ago(db: Session, bill: Invoice, hours: float) -> None:
+    db.execute(
+        update(Invoice)
+        .where(Invoice.id == bill.id)
+        .values(paid_at=utcnow() - timedelta(hours=hours))
+    )
+    db.commit()
+
+
+def test_an_unworked_start_card_never_closes_and_a_late_talk_gives_no_discount(
+    client: TestClient, db: Session
+) -> None:
+    _live(db)
+    owner = _client(db, "late.talk@shop.test")
+    _sweep(db)
+    bill = _buys_start(db, owner)
+    _sweep(db)
+    for hours in (25, 97, 200):
+        _paid_ago(db, bill, hours)
+        _sweep(db)
+        card = _card(db, owner)
+        assert card.column_code == "unworked" and card.closed_at is None
+
+    ali = _staff(db, "ali@office.test", Role.SALES)
+    taken = _detail(client.post(f"{URL}/sales/take", headers=ali))
+    assert taken.kind is not None and taken.kind.value == "start_ended"
+    press = f"{URL}/cards/{taken.id}/actions"
+    talked = _detail(client.post(press, json={"action": "contacted"}, headers=ali))
+    # The discount is over: Bog'lanildi, and no new 20% from this talk.
+    assert talked.column == "contacted"
+    assert "offered" not in [h.kind for h in talked.history]
+    assert _bill(db, owner.id).offer_minor == 0
+
+
+def test_a_talked_start_card_steps_to_10_then_bogland_and_a_full_plan_sells_it(
     client: TestClient, db: Session
 ) -> None:
     _live(db)
@@ -496,32 +538,69 @@ def test_a_start_card_steps_to_10_closes_and_a_full_plan_sells_it(
     _sweep(db)
     bill = _buys_start(db, owner)
     _sweep(db)
-    card = _card(db, owner)
+    ali = _staff(db, "ali@office.test", Role.SALES)
+    card = _detail(client.post(f"{URL}/sales/take", headers=ali))
+    press = f"{URL}/cards/{card.id}/actions"
+    client.post(press, json={"action": "contacted"}, headers=ali)
+    assert _column(db, card.id) == "discount_20"
 
-    def paid_ago(hours: float) -> None:
-        db.execute(
-            update(Invoice)
-            .where(Invoice.id == bill.id)
-            .values(paid_at=utcnow() - timedelta(hours=hours))
-        )
-        db.commit()
-
-    paid_ago(25)
+    _paid_ago(db, bill, 25)
     _sweep(db)
     assert _column(db, card.id) == "discount_10"
-    paid_ago(95)
+    _paid_ago(db, bill, 95)
     _sweep(db)
     assert _column(db, card.id) == "discount_10"
-    paid_ago(97)
+    _paid_ago(db, bill, 97)
     _sweep(db)
-    closed = _card(db, owner)
-    assert closed.column_code == "closed" and closed.close_reason == "offer_ended"
-    assert closed.closed_at is not None
+    left = _card(db, owner)
+    assert left.column_code == "contacted" and left.closed_at is None
+    assert left.manager_id is not None and left.close_reason == ""
     assert _sweep(db) == (0, 0)
 
     _paid(db, owner)
     _sweep(db)
     assert _column(db, card.id) == "sold"
+
+
+def test_a_start_payment_moves_only_a_talked_card(
+    client: TestClient, db: Session
+) -> None:
+    """Paying Start: a card in Bog'lanildi goes to its discount column at
+    once; one in Yangi lead, Bog'lanilmadi or Qayta aloqa stays put."""
+    _live(db)
+    ali = _staff(db, "ali@office.test", Role.SALES)
+    cards: dict[str, Any] = {}
+    for email in ("talked@shop.test", "missed@shop.test", "fresh@shop.test"):
+        _client(db, email)
+    _sweep(db)
+    for _ in range(3):
+        card = _detail(client.post(f"{URL}/sales/take", headers=ali))
+        cards[card.client.email] = card
+    # Bog'lanildi with no discount on it (as the old rule could leave one).
+    talked = cards["talked@shop.test"]
+    db.execute(
+        update(BoardCard)
+        .where(BoardCard.id == talked.id)
+        .values(column_code="contacted", contact_mark="contacted")
+    )
+    db.commit()
+    missed = cards["missed@shop.test"]
+    client.post(
+        f"{URL}/cards/{missed.id}/actions",
+        json={"action": "no_contact"},
+        headers=ali,
+    )
+    for email in cards:
+        person = db.scalar(select(User).where(User.email == email))
+        assert person is not None
+        _buys_start(db, person)
+    _sweep(db)
+    assert _column(db, talked.id) == "discount_20"
+    assert _column(db, missed.id) == "no_contact"
+    assert _column(db, cards["fresh@shop.test"].id) == "new_lead"
+    lines = _detail(client.get(f"{URL}/cards/{missed.id}", headers=ali)).history
+    assert lines[0].kind == "start_bought"
+    assert _sweep(db) == (0, 0)
 
 
 def test_a_start_buyer_without_a_card_gets_one_and_staff_do_not(
@@ -540,17 +619,17 @@ def test_a_start_buyer_without_a_card_gets_one_and_staff_do_not(
     # Paid Start long ago: the discount is over, nothing is opened.
     _buys_start(db, late, hours_ago=100)
     _sweep(db)
-    assert _card(db, old).column_code == "discount_20"
+    assert _card(db, old).column_code == "unworked"
     for nobody in (worker, late):
         assert (
             db.scalar(select(BoardCard).where(BoardCard.owner_id == nobody.id)) is None
         )
 
-    # A Start bought a day ago lands straight in 10%.
+    # A Start bought a day ago waits in Ishlanmagan too.
     mid = _client(db, "mid@shop.test", minutes_ago=600)
     _buys_start(db, mid, hours_ago=30)
     _sweep(db)
-    assert _card(db, mid).column_code == "discount_10"
+    assert _card(db, mid).column_code == "unworked"
 
 
 def test_a_card_the_old_rule_sold_on_start_is_a_lead_again(
@@ -579,7 +658,8 @@ def test_a_card_the_old_rule_sold_on_start_is_a_lead_again(
     _buys_start(db, owner)
     _sweep(db)
     back = _card(db, owner)
-    assert back.column_code == "discount_20" and back.closed_at is None
+    assert back.column_code == "unworked" and back.closed_at is None
+    assert back.manager_id is None
 
     _paid(db, owner)
     _sweep(db)
@@ -698,6 +778,7 @@ def test_support_kerak_on_a_start_buyer_opens_the_ticket_at_once(
     ali = _staff(db, "ali@office.test", Role.SALES)
     card = _detail(client.post(f"{URL}/sales/take", headers=ali))
     press = f"{URL}/cards/{card.id}/actions"
+    client.post(press, json={"action": "contacted"}, headers=ali)
     marked = client.post(
         press,
         json={"action": "needs_support", "note": "Reklama akkaunti ulanmayapti"},

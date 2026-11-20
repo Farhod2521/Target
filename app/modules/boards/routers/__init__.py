@@ -19,7 +19,9 @@ from app.modules.boards import (
     developer,  # noqa: F401 - closes a ticket when its fault is settled
     help_options,
     kinds,
+    phone_take,
     renewal,
+    sales_kinds,
     selectors,
     services,
     support_report,
@@ -66,10 +68,13 @@ from app.modules.boards.schemas import (
     MeOut,
     MoveIn,
     NoteIn,
+    PhoneTakeIn,
     ReasonOut,
     RenewalManagerIn,
     RenewalManagerOut,
     RenewalReportOut,
+    SalesKindsIn,
+    SalesKindsOut,
     SalesReportOut,
     StaffAddIn,
     StaffListOut,
@@ -590,9 +595,52 @@ def set_support_kinds(
     return kinds.member_view(db, member_id=member)
 
 
+@router.get("/boards/sales/kinds", responses={200: {"model": SalesKindsOut}})
+def sales_kinds_list(db: Db, user: Staff) -> dict[str, Any]:
+    """Which kinds of lead each Sales manager takes first. For the superuser
+    and the Owner."""
+    _full(db, user)
+    return sales_kinds.kinds_view(db)
+
+
+@router.put(
+    "/boards/sales/kinds/{member_id}",
+    responses={200: {"model": SupportMemberKindsOut}},
+)
+def set_sales_kinds(
+    db: Db, user: Staff, member_id: str, body: SalesKindsIn
+) -> dict[str, Any]:
+    """Set the kinds of lead a Sales manager takes first. «Lid olish» gives
+    them those, and any kind once none of those waits. For the superuser and
+    the Owner."""
+    _full(db, user)
+    member = _card_id(member_id)
+    sales_kinds.set_kinds(db, member_id=member, kinds=body.kinds, actor=user)
+    db.commit()
+    return sales_kinds.member_view(db, member_id=member)
+
+
+@router.post("/sales/take-by-phone", responses={200: {"model": CardDetailOut}})
+def take_by_phone(db: Db, user: Staff, body: PhoneTakeIn) -> dict[str, Any]:
+    """Take a lead by the client's number, whatever its kind or place in the
+    queue and over the «Lid olish» limit: a lead nobody works becomes this
+    manager's, in Yangi lead. A client who paid a full plan before anybody
+    took them may be claimed for 12 hours after paying; the sale is then
+    this manager's. 404 `no_such_lead` («Bunday lid yo'q»): no such client,
+    or a full plan bought longer ago; 409 `lead_with_other` («Bu lid boshqa
+    menejerda») and `lead_is_yours` («Bu lid sizda»)."""
+    if not may_take(db, user):
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    now = utcnow()
+    card = phone_take.take_by_phone(db, manager=user, phone=body.phone, now=now)
+    return view.card_detail(db, card=card, now=now)
+
+
 @router.post("/sales/take", responses={200: {"model": CardDetailOut}})
 def take(db: Db, user: Staff) -> dict[str, Any]:
-    """«Lid olish»: the newest lead nobody works yet becomes this manager's."""
+    """«Lid olish»: the next lead in Ishlanmagan nobody works becomes this
+    manager's, in Yangi lead: their own kinds first, Start buyers before new
+    sign-ups (``services.take_lead``)."""
     if not may_take(db, user):
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     now = utcnow()

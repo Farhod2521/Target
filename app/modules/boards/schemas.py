@@ -105,7 +105,8 @@ class CardOfferOut(BaseModel):
     )
     next_percent: int = Field(0, description="The percent after `ends_at`; 0: none.")
     next_ends_at: datetime | None = Field(
-        None, description="When `next_percent` ends: the card closes then."
+        None,
+        description="When `next_percent` ends: the card goes to Bog'lanildi then.",
     )
 
 
@@ -144,6 +145,11 @@ class CardHeatOut(BaseModel):
     returned: bool = Field(description="Signed in again after signing up.")
 
 
+class LeadKindOut(BaseModel):
+    value: str
+    label: str
+
+
 class CardOut(BaseModel):
     id: str
     board: str
@@ -168,7 +174,19 @@ class CardOut(BaseModel):
     )
     overdue: bool = Field(description="The deadline has passed.")
     offer: CardOfferOut | None = Field(
-        description="Sales: the discount given, if «Chegirma berish» was pressed."
+        description="Sales: the client's discount: their Start payment's, or "
+        "the one a manager's «Gaplashildi» started."
+    )
+    kind: LeadKindOut | None = Field(
+        None,
+        description="Sales: the kind of lead the client is now (`start_live`, "
+        "`start_ended`, `new`), what «Lid olish» sorts by.",
+    )
+    taken_as: LeadKindOut | None = Field(
+        None,
+        description="Sales: how the card came to its manager: the kind it was "
+        "when taken, or `phone` (taken by the client's number). Null until "
+        "somebody took it, and for cards taken before this was kept.",
     )
     has_bill: bool = Field(
         description="Sales: the client opened a plan bill and may still pay it."
@@ -218,6 +236,13 @@ class DueCountsOut(BaseModel):
     today: int = Field(description="Due on the office's day today, passed or not.")
 
 
+class TakeKindOut(BaseModel):
+    value: str = Field(description="`start_live`, `start_ended` or `new`.")
+    label: str
+    count: int
+    own: bool = Field(description="One of the reader's kinds.")
+
+
 class TakeOut(BaseModel):
     queue: int = Field(
         description="Support: tickets in Yangi with nobody on them. Sotuv: "
@@ -225,8 +250,8 @@ class TakeOut(BaseModel):
     )
     own: int = Field(
         description="Of `queue`, the ones of the reader's kinds (an open reason "
-        "of a kind set for them in the Support settings). Equals `queue` for "
-        "somebody who takes every kind, and always on Sotuv. «Zayavka olish» "
+        "of a kind set for them in the Support or Sotuv settings). Equals "
+        "`queue` for somebody who takes every kind. «Zayavka olish» "
         "gives these first, then any."
     )
     working: int = Field(
@@ -236,6 +261,11 @@ class TakeOut(BaseModel):
     limit: int = Field(
         description="«Zayavka olish» / «Lid olish» is refused once `working` "
         "reaches this."
+    )
+    kinds: list[TakeKindOut] | None = Field(
+        None,
+        description="Sotuv: the waiting leads by kind, in the order «Lid "
+        "olish» gives them; `own` marks the reader's kinds. Null on Support.",
     )
 
 
@@ -716,6 +746,33 @@ class SupportKindsIn(BaseModel):
     )
 
 
+class SalesKindsOut(BaseModel):
+    kinds: list[LeadKindOut] = Field(
+        description="Every kind of lead, in the order «Lid olish» gives them."
+    )
+    members: list[SupportMemberKindsOut] = Field(
+        description="Each Sales manager with the kinds they take first."
+    )
+
+
+class SalesKindsIn(BaseModel):
+    kinds: list[str] = Field(
+        min_length=1,
+        max_length=10,
+        description="The kinds of lead this manager takes first; at least one. "
+        "Every kind ticked is saved as `all`.",
+    )
+
+
+class PhoneTakeIn(BaseModel):
+    phone: str = Field(
+        min_length=1,
+        max_length=32,
+        description="The client's number, written any way: +998 90 123-45-67, "
+        "or at least its last nine digits.",
+    )
+
+
 class SupportReportLineOut(BaseModel):
     talked: int = Field(
         description="Different clients the member wrote to in the support chat, "
@@ -792,6 +849,18 @@ class SalesDayOut(SalesFiguresOut):
     day: date
 
 
+class SalesKindLineOut(BaseModel):
+    value: str = Field(
+        description="`start_live`, `start_ended`, `new`, `phone` (taken by the "
+        "client's number), or empty: taken before the kind was kept."
+    )
+    label: str
+    taken: int = Field(description="Cards taken (or given) in the period.")
+    sold: int = Field(description="Sales in the period on such cards.")
+    rate: int = Field(description="`sold` of `taken`, in percent.")
+    money: list[RenewalMoneyOut] = Field(description="The sales' first bills.")
+
+
 class SalesStaffOut(SalesFiguresOut):
     staff: PersonOut | None = Field(
         description="null: «Menejersiz» - clients who paid with nobody on them."
@@ -799,6 +868,9 @@ class SalesStaffOut(SalesFiguresOut):
     open_now: int = Field(description="Open cards in the person's hand now.")
     overdue_now: int = Field(description="Of `open_now`: past their time now.")
     reasons: list[ReportReasonOut] = Field(description="Why their cards closed.")
+    kinds: list[SalesKindLineOut] = Field(
+        default_factory=list, description="Their figures by kind of lead."
+    )
 
 
 class SalesQueueOut(BaseModel):
@@ -835,6 +907,11 @@ class SalesReportOut(BaseModel):
         description="Every Sales person (most sold first), and «Menejersiz» last."
     )
     reasons: list[ReportReasonOut] = Field(description="Why the period's cards closed.")
+    kinds: list[SalesKindLineOut] = Field(
+        default_factory=list,
+        description="Taken and sold by kind of lead: every kind and «Raqam bilan "
+        "olingan» always, «Oldin olingan» only when there are such.",
+    )
     sources: list[SalesSourceOut] = Field(
         description="The lead's view only: the period's leads by how they signed up."
     )

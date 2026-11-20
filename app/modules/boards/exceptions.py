@@ -203,3 +203,29 @@ class ChatWithPerson(DomainError):
         super().__init__(
             "Hozir sizga Support xodimi javob beryapti. Xabaringiz unga yuboriladi."
         )
+
+
+class NoSuchLead(NotFound):
+    """Taking by phone: nobody signed up with this number, or they bought a
+    full plan more than the claim window ago."""
+
+    code = "no_such_lead"
+
+    def __init__(self) -> None:
+        super().__init__("Bunday lid yo'q.")
+
+
+class LeadWithOther(DomainError):
+    status_code = 409
+    code = "lead_with_other"
+
+    def __init__(self) -> None:
+        super().__init__("Bu lid boshqa menejerda.")
+
+
+class LeadIsYours(DomainError):
+    status_code = 409
+    code = "lead_is_yours"
+
+    def __init__(self) -> None:
+        super().__init__("Bu lid sizda.")

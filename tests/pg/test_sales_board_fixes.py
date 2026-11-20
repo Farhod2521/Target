@@ -393,9 +393,11 @@ def test_a_plan_the_office_gave_is_no_sale(client: TestClient, db: Session) -> N
     assert all(row.sold == 0 for row in sales(db, window=window))
 
 
-def test_the_queue_counts_a_start_buyer_nobody_works(
+def test_a_card_left_in_a_discount_column_is_not_in_the_queue(
     client: TestClient, db: Session
 ) -> None:
+    """Only Ishlanmagan is given out now; the 2026-11-20 migration moved
+    such cards there."""
     _live(db)
     ali = _staff(db, "ali@office.test", Role.SALES)
     buyer = _client(db, "start@shop.test")
@@ -412,7 +414,5 @@ def test_the_queue_counts_a_start_buyer_nobody_works(
     )
     db.commit()
     view = client.get(f"{URL}/boards/sales", headers=ali).json()
-    # Ishlanmagan is empty, yet «Lid olish» has a lead to give.
-    assert view["take"]["queue"] == 1
-    taken = _detail(client.post(f"{URL}/sales/take", headers=ali))
-    assert taken.client.email == "start@shop.test" and taken.column == "discount_20"
+    assert view["take"]["queue"] == 0
+    assert client.post(f"{URL}/sales/take", headers=ali).status_code == 409

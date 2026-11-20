@@ -188,8 +188,8 @@ menejeri ham; to'liq ofis kartasi (`can.client_card`) Support, Moliya va Egasida
 
 ### `POST /api/v2/office/sales/take`
 
-«Lid olish». Body yo'q. Eng **yangi** «Ishlanmagan» lid shu menejerga beriladi va
-«Yangi lead» ga o'tadi. Javob: karta (yuqoridagi shakl).
+«Lid olish». Body yo'q. «Ishlanmagan» dagi xodimsiz lid shu menejerga beriladi va
+«Yangi lead» ga o'tadi (tartib: §11). Javob: karta (yuqoridagi shakl).
 Lid qolmagan bo'lsa: **409** `nothing_to_take`. Sotuv rollarida, superuserda va `Owner` da ishlaydi.
 
 ### `POST /api/v2/office/cards/{id}/actions`
@@ -282,6 +282,8 @@ Hammasi faqat **deploydan keyin** bo'lgan hodisalar uchun ishlaydi; undan olding
 **Sotuv** (har daqiqada):
 - Ro'yxatdan o'tdi va hech qachon to'lamagan → «Ishlanmagan» da lid. Xodimlar, CRM loginlari va
   bloklanganlar tushmaydi.
+- Start to'ladi → karta «Ishlanmagan» da (kartasi bo'lmasa ochiladi, yopilgan bo'lsa xodimsiz qayta ochiladi);
+  chegirma ustuniga faqat menejer «Gaplashildi» ni bosganda o'tadi (§11).
 - Mijoz tarif uchun to'ladi → istalgan ustundan «Sotildi».
 - Menejeri bor mijoz tarif hisobini ochdi → «To'lov kutilmoqda» (har hisob uchun bir marta;
   20% va 10% ustunidagi karta ko'chmaydi, unda faqat `has_bill` yonadi).
@@ -502,7 +504,7 @@ xodim qatorida va menejerning o'z ko'rinishida `sold ÷ taken`. Menejer faqat o'
 `client.signup_via` (`email`/`google`/`telegram`), `signup_via_label`, `utm` (`source`, `medium`, `campaign`, …).
 
 ### «Lid olish»
-Navbat: chegirma ustunlari, keyin eng issiq (`heat.points`), tenglar ichida eng yangi. «Yangi lead»da olingan,
+Navbat: §11 dagi tur tartibi, keyin eng issiq (`heat.points`), tenglar ichida eng yangi. «Yangi lead»da olingan,
 hali qo'ng'iroq qilinmagan 5 ta lid bo'lsa — 409 `lead_take_limit`. `GET /boards/sales` javobida
 `take: {queue, working, limit}`. `attempts` filtri (`0`, `1-2`, `3+`) Sotuvda ham ishlaydi.
 
@@ -520,3 +522,49 @@ tarix qatori bo'lib yoziladi (`due_reminded`, `bill_told`).
 `label`). UTeL'ning `contact_name`i: «Ism · «Standart» · 12 kun qoldi». `PUT /api/v2/office/telephony/me/accepting`
 `{"accepts_calls": false}` — «Qo'ng'iroq qabul qilmayman»: yo'naltirish bu xodimni o'tkazib yuboradi, brauzer
 telefoni kiruvchini rad etadi (486). `GET /telephony/me` va `/colleagues` `accepts_calls` beradi.
+
+## 11. Sotuv: lid turlari, raqam bilan olish (2026-11-20)
+
+**Kartaning yo'li.** Start olgan mijozning chegirmasi (24 soat 20%, keyin 96-soatgacha 10%) Start to'lovidan
+hisoblanadi, narx kartaning ustuniga qaramaydi. Karta esa «Ishlanmagan» da turadi va 20%/10% ustuniga faqat
+menejer «Gaplashildi» ni bosganda o'tadi — soat qayerda tursa, o'sha ustunga. Chegirma tugagach bosilsa —
+«Bog'lanildi», yangi 20% berilmaydi. Hech kim ishlamagan karta chegirma tugasa ham «Ishlanmagan» da qoladi.
+Chegirma ustunidagi karta chegirma tugaganda **yopilmaydi**: «Bog'lanildi» ga o'tadi, menejeri qoladi
+(`offer_ended` qatori). «Yopildi» ga faqat «Yopish» tugmasi bilan. Start to'langanda karta «Bog'lanildi» da
+(yoki eski suhbat chegirmasi ustunida) bo'lsa darhol chegirma ustuniga o'tadi; «Yangi lead», «Bog'lanilmadi»,
+«Qayta aloqa» da joyida qoladi (`start_bought` qatori). Lead kartani qaytarsa (`assign` `staff_id: null`) —
+doim «Ishlanmagan».
+
+**Turlar** (`kind`, kartada va `take.kinds` da): `start_live` — Start olgan, chegirmasi bor; `start_ended` — Start
+olgan, chegirmasi tugagan; `new` — hech narsa to'lamagan. Tur Start to'lovi vaqtidan shu daqiqada hisoblanadi.
+
+**«Lid olish» tartibi**: menejerning o'z turlari, ular qolmasa istalgan tur. Ichida: `start_live` (20% lar 10% lardan
+oldin, tezroq tugaydigani birinchi) → `start_ended` → `new`; keyin `heat`, keyin eng yangi.
+`GET /boards/sales` → `take: {queue, own, working, limit, kinds: [{value, label, count, own}]}`.
+
+**Sozlamalar** (superuser va Egasi): `GET /api/v2/office/boards/sales/kinds` → `{kinds: [{value, label}],
+members: [{id, name, email, kinds, all}]}`; `PUT /api/v2/office/boards/sales/kinds/{member_id}` `{"kinds": [...]}`
+(kamida bitta; hammasi belgilansa `all: true` bo'lib saqlanadi). Belgilanmagan menejer hamma turni oladi.
+
+**Raqam bilan olish**: `POST /api/v2/office/sales/take-by-phone` `{"phone": "+998 90 123 45 67"}` (istalgan yozuv,
+kamida oxirgi 9 raqam). Tur, navbat va 5 lid chegarasi ta'sir qilmaydi; «Lid olish» huquqi borlarga.
+- Xodimsiz lid («Ishlanmagan», «Yopildi» yoki kartasi yo'q) → shu menejerga, «Yangi lead», `taken_as: phone`,
+  tarixda «Raqam bilan olindi».
+- Boshqa menejerda → **409** `lead_with_other` «Bu lid boshqa menejerda.»; o'zida → **409** `lead_is_yours`
+  «Bu lid sizda.»
+- To'liq tarifni hech kim olmasdan to'lagan mijoz: to'lovdan keyin **12 soat** ichida olinsa karta «Sotildi» da
+  qoladi, sotuv shu menejerniki bo'ladi.
+- Raqam topilmadi, xodim raqami, yoki to'liq tarif 12 soatdan oldin to'langan → **404** `no_such_lead`
+  «Bunday lid yo'q.»
+
+**Kartada**: `kind` (hozirgi tur) va `taken_as` (`{value, label}`: olinganda qaysi tur edi, yoki `phone`; hali
+hech kim olmagan yoki 2026-11-20 dan oldin olingan bo'lsa `null`).
+
+**Hisobot**: `kinds` va har xodim qatorida `kinds`: `[{value, label, taken, sold, rate, money}]` — har tur,
+«Raqam bilan olingan» doim; `value: ""` («Oldin olingan») faqat bor bo'lsa. «Yopildi» endi faqat yopilgan
+kartani sanaydi (chegirma tugashi yopmaydi).
+
+**Migratsiya 0070**: `board_sales_kinds` jadvali, `board_cards.taken_as`; xodimsiz 20%/10% kartalar →
+«Ishlanmagan»; menejeri bor, lekin gaplashilmagan 20%/10% kartalar → «Yangi lead» yoki «Bog'lanilmadi»;
+«Chegirma tugadi» bilan o'zi yopilgan Start kartalari → menejer gaplashgan bo'lsa «Bog'lanildi» (menejeri bilan),
+aks holda «Ishlanmagan». Har ko'chgan kartaga `moved` qatori yoziladi.

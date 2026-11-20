@@ -166,53 +166,53 @@ def untouched_count(db: Session, *, user_id: uuid.UUID) -> int:
 
 
 def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
-    """The next lead nobody works yet, now this manager's. A client whose
-    discount is running (they paid Start) comes first, the 20% ones before
-    the 10% ones: their time is going. Then the warmest sign-up (a bill
-    opened, Facebook tied: ``heat``), the newest among equals. Two managers
-    pressing at once get two different leads. None while the person has
-    ``LEAD_TAKE_LIMIT`` leads they took and have not called yet."""
+    """The next lead in Ishlanmagan nobody works, now this manager's and in
+    Yangi lead. The manager's own kinds first (``sales_kinds``), any kind
+    when none of theirs waits. Among them Start buyers whose discount runs
+    (20% before 10%, the soonest to end first), then Start buyers whose
+    discount ended, then new sign-ups; the warmest (``heat``) and then the
+    newest among equals. Two managers pressing at once get two different
+    leads. None while the person has ``LEAD_TAKE_LIMIT`` leads they took and
+    have not called yet."""
     from app.modules.boards.heat import points_sql
+    from app.modules.boards.sales_kinds import (
+        kind_order_sql,
+        kind_sql,
+        kinds_of,
+        start_paid_sql,
+        waiting,
+    )
 
     db.execute(select(User.id).where(User.id == manager.id).with_for_update())
     if untouched_count(db, user_id=manager.id) >= LEAD_TAKE_LIMIT:
         raise LeadTakeLimit(LEAD_TAKE_LIMIT)
-    waiting = (
-        select(BoardCard)
-        .where(BoardCard.board == str(Board.SALES), BoardCard.closed_at.is_(None))
-        .limit(1)
-        .with_for_update(of=BoardCard, skip_locked=True)
-        .execution_options(populate_existing=True)
-    )
-    card = None
-    for _percent, _hours, column in OFFER_STEPS:
-        card = db.scalar(
-            waiting.where(
-                BoardCard.column_code == str(column), BoardCard.manager_id.is_(None)
-            ).order_by(BoardCard.column_since.desc(), BoardCard.id)
-        )
-        if card is not None:
-            break
-    if card is not None:
-        # The card stays in its discount column; only its person changes.
-        card.manager_id = manager.id
-        record(db, card=card, kind=EventKind.TAKEN, now=now, actor=manager)
-        db.commit()
-        return card
     client = aliased(User)
-    card = db.scalar(
-        waiting.join(client, client.id == BoardCard.owner_id)
-        .where(BoardCard.column_code == str(SalesColumn.UNWORKED))
+    start_at = start_paid_sql(BoardCard.owner_id)
+    kind = kind_sql(start_at, now=now)
+    query = (
+        select(BoardCard, kind)
+        .join(client, client.id == BoardCard.owner_id)
+        .where(*waiting())
         .order_by(
+            *kind_order_sql(start_at, now=now),
             points_sql(BoardCard.owner_id, now=now, user=client).desc(),
             BoardCard.opened_at.desc(),
             BoardCard.id,
         )
+        .limit(1)
+        .with_for_update(of=BoardCard, skip_locked=True)
+        .execution_options(populate_existing=True)
     )
-    if card is None:
+    kinds = kinds_of(db, member_id=manager.id)
+    row = db.execute(query.where(kind.in_(sorted(kinds)))).first() if kinds else None
+    if row is None:
+        row = db.execute(query).first()
+    if row is None:
         raise NothingToTake
+    card, taken_as = row
     card.manager_id = manager.id
     card.due_at = None
+    card.taken_as = str(taken_as)
     move(
         db,
         card=card,
@@ -407,34 +407,50 @@ def act(
     if action != CardAction.CLOSE and card.column_code in OFFER_COLUMNS:
         # The discount's clock owns this column: the call leaves its mark.
         record(db, card=card, kind=kind, now=now, actor=user, body=said)
-    elif action == CardAction.CONTACTED and _starts_offer(db, card=card):
-        # The talk itself starts the lead's discount: 20% from this minute.
-        # Its own line a moment earlier, so the history reads in order.
-        talked = now - timedelta(microseconds=1)
-        record(db, card=card, kind=kind, now=talked, actor=user, body=said)
-        move(
-            db,
-            card=card,
-            to=str(OFFER_STEPS[0][2]),
-            kind=EventKind.OFFERED,
-            now=now,
-            actor=user,
-            ref=OFFERED_REF,
-        )
+    elif action == CardAction.CONTACTED and (
+        step := _offer_on_talk(db, card=card, now=now)
+    ):
+        # The talk puts the card where its discount stands: a Start
+        # payment's clock, an earlier talk's, or this talk starting one.
+        column, starts = step
+        if starts:
+            # Its own line a moment earlier, so the history reads in order.
+            talked = now - timedelta(microseconds=1)
+            record(db, card=card, kind=kind, now=talked, actor=user, body=said)
+            move(
+                db,
+                card=card,
+                to=column,
+                kind=EventKind.OFFERED,
+                now=now,
+                actor=user,
+                ref=OFFERED_REF,
+            )
+        else:
+            move(db, card=card, to=column, kind=kind, now=now, actor=user, body=said)
     else:
         move(db, card=card, to=str(to), kind=kind, now=now, actor=user, body=said)
     db.commit()
     return card
 
 
-def _starts_offer(db: Session, *, card: BoardCard) -> bool:
-    """Whether «Gaplashildi» starts this lead's discount: once per client,
-    and not for one whose Start payment started it, or who paid a full plan."""
-    from app.modules.boards.offer import bought_full_plan, clocks_for
+def _offer_on_talk(
+    db: Session, *, card: BoardCard, now: datetime
+) -> tuple[str, bool] | None:
+    """Where «Gaplashildi» puts the card when a discount is on, and whether
+    this talk starts it. A client with a clock (a Start payment, or an
+    earlier talk) goes to the column the clock stands at; once that clock
+    ran out, no discount: Bog'lanildi. A client with no clock and no full
+    plan gets one from this talk: 20%."""
+    from app.modules.boards.offer import bought_full_plan, clocks_for, column_at
 
-    if clocks_for(db, [card]):
-        return False
-    return not bought_full_plan(db, owner_id=card.owner_id)
+    if bought_full_plan(db, owner_id=card.owner_id):
+        return None
+    clock = clocks_for(db, [card]).get(card.id)
+    if clock is None:
+        return str(OFFER_STEPS[0][2]), True
+    column = column_at(clock[0], now)
+    return (column, False) if column else None
 
 
 # Where a Sales button puts the card, and the line it writes.
@@ -786,10 +802,8 @@ def assign(
             return card
         card.manager_id = None
         card.due_at = None
-        if board == Board.SALES and card.column_code in OFFER_COLUMNS:
-            # The discount's clock owns the column; «Lid olish» gives it out.
-            back = card.column_code
-        elif board == Board.SALES:
+        if board == Board.SALES:
+            # Back in the queue: «Lid olish» and the phone give it out again.
             back = str(SalesColumn.UNWORKED)
         elif board == Board.RENEWAL or card.closed_at is not None:
             # A renewal card stands where the term put it, with nobody on it.
@@ -810,7 +824,10 @@ def assign(
     card.manager_id = manager.id
     to = card.column_code
     if board == Board.SALES and card.column_code == SalesColumn.UNWORKED:
+        from app.modules.boards.sales_kinds import kind_of_client
+
         to = str(SalesColumn.NEW_LEAD)
+        card.taken_as = kind_of_client(db, owner_id=card.owner_id, now=now)
     if to == card.column_code and board == Board.RENEWAL:
         # The card stays in its column; only its person changes.
         record(

@@ -231,7 +231,7 @@ def test_missed_calls_are_counted_and_only_the_lead_gives_the_lead_back(
     assert client.get(f"{URL}/cards/{card.id}", headers=ali).status_code == 404
 
 
-def test_a_discount_card_given_back_stays_in_its_column_for_lid_olish(
+def test_a_discount_card_given_back_goes_to_ishlanmagan_and_back_to_its_column(
     client: TestClient, db: Session
 ) -> None:
     card, ali, _ = _taken(client, db)
@@ -244,14 +244,23 @@ def test_a_discount_card_given_back_stays_in_its_column_for_lid_olish(
             f"{URL}/cards/{card.id}/assign", json={"staff_id": None}, headers=owner
         )
     )
-    assert back.column == "discount_20" and back.manager is None
+    assert back.column == "unworked" and back.manager is None
     assert back.history[0].kind == "returned"
+    # The discount runs on: its clock is the talk, not the column.
     assert back.offer is not None and back.offer.percent == 20
 
     vali = _staff(db, "vali@office.test", Role.SALES)
     taken = _detail(client.post(f"{URL}/sales/take", headers=vali))
-    assert taken.id == card.id and taken.column == "discount_20"
+    assert taken.id == card.id and taken.column == "new_lead"
     assert taken.manager is not None and taken.history[0].kind == "taken"
+    # Vali talks: the card goes where the talk's clock stands.
+    talked = _detail(
+        client.post(
+            f"{URL}/cards/{card.id}/actions", json={"action": "contacted"}, headers=vali
+        )
+    )
+    assert talked.column == "discount_20"
+    assert [h.kind for h in talked.history].count("offered") == 1
 
 
 def test_a_bill_moves_the_card_to_awaiting_and_back_when_unpaid(

@@ -8,9 +8,13 @@ day once over never changes when it is read again.
 - Sotildi: the first full plan paid (Start is not a sale); the money is
   that bill's. A sale is the card's manager's; nobody's when the client paid
   before anybody took them.
-- Yopildi: closed by a person, or by the discount running out.
+- Yopildi: closed by a person (before 2026-11-20 also by the discount
+  running out).
 - Qo'ng'iroqlar: the exchange's calls by the staff member, when it is tied.
 - Birinchi aloqa: from «Lid olish» to the first call button pressed.
+- Turlar: taken and sold split by how the card was taken: the kind of lead
+  it was (Start with its discount on, Start whose discount ended, new), or
+  by the client's phone number.
 
 A manager reads their own figures only; the Sales lead, the Owner and the
 superuser read everybody's.
@@ -40,6 +44,9 @@ from app.modules.boards.constants import (
     OFFER_ENDED_LABEL,
     OFFER_ENDED_REASON,
     REPORT_MAX_DAYS,
+    SALES_KIND_ORDER,
+    TAKEN_BY_PHONE,
+    TAKEN_BY_PHONE_LABEL,
     Board,
     CloseReason,
     EventKind,
@@ -51,6 +58,8 @@ from app.modules.boards.models import BoardCard, BoardCardEvent
 BOARD = str(Board.SALES)
 # Who a figure belongs to when nobody did it: a client who paid alone.
 NOBODY = "none"
+# A card taken before the kind it was taken as was kept.
+KIND_UNKNOWN_LABEL = "Oldin olingan"
 
 _TAKEN = (str(EventKind.TAKEN), str(EventKind.ASSIGNED))
 _CALLED = (
@@ -122,6 +131,65 @@ class Figures:
             if self.first_touch
             else None,
         }
+
+
+@dataclass(slots=True)
+class KindFigures:
+    taken: int = 0
+    sold: int = 0
+    money: dict[str, int] = field(default_factory=dict)
+
+    def add_sale(self, currency: str | None, minor: int | None) -> None:
+        self.sold += 1
+        if currency and minor:
+            self.money[currency] = self.money.get(currency, 0) + int(minor)
+
+
+def _kind_label(code: str) -> str:
+    from app.modules.boards.sales_kinds import label
+
+    if code == TAKEN_BY_PHONE:
+        return TAKEN_BY_PHONE_LABEL
+    if not code:
+        return KIND_UNKNOWN_LABEL
+    return label(code)
+
+
+def _kinds_out(
+    by_kind: dict[tuple[str, str], KindFigures], people: set[str]
+) -> list[dict[str, Any]]:
+    """Taken and sold by how the card was taken: each kind of lead, then by
+    phone, then cards taken before the kind was kept (only when there are)."""
+    summed: dict[str, KindFigures] = defaultdict(KindFigures)
+    for (person, code), figures in by_kind.items():
+        if person not in people:
+            continue
+        row = summed[code or ""]
+        row.taken += figures.taken
+        row.sold += figures.sold
+        for currency, minor in figures.money.items():
+            row.money[currency] = row.money.get(currency, 0) + minor
+    codes = [*SALES_KIND_ORDER, TAKEN_BY_PHONE]
+    codes += sorted(code for code in summed if code not in codes)
+    return [
+        {
+            "value": code,
+            "label": _kind_label(code),
+            "taken": summed[code].taken,
+            "sold": summed[code].sold,
+            "rate": round(summed[code].sold * 100 / summed[code].taken)
+            if summed[code].taken
+            else 0,
+            "money": [
+                {"currency": currency, "minor": minor}
+                for currency, minor in sorted(
+                    summed[code].money.items(), key=lambda m: -m[1]
+                )
+            ],
+        }
+        for code in codes
+        if code in SALES_KIND_ORDER or code == TAKEN_BY_PHONE or code in summed
+    ]
 
 
 def _day(column: Any) -> Any:
@@ -198,6 +266,8 @@ def report(
     lead = access.leads_board(Board.SALES)
     cells: dict[tuple[str, date], Figures] = defaultdict(Figures)
     reasons: dict[str, dict[str, int]] = defaultdict(dict)
+    # (person, how the card was taken): taken and sold, for «Turlar».
+    by_kind: dict[tuple[str, str], KindFigures] = defaultdict(KindFigures)
 
     # Yangi lid: nobody's; the lead's view only.
     for day, total in db.execute(
@@ -214,12 +284,13 @@ def report(
     # Olindi: «Lid olish» is its presser's; a card given is its new manager's.
     # The given one's line names the manager only in words, so the card's
     # manager now stands for them.
-    for kind, actor, manager, day in db.execute(
+    for kind, actor, manager, day, taken_as in db.execute(
         select(
             BoardCardEvent.kind,
             BoardCardEvent.actor_id,
             BoardCard.manager_id,
             _day(BoardCardEvent.created_at),
+            BoardCard.taken_as,
         )
         .join(BoardCard, BoardCard.id == BoardCardEvent.card_id)
         .where(
@@ -231,6 +302,7 @@ def report(
     ):
         person = actor if kind == EventKind.TAKEN else manager
         cells[(_key(person), day)].taken += 1
+        by_kind[(_key(person), taken_as)].taken += 1
 
     # The call buttons: their presser's.
     for kind, actor, day, total in db.execute(
@@ -268,13 +340,14 @@ def report(
         )
         .scalar_subquery()
     )
-    for manager, day, currency, minor, with_offer in db.execute(
+    for manager, day, currency, minor, with_offer, taken_as in db.execute(
         select(
             BoardCard.manager_id,
             _day(BoardCardEvent.created_at),
             paid.c.currency,
             paid.c.amount_minor,
             BoardCard.id.in_(offered),
+            BoardCard.taken_as,
         )
         .join(BoardCard, BoardCard.id == BoardCardEvent.card_id)
         # Paid, not given: a plan the office handed over is in Sotildi on the
@@ -294,6 +367,7 @@ def report(
         cell.sold_offer += 1 if with_offer else 0
         if currency and minor:
             cell.money[currency] = cell.money.get(currency, 0) + int(minor)
+        by_kind[(_key(manager), taken_as)].add_sale(currency, minor)
 
     # Yopildi, and why.
     for manager, actor, day, reason in db.execute(
@@ -309,6 +383,9 @@ def report(
             BoardCardEvent.kind.in_(
                 (str(EventKind.CLOSED), str(EventKind.OFFER_ENDED))
             ),
+            # The discount's end closed cards before 2026-11-20; now it
+            # moves them to Bog'lanildi, and that line is no close.
+            BoardCardEvent.to_column == str(SalesColumn.CLOSED),
             BoardCardEvent.created_at >= first,
             BoardCardEvent.created_at < after,
             BoardCard.column_code == str(SalesColumn.CLOSED),
@@ -405,6 +482,7 @@ def report(
                 "open_now": open_now,
                 "overdue_now": overdue_now,
                 "reasons": _reasons_out(reasons.get(key, {})),
+                "kinds": _kinds_out(by_kind, {key}),
             }
         )
     staff.sort(key=lambda row: (-row["sold"], -row["taken"], row["staff"]["name"]))
@@ -435,6 +513,7 @@ def report(
         "days": days,
         "staff": staff,
         "reasons": _reasons_out(every_reason),
+        "kinds": _kinds_out(by_kind, allowed - {NOBODY}),
         "sources": _sources(db, first=first, after=after) if lead else [],
         "campaigns": _campaigns(db, first=first, after=after) if lead else [],
     }
@@ -501,17 +580,12 @@ def _holding(db: Session, *, now: datetime) -> dict[str, tuple[int, int]]:
 
 
 def _queue(db: Session, *, now: datetime) -> dict[str, Any]:
-    """What «Lid olish» may give now (Ishlanmagan, and a discount running on
-    a lead nobody works): how many, and since when the oldest waits."""
-    from app.modules.boards.constants import OFFER_COLUMNS
+    """What «Lid olish» may give now (Ishlanmagan with nobody on it): how
+    many, and since when the oldest waits."""
+    from app.modules.boards.sales_kinds import waiting
 
     count, oldest = db.execute(
-        select(func.count(), func.min(BoardCard.opened_at)).where(
-            BoardCard.board == BOARD,
-            BoardCard.closed_at.is_(None),
-            BoardCard.manager_id.is_(None),
-            BoardCard.column_code.in_([str(SalesColumn.UNWORKED), *OFFER_COLUMNS]),
-        )
+        select(func.count(), func.min(BoardCard.opened_at)).where(*waiting())
     ).one()
     return {"waiting": int(count or 0), "oldest_at": oldest}
 

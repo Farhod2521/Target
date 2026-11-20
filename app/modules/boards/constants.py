@@ -164,7 +164,7 @@ SEED_COLUMNS: Final[tuple[SeedColumn, ...]] = (
     _sales(SalesColumn.TRIAL, ColumnKind.AUTO, shown=False),
     _sales(SalesColumn.DISCOUNT_20, ColumnKind.AUTO),
     _sales(SalesColumn.DISCOUNT_10, ColumnKind.AUTO),
-    # Not reached any more: a card whose discount ran out closes.
+    # Not reached any more: a card whose discount ran out goes to Bog'lanildi.
     _sales(SalesColumn.NO_DISCOUNT, ColumnKind.AUTO, shown=False),
     _sales(SalesColumn.AWAITING, ColumnKind.AUTO),
     _sales(SalesColumn.SOLD, ColumnKind.AUTO, final=True),
@@ -328,18 +328,50 @@ BILL_FROM_COLUMNS: Final = frozenset(
 # The discount starts on its own: when the client pays Start, or when the
 # manager presses «Gaplashildi» on a lead who has not. Each step: the
 # percent, the hour after the start it lasts until, and its column: 20% for
-# a day, then 10% for three more days. When the last ends the card closes.
+# a day, then 10% for three more days. A card reaches these columns only on
+# a manager's «Gaplashildi»; when the last step ends it goes to Bog'lanildi.
 OFFER_STEPS: Final[tuple[tuple[int, int, SalesColumn], ...]] = (
     (20, 24, SalesColumn.DISCOUNT_20),
     (10, 96, SalesColumn.DISCOUNT_10),
 )
 OFFER_COLUMNS: Final = frozenset(str(step[2]) for step in OFFER_STEPS)
+# A card in these was talked to: a Start payment moves it to its discount
+# column at once. Anywhere else the card waits for «Gaplashildi».
+START_TALKED_COLUMNS: Final = frozenset({str(SalesColumn.CONTACTED), *OFFER_COLUMNS})
 OFFER_HOURS: Final = OFFER_STEPS[-1][1]
 # A bill priced with the offer stays payable this long after its step ends.
 OFFER_INVOICE_GRACE_MINUTES: Final = 15
 # Why a card closed when its discount ran out; not a reason a person picks.
 OFFER_ENDED_REASON: Final = "offer_ended"
 OFFER_ENDED_LABEL: Final = "Chegirma tugadi"
+
+
+class SalesKind(Choices):
+    """What a lead in Ishlanmagan is, for who takes it: read at the moment
+    from the client's Start payment, never stored on the waiting card."""
+
+    # Paid Start, and the discount it started still runs.
+    START_LIVE = "start_live"
+    # Paid Start, the discount is over, no full plan yet.
+    START_ENDED = "start_ended"
+    # Signed up, paid nothing.
+    NEW = "new"
+
+
+SALES_KIND_LABELS = {
+    SalesKind.START_LIVE: "Start olgan, chegirmasi bor",
+    SalesKind.START_ENDED: "Start olgan, chegirmasi tugagan",
+    SalesKind.NEW: "Yangi lidlar",
+}
+# «Lid olish» gives the kinds in this order.
+SALES_KIND_ORDER: Final[tuple[str, ...]] = tuple(str(kind) for kind in SalesKind)
+# How a card came to its manager, kept on the card for the report: the kind
+# it was when taken, or this one, taken by the client's phone number.
+TAKEN_BY_PHONE: Final = "phone"
+TAKEN_BY_PHONE_LABEL: Final = "Raqam bilan olingan"
+# A client who paid a full plan before any manager took them may still be
+# claimed by phone this long after the payment: the sale is the claimer's.
+PHONE_CLAIM_HOURS: Final = 12
 
 
 # The buttons each Support column shows. «Hal qilindi» does not close the
