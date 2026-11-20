@@ -90,6 +90,7 @@ PURGE_ORDER: tuple[str, ...] = (
     "destinations.FormSheet",
     "destinations.SheetLink",
     "crm.CrmActivity",
+    "crm.CrmStageMove",
     "crm.CrmCard",
     "crm.CrmSetup",
     "crm.CrmStage",

@@ -89,6 +89,7 @@ from app.modules.crm.models import (
     CrmSetup,
     CrmStage,
 )
+from app.modules.crm.moves import record_swept
 from app.modules.crm.selectors import (
     LeadPlace,
     Scope,
@@ -1107,6 +1108,10 @@ def delete_stage(db: Session, *, viewer: Viewer, stage_id: str) -> int:
     first = _first_stage(db, scope)
     if first is None:
         raise NotConfigured
+    # One UPDATE moves the cards past the session, so their steps are
+    # written here, not by the flush listener.
+    record_swept(db, left=stage, entered=first, now=utcnow())
+    db.flush()
     moved = db.execute(
         update(CrmCard)
         .where(CrmCard.owner_id == owner.id, CrmCard.stage_id == stage.id)

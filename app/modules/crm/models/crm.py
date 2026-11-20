@@ -61,7 +61,8 @@ class CrmCard(_Tenant, _Pair, Base):
     )
 
     lead_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, unique=True)
-    stage_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("crm_stages.id", ondelete="RESTRICT"), nullable=False, index=True)
+    # active_history: the column a card left is read even when the card was not loaded, for ``crm.moves``.
+    stage_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("crm_stages.id", ondelete="RESTRICT"), nullable=False, index=True, active_history=True)
     assignee_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     due_note: Mapped[str] = mapped_column(String(200), nullable=False, default="")
@@ -92,6 +93,31 @@ class CrmActivity(_Tenant, Base):
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     text: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     actor: Mapped["User | None"] = relationship(foreign_keys=[actor_id], lazy="select")  # noqa: F821
+
+
+class CrmStageMove(_Tenant, Base):
+    """One step of a card across the board: the column it left, the one it
+    entered and when. The first row of a card has no column left - it is the
+    card arriving. Written by ``app.modules.crm.moves`` on every flush that
+    changes a card's column, so how long cards stand in a column can be read.
+
+    The columns are kept by id without a foreign key, with their kind beside
+    them: an owner may delete a column, and the time cards spent in it stays
+    true. ``rebuilt`` marks a row put together afterwards from the card's
+    history, whose time is the history line's, not a measured one.
+    """
+
+    __tablename__ = "crm_stage_moves"
+    __table_args__ = (Index("crm_stage_moves_card_at_idx", "card_id", "at"),)
+
+    card_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("crm_cards.id", ondelete="CASCADE"), nullable=False)
+    from_stage_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    from_kind: Mapped[str] = mapped_column(String(8), nullable=False, default="")
+    to_stage_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    to_kind: Mapped[str] = mapped_column(String(8), nullable=False, default="")
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    rebuilt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    card: Mapped["CrmCard"] = relationship(foreign_keys=[card_id], lazy="select")
 
 
 class CrmMember(_Tenant, _Pair, Base):
