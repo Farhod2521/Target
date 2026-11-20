@@ -25,6 +25,17 @@ SIGNAL_WORDS: Final = {
 }
 
 
+# What a pair may keep its sales in. Each is a currency the Central Bank
+# sets a daily rate for, so a sale in any of them can be read in another.
+CURRENCY_LABELS: Final = {
+    "UZS": "O'zbek so'mi (UZS)",
+    "USD": "AQSH dollari (USD)",
+    "EUR": "Yevro (EUR)",
+    "RUB": "Rossiya rubli (RUB)",
+    "KZT": "Qozog'iston tengesi (KZT)",
+}
+
+
 class SeatKind(Choices):
     """What seat a manager sits in: a page's free one, a bought one, or none."""
 

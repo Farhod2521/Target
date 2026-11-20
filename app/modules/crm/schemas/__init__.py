@@ -127,6 +127,11 @@ class BoardOut(PairsOut):
     step: int | None = Field(None, description="Only when `setup_needed`.")
     running: bool | None = None
     is_owner: bool | None = None
+    currency: str | None = Field(
+        None,
+        description="The pair's currency: every column's `won_minor` is in it, "
+        "whatever currency each sale was written in.",
+    )
     columns: list[ColumnOut] | None = None
     late: int | None = Field(None, description="Cards whose due time has passed.")
     today: int | None = Field(None, description="Cards due today.")
@@ -234,6 +239,9 @@ class SettingsOut(PairsOut):
     )
     since_choices: list[Choice]
     distribution_choices: list[Choice]
+    currency_choices: list[Choice] = Field(
+        description="What `POST /settings/currency` takes."
+    )
 
 
 class SetupStepOut(SettingsOut):

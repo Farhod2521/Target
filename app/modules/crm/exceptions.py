@@ -135,6 +135,11 @@ class BadKpi(DomainError):
         )
 
 
+class UnknownCurrency(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Valyutani ro'yxatdan tanlang.")
+
+
 class NoAdsChosen(DomainError):
     def __init__(self) -> None:
         super().__init__(

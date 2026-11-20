@@ -28,6 +28,7 @@ from app.modules.crm.constants import (
     BACKFILL_LIMIT,
     CLOSING_KINDS,
     COLORS,
+    CURRENCY_LABELS,
     DEFAULT_LOST_REASONS,
     MAX_AMOUNT,
     MAX_CUSTOM_STAGES,
@@ -75,6 +76,7 @@ from app.modules.crm.exceptions import (
     TooManyMembers,
     TooManyStages,
     UnknownCard,
+    UnknownCurrency,
     UnknownMember,
     UnknownPair,
     UseTheDialog,
@@ -1312,6 +1314,49 @@ def save_flow(
         },
         event=EventName.CRM_SETUP_SAVED,
         now=now,
+    )
+    return setup
+
+
+def save_currency(db: Session, *, viewer: Viewer, currency: str) -> CrmSetup:
+    """The currency this pair's sales are written in from now on.
+
+    A sale already closed keeps the currency it was written in: its amount
+    is what the customer paid, and reports read it at that day's rate. A
+    manager's fixed pay is an amount of the old currency and does not
+    travel - it is cleared, to be typed again; a percent stays.
+    """
+    scope = require_owner(viewer)
+    currency = currency.strip().upper()
+    if currency not in CURRENCY_LABELS:
+        raise UnknownCurrency
+    setup = setup_for_update(db, scope=scope)
+    before = {"currency": setup.currency}
+    if setup.currency == currency:
+        return setup
+    setup.currency = currency
+    cleared = []
+    for member in db.scalars(
+        select(CrmMember).where(
+            scope.holds(CrmMember),
+            CrmMember.kpi_currency != "",
+            CrmMember.kpi_currency != currency,
+        )
+    ):
+        member.kpi_fix_minor = None
+        member.kpi_currency = ""
+        cleared.append(str(member.id))
+    db.flush()
+    record_config(
+        db,
+        owner=viewer.owner,
+        actor=viewer.user,
+        level="setup",
+        target_id=setup.id,
+        before=before,
+        after={"currency": currency, "kpi_fix_cleared": cleared},
+        event=EventName.CRM_SETUP_SAVED,
+        now=utcnow(),
     )
     return setup
 

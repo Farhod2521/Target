@@ -15,6 +15,7 @@ from app.modules.accounts.models import User
 from app.modules.crm import selectors, services
 from app.modules.crm.constants import (
     COLORS,
+    CURRENCY_LABELS,
     DISTRIBUTION_LABELS,
     MAX_CUSTOM_STAGES,
     PIXEL_NAME_LENGTH,
@@ -292,8 +293,11 @@ def stats(
             "open": found.open,
             "late": found.late,
             "revenue_minor": total.revenue_minor,
+            "revenue_unpriced": total.unpriced,
             "avg_deal_minor": (
-                round(total.revenue_minor / total.won) if total.won else None
+                round(total.revenue_minor / (total.won - total.unpriced))
+                if total.won > total.unpriced
+                else None
             ),
             "conversion_pct": total.conversion_pct,
             "qualified_pct": (share(total.qualified, total.leads)),
@@ -375,6 +379,7 @@ def board(
         "no_pair": False,
         "running": setup is not None and setup.state == SetupState.ON,
         "is_owner": viewer.is_owner,
+        "currency": setup.currency if setup is not None else "",
         "columns": [column_out(column, found.ads) for column in found.columns],
         "late": found.late,
         "today": found.today,
@@ -663,6 +668,9 @@ def settings_out(db: Session, viewer: Viewer) -> dict[str, Any]:
         "since_choices": [{"value": k, "label": v} for k, v in SINCE_LABELS.items()],
         "distribution_choices": [
             {"value": k, "label": v} for k, v in DISTRIBUTION_LABELS.items()
+        ],
+        "currency_choices": [
+            {"value": k, "label": v} for k, v in CURRENCY_LABELS.items()
         ],
         "meta": _meta(db, viewer),
     }
@@ -967,6 +975,21 @@ def distribution(
     body: DistributionIn, db: Db, viewer: Viewer = Depends(owner_viewer)
 ) -> dict[str, Any]:
     services.save_distribution(db, viewer=viewer, distribution=body.distribution)
+    db.commit()
+    return settings_out(db, viewer)
+
+
+class CurrencyIn(BaseModel):
+    currency: str = Field(max_length=8)
+
+
+@router.post("/settings/currency", responses={200: {"model": SettingsOut}})
+def currency(
+    body: CurrencyIn, db: Db, viewer: Viewer = Depends(owner_viewer)
+) -> dict[str, Any]:
+    """The currency this pair's sales are written in. Closed sales keep
+    theirs; a manager's fixed pay in the old currency is cleared."""
+    services.save_currency(db, viewer=viewer, currency=body.currency)
     db.commit()
     return settings_out(db, viewer)
 

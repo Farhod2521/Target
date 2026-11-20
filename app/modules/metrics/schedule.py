@@ -18,5 +18,8 @@ SCHEDULE: Final = [
         "37",
         "6",
     ),
+    # The bank sets the day's rate in the afternoon; twice, so that one missed
+    # answer is made up the same day (04:15 and 12:15 UTC).
+    Periodic("Valyuta kurslarini o'qish", f"{TASKS}.store_rates_task", "15", "4,12"),
     Periodic("Eski raqamlarni tozalash", f"{TASKS}.purge_old_figures_task", "20", "5"),
 ]

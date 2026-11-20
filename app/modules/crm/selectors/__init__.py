@@ -31,6 +31,7 @@ from app.modules.crm.models import (
     CrmStage,
 )
 from app.modules.crm.quality import qualified_card
+from app.modules.crm.selectors.money import Sold, sold
 from app.modules.integrations.models import PixelAccount
 from app.modules.integrations.selectors import Pair, current_pair, page_pairs
 from app.modules.leads.models import Lead, LeadForm
@@ -849,6 +850,8 @@ def board(
     from app.modules.ads.selectors import ad_labels
 
     stages = stages_of(db, scope=viewer.scope)
+    setup = setup_of(db, scope=viewer.scope)
+    currency = setup.currency if setup is not None else ""
     base = _on_board(viewer=viewer, filters=filters, now=now)
     sub = base.subquery()
     totals = dict(
@@ -866,7 +869,7 @@ def board(
         reasons: tuple[tuple[str, int], ...] = ()
         inner = in_stage.subquery()
         if stage.kind == StageKind.WON:
-            won = int(db.scalar(select(func.sum(inner.c.won_amount_minor))) or 0)
+            won = sold(db, inner, target=currency).get(None, Sold()).minor
         elif stage.kind == StageKind.LOST:
             reasons = tuple(
                 (name or "—", n)

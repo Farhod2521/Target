@@ -21,6 +21,7 @@ from app.modules.accounts.models import User
 from app.modules.crm.constants import SetupState, StageKind
 from app.modules.crm.models import CrmCard, CrmSetup, CrmStage
 from app.modules.crm.selectors import Viewer, holds, setup_of, stages_of
+from app.modules.crm.selectors.money import Pricer
 from app.modules.leads.models import Lead
 
 PERIODS: Final = {"today": 1, "7": 7, "30": 30, "90": 90}
@@ -90,6 +91,9 @@ class Tally:
     won: int = 0
     lost: int = 0
     revenue_minor: int = 0
+    # Sales left out of the revenue: written in another currency on a day
+    # no rate is held for.
+    unpriced: int = 0
     waits: list[float] = field(default_factory=list)
 
     @property
@@ -138,6 +142,8 @@ def _cohort(viewer: Viewer, span: Range) -> Any:
             CrmCard.taken_at,
             CrmCard.qualified_at,
             CrmCard.won_amount_minor,
+            CrmCard.currency,
+            CrmCard.closed_at,
             CrmCard.lost_reason_name,
             Lead.submitted_at,
             Lead.ad_external_id,
@@ -178,10 +184,27 @@ def stats(
     days = [span.since + timedelta(days=n) for n in range(span.days)]
     place = {day: n for n, day in enumerate(days)}
     daily_leads, daily_won = [0] * len(days), [0] * len(days)
-    for stage_id, holder, taken, qualified, sum_minor, reason, came, ad in db.execute(
-        _cohort(viewer, span)
-    ):
+    currency = setup.currency if setup is not None else ""
+    pricer = Pricer(db, target=currency)
+    for (
+        stage_id,
+        holder,
+        taken,
+        qualified,
+        sum_minor,
+        paid_in,
+        closed,
+        reason,
+        came,
+        ad,
+    ) in db.execute(_cohort(viewer, span)):
         kind = kinds.get(stage_id)
+        # A sale reads in the pair's currency at the rate of its closing day.
+        sale = (
+            pricer.read(amount_minor=sum_minor or 0, currency=paid_in, at=closed)
+            if kind == StageKind.WON
+            else 0
+        )
         tallies = [total, by_ad.setdefault(ad or "", Tally())]
         if holder is not None:
             tallies.append(by_manager.setdefault(holder, Tally()))
@@ -192,8 +215,10 @@ def stats(
             tally.qualified += qualified is not None
             tally.won += kind == StageKind.WON
             tally.lost += kind == StageKind.LOST
-            if kind == StageKind.WON:
-                tally.revenue_minor += sum_minor or 0
+            if sale is None:
+                tally.unpriced += 1
+            else:
+                tally.revenue_minor += sale
             if wait is not None:
                 tally.waits.append(wait)
         by_stage[stage_id] = by_stage.get(stage_id, 0) + 1
@@ -206,12 +231,17 @@ def stats(
 
     earlier = Tally()
     if span.days > 1:
-        for stage_id, _, _, _, sum_minor, *_ in db.execute(
+        for stage_id, _, _, _, sum_minor, paid_in, closed, *_ in db.execute(
             _cohort(viewer, span.before())
         ):
             earlier.leads += 1
             if kinds.get(stage_id) == StageKind.WON:
-                earlier.revenue_minor += sum_minor or 0
+                earlier.revenue_minor += (
+                    pricer.read(
+                        amount_minor=sum_minor or 0, currency=paid_in, at=closed
+                    )
+                    or 0
+                )
 
     still_open = (
         select(CrmCard.assignee_id, func.count(CrmCard.id))
@@ -236,7 +266,7 @@ def stats(
     return Stats(
         state=_state(setup),
         range=span,
-        currency=setup.currency if setup is not None else "",
+        currency=currency,
         totals=total,
         open=open_now,
         late=sum(int(n) for n in late_by.values()),
