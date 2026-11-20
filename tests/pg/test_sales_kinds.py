@@ -403,3 +403,65 @@ def test_the_migration_puts_start_cards_back_by_the_new_rule(
     assert lines.count("moved") == 1
     taken = _detail(client.post(TAKE, headers=ali))
     assert taken.client.email in {"nobody@shop.test", "shut@shop.test"}
+
+
+def test_a_start_buyer_whose_term_ran_out_without_a_card_becomes_a_lead(
+    client: TestClient, db: Session
+) -> None:
+    """Paid Start before the board went live: never carded. Once the Start
+    term runs out the client waits in Ishlanmagan as «tarifi tugagan»; a
+    card a manager holds or closed is left alone, and so are buyers."""
+    _live(db, hours_ago=1)
+    old = _lead(db, "old@shop.test", "+998908000001", minutes_ago=60 * 24 * 30)
+    running = _lead(db, "running@shop.test", "+998908000002", minutes_ago=60 * 24 * 30)
+    bought = _lead(db, "bought@shop.test", "+998908000003", minutes_ago=60 * 24 * 30)
+    held = _lead(db, "held@shop.test", "+998908000004", minutes_ago=60 * 24 * 30)
+    for person in (old, running, bought, held):
+        _start_ago(db, person, 24 * 10)
+    ended = utcnow() - timedelta(days=3)
+    for person in (old, bought, held):
+        db.execute(
+            update(Subscription)
+            .where(Subscription.owner_id == person.id)
+            .values(expires_at=ended)
+        )
+    db.commit()
+    _paid(db, bought)
+    _staff(db, "ali@office.test", Role.SALES)
+    ali = _user(db, "ali@office.test")
+    db.add(
+        BoardCard(
+            board="sales",
+            owner_id=held.id,
+            manager_id=ali.id,
+            column_code="closed",
+            closed_at=utcnow(),
+            close_reason="not_needed",
+            opened_at=utcnow(),
+            column_since=utcnow(),
+            reasons=[],
+        )
+    )
+    db.commit()
+
+    _sweep(db)
+    db.expire_all()
+    card = _card(db, old)
+    assert card.column_code == "unworked" and card.manager_id is None
+    assert card.opened_at == ended
+    # The full plan made the buyer a sale, not a lead in Ishlanmagan.
+    paid_card = db.scalar(select(BoardCard).where(BoardCard.owner_id == bought.id))
+    assert paid_card is None or paid_card.column_code != "unworked"
+    assert _card(db, held).column_code == "closed"
+    assert db.scalar(select(BoardCard).where(BoardCard.owner_id == running.id)) is None
+
+    lines = db.scalars(
+        select(BoardCardEvent.body).where(BoardCardEvent.card_id == card.id)
+    ).all()
+    assert lines == ["Start tarifi tugadi"]
+    # Once: the card keeps them out of the rule.
+    assert _sweep(db)[0] == 0
+    head = _staff(db, "sanjar@office.test", Role.SALES)
+    taken = _detail(client.post(TAKE, headers=head))
+    assert taken.client.email == old.email
+    assert taken.taken_as is not None and taken.taken_as.value == "start_expired"

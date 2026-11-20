@@ -282,6 +282,7 @@ Hammasi faqat **deploydan keyin** bo'lgan hodisalar uchun ishlaydi; undan olding
 **Sotuv** (har daqiqada):
 - Ro'yxatdan o'tdi va hech qachon to'lamagan → «Ishlanmagan» da lid. Xodimlar, CRM loginlari va
   bloklanganlar tushmaydi.
+- Start tarifi tugadi, to'liq tarif olinmagan va Sotuvda kartasi yo'q → «Ishlanmagan» da lid (`start_expired`), tarixda «Start tarifi tugadi».
 - Start to'ladi → karta «Ishlanmagan» da (kartasi bo'lmasa ochiladi, yopilgan bo'lsa xodimsiz qayta ochiladi);
   chegirma ustuniga faqat menejer «Gaplashildi» ni bosganda o'tadi (§11).
 - Mijoz tarif uchun to'ladi → istalgan ustundan «Sotildi».

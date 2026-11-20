@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import Date, and_, cast, exists, func, or_, select, tuple_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
 from app.modules.accounts.models import User
@@ -143,6 +144,87 @@ def open_leads(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         )
     db.commit()
     return len(people)
+
+
+def start_expired_leads(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
+    """A Start buyer whose Start term ran out with no full plan bought, and
+    who has no Sales card at all, becomes a lead in Ishlanmagan: the kind
+    «Start olgan, tarifi tugagan». Such clients were never carded when they
+    paid before the board went live, or before ``start_bought`` saw them.
+    A card they have already (a manager's, or closed by one) is left as it
+    is. Once: the card, once made, keeps them out of here."""
+    from app.modules.boards.sales_kinds import start_paid_sql, start_until_sql
+
+    start_at = start_paid_sql(User.id)
+    until = start_until_sql(User.id)
+    bought = exists().where(
+        Invoice.owner_id == User.id,
+        Invoice.kind == str(InvoiceKind.PLAN),
+        Invoice.status.in_(_PAID_BEFORE),
+        Invoice.plan_id.in_(_full_plans()),
+    )
+    # A full plan the office gave, running: a client, not a lead.
+    given = exists().where(
+        Subscription.owner_id == User.id,
+        Subscription.status == str(SubscriptionStatus.ACTIVE),
+        Subscription.plan_id.in_(_full_plans()),
+    )
+    carded = exists().where(
+        BoardCard.owner_id == User.id, BoardCard.board == str(Board.SALES)
+    )
+    rows = list(
+        db.execute(
+            select(User.id, start_at, until)
+            .where(
+                start_at.is_not(None),
+                or_(
+                    until <= now,
+                    and_(
+                        until.is_(None),
+                        start_at <= now - timedelta(hours=OFFER_HOURS),
+                    ),
+                ),
+                User.crm_owner_id.is_(None),
+                User.is_staff.is_(False),
+                User.is_superuser.is_(False),
+                User.is_active.is_(True),
+                ~bought,
+                ~given,
+                ~carded,
+            )
+            .order_by(User.date_joined, User.id)
+            .limit(limit)
+        )
+    )
+    opened = 0
+    for owner_id, paid_at, ended_at in rows:
+        card = BoardCard(
+            board=str(Board.SALES),
+            owner_id=owner_id,
+            column_code=str(SalesColumn.UNWORKED),
+            opened_at=ended_at or paid_at,
+            column_since=now,
+            reasons=[],
+        )
+        try:
+            with db.begin_nested():
+                db.add(card)
+                db.flush()
+        except IntegrityError:
+            # Carded this very moment by another rule: theirs.
+            continue
+        record(
+            db,
+            card=card,
+            kind=EventKind.OPENED,
+            now=now,
+            to_column=card.column_code,
+            body="Start tarifi tugadi",
+            ref="opened",
+        )
+        opened += 1
+    db.commit()
+    return opened
 
 
 def mark_sold(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
@@ -535,6 +617,7 @@ def sweep_sales(db: Session, *, now: datetime) -> tuple[int, int]:
     ensure_board(db, board=Board.SALES, now=now)
     db.commit()
     opened, sold = open_leads(db, now=now), mark_sold(db, now=now)
+    opened += start_expired_leads(db, now=now)
     moved = start_bought(db, now=now) + step_offers(db, now=now)
     moved += bills_opened(db, now=now) + bills_unpaid(db, now=now)
     return opened, sold + moved
