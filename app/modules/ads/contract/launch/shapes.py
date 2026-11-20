@@ -229,9 +229,18 @@ class Failure(Camel):
     refusal: Refusal | None = None
 
 
+class PixelPick(Camel):
+    id: str
+    name: str
+
+
 class DraftPage(Camel):
     has_instagram: bool
     pixel: str | None
+    pixel_id: str = Field("", description="The pixel the site form reports through.")
+    pixels: list[PixelPick] = Field(
+        default_factory=list, description="The ad account's pixels to pick from."
+    )
     region: str
 
 
@@ -351,6 +360,7 @@ class DraftPatch(Camel):
     chat_questions: list[str] | None = None
     chat_answers: list[str] | None = None
     areas: list[str] | None = None
+    pixel_id: str | None = None
 
 
 class GoalPress(Camel):

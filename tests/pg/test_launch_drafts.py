@@ -759,3 +759,40 @@ def test_a_chat_answer_too_long_is_refused_under_its_own_field(
     )
     assert went.status_code == 422, went.text
     assert "chatAnswers" in went.json()["problems"]
+
+
+def test_the_site_form_picks_its_pixel_on_the_plan(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from tests.pg.test_pixel_event_choice import _pixel
+
+    auth, draft_id = _opened(client, db)
+    path = f"/api/v1/launch/drafts/{draft_id}"
+    launch = db.get(CampaignLaunch, uuid.UUID(draft_id))
+    assert launch is not None
+    _pixel(db, launch, "71", events=[], active=True)
+    _pixel(db, launch, "72", events=[])
+
+    site = {"goal": "lead", "method": "website", "linkUrl": "bahor.example"}
+    tapped = client.patch(path, json=site, headers=auth).json()
+    budget = tapped["minBudget"] | {"minor": 500}
+    shown = tapped["page"]
+    assert [row["id"] for row in shown["pixels"]] == ["71", "72"]
+    assert shown["pixelId"] == "71" and shown["pixel"] == "Pixel 71"
+
+    picked = client.patch(path, json={"pixelId": "72"}, headers=auth).json()["page"]
+    assert picked["pixelId"] == "72" and picked["pixel"] == "Pixel 72"
+
+    stranger = client.patch(path, json={"pixelId": "99", "step": "media"}, headers=auth)
+    assert stranger.status_code == 422, stranger.text
+    assert "pixelId" in stranger.json()["problems"]
+
+    went = client.patch(
+        path,
+        json={"pixelId": "72", "step": "media", "dailyBudget": budget},
+        headers=auth,
+    )
+    assert went.status_code == 200, went.text
+    db.refresh(launch)
+    assert launch.answers["pixel_id"] == "72"
+    assert went.json()["page"]["pixelId"] == "72"

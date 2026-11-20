@@ -33,6 +33,7 @@ PLAN_KEYS: Final = (
     "welcome_text",
     "chat_questions",
     "chat_answers",
+    "pixel_id",
 )
 
 

@@ -212,6 +212,16 @@ def draft(
     texts = extras.get("text") or {}
     page = plan.get("page") or {}
     pixel = plan.get("pixel") or {}
+    pixels = [
+        {"id": str(row.get("external_id") or ""), "name": str(row.get("name") or "")}
+        for row in plan.get("pixels") or []
+        if isinstance(row, dict) and row.get("external_id")
+    ]
+    pixel_id = str(mine.get("pixel_id") or pixel.get("external_id") or "")
+    pixel_name = next(
+        (row["name"] for row in pixels if row["id"] == pixel_id),
+        pixel.get("name") or None,
+    )
 
     def answer(key: str, saved: Any) -> Any:
         return mine.get(key, saved)
@@ -284,7 +294,9 @@ def draft(
         "areas": [],
         "page": {
             "has_instagram": bool(plan.get("has_instagram")),
-            "pixel": pixel.get("name") or None,
+            "pixel": pixel_name,
+            "pixel_id": pixel_id,
+            "pixels": pixels,
             "region": plan.get("region") or "UZ",
         },
         "reading": goal_reading(plan.get("reading") or taps.get("reading")),
@@ -331,6 +343,8 @@ def plan_in(plan: dict[str, Any], tapped: dict[str, Any], method: str | None) ->
         chat_questions=tapped.get("chat_questions", plan.get("chat_questions") or []),
         chat_answers=tapped.get("chat_answers", plan.get("chat_answers") or []),
         start_day=tapped.get("start", plan.get("start_day") or "today"),
+        # Only a pixel picked on the step is sent; none keeps the one already chosen.
+        pixel_id=tapped.get("pixel_id") or "",
     )
 
 

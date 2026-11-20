@@ -69,6 +69,7 @@ PLAN_FIELDS: Final[dict[str, str]] = {
     "chat_questions": "chatQuestions",
     "chat_answers": "chatAnswers",
     "start_day": "start",
+    "pixel_id": "pixelId",
 }
 # The goal reading is asked and then read until written: so long, so often.
 READING = {"poll_seconds": 1.0, "tries": 8}

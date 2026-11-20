@@ -64,7 +64,7 @@ from app.modules.ads.selectors.goals import (
 )
 from app.modules.ads.selectors.launch_page import launch_page
 from app.modules.ads.selectors.lead_form import form_choice
-from app.modules.ads.selectors.pixel import launch_conversion_source
+from app.modules.ads.selectors.pixel import launch_conversion_source, usable_pixels
 from app.modules.ads.selectors.plan_picker import BY_AI, BY_YOU, row_picker
 from app.modules.ads.selectors.quality import catalogue_questions, chat_question_reading
 from app.modules.ads.selectors.telegram import shown_goal
@@ -113,6 +113,11 @@ def _extras(db: Session, *, launch: CampaignLaunch, goal: str) -> dict[str, Any]
         # Sent whichever goal is open: the step shows the site-form method
         # beside the instant form, and it reads the pixel off this key.
         "pixel": launch_conversion_source(db, launch=launch),
+        # Every pixel of the ad account the site form may report through, picked on the step.
+        "pixels": [
+            {"external_id": row.external_id, "name": row.name or row.external_id}
+            for row in usable_pixels(db, launch=launch)
+        ],
     }
     if extras["needs_form"]:
         extras["form_choice"] = form_choice(db, launch=launch)

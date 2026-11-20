@@ -23,6 +23,7 @@ from app.modules.ads.constants import (
     CHAT_QUESTIONS,
     CLOSED_REASONS,
     GOAL_TEXT_MAX,
+    PIXEL_ID,
     START_TODAY,
     START_TOMORROW,
 )
@@ -41,12 +42,14 @@ from app.modules.ads.selectors.goals import (
     chat_channels,
     goal_needs_link,
     goal_needs_phone,
+    goal_needs_pixel,
     goal_opens_chat,
     goal_optimization,
     legacy_plan_goals,
     opening_channel,
 )
 from app.modules.ads.selectors.launches import last_daily_budget
+from app.modules.ads.selectors.pixel import usable_pixels
 from app.modules.ads.selectors.plan_picker import account_facts, words_for_row
 from app.modules.ads.selectors.schedule import offered_days
 from app.modules.ads.selectors.telegram import (
@@ -76,6 +79,7 @@ from core.targeting.compat import (
 )
 
 SAY_WHAT_YOU_NEED = "Nima kerakligini yozing yoki ro'yxatdan tanlang."
+PICK_A_PIXEL = "Pikselni ro'yxatdan tanlang."
 QUESTION_CHARS = 80
 # The outcome whose rows open the Instagram profile.
 PROFILE_OUTCOME = "profile"
@@ -110,6 +114,11 @@ class PlanIn(BaseModel):
         description="The answer sent by itself for the question at the same place.",
     )
     start_day: Literal["today", "tomorrow"] = START_TODAY
+    pixel_id: str = Field(
+        "",
+        max_length=64,
+        description="The pixel a site form reports through; empty keeps the chosen one.",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,6 +259,7 @@ def check_plan(
     frame = plan_frame(db, launch=launch, user=user, goal=body.goal, now=now)
     answers = _destination(body, frame=frame, problems=problems)
     answers |= _money_and_day(body, frame=frame, problems=problems)
+    answers |= _pixel(db, launch=launch, body=body, goal=body.goal, problems=problems)
     problems.refuse()
     answers["goal"] = bought_goal(body.goal)
     answers |= _link_kind(launch, telegram=body.goal == TELEGRAM_GOAL)
@@ -291,6 +301,7 @@ def _check_rows(
         asked=asked,
     )
     answers |= _money_and_day(body, frame=frame, problems=problems)
+    answers |= _pixel(db, launch=launch, body=body, goal=row.goal, problems=problems)
     problems.refuse(hints=_hints(body, problems=problems))
     answers["goal"] = row.goal
     answers |= _link_kind(launch, telegram=False)
@@ -300,6 +311,21 @@ def _check_rows(
     if not campaign_type_locked(launch=launch):
         answers[CAMPAIGN_TYPE] = row.key
     return answers
+
+
+def _pixel(
+    db: Session, *, launch: CampaignLaunch, body: PlanIn, goal: str, problems: Problems
+) -> dict[str, Any]:
+    """The pixel picked on the step, for a goal a pixel reports; nothing keeps the chosen one."""
+    picked = body.pixel_id.strip()
+    if not picked or campaign_type_locked(launch=launch):
+        return {}
+    if not goal_needs_pixel(db, launch=launch, goal=goal):
+        return {}
+    if picked not in {row.external_id for row in usable_pixels(db, launch=launch)}:
+        problems.add("pixel_id", PICK_A_PIXEL)
+        return {}
+    return {PIXEL_ID: picked}
 
 
 def _link_kind(launch: CampaignLaunch, *, telegram: bool) -> dict[str, Any]:
