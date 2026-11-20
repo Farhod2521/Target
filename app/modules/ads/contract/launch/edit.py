@@ -401,11 +401,13 @@ def _advanced(found: dict[str, Any]) -> list[dict[str, Any]]:
         )
     delivery = advanced.get("delivery") or {}
     if delivery.get("offers_window"):
+        windows = delivery.get("windows") or []
+        # Nothing chosen sends no window, and Meta counts by its own default - the list's first.
         pick(
             "attribution",
             "Attribution",
-            delivery.get("windows") or [],
-            delivery.get("chosen_window") or "",
+            windows,
+            delivery.get("chosen_window") or (windows[0].get("key") if windows else ""),
             bool(delivery.get("locked")),
             False,
         )
