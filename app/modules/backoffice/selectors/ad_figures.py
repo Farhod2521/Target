@@ -1,24 +1,22 @@
 """The office's advertising figures: what targetolog.ai's own ads cost and
-what came of them, for one window of days.
+what the people they brought have paid, for one window of days.
 
-Spend is read only from the office's ad account (``OFFICE_AD_ACCOUNT``) and
-only for the campaigns the superuser picked; Meta's daily figures are read,
-so a campaign deleted since still counts for the days it ran. Everything
-else is the whole platform's, not a picked campaign's: a signed-up account
-does not say which ad brought it (that is written only since 2026-11-19),
-so ROAS and the price of a customer are blended - all takings, all new
-payers, against the picked spend.
+The superuser picks the campaigns (only the office's ad account,
+``OFFICE_AD_ACCOUNT``) and the plans that count. The people counted are
+those who signed up in the window and were brought by a picked campaign;
+what they paid for a picked plan up to now is their revenue. A seat or a
+page bought is no plan and never counted.
 
-- spend: the picked campaigns' spend, in the account's currency and in so'm
-  at each day's Central Bank rate;
-- revenue: paid bills in so'm, as the takings card counts them;
+- spend: the picked campaigns' spend over the window, in the account's
+  currency and in so'm at each day's Central Bank rate;
+- sign-ups: from ``EXACT_FROM`` each sign-up's utm marks name its ad set or
+  campaign; before it, the picked campaigns' Meta results (capped by the
+  sign-ups of those days) stand in for them - see ``ad_figures``;
+- revenue: their paid bills for the picked plans, up to now;
 - ROAS: revenue / spend in so'm;
-- CAC: spend in so'm / customers whose first paid plan fell in the window;
-- conversion: customers who joined in the window and paid a plan, of all
-  who joined in it;
-- deal time: the median from joining to the first paid plan that is not
-  Start, for those whose first such bill fell in the window - Start is
-  bought minutes after signing up and would read as no time at all.
+- CAC: spend in so'm / those who paid;
+- conversion: those who paid / those who signed up;
+- deal time: the median from signing up to the first paid picked plan.
 
 A day the bank has no rate for leaves the so'm spend, ROAS and CAC unknown
 (``None``) and says how many days; it is never guessed.
@@ -26,20 +24,20 @@ A day the bank has no rate for leaves the so'm spend, ROAS and CAC unknown
 
 import json
 import re
+import uuid
 from dataclasses import dataclass
-from datetime import date
-from statistics import median
-from typing import Any
-from urllib.parse import urlsplit
+from datetime import date, datetime, time, timedelta
+from typing import Any, Final
+from urllib.parse import unquote_plus, urlsplit
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.common.config import settings
 from app.modules.accounts.models import User
 from app.modules.ads.models import Ad, AdCreative, AdSet, Campaign
-from app.modules.backoffice.models import OfficeAdCampaign
-from app.modules.billing.constants import DEFAULT_PLAN_CODE, InvoiceKind, InvoiceStatus
+from app.modules.backoffice.models import OfficeAcquisitionPlan, OfficeAdCampaign
+from app.modules.billing.constants import InvoiceKind, InvoiceStatus
 from app.modules.billing.models import Invoice, Plan
 from app.modules.integrations.models import AdAccount
 from app.modules.integrations.selectors.demo import not_demo
@@ -179,24 +177,73 @@ def known_ids(db: Session, account: AdAccount) -> set[str]:
 
 # -- the figures -----------------------------------------------------------------
 
+# The first whole day sign-ups carry the landing link's utm_* marks (from
+# 2026-11-19 10:27 Tashkent). From it on a sign-up is tied to its campaign;
+# before it only the count can be estimated.
+EXACT_FROM: Final = date(2026, 11, 20)
+
+
+@dataclass(frozen=True, slots=True)
+class PlanRow:
+    id: str
+    name: str
+    code: str
+    is_active: bool
+    paid: int
+    picked: bool
+
+
+def picked_plan_ids(db: Session) -> set[uuid.UUID]:
+    return set(db.scalars(select(OfficeAcquisitionPlan.plan_id)))
+
+
+def plan_rows(db: Session) -> list[PlanRow]:
+    """Every plan, the ones on sale first, with how many bills paid it."""
+    paid = dict(
+        db.execute(
+            select(Invoice.plan_id, func.count(Invoice.id))
+            .where(_paid_plan())
+            .group_by(Invoice.plan_id)
+        ).all()
+    )
+    picked = picked_plan_ids(db)
+    plans = db.scalars(
+        select(Plan).order_by(Plan.is_active.desc(), Plan.sort_order, Plan.name)
+    )
+    return [
+        PlanRow(
+            id=str(plan.id),
+            name=plan.name,
+            code=plan.code,
+            is_active=plan.is_active,
+            paid=int(paid.get(plan.id, 0)),
+            picked=plan.id in picked,
+        )
+        for plan in plans
+    ]
+
 
 @dataclass(frozen=True, slots=True)
 class AdFigures:
     account_name: str
     account_found: bool
     picked: int
+    plans_picked: int
     spend: tuple[tuple[str, int], ...]
     spend_home_minor: int | None
     unpriced_days: int
+    signups: float
+    payers: float
     revenue_minor: int
     roas: float | None
-    new_payers: int
     cac_minor: int | None
-    joined: int
-    joined_paid: int
     conversion_pct: float | None
     deals: int
     deal_seconds: int | None
+    # The window's first and last day counted by estimate; None when the
+    # whole window is counted sign-up by sign-up.
+    estimated_from: date | None
+    estimated_until: date | None
 
 
 def _customers() -> Any:
@@ -255,104 +302,239 @@ def _spend(
     return spend, (None if unpriced else home), len(unpriced)
 
 
-def _revenue(db: Session, *, since: Any, until: Any) -> int:
+def _leads(
+    db: Session, *, account: AdAccount | None, picked: set[str], start: date, end: date
+) -> int:
+    """The results Meta counted for the picked campaigns: on targetolog.ai a
+    result is one account that signed up and reached the prices."""
+    if account is None or not picked:
+        return 0
     return int(
         db.scalar(
-            select(func.coalesce(func.sum(Invoice.amount_minor), 0)).where(
-                Invoice.archived_at.is_(None),
-                Invoice.status == InvoiceStatus.PAID,
-                Invoice.paid_at >= since,
-                Invoice.paid_at < until,
-                or_(Invoice.amount_minor != 0, Invoice.wallet_minor != 0),
-                Invoice.currency == HOME,
-                not_demo(Invoice.owner_id),
+            select(func.coalesce(func.sum(MetricsDaily.leads_reported), 0)).where(
+                MetricsDaily.ad_account_id == account.id,
+                MetricsDaily.level == MetricLevel.CAMPAIGN,
+                MetricsDaily.campaign_external_id.in_(picked),
+                MetricsDaily.date >= start,
+                MetricsDaily.date <= end,
             )
         )
         or 0
     )
 
 
-def _new_payers(db: Session, *, since: Any, until: Any) -> int:
-    first = (
-        select(Invoice.owner_id, func.min(Invoice.paid_at).label("first"))
-        .where(_paid_plan())
-        .group_by(Invoice.owner_id)
-        .subquery()
-    )
-    return int(
-        db.scalar(
-            select(func.count())
-            .select_from(first)
-            .join(User, User.id == first.c.owner_id)
-            .where(_customers(), first.c.first >= since, first.c.first < until)
+def _norm(name: str) -> str:
+    return " ".join(unquote_plus(name).split()).casefold()
+
+
+@dataclass(frozen=True, slots=True)
+class _Marks:
+    """What a sign-up's marks are read against."""
+
+    adsets: dict[str, str]  # every ad set of the account -> its campaign
+    picked: set[str]
+    picked_names: set[str]
+
+    def brought(self, utm: dict[str, Any]) -> bool:
+        """Whether a picked campaign brought this sign-up. The ad set's id
+        decides when it is one of the account's; else the campaign's id, else
+        its name (Meta writes a space as ``+`` in some links)."""
+        term = str(utm.get("term") or "").strip()
+        if term in self.adsets:
+            return self.adsets[term] in self.picked
+        campaign = str(utm.get("campaign") or "").strip()
+        if not campaign:
+            return False
+        return campaign in self.picked or _norm(campaign) in self.picked_names
+
+
+def _marks(db: Session, *, account: AdAccount, picked: set[str]) -> _Marks:
+    adsets: dict[str, str] = {}
+    for adset, campaign in db.execute(
+        select(MetricsDaily.adset_external_id, MetricsDaily.campaign_external_id)
+        .where(
+            MetricsDaily.ad_account_id == account.id,
+            MetricsDaily.adset_external_id != "",
         )
-        or 0
+        .distinct()
+    ):
+        adsets[adset] = campaign
+    for adset, campaign in db.execute(
+        select(AdSet.external_id, Campaign.external_id)
+        .join(Campaign, Campaign.id == AdSet.campaign_id)
+        .where(Campaign.ad_account_id == account.id)
+    ):
+        adsets[adset] = campaign
+    names = {
+        row.name for row in campaign_rows(db, account) if row.external_id in picked
+    }
+    return _Marks(
+        adsets=adsets,
+        picked=picked,
+        picked_names={_norm(name) for name in names if name},
     )
 
 
-def _conversion(db: Session, *, since: Any, until: Any) -> tuple[int, int]:
-    joined = and_(_customers(), User.date_joined >= since, User.date_joined < until)
-    paid = select(Invoice.owner_id).where(_paid_plan())
-    total = int(db.scalar(select(func.count(User.id)).where(joined)) or 0)
-    bought = int(
-        db.scalar(select(func.count(User.id)).where(joined, User.id.in_(paid))) or 0
-    )
-    return total, bought
+@dataclass(frozen=True, slots=True)
+class _Cohort:
+    people: int
+    payers: int
+    revenue: int
+    deals: list[float]
 
 
-def _deals(db: Session, *, since: Any, until: Any) -> list[float]:
-    first = (
-        select(Invoice.owner_id, func.min(Invoice.paid_at).label("first"))
-        .join(Plan, Plan.id == Invoice.plan_id)
-        .where(_paid_plan(), Plan.code != DEFAULT_PLAN_CODE)
-        .group_by(Invoice.owner_id)
-        .subquery()
-    )
+def _cohort(db: Session, owners: list[uuid.UUID], plans: set[uuid.UUID]) -> _Cohort:
+    """What these accounts paid for the picked plans, up to now."""
+    if not owners or not plans:
+        return _Cohort(people=len(owners), payers=0, revenue=0, deals=[])
     rows = db.execute(
-        select(first.c.first, User.date_joined)
-        .join(User, User.id == first.c.owner_id)
-        .where(_customers(), first.c.first >= since, first.c.first < until)
+        select(
+            Invoice.owner_id,
+            func.min(Invoice.paid_at),
+            func.sum(Invoice.amount_minor),
+            User.date_joined,
+        )
+        .join(User, User.id == Invoice.owner_id)
+        .where(
+            _paid_plan(),
+            Invoice.currency == HOME,
+            Invoice.plan_id.in_(plans),
+            Invoice.owner_id.in_(owners),
+        )
+        .group_by(Invoice.owner_id, User.date_joined)
+    ).all()
+    return _Cohort(
+        people=len(owners),
+        payers=len(rows),
+        revenue=sum(int(total or 0) for _, _, total, _ in rows),
+        deals=[
+            max((first - joined).total_seconds(), 0.0)
+            for _, first, _, joined in rows
+            if first is not None
+        ],
     )
-    return [max((paid - joined).total_seconds(), 0.0) for paid, joined in rows]
+
+
+def _joined(*, since: datetime, until: datetime) -> Any:
+    return and_(_customers(), User.date_joined >= since, User.date_joined < until)
+
+
+def _weighted_median(items: list[tuple[float, float]]) -> float | None:
+    """The middle value when each value counts as much as its weight."""
+    items = sorted((value, weight) for value, weight in items if weight > 0)
+    total = sum(weight for _, weight in items)
+    if not total:
+        return None
+    running = 0.0
+    for value, weight in items:
+        running += weight
+        if running >= total / 2:
+            return value
+    return items[-1][0]
 
 
 def ad_figures(db: Session, *, window: Any) -> AdFigures:
-    """The six figures for the window (``selectors.dashboard.Window``)."""
+    """The six figures for the window (``selectors.dashboard.Window``): the
+    people who signed up in it from the picked campaigns, and what they have
+    paid for the picked plans up to now.
+
+    From ``EXACT_FROM`` on, each sign-up's marks say whether a picked
+    campaign brought it. Before it nobody can be told apart, so the picked
+    campaigns' Meta results over those days stand for their sign-ups -
+    never more than signed up in those days, taken over the whole stretch
+    because Meta writes a result on the day of the tap - and what those days'
+    sign-ups paid is shared out in the same proportion."""
     account = office_account(db)
     picked = picked_ids(db)
-    since, until = window.since, window.until
+    plans = picked_plan_ids(db)
     spend, home, unpriced = _spend(
         db, account=account, picked=picked, start=window.start, end=window.end
     )
-    revenue = _revenue(db, since=since, until=until)
-    payers = _new_payers(db, since=since, until=until)
-    joined, joined_paid = _conversion(db, since=since, until=until)
-    deals = _deals(db, since=since, until=until)
+    signups = payers = 0.0
+    revenue = 0.0
+    deals: list[tuple[float, float]] = []
+    estimated_from = estimated_until = None
+    zone = window.since.tzinfo
+
+    if window.start < EXACT_FROM:
+        last = min(window.end, EXACT_FROM - timedelta(days=1))
+        estimated_from, estimated_until = window.start, last
+        owners = list(
+            db.scalars(
+                select(User.id).where(
+                    _joined(
+                        since=window.since,
+                        until=datetime.combine(
+                            last + timedelta(days=1), time.min, zone
+                        ),
+                    )
+                )
+            )
+        )
+        found = _cohort(db, owners, plans)
+        leads = _leads(db, account=account, picked=picked, start=window.start, end=last)
+        counted = min(leads, found.people)
+        share = counted / found.people if found.people else 0.0
+        signups += counted
+        payers += found.payers * share
+        revenue += found.revenue * share
+        deals += [(value, share) for value in found.deals]
+
+    if window.end >= EXACT_FROM and account is not None and picked:
+        first = max(window.start, EXACT_FROM)
+        marks = _marks(db, account=account, picked=picked)
+        owners = [
+            owner
+            for owner, utm in db.execute(
+                select(User.id, User.signup_utm).where(
+                    _joined(
+                        since=datetime.combine(first, time.min, zone),
+                        until=window.until,
+                    ),
+                    User.signup_utm != {},
+                )
+            )
+            if marks.brought(utm or {})
+        ]
+        found = _cohort(db, owners, plans)
+        signups += found.people
+        payers += found.payers
+        revenue += found.revenue
+        deals += [(value, 1.0) for value in found.deals]
+
+    middle = _weighted_median(deals)
     return AdFigures(
         account_name=account.name if account else settings.office_ad_account,
         account_found=account is not None,
         picked=len(picked),
+        plans_picked=len(plans),
         spend=spend,
         spend_home_minor=home,
         unpriced_days=unpriced,
-        revenue_minor=revenue,
-        roas=round(revenue / home, 2) if home else None,
-        new_payers=payers,
+        signups=round(signups, 1),
+        payers=round(payers, 1),
+        revenue_minor=round(revenue),
+        roas=round(revenue / home, 2) if home and plans else None,
         cac_minor=round(home / payers) if home is not None and payers else None,
-        joined=joined,
-        joined_paid=joined_paid,
-        conversion_pct=round(joined_paid * 100 / joined, 1) if joined else None,
-        deals=len(deals),
-        deal_seconds=round(median(deals)) if deals else None,
+        conversion_pct=round(payers * 100 / signups, 1) if signups else None,
+        deals=sum(1 for _, weight in deals if weight >= 1.0)
+        + round(sum(weight for _, weight in deals if weight < 1.0)),
+        deal_seconds=round(middle) if middle is not None else None,
+        estimated_from=estimated_from,
+        estimated_until=estimated_until,
     )
 
 
 __all__ = [
+    "EXACT_FROM",
     "AdFigures",
     "CampaignRow",
+    "PlanRow",
     "ad_figures",
     "campaign_rows",
     "known_ids",
     "office_account",
     "picked_ids",
+    "picked_plan_ids",
+    "plan_rows",
 ]

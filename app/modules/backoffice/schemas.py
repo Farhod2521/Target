@@ -1408,15 +1408,25 @@ class OfficeAdFiguresOut(BaseModel):
         description="The same in so'm at each day's rate; null when a day has none."
     )
     unpriced_days: int = Field(description="Days with spend and no bank rate.")
-    revenue_uzs_minor: int = Field(description="Paid bills in so'm, as takings.")
-    roas: float | None = Field(description="Revenue / spend in so'm; blended.")
-    new_payers: int = Field(description="Customers whose first paid plan fell here.")
-    cac_uzs_minor: int | None = Field(description="Spend in so'm / new payers.")
-    joined: int
-    joined_paid: int = Field(description="Of those who joined here, who paid a plan.")
-    conversion_pct: float | None
-    deals: int = Field(description="First paid plan other than Start, in the window.")
-    deal_seconds: int | None = Field(description="Median from joining to that bill.")
+    plans_picked: int = Field(description="Plans counted; 0 counts no payment.")
+    signups: float = Field(
+        description="Signed up in the window from the picked campaigns; "
+        "estimated before `exact_from`."
+    )
+    payers: float = Field(description="Of them, who paid a picked plan by now.")
+    revenue_uzs_minor: int = Field(description="What they paid for picked plans.")
+    roas: float | None = Field(description="Revenue / spend in so'm.")
+    cac_uzs_minor: int | None = Field(description="Spend in so'm / payers.")
+    conversion_pct: float | None = Field(description="Payers / sign-ups.")
+    deals: int = Field(description="Payers whose first picked plan is timed.")
+    deal_seconds: int | None = Field(
+        description="Median from signing up to the first paid picked plan."
+    )
+    estimated_from: date | None = Field(
+        description="First day counted by estimate; null when none is."
+    )
+    estimated_until: date | None = Field(description="Last day counted by estimate.")
+    exact_from: date = Field(description="Sign-ups carry their marks from this day.")
 
 
 class DashboardOut(BaseModel):
@@ -2433,3 +2443,16 @@ class OfficeAdCampaignsOut(BaseModel):
     account_found: bool
     currency: str
     campaigns: list[OfficeAdCampaignOut]
+
+
+class OfficeAcquisitionPlanOut(BaseModel):
+    id: str
+    name: str
+    code: str
+    is_active: bool
+    paid: int = Field(description="Bills ever paid for it.")
+    picked: bool
+
+
+class OfficeAcquisitionPlansOut(BaseModel):
+    plans: list[OfficeAcquisitionPlanOut]
