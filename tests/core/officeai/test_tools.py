@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -27,10 +28,13 @@ def test_money_is_left_out_for_those_who_do_not_see_it() -> None:
     assert {tool.name for tool in tools_for(sees_money=True)} == TOOL_NAMES
 
 
-def test_the_prompt_names_every_look_up() -> None:
+def test_the_prompt_names_only_look_ups_there_are() -> None:
+    """What each look-up gives is said once, in its own description; the
+    prompt names one only to say how to ask it."""
     text = PROMPT.read_text(encoding="utf-8")
-    for name in TOOL_NAMES:
-        assert f"`{name}`" in text, name
+    named = set(re.findall(r"`([a-z]+_[a-z_]+)`", text))
+    assert named <= TOOL_NAMES | {"per_bar"}, named - TOOL_NAMES
+    assert named >= MONEY_TOOLS
     assert "{{" not in text
 
 
@@ -43,3 +47,9 @@ def test_arguments_are_closed_and_bounded() -> None:
     with pytest.raises(ValidationError):
         CustomerQuery.model_validate({"state": "rich"})
     assert CustomerQuery.model_validate({"state": "expiring"}).state == "expiring"
+    assert CustomerQuery().limit == 10 and CustomerQuery().fields == []
+    assert Span().per_bar is False
+    with pytest.raises(ValidationError):
+        CustomerQuery.model_validate({"limit": 31})
+    with pytest.raises(ValidationError):
+        CustomerQuery.model_validate({"fields": ["password"]})

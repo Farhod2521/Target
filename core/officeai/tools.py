@@ -50,6 +50,28 @@ class Span(Arguments):
     until: date | None = Field(
         default=None, description="With `range`: the last day, YYYY-MM-DD."
     )
+    per_bar: bool = Field(
+        default=False,
+        description=(
+            "Also give a row per day, week or month. Only when the person asks "
+            "how it went over time; the totals come either way."
+        ),
+    )
+
+
+CustomerField = Literal["business", "joined", "paid", "ads", "manager", "problem"]
+LIST_LIMIT: Final = 30
+LIST_DEFAULT: Final = 10
+
+
+class Queues(Arguments):
+    problems: bool = Field(
+        default=False,
+        description=(
+            "Also list the problems one by one - who and what. Without it: "
+            "only how many there are and how many are urgent."
+        ),
+    )
 
 
 class CustomerQuery(Arguments):
@@ -81,6 +103,21 @@ class CustomerQuery(Arguments):
     joined_to: date | None = Field(
         default=None, description="Signed up on or before this day, YYYY-MM-DD."
     )
+    fields: list[CustomerField] = Field(
+        default_factory=list,
+        description=(
+            "What to add to each row beyond name, email and plan - only what "
+            "the answer needs: `business` its name; `joined` sign-up day; "
+            "`paid` paid in all; `ads` campaigns running and leads; `manager` "
+            "sales manager; `problem` the worst problem."
+        ),
+    )
+    limit: int = Field(
+        default=LIST_DEFAULT,
+        ge=1,
+        le=LIST_LIMIT,
+        description="How many rows to list. The total that matched comes anyway.",
+    )
 
 
 def _tool(name: str, arguments: type, *lines: str) -> Tool:
@@ -95,16 +132,15 @@ TOOLS: Final[tuple[Tool, ...]] = (
         "signed up (and the window before, for comparison), how many of those",
         "paid for a plan and the conversion, how many are on a trial or a paid",
         "plan now, whose plan ends soon, who stopped, who has not finished the",
-        "setup or connected Facebook - and sign-ups per day, week or month.",
-        "Staff accounts are never counted.",
+        "setup or connected Facebook. Staff accounts are never counted.",
     ),
     _tool(
         MONEY,
         Span,
         "Takings over a window of days: money in, number of payments, the",
         "average, online versus entered by hand, each plan's share, the window",
-        "before for comparison, unpaid bills now, plans given free - and money",
-        "per day, week or month. In the currency most bills were paid in.",
+        "before for comparison, unpaid bills now, plans given free. In the",
+        "currency most bills were paid in.",
     ),
     _tool(
         PLATFORM,
@@ -115,11 +151,12 @@ TOOLS: Final[tuple[Tool, ...]] = (
     ),
     _tool(
         QUEUES,
-        Nothing,
+        Queues,
         "What waits on a person in the office right now - support chats with",
         "no answer, promo and plan requests, feedback, sales requests, stuck",
-        "payments, block suggestions - and the problem list: broken",
-        "connections, failed launches, plans about to end, leads not arriving.",
+        "payments, block suggestions - and how long the problem list is:",
+        "broken connections, failed launches, plans about to end, leads not",
+        "arriving.",
     ),
     _tool(
         SALES,
@@ -135,10 +172,9 @@ TOOLS: Final[tuple[Tool, ...]] = (
         CUSTOMER_LIST,
         CustomerQuery,
         "Find customers, or list the ones a filter keeps: the total that",
-        "matched and the first rows, each with sign-up day, plan and its",
-        "state, days left or when it ended, paid in all, campaigns running,",
-        "leads, sales manager, and the worst problem. Use it for 'who' and",
-        "for one customer's situation.",
+        "matched and the first rows, each with name, email, plan and its",
+        "state, days left or when it ended. Use it for 'who' and for one",
+        "customer's situation. For 'how many', `limit` 1 is enough.",
     ),
     _tool(
         PLANS,
@@ -183,6 +219,7 @@ __all__ = [
     "TOOLS",
     "TOOL_NAMES",
     "CustomerQuery",
+    "Queues",
     "Span",
     "tools_for",
 ]

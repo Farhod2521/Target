@@ -155,7 +155,7 @@ class Desk:
                 sees_money=self.sees_money,
             )
         if call.name == QUEUES:
-            return facts.waiting_now(db, now=now)
+            return facts.waiting_now(db, query=arguments, now=now)
         if call.name == SALES:
             return facts.sales_by_manager(db, span=arguments, now=now)
         if call.name == PAYMENTS:

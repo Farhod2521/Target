@@ -23,7 +23,7 @@ from app.modules.officeai.selectors import facts
 from app.modules.officeai.services.answer import answer_turn
 from app.modules.officeai.services.ask import turn_payload
 from core.chat.lookup_arguments import Nothing
-from core.officeai.tools import CustomerQuery, Span
+from core.officeai.tools import CustomerQuery, Queues, Span
 from tests.pg.conftest import sign_up
 from tests.pg.test_office_actions import _staff
 
@@ -130,7 +130,11 @@ def test_the_figures_are_the_offices_own_and_staff_are_never_counted(
     assert "; did not pay: 2" in summary
     assert "(2 more now; change:" in summary
     assert "- On a trial now: 1" in summary
-    assert "### Sign-ups per day" in summary
+    assert "### Sign-ups per day" not in summary
+    daily = facts.customers_summary(
+        db, span=Span(period="today", per_bar=True), now=now
+    )
+    assert "### Sign-ups per day" in daily
 
     plans = facts.plans_summary(db, now=now)
     assert "- In all now: 1 on trial, 0 paying" in plans
@@ -144,16 +148,21 @@ def test_the_figures_are_the_offices_own_and_staff_are_never_counted(
 
 
 def test_a_long_list_says_how_many_rows_it_gave_and_how_many_it_left(
-    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, db: Session
 ) -> None:
     _customers(client, db)
-    monkeypatch.setattr(facts, "LIST_ROWS", 1)
-
-    everyone = facts.customer_list(db, query=CustomerQuery(), now=utcnow())
+    everyone = facts.customer_list(db, query=CustomerQuery(limit=1), now=utcnow())
     assert "## Customers matched: 2" in everyone
     assert "Only the first 1 are listed below, newest sign-up first" in everyone
     assert "the other 1 were not read" in everyone
     assert everyone.count("\n- ") == 1
+    assert "paid in all" not in everyone and "signed up" not in everyone
+
+    full = facts.customer_list(
+        db, query=CustomerQuery(fields=["joined", "paid", "ads"]), now=utcnow()
+    )
+    assert "signed up" in full and "paid in all: nothing" in full
+    assert "campaigns running: 0; leads: 0" in full
 
 
 def test_the_rest_of_the_figures_read(client: TestClient, db: Session) -> None:
@@ -168,7 +177,12 @@ def test_the_rest_of_the_figures_read(client: TestClient, db: Session) -> None:
     assert "AI cost" not in facts.platform_activity(
         db, span=Span(period="month"), now=now, sees_money=False
     )
-    assert "## Waiting on a person now" in facts.waiting_now(db, now=now)
+    waiting = facts.waiting_now(db, query=Queues(), now=now)
+    assert "## Waiting on a person now" in waiting and "## Problem list:" in waiting
+    assert "### Per day" not in week
+    assert "### Per day" in facts.money_summary(
+        db, span=Span(period="7", per_bar=True), now=now
+    )
 
 
 def test_an_admin_asks_and_the_answer_quotes_only_what_was_read(

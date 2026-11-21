@@ -37,8 +37,8 @@ from app.modules.billing.constants import (
 )
 from app.modules.billing.models import Plan, Subscription
 from app.modules.integrations.selectors.demo import not_demo
-from app.modules.officeai.constants import LIST_ROWS, PROBLEM_ROWS
-from core.officeai.tools import CustomerQuery, Span
+from app.modules.officeai.constants import PROBLEM_ROWS
+from core.officeai.tools import CustomerQuery, Queues, Span
 
 
 def window_of(span: Span, *, today: date) -> Window:
@@ -107,7 +107,6 @@ def _signups_by_bar(db: Session, window: Window) -> Counter[date]:
 def customers_summary(db: Session, *, span: Span, now: datetime) -> str:
     window = window_of(span, today=localtime(now).date())
     found = customers(db, window=window, now=now)
-    per_bar = _signups_by_bar(db, window)
     lines = [
         *_heading("Customers", window),
         f"- Customers in all (staff never counted): {found.total}",
@@ -125,13 +124,14 @@ def customers_summary(db: Session, *, span: Span, now: datetime) -> str:
         f"- Plan ended in the window and not renewed: {found.churned}",
         f"- Plan live, setup not finished: {found.setup_unfinished}",
         f"- Plan live, Facebook not connected: {found.meta_missing}",
-        "",
-        f"### Sign-ups per {window.unit}",
     ]
-    lines += [
-        f"- {bar_hint(start, window)}: {per_bar.get(start, 0)}"
-        for start in window.bars()
-    ]
+    if span.per_bar:
+        per_bar = _signups_by_bar(db, window)
+        lines += ["", f"### Sign-ups per {window.unit}"]
+        lines += [
+            f"- {bar_hint(start, window)}: {per_bar.get(start, 0)}"
+            for start in window.bars()
+        ]
     return "\n".join(lines)
 
 
@@ -165,12 +165,13 @@ def money_summary(db: Session, *, span: Span, now: datetime) -> str:
         f"{_money(plan.amount_minor, currency)} ({plan.share_pct}%)"
         for plan in whole.plans
     ] or ["- no payments"]
-    lines += ["", f"### Per {window.unit}"]
-    lines += [
-        f"- {bar.hint}: {_money(bar.figures.amount_minor, currency)}, "
-        f"{bar.figures.payments} payments, {bar.figures.signups} sign-ups"
-        for bar in found.bars
-    ]
+    if span.per_bar:
+        lines += ["", f"### Per {window.unit}"]
+        lines += [
+            f"- {bar.hint}: {_money(bar.figures.amount_minor, currency)}, "
+            f"{bar.figures.payments} payments, {bar.figures.signups} sign-ups"
+            for bar in found.bars
+        ]
     return "\n".join(lines)
 
 
@@ -225,7 +226,7 @@ def platform_activity(
 # -- what waits ----------------------------------------------------------------
 
 
-def waiting_now(db: Session, *, now: datetime) -> str:
+def waiting_now(db: Session, *, query: Queues, now: datetime) -> str:
     queues = waiting(db, now=now)
     found = problems(db, now=now)
     urgent = sum(1 for problem in found if problem.urgent)
@@ -246,6 +247,8 @@ def waiting_now(db: Session, *, now: datetime) -> str:
         "",
         f"## Problem list: {len(found)} in all, {urgent} urgent",
     ]
+    if not query.problems:
+        return "\n".join(lines)
     lines += [
         f"- {'[urgent] ' if problem.urgent else ''}{problem.label} - "
         f"{problem.who}: {problem.what}"
@@ -313,7 +316,10 @@ def customer_list(db: Session, *, query: CustomerQuery, now: datetime) -> str:
             joined_to=query.joined_to,
         ),
     )
-    shown = page.rows[:LIST_ROWS]
+    shown = page.rows[: query.limit]
+    wanted = set(query.fields)
+    if query.state == "trouble":
+        wanted.add("problem")
     lines = [f"## Customers matched: {page.total}"]
     if page.total > len(shown):
         lines.append(
@@ -324,23 +330,23 @@ def customer_list(db: Session, *, query: CustomerQuery, now: datetime) -> str:
         )
     for row in shown:
         user = row.user
-        paid = (
-            ", ".join(_money(amount, currency) for currency, amount in row.paid_total)
-            or "nothing"
-        )
-        parts = [
-            f"- {user.full_name or '(no name)'} <{user.email}>",
-            f"signed up {_day(user.date_joined)}",
-            f"plan: {_plan_line(row, now=now)}",
-            f"paid in all: {paid}",
-            f"campaigns running: {row.running}",
-            f"leads: {row.leads}",
-        ]
-        if row.business is not None and row.business.name:
-            parts.insert(1, f"business «{row.business.name}»")
-        if row.manager is not None:
+        parts = [f"- {user.full_name or '(no name)'} <{user.email}>"]
+        if "business" in wanted and row.business is not None and row.business.name:
+            parts.append(f"business «{row.business.name}»")
+        if "joined" in wanted:
+            parts.append(f"signed up {_day(user.date_joined)}")
+        parts.append(f"plan: {_plan_line(row, now=now)}")
+        if "paid" in wanted:
+            paid = ", ".join(
+                _money(amount, currency) for currency, amount in row.paid_total
+            )
+            parts.append(f"paid in all: {paid or 'nothing'}")
+        if "ads" in wanted:
+            parts.append(f"campaigns running: {row.running}")
+            parts.append(f"leads: {row.leads}")
+        if "manager" in wanted and row.manager is not None:
             parts.append(f"sales manager: {row.manager.full_name or row.manager.email}")
-        if row.trouble is not None:
+        if "problem" in wanted and row.trouble is not None:
             parts.append(f"problem: {row.trouble.label}")
         if not user.is_active:
             parts.append("BLOCKED")
