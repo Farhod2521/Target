@@ -23,6 +23,7 @@ from typing import Any
 
 from llmkit import MICROS_PER_MINOR
 from metaads import PROVIDER as META
+from metaads.writing import is_dry_run_id
 from sqlalchemy import ColumnElement, Select, and_, case, distinct, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -30,8 +31,15 @@ from app.common.config import settings
 from app.common.dates import localtime
 from app.modules.accounts.constants import ROLE_LABELS, SIGNUP_VIA_LABELS
 from app.modules.accounts.models import User
-from app.modules.ads.constants import LaunchStatus
-from app.modules.ads.models import CampaignLaunch, ChatTemplate, GoogleLaunch
+from app.modules.ads import refs as ref_field
+from app.modules.ads.constants import LaunchStatus, LaunchStep
+from app.modules.ads.models import (
+    AdSet,
+    Campaign,
+    CampaignLaunch,
+    ChatTemplate,
+    GoogleLaunch,
+)
 from app.modules.audit.constants import LLM_PURPOSE_LABELS
 from app.modules.audit.models import LLMCall
 from app.modules.audit.selectors import exact_cost
@@ -69,8 +77,13 @@ from app.modules.integrations.models import ProviderConnection
 from app.modules.integrations.selectors.demo import not_demo
 from app.modules.leads.constants import MANUAL_PROVIDER
 from app.modules.leads.models import Lead
+from app.modules.metrics.constants import MetricLevel
+from app.modules.metrics.models import MetricsDaily
+from app.modules.metrics.selectors.results import screen_kind
 from app.modules.referrals.models import ReferralBinding, ReferralReward
 from app.modules.telephony.models import PhoneConnection
+from core.metrics import formulas
+from core.metrics.outcomes import campaign_goal
 
 START_CODE = DEFAULT_PLAN_CODE
 STANDARD_CODE = AFTER_START_PLAN_CODE
@@ -796,6 +809,391 @@ def funnel(db: Session, buyers: dict[str, Buyer], *, window: Window) -> dict[str
         )
         previous = count
     return {"joined": total, "steps": rows}
+
+
+# -- how long each step takes --------------------------------------------------------
+
+TIMED_STEPS = (
+    ("meta", "Meta'ni uladi"),
+    ("setup", "Tayyorgarlikni yakunladi"),
+    ("paid", "Birinchi to'lov"),
+    ("launch", "Birinchi reklamani chiqardi"),
+    ("lead", "Birinchi lid keldi"),
+)
+# A step made within this many days of signing up, counted together.
+WITHIN_DAYS = (1, 3, 7)
+
+
+def first_moments(db: Session, owners: Any) -> dict[uuid.UUID, dict[str, datetime]]:
+    """When each of ``owners`` (ids, or a query of ids) first made each timed
+    step. Four grouped queries, whatever the number of customers.
+
+    Meta's moment is the oldest connection still on record: one let go of
+    and made again shows the later day.
+    """
+    found: dict[uuid.UUID, dict[str, datetime]] = defaultdict(dict)
+
+    def keep(step: str, rows: Iterable[Any]) -> None:
+        for owner, moment in rows:
+            if owner is not None and moment is not None:
+                found[owner][step] = moment
+
+    keep(
+        "setup",
+        db.execute(
+            select(User.id, User.prepared_at).where(
+                User.id.in_(owners), User.prepared_at.is_not(None)
+            )
+        ),
+    )
+    keep(
+        "meta",
+        db.execute(
+            select(ProviderConnection.owner_id, func.min(ProviderConnection.created_at))
+            .where(
+                ProviderConnection.owner_id.in_(owners),
+                ProviderConnection.provider == META,
+            )
+            .group_by(ProviderConnection.owner_id)
+        ),
+    )
+    keep(
+        "paid",
+        db.execute(
+            select(Invoice.owner_id, func.min(Invoice.paid_at))
+            .where(
+                Invoice.owner_id.in_(owners),
+                Invoice.archived_at.is_(None),
+                Invoice.status == InvoiceStatus.PAID,
+                Invoice.kind == InvoiceKind.PLAN,
+                Invoice.paid_at.is_not(None),
+                or_(Invoice.amount_minor != 0, Invoice.wallet_minor != 0),
+            )
+            .group_by(Invoice.owner_id)
+        ),
+    )
+    keep(
+        "launch",
+        db.execute(
+            select(CampaignLaunch.owner_id, func.min(CampaignLaunch.created_at))
+            .where(
+                CampaignLaunch.owner_id.in_(owners),
+                CampaignLaunch.status == LaunchStatus.CREATED,
+            )
+            .group_by(CampaignLaunch.owner_id)
+        ),
+    )
+    keep(
+        "lead",
+        db.execute(
+            select(Lead.owner_id, func.min(Lead.created_at))
+            .where(Lead.owner_id.in_(owners))
+            .group_by(Lead.owner_id)
+        ),
+    )
+    return dict(found)
+
+
+def _days_between(start: datetime, end: datetime) -> float:
+    """Never below nothing: a step dated before its start took no time."""
+    return max((end - start).total_seconds(), 0.0) / 86400
+
+
+def _spread(days: list[float], *, of: int) -> dict[str, Any]:
+    """How long a step took for those who made it: the middle, the average,
+    and how many made it within a day, three and a week."""
+    return {
+        "reached": len(days),
+        "reached_pct": _pct(len(days), of),
+        "median_days": _median(days),
+        "average_days": round(sum(days) / len(days), 1) if days else None,
+        "median_hours": round(statistics.median(days) * 24, 1) if days else None,
+        "within": [
+            {"days": limit, "customers": sum(1 for value in days if value <= limit)}
+            for limit in WITHIN_DAYS
+        ],
+        "later": sum(1 for value in days if value > WITHIN_DAYS[-1]),
+    }
+
+
+def timings(db: Session, *, window: Window) -> dict[str, Any]:
+    """Customers who signed up inside the window: how long after signing up
+    each step was first made, and from the first payment to the first ad.
+
+    Those who signed up lately have had less time, so a recent window
+    under-counts the later steps.
+    """
+    joined = dict(
+        db.execute(
+            select(User.id, User.date_joined).where(
+                _customer(),
+                User.date_joined >= window.since,
+                User.date_joined < window.until,
+            )
+        ).all()
+    )
+    moments = first_moments(
+        db,
+        select(User.id).where(
+            _customer(),
+            User.date_joined >= window.since,
+            User.date_joined < window.until,
+        ),
+    )
+    steps = []
+    for key, label in TIMED_STEPS:
+        days = [
+            _days_between(joined[owner], made[key])
+            for owner, made in moments.items()
+            if key in made and owner in joined
+        ]
+        steps.append({"key": key, "label": label, **_spread(days, of=len(joined))})
+    both = [
+        made
+        for owner, made in moments.items()
+        if owner in joined and "paid" in made and "launch" in made
+    ]
+    after = [made for made in both if made["launch"] >= made["paid"]]
+    return {
+        "joined": len(joined),
+        "steps": steps,
+        "paid_then_launch": {
+            "both": len(both),
+            "launched_first": len(both) - len(after),
+            **_spread(
+                [_days_between(made["paid"], made["launch"]) for made in after],
+                of=len(both),
+            ),
+        },
+    }
+
+
+# -- advertising by the kind of customer ---------------------------------------------
+
+NO_BUSINESS = "unlinked"
+SEGMENT_LABELS = {
+    "custom": "O'zi yozgan",
+    "none": "Tanlanmagan",
+    NO_BUSINESS: "Biznesga bog'lanmagan",
+}
+
+
+def _directions_of_pages(db: Session) -> dict[uuid.UUID, tuple[str, str]]:
+    """Each page's business direction, as (key, label)."""
+    found: dict[uuid.UUID, tuple[str, str]] = {}
+    for page, direction, custom, key, label in db.execute(
+        select(
+            Business.page_id,
+            Business.direction_id,
+            Business.custom_category_id,
+            BusinessCategory.key,
+            BusinessCategory.label_uz,
+        )
+        .outerjoin(BusinessCategory, BusinessCategory.id == Business.direction_id)
+        .where(Business.page_id.is_not(None))
+    ):
+        if page is None:
+            continue
+        if direction is not None:
+            found[page] = (str(key), str(label or key))
+        elif custom is not None:
+            found[page] = ("custom", SEGMENT_LABELS["custom"])
+        else:
+            found[page] = ("none", SEGMENT_LABELS["none"])
+    return found
+
+
+def _campaign_kinds(db: Session, owners: Any) -> dict[str, str]:
+    """What one result of each campaign is ("lead", "site_lead", a message...),
+    from the ad set that speaks for it - the rule the Reklama screen uses."""
+    adsets: dict[str, list[tuple[str, str, Any]]] = defaultdict(list)
+    for campaign, adset, goal, promoted in db.execute(
+        select(
+            Campaign.external_id,
+            AdSet.external_id,
+            AdSet.optimization_goal_raw,
+            AdSet.promoted_object_raw,
+        )
+        .join(AdSet, AdSet.campaign_id == Campaign.id)
+        .where(Campaign.owner_id.in_(owners))
+    ):
+        adsets[campaign].append(
+            (adset, goal or "", promoted if isinstance(promoted, dict) else None)
+        )
+    return {
+        campaign: str(screen_kind(*campaign_goal(rows)))
+        for campaign, rows in adsets.items()
+    }
+
+
+def ads_by(db: Session, *, window: Window, by: str) -> dict[str, Any]:
+    """Advertising inside the window, split by the business's direction
+    (``by="direction"``) or by the customer's role (``by="role"``).
+
+    Only campaigns this product launched, as on the dashboard. A campaign
+    belongs to the direction of the business on the page it was launched
+    for - a customer with several businesses is split between them; a
+    launch whose page has no business stands apart. Spend is summed in the
+    currency most of it is in; a campaign billed in another is left out
+    and counted.
+
+    The lead cost is the spend of the campaigns run for leads over those
+    campaigns' leads: money spent for messages, visits or anything else
+    bought no lead and is not laid on the leads' price. What a campaign is
+    run for is read as the office's Reklama screen reads it - from the ad
+    set that speaks for it, and a lead where the copy has no goal.
+    """
+    customers = customer_ids()
+    if by == "role":
+        labels = {str(key): str(label) for key, label in ROLE_LABELS.items()}
+        roles = dict(db.execute(select(User.id, User.role).where(_customer())).all())
+        pages: dict[uuid.UUID, tuple[str, str]] = {}
+    else:
+        labels, roles = {}, {}
+        pages = _directions_of_pages(db)
+
+    def segment(owner: uuid.UUID, page: uuid.UUID | None) -> tuple[str, str]:
+        if by == "role":
+            key = str(roles.get(owner) or "")
+            return (key, labels.get(key, key)) if key else ("", NO_VALUE)
+        if page is not None and page in pages:
+            return pages[page]
+        return NO_BUSINESS, SEGMENT_LABELS[NO_BUSINESS]
+
+    rows: dict[str, dict[str, Any]] = {}
+
+    def row(found: tuple[str, str]) -> dict[str, Any]:
+        key, label = found
+        return rows.setdefault(
+            key,
+            {
+                "key": key,
+                "label": label,
+                "launched": 0,
+                "failed": 0,
+                "spend": Counter(),
+                "lead_spend": Counter(),
+                "leads": Counter(),
+                "advertisers": defaultdict(set),
+            },
+        )
+
+    campaigns: dict[str, tuple[str, str]] = {}
+    for owner, page, status, finished, refs in db.execute(
+        select(
+            CampaignLaunch.owner_id,
+            CampaignLaunch.page_id,
+            CampaignLaunch.status,
+            CampaignLaunch.finished_at,
+            CampaignLaunch.created_refs,
+        ).where(
+            CampaignLaunch.owner_id.in_(customers),
+            CampaignLaunch.status.in_((LaunchStatus.CREATED, LaunchStatus.FAILED)),
+        )
+    ):
+        found = segment(owner, page)
+        for campaign in ref_field.ref_ids(refs or {}, LaunchStep.CAMPAIGN):
+            if campaign and not is_dry_run_id(campaign):
+                campaigns[campaign] = found
+        if finished is not None and window.since <= finished < window.until:
+            bucket = "launched" if status == LaunchStatus.CREATED else "failed"
+            row(found)[bucket] += 1
+
+    kinds = _campaign_kinds(db, customers)
+
+    def for_leads(campaign: str) -> bool:
+        return kinds.get(campaign, "lead") == "lead"
+
+    currency_of: dict[str, str] = {}
+    for campaign, owner, currency, spend in db.execute(
+        select(
+            MetricsDaily.campaign_external_id,
+            MetricsDaily.owner_id,
+            MetricsDaily.currency,
+            func.sum(MetricsDaily.spend_minor),
+        )
+        .where(
+            MetricsDaily.level == MetricLevel.ADSET,
+            MetricsDaily.date >= window.start,
+            MetricsDaily.date <= window.end,
+            MetricsDaily.owner_id.in_(customers),
+        )
+        .group_by(
+            MetricsDaily.campaign_external_id,
+            MetricsDaily.owner_id,
+            MetricsDaily.currency,
+        )
+    ):
+        if campaign in campaigns and spend:
+            found_row = row(campaigns[campaign])
+            found_row["spend"][currency] += int(spend)
+            if for_leads(campaign):
+                found_row["lead_spend"][currency] += int(spend)
+            found_row["advertisers"][currency].add(owner)
+            currency_of[campaign] = currency
+    spent: Counter[str] = Counter()
+    for found_row in rows.values():
+        spent.update(found_row["spend"])
+    currency = spent.most_common(1)[0][0] if spent else ""
+    for campaign, count in db.execute(
+        select(Lead.campaign_external_id, func.count(Lead.id))
+        .where(
+            Lead.is_test.is_(False),
+            Lead.campaign_external_id != "",
+            Lead.submitted_at >= window.since,
+            Lead.submitted_at < window.until,
+            Lead.owner_id.in_(customers),
+        )
+        .group_by(Lead.campaign_external_id)
+    ):
+        if campaign in campaigns and for_leads(campaign):
+            row(campaigns[campaign])["leads"][currency_of.get(campaign, currency)] += (
+                int(count)
+            )
+
+    total_spend = sum(found_row["spend"][currency] for found_row in rows.values())
+    out = [
+        {
+            "key": found_row["key"],
+            "label": found_row["label"],
+            "launched": found_row["launched"],
+            "failed": found_row["failed"],
+            "failed_pct": _pct(
+                found_row["failed"], found_row["launched"] + found_row["failed"]
+            ),
+            "advertisers": len(found_row["advertisers"][currency]),
+            "spend_minor": found_row["spend"][currency],
+            "spend_share_pct": _pct(found_row["spend"][currency], total_spend),
+            "lead_spend_minor": found_row["lead_spend"][currency],
+            "leads": found_row["leads"][currency],
+            "lead_cost_minor": formulas.cpl(
+                found_row["lead_spend"][currency], found_row["leads"][currency]
+            ),
+        }
+        for found_row in rows.values()
+    ]
+    out.sort(key=lambda found: (-found["spend_minor"], -found["launched"]))
+    leads = sum(found["leads"] for found in out)
+    lead_spend = sum(found["lead_spend_minor"] for found in out)
+    launched = sum(found["launched"] for found in out)
+    failed = sum(found["failed"] for found in out)
+    return {
+        "by": by,
+        "currency": currency,
+        "other_currency_campaigns": sum(
+            1 for found in currency_of.values() if found != currency
+        ),
+        "rows": out,
+        "total": {
+            "launched": launched,
+            "failed": failed,
+            "failed_pct": _pct(failed, launched + failed),
+            "spend_minor": total_spend,
+            "lead_spend_minor": lead_spend,
+            "leads": leads,
+            "lead_cost_minor": formulas.cpl(lead_spend, leads),
+        },
+    }
 
 
 # -- the assistant's cost ------------------------------------------------------------

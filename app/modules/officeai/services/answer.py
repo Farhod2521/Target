@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.common.cache import cache
 from app.common.config import settings
+from app.common.dates import localtime
 from app.common.llm import ASKED, claude, model_for
 from app.modules.accounts.models import User
 from app.modules.audit.constants import LLMPurpose
@@ -26,6 +27,7 @@ from app.modules.officeai.constants import (
     LOOKING_DEFAULT,
     MAX_LOOKUPS,
     MAX_ROUNDS,
+    ORDINALS_BELOW,
     OUT_KEY,
     PROMPT_NAME,
     RELATED_TYPE,
@@ -35,10 +37,10 @@ from app.modules.officeai.constants import (
     MessageStatus,
 )
 from app.modules.officeai.models import OfficeAiMessage, OfficeAiThread
-from app.modules.officeai.selectors import facts
+from app.modules.officeai.selectors import facts, statistics
 from core.chat.markdown import render
 from core.chat.numbers import figures_in
-from core.chat.verify import FigureGate
+from core.chat.verify import FigureGate, dates_in
 from core.officeai.tools import (
     CUSTOMER_LIST,
     CUSTOMERS,
@@ -50,6 +52,7 @@ from core.officeai.tools import (
     PLATFORM,
     QUEUES,
     SALES,
+    STATS,
     tools_for,
 )
 
@@ -134,6 +137,7 @@ class Desk:
             self.announce(LOOKING.get(call.name, LOOKING_DEFAULT))
         text = self._read(call)
         self.gate.allow(figures_in(text))
+        self.gate.allow_dates(dates_in(text))
         self.used.append(call.name)
         logger.info("office_ai_lookup", extra={"lookup": call.name, "chars": len(text)})
         return ToolOutput(text=text)
@@ -152,7 +156,7 @@ class Desk:
                 sees_money=self.sees_money,
             )
         if call.name == QUEUES:
-            return facts.waiting_now(db, now=now)
+            return facts.waiting_now(db, query=arguments, now=now)
         if call.name == SALES:
             return facts.sales_by_manager(db, span=arguments, now=now)
         if call.name == PAYMENTS:
@@ -161,6 +165,8 @@ class Desk:
             return facts.customer_list(db, query=arguments, now=now)
         if call.name == PLANS:
             return facts.plans_summary(db, now=now)
+        if call.name == STATS:
+            return statistics.statistics(db, query=arguments, now=now)
         return f"There is no look-up called {call.name}."
 
 
@@ -210,10 +216,15 @@ def answer_turn(
     if staff is None:
         return
     sees_money = bool(payload.get("sees_money"))
+    # Today is in the prompt's Context, so it may be said back; a list of
+    # rows may be numbered.
+    today = f"{localtime(now):%d.%m.%Y}"
     gate = FigureGate(
-        allowed=frozenset(),
+        allowed=figures_in(today),
         quoted=frozenset(payload.get("quoted", ())),
         people_below=0,
+        ordinals_below=ORDINALS_BELOW,
+        dates=dates_in(today),
     )
     safe: list[str] = []
     halt = Halt(turn_id)

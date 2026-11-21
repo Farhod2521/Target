@@ -1,6 +1,7 @@
 """The office's assistant: what it reads, who may ask, and the answer."""
 
 import json
+import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -12,6 +13,7 @@ from llmkit import LLMResult, ToolCall
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.common.dates import localtime
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.audit.constants import LLMPurpose
@@ -23,7 +25,7 @@ from app.modules.officeai.selectors import facts
 from app.modules.officeai.services.answer import answer_turn
 from app.modules.officeai.services.ask import turn_payload
 from core.chat.lookup_arguments import Nothing
-from core.officeai.tools import CustomerQuery, Span
+from core.officeai.tools import CustomerQuery, Queues, Span
 from tests.pg.conftest import sign_up
 from tests.pg.test_office_actions import _staff
 
@@ -127,8 +129,14 @@ def test_the_figures_are_the_offices_own_and_staff_are_never_counted(
     summary = facts.customers_summary(db, span=Span(period="today"), now=now)
     assert "- Customers in all (staff never counted): 2" in summary
     assert "- Signed up in the window: 2" in summary
+    assert "; did not pay: 2" in summary
+    assert "(2 more now; change:" in summary
     assert "- On a trial now: 1" in summary
-    assert "### Sign-ups per day" in summary
+    assert "### Sign-ups per day" not in summary
+    daily = facts.customers_summary(
+        db, span=Span(period="today", per_bar=True), now=now
+    )
+    assert "### Sign-ups per day" in daily
 
     plans = facts.plans_summary(db, now=now)
     assert "- In all now: 1 on trial, 0 paying" in plans
@@ -138,6 +146,30 @@ def test_the_figures_are_the_offices_own_and_staff_are_never_counted(
     assert "birinchi@example.com" in trial and "(trial)" in trial
     never = facts.customer_list(db, query=CustomerQuery(term="ikkinchi"), now=now)
     assert "never had a plan" in never
+    assert "Only the first" not in never
+
+
+def test_a_long_list_says_how_many_rows_it_gave_and_how_many_it_left(
+    client: TestClient, db: Session
+) -> None:
+    _customers(client, db)
+    everyone = facts.customer_list(db, query=CustomerQuery(limit=1), now=utcnow())
+    assert "## Customers matched: 2" in everyone
+    assert "Only the first 1 are listed below, newest sign-up first" in everyone
+    assert "the other 1 were not read" in everyone
+    assert everyone.count("\n- ") == 1
+    assert "paid in all" not in everyone and "signed up" not in everyone
+
+    full = facts.customer_list(
+        db, query=CustomerQuery(fields=["joined", "paid", "ads"]), now=utcnow()
+    )
+    assert "signed up" in full and "paid in all: nothing" in full
+    assert "campaigns running: 0; leads: 0" in full
+
+
+def test_the_rest_of_the_figures_read(client: TestClient, db: Session) -> None:
+    _customers(client, db)
+    now = utcnow()
 
     week = facts.money_summary(db, span=Span(period="7"), now=now)
     assert "- Payments: 0" in week
@@ -147,7 +179,12 @@ def test_the_figures_are_the_offices_own_and_staff_are_never_counted(
     assert "AI cost" not in facts.platform_activity(
         db, span=Span(period="month"), now=now, sees_money=False
     )
-    assert "## Waiting on a person now" in facts.waiting_now(db, now=now)
+    waiting = facts.waiting_now(db, query=Queues(), now=now)
+    assert "## Waiting on a person now" in waiting and "## Problem list:" in waiting
+    assert "### Per day" not in week
+    assert "### Per day" in facts.money_summary(
+        db, span=Span(period="7", per_bar=True), now=now
+    )
 
 
 def test_an_admin_asks_and_the_answer_quotes_only_what_was_read(
@@ -414,3 +451,313 @@ def test_the_owners_bot_asks_the_same_assistant_and_answers_in_the_chat(
         == "refused"
     )
     assert telegram.split("a" * 9000, size=4000) == ["a" * 4000, "a" * 4000, "a" * 1000]
+
+
+def test_the_statistika_screen_is_read_block_by_block(
+    client: TestClient, db: Session
+) -> None:
+    from typing import get_args
+
+    from app.modules.officeai.selectors import statistics
+    from core.officeai.tools import Statistics, StatPart
+
+    _customers(client, db)
+    now = utcnow()
+
+    one = statistics.statistics(
+        db, query=Statistics(period="today", parts=["funnel"]), now=now
+    )
+    assert "### Funnel: the 2 customers" in one
+    assert "- Ro'yxatdan o'tdi: 2; 100.0%; 100.0%; dropped 0" in one
+    assert "### Customers" not in one and "Claude" not in one
+
+    states = statistics.statistics(
+        db, query=Statistics(period="today", parts=["statuses", "roles"]), now=now
+    )
+    assert "### Customers now by plan state: 2 in all" in states
+    assert "- Sinovda: 1 (50.0%)" in states
+    assert "### Customers by role" in states
+
+    # Every block reads, with nothing sold and nothing spent too.
+    parts = list(get_args(StatPart))
+    for start in range(0, len(parts), 4):
+        text = statistics.statistics(
+            db, query=Statistics(period="30", parts=parts[start : start + 4]), now=now
+        )
+        assert text.count("###") >= len(parts[start : start + 4])
+
+
+def test_how_long_each_step_took_is_counted_from_the_sign_up(
+    client: TestClient, db: Session
+) -> None:
+    from datetime import timedelta
+
+    from app.modules.backoffice.selectors import stats
+    from app.modules.backoffice.selectors.dashboard import asked_window
+    from app.modules.officeai.selectors import statistics
+    from core.officeai.tools import Statistics
+
+    first, second = _customers(client, db)
+    now = utcnow()
+    first.prepared_at = first.date_joined + timedelta(hours=12)
+    second.prepared_at = second.date_joined + timedelta(days=5)
+    db.commit()
+
+    window = asked_window(
+        period="7", since=None, until=None, today=localtime(now).date()
+    )
+    found = stats.timings(db, window=window)
+    setup = next(step for step in found["steps"] if step["key"] == "setup")
+    assert found["joined"] == 2 and setup["reached"] == 2
+    assert setup["median_days"] == 2.8 and setup["average_days"] == 2.8
+    assert [row["customers"] for row in setup["within"]] == [1, 1, 2]
+    assert setup["later"] == 0
+    paid = next(step for step in found["steps"] if step["key"] == "paid")
+    assert paid["reached"] == 0 and paid["median_days"] is None
+
+    text = statistics.statistics(
+        db, query=Statistics(period="7", parts=["timings"]), now=now
+    )
+    assert "### Time to each step: the 2 customers" in text
+    assert (
+        "- Tayyorgarlikni yakunladi: 2 (100.0% of those who signed up); "
+        "median 2.8 days (66.0 hours), average 2.8 days; "
+        "within 1 day 1, within 3 days 1, within 7 days 2, later 0" in text
+    )
+    assert "- Birinchi to'lov: 0 (0.0% of those who signed up); nobody yet" in text
+
+    one = facts.customer_list(
+        db, query=CustomerQuery(term="birinchi", fields=["steps"]), now=now
+    )
+    assert "Tayyorgarlikni yakunladi" in one and "(0.5 days after sign-up)" in one
+    assert "Birinchi to'lov not yet" in one
+
+
+def test_advertising_is_split_by_the_pages_business_and_by_role(
+    client: TestClient, db: Session
+) -> None:
+    from datetime import timedelta
+
+    from metaads import PROVIDER
+
+    from app.modules.ads.models import AdSet, Campaign, CampaignLaunch
+    from app.modules.backoffice.selectors import stats
+    from app.modules.backoffice.selectors.dashboard import asked_window
+    from app.modules.businesses.models import Business, BusinessCategory
+    from app.modules.integrations.models import (
+        AdAccount,
+        PageAccount,
+        ProviderConnection,
+    )
+    from app.modules.leads.models import Lead
+    from app.modules.metrics.models import MetricsDaily
+    from app.modules.officeai.selectors import statistics
+    from core.officeai.tools import Statistics
+
+    owner, other = _customers(client, db)
+    owner.role, other.role = "business_owner", "targetolog"
+    now = utcnow()
+    today = localtime(now).date()
+    beauty = BusinessCategory(key="beauty", label_uz="Go'zallik", preset_key="beauty")
+    db.add(beauty)
+    db.flush()
+
+    def account_of(user: User) -> tuple[AdAccount, ProviderConnection]:
+        connection = ProviderConnection(
+            owner_id=user.id,
+            provider=PROVIDER,
+            external_user_id=f"fb-{user.email}",
+            token_encrypted=b"x",
+            token_fingerprint=user.email[:32],
+        )
+        db.add(connection)
+        db.flush()
+        account = AdAccount(
+            owner_id=user.id,
+            provider=PROVIDER,
+            external_id=f"act_{user.email}",
+            connection_id=connection.id,
+            name="a",
+            currency="USD",
+            timezone="Asia/Tashkent",
+        )
+        db.add(account)
+        db.flush()
+        return account, connection
+
+    def page_of(user: User, connection: ProviderConnection, tag: str) -> PageAccount:
+        page = PageAccount(
+            owner_id=user.id,
+            provider=PROVIDER,
+            external_id=f"page_{tag}",
+            connection_id=connection.id,
+            name=tag,
+            token_encrypted=b"x",
+            token_fingerprint=tag,
+        )
+        db.add(page)
+        db.flush()
+        return page
+
+    def ran(
+        user: User,
+        account: AdAccount,
+        page: PageAccount | None,
+        campaign: str,
+        *,
+        spend: int,
+        leads: int,
+        status: str = "created",
+    ) -> None:
+        db.add(
+            CampaignLaunch(
+                owner_id=user.id,
+                ad_account_id=account.id,
+                provider=PROVIDER,
+                page_id=page.id if page else None,
+                status=status,
+                finished_at=now - timedelta(hours=1),
+                created_refs={"campaign": campaign} if status == "created" else {},
+            )
+        )
+        if spend:
+            db.add(
+                MetricsDaily(
+                    owner_id=user.id,
+                    provider=PROVIDER,
+                    external_id=f"s_{campaign}",
+                    ad_account_id=account.id,
+                    level="adset",
+                    campaign_external_id=campaign,
+                    adset_external_id=f"s_{campaign}",
+                    date=today,
+                    spend_minor=spend,
+                    currency="USD",
+                    synced_at=now,
+                )
+            )
+        for _ in range(leads):
+            db.add(
+                Lead(
+                    owner_id=user.id,
+                    provider=PROVIDER,
+                    submitted_at=now,
+                    received_at=now,
+                    campaign_external_id=campaign,
+                    leadgen_id=uuid.uuid4().hex,
+                )
+            )
+
+    account, connection = account_of(owner)
+    salon, shop = (
+        page_of(owner, connection, "salon"),
+        page_of(owner, connection, "shop"),
+    )
+    db.add_all(
+        [
+            Business(
+                user_id=owner.id,
+                page_id=salon.id,
+                name="Salon",
+                direction_id=beauty.id,
+                timezone="Asia/Tashkent",
+            ),
+            Business(
+                user_id=owner.id,
+                page_id=shop.id,
+                name="Do'kon",
+                timezone="Asia/Tashkent",
+            ),
+        ]
+    )
+
+    def mirrored(user: User, account: AdAccount, campaign: str, goal: str) -> None:
+        row = Campaign(
+            owner_id=user.id,
+            provider=PROVIDER,
+            external_id=campaign,
+            ad_account_id=account.id,
+            name=campaign,
+            delivery="active",
+            status="ACTIVE",
+            synced_at=now,
+        )
+        db.add(row)
+        db.flush()
+        db.add(
+            AdSet(
+                owner_id=user.id,
+                provider=PROVIDER,
+                external_id=f"s_{campaign}",
+                campaign_id=row.id,
+                name="Guruh",
+                delivery="active",
+                status="ACTIVE",
+                optimization_goal_raw=goal,
+                synced_at=now,
+            )
+        )
+
+    # The salon runs for leads, the shop for messages: the shop's money
+    # bought no lead and must not be laid on the leads' price.
+    mirrored(owner, account, "c_salon", "LEAD_GENERATION")
+    mirrored(owner, account, "c_shop", "CONVERSATIONS")
+    ran(owner, account, salon, "c_salon", spend=6000, leads=3)
+    ran(owner, account, shop, "c_shop", spend=3000, leads=0)
+    ran(owner, account, salon, "", spend=0, leads=0, status="failed")
+    theirs, _ = account_of(other)
+    ran(other, theirs, None, "c_loose", spend=1000, leads=1)
+    # A campaign made in Ads Manager is not this product's: never counted.
+    db.add(
+        MetricsDaily(
+            owner_id=other.id,
+            provider=PROVIDER,
+            external_id="s_own",
+            ad_account_id=theirs.id,
+            level="adset",
+            campaign_external_id="c_own",
+            adset_external_id="s_own",
+            date=today,
+            spend_minor=99_000,
+            currency="USD",
+            synced_at=now,
+        )
+    )
+    db.commit()
+
+    window = asked_window(period="7", since=None, until=None, today=today)
+    found = stats.ads_by(db, window=window, by="direction")
+    rows = {row["key"]: row for row in found["rows"]}
+    assert found["currency"] == "USD"
+    assert rows["beauty"]["launched"] == 1 and rows["beauty"]["failed"] == 1
+    assert rows["beauty"]["spend_minor"] == 6000 and rows["beauty"]["leads"] == 3
+    assert rows["beauty"]["lead_cost_minor"] == 2000
+    assert rows["beauty"]["spend_share_pct"] == 60.0
+    assert rows["beauty"]["lead_spend_minor"] == 6000
+    assert rows["none"]["spend_minor"] == 3000
+    assert rows["none"]["lead_spend_minor"] == 0
+    assert rows["none"]["lead_cost_minor"] is None
+    assert rows[stats.NO_BUSINESS]["spend_minor"] == 1000
+    assert found["total"]["spend_minor"] == 10_000 and found["total"]["leads"] == 4
+    # 7000 spent for leads over 4 leads - not the 10 000 spent on everything.
+    assert found["total"]["lead_spend_minor"] == 7000
+    assert found["total"]["lead_cost_minor"] == 1750
+
+    roles = {
+        row["key"]: row for row in stats.ads_by(db, window=window, by="role")["rows"]
+    }
+    assert roles["business_owner"]["spend_minor"] == 9000
+    assert roles["business_owner"]["lead_spend_minor"] == 6000
+    assert roles["business_owner"]["lead_cost_minor"] == 2000
+    assert roles["business_owner"]["advertisers"] == 1
+    assert roles["targetolog"]["leads"] == 1
+
+    text = statistics.statistics(
+        db,
+        query=Statistics(period="7", parts=["ads_by_direction", "ads_by_role"]),
+        now=now,
+    )
+    assert "- Go'zallik: launched 1; failed 1 (50.0%); customers 1; spend" in text
+    assert "(60.0%); for leads: spend" in text and ", leads 3, cost per lead" in text
+    assert "cost per lead n/a (no leads)" in text
+    assert "- Targetolog: launched 1; failed 0 (0.0%)" in text

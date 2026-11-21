@@ -101,6 +101,7 @@ Har kim **faqat o'z suhbatlarini** ko'radi. Birovning suhbatini ochish 404 qayta
   | `sales_by_manager` | Sotuv |
   | `recent_payments` | Oxirgi to'lovlar |
   | `customer_list` | Mijozlar ro'yxati |
+  | `statistics` | Statistika |
   | `plans_summary` | Tariflar |
 
   Hech narsa o'qilmagan bo'lsa, `[]`.

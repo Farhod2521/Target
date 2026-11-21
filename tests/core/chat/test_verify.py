@@ -275,3 +275,54 @@ def test_an_account_head_count_is_checked_like_any_figure() -> None:
         run(gate(), "Auditoriyangiz 500 000 kishi.")
         == f"Auditoriyangiz {MARKER} kishi."
     )
+
+
+# -- a figure a look-up gave, written another way ---------------------------------
+
+
+def _shown(gate: FigureGate, text: str) -> str:
+    return gate.feed(text) + gate.flush()
+
+
+def test_a_known_day_passes_by_its_months_name_and_an_unknown_one_does_not() -> None:
+    from core.chat.verify import dates_in
+
+    dates = dates_in("Window: 23.10.2026 - 21.11.2026. Bars: 20.11, 2026-11-19.")
+    gate = FigureGate(allowed=frozenset(), dates=dates)
+
+    assert _shown(gate, "Bugun, 21-noyabr kuni.") == "Bugun, 21-noyabr kuni."
+    assert _shown(gate, "23-oktabrdan 21 noyabrgacha") == "23-oktabrdan 21 noyabrgacha"
+    assert _shown(gate, "19–20 ноября") == "19–20 ноября"
+    assert _shown(gate, "25-noyabr kuni") == "[?]-noyabr kuni"
+    assert gate.masked == 1
+
+
+def test_a_day_split_across_pieces_is_still_read_whole() -> None:
+    gate = FigureGate(allowed=frozenset(), dates=frozenset({(21, 11)}))
+
+    out = "".join(gate.feed(piece) for piece in ("Bugun 21", "-noy", "abr kuni"))
+    assert out + gate.flush() == "Bugun 21-noyabr kuni"
+    assert gate.masked == 0
+
+
+def test_an_amount_cut_short_passes_only_when_it_is_the_amount() -> None:
+    gate = FigureGate(allowed=frozenset({"12450000", "1284"}))
+
+    assert _shown(gate, "Tushum 12,45 mln so'm") == "Tushum 12,45 mln so'm"
+    assert _shown(gate, "12.4 million, 12 mln") == "12.4 million, 12 mln"
+    assert _shown(gate, "1,3 ming mijoz") == "1,3 ming mijoz"
+    assert _shown(gate, "Tushum 13,2 mln so'm") == "Tushum [?] mln so'm"
+    assert _shown(gate, "12,45 ta") == "[?] ta"
+
+
+def test_row_numbers_pass_only_where_asked_and_only_at_a_lines_start() -> None:
+    listed = "Ro'yxat:\n11. Ali\n12) Vali\n  13. Sami"
+
+    assert _shown(FigureGate(allowed=frozenset(), ordinals_below=100), listed) == listed
+    assert "[?]. Ali" in _shown(FigureGate(allowed=frozenset()), listed)
+    inline = FigureGate(allowed=frozenset(), ordinals_below=100)
+    assert _shown(inline, "Jami 250. Keyin 12. Yana") == "Jami [?]. Keyin [?]. Yana"
+    split = FigureGate(allowed=frozenset(), ordinals_below=100)
+    assert split.feed("Jami mijozlar ") + split.feed("12. Keyin ") + split.flush() == (
+        "Jami mijozlar [?]. Keyin "
+    )
