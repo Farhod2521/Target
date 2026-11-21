@@ -441,3 +441,25 @@ def test_the_preview_is_fetched_once_and_then_drawn(
     drawn = client.get(f"{url}/a_1?tries=2", headers=headers).json()
     assert drawn["src"].endswith("d=1") and drawn["polling"] is False
     assert drawn["gave_up"] is False
+
+
+def test_the_summarys_lead_cost_is_the_lead_campaigns_spend_over_their_leads() -> None:
+    """Money spent for messages bought no lead: it is in the spend, and not
+    in what a lead cost."""
+    from uuid import uuid4
+
+    from app.modules.backoffice.selectors.advertising import AdRow, _summary
+
+    def row(kind: str, spend: int, leads: int) -> AdRow:
+        return AdRow(
+            launch_id=uuid4(), campaign_external_id=kind, started_at=None, goal="",
+            page="", delivery_label="", is_running=True, spend_minor=spend,
+            currency="USD", results=leads, result_word="", result_cost_minor=None,
+            result_cost_label="", note="", leads=leads, kind=kind,
+        )  # fmt: skip
+
+    [summary] = _summary((row("lead", 6000, 3), row("chat", 3000, 0)))
+    assert summary.spend_minor == 9000 and summary.leads == 3
+    assert summary.lead_cost_minor == 2000
+    [none] = _summary((row("chat", 3000, 0),))
+    assert none.lead_cost_minor is None

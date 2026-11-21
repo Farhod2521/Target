@@ -540,7 +540,7 @@ def test_advertising_is_split_by_the_pages_business_and_by_role(
 
     from metaads import PROVIDER
 
-    from app.modules.ads.models import CampaignLaunch
+    from app.modules.ads.models import AdSet, Campaign, CampaignLaunch
     from app.modules.backoffice.selectors import stats
     from app.modules.backoffice.selectors.dashboard import asked_window
     from app.modules.businesses.models import Business, BusinessCategory
@@ -670,6 +670,38 @@ def test_advertising_is_split_by_the_pages_business_and_by_role(
             ),
         ]
     )
+
+    def mirrored(user: User, account: AdAccount, campaign: str, goal: str) -> None:
+        row = Campaign(
+            owner_id=user.id,
+            provider=PROVIDER,
+            external_id=campaign,
+            ad_account_id=account.id,
+            name=campaign,
+            delivery="active",
+            status="ACTIVE",
+            synced_at=now,
+        )
+        db.add(row)
+        db.flush()
+        db.add(
+            AdSet(
+                owner_id=user.id,
+                provider=PROVIDER,
+                external_id=f"s_{campaign}",
+                campaign_id=row.id,
+                name="Guruh",
+                delivery="active",
+                status="ACTIVE",
+                optimization_goal_raw=goal,
+                synced_at=now,
+            )
+        )
+
+    # The salon runs for leads, the shop for messages: the shop's money
+    # bought no lead and must not be laid on the leads' price.
+    mirrored(owner, account, "c_salon", "LEAD_GENERATION")
+    mirrored(owner, account, "c_shop", "CONVERSATIONS")
     ran(owner, account, salon, "c_salon", spend=6000, leads=3)
     ran(owner, account, shop, "c_shop", spend=3000, leads=0)
     ran(owner, account, salon, "", spend=0, leads=0, status="failed")
@@ -701,15 +733,22 @@ def test_advertising_is_split_by_the_pages_business_and_by_role(
     assert rows["beauty"]["spend_minor"] == 6000 and rows["beauty"]["leads"] == 3
     assert rows["beauty"]["lead_cost_minor"] == 2000
     assert rows["beauty"]["spend_share_pct"] == 60.0
+    assert rows["beauty"]["lead_spend_minor"] == 6000
     assert rows["none"]["spend_minor"] == 3000
+    assert rows["none"]["lead_spend_minor"] == 0
     assert rows["none"]["lead_cost_minor"] is None
     assert rows[stats.NO_BUSINESS]["spend_minor"] == 1000
     assert found["total"]["spend_minor"] == 10_000 and found["total"]["leads"] == 4
+    # 7000 spent for leads over 4 leads - not the 10 000 spent on everything.
+    assert found["total"]["lead_spend_minor"] == 7000
+    assert found["total"]["lead_cost_minor"] == 1750
 
     roles = {
         row["key"]: row for row in stats.ads_by(db, window=window, by="role")["rows"]
     }
     assert roles["business_owner"]["spend_minor"] == 9000
+    assert roles["business_owner"]["lead_spend_minor"] == 6000
+    assert roles["business_owner"]["lead_cost_minor"] == 2000
     assert roles["business_owner"]["advertisers"] == 1
     assert roles["targetolog"]["leads"] == 1
 
@@ -719,6 +758,6 @@ def test_advertising_is_split_by_the_pages_business_and_by_role(
         now=now,
     )
     assert "- Go'zallik: launched 1; failed 1 (50.0%); customers 1; spend" in text
-    assert "(60.0%); leads 3; cost per lead" in text
+    assert "(60.0%); for leads: spend" in text and ", leads 3, cost per lead" in text
     assert "cost per lead n/a (no leads)" in text
     assert "- Targetolog: launched 1; failed 0 (0.0%)" in text

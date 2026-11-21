@@ -89,11 +89,17 @@ class AdRow:
     delivery: str = ""
     is_stale: bool = False
     synced_at: datetime | None = None
+    # What one result of this campaign is: "lead" for a lead goal.
+    kind: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class CurrencySummary:
-    """Everything one currency's adverts did; two currencies never add."""
+    """Everything one currency's adverts did; two currencies never add.
+
+    ``lead_cost_minor`` is the spend of the campaigns run for leads over
+    their leads: money spent for messages or visits bought no lead, and is
+    not laid on the leads' price."""
 
     currency: str
     spend_minor: int
@@ -192,6 +198,9 @@ def launch_pairs(launches: list[CampaignLaunch]) -> list[tuple[CampaignLaunch, s
     return kept
 
 
+LEAD_KIND = "lead"
+
+
 def result_kind(meta: Any) -> Any:
     """The mirror's kind, or a lead where the mirror has no goal to go on."""
     return meta.kind if meta is not None and meta.goal.strip() else screen_kind("")
@@ -263,6 +272,7 @@ def _row(
         delivery=state.key if state is not None else str(delivery),
         is_stale=state.is_stale if state is not None else False,
         synced_at=state.synced_at if state is not None else None,
+        kind=str(kind),
     )
 
 
@@ -317,7 +327,10 @@ def _one_currency(currency: str, rows: list[AdRow]) -> CurrencySummary:
         ctr_percent=figures.ctr_percent,
         cpm_minor=figures.cpm_minor,
         cpc_minor=figures.cpc_minor,
-        lead_cost_minor=formulas.cpl(figures.spend_minor, leads),
+        lead_cost_minor=formulas.cpl(
+            sum(row.spend_minor for row in rows if row.kind == LEAD_KIND),
+            sum(row.leads for row in rows if row.kind == LEAD_KIND),
+        ),
     )
 
 

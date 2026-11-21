@@ -417,12 +417,17 @@ def _ads_by(read: _Read, by: str, title: str) -> list[str]:
     def cost(amount: int | None) -> str:
         return "n/a (no leads)" if amount is None else _money(amount, currency)
 
+    def spent(amount: int) -> str:
+        return _money(amount, currency) if currency else "nothing"
+
     lines = [
         f"### Advertising in the window by {title}",
         "Only campaigns this product launched on Meta. Each: ads launched; "
-        "launches failed (share of attempts); customers with spend; spend "
-        "(share of all); leads; cost per lead - all the spend over the "
-        "leads, whatever the campaigns' goals.",
+        "launches failed (share of attempts); customers with spend; spend on "
+        "all goals (share of all); then the campaigns run for leads alone: "
+        "their spend, their leads, and the cost per lead - that spend over "
+        "those leads. Spend on messages, visits and other goals is never "
+        "laid on the leads' price.",
     ]
     if by == "direction":
         lines.append(
@@ -435,16 +440,16 @@ def _ads_by(read: _Read, by: str, title: str) -> list[str]:
     lines += [
         f"- {row['label']}: launched {row['launched']}; failed {row['failed']} "
         f"({_pct(row['failed_pct'])}); customers {row['advertisers']}; spend "
-        f"{_money(row['spend_minor'], currency) if currency else 'nothing'} "
-        f"({_pct(row['spend_share_pct'])}); leads {row['leads']}; cost per "
-        f"lead {cost(row['lead_cost_minor'])}"
+        f"{spent(row['spend_minor'])} ({_pct(row['spend_share_pct'])}); for "
+        f"leads: spend {spent(row['lead_spend_minor'])}, leads {row['leads']}, "
+        f"cost per lead {cost(row['lead_cost_minor'])}"
         for row in found["rows"]
     ]
     lines.append(
         f"- In all: launched {total['launched']}; failed {total['failed']} "
-        f"({_pct(total['failed_pct'])}); spend "
-        f"{_money(total['spend_minor'], currency) if currency else 'nothing'}; "
-        f"leads {total['leads']}; cost per lead {cost(total['lead_cost_minor'])}"
+        f"({_pct(total['failed_pct'])}); spend {spent(total['spend_minor'])}; "
+        f"for leads: spend {spent(total['lead_spend_minor'])}, leads "
+        f"{total['leads']}, cost per lead {cost(total['lead_cost_minor'])}"
     )
     if found["other_currency_campaigns"]:
         lines.append(

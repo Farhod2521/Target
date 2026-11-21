@@ -33,7 +33,13 @@ from app.modules.accounts.constants import ROLE_LABELS, SIGNUP_VIA_LABELS
 from app.modules.accounts.models import User
 from app.modules.ads import refs as ref_field
 from app.modules.ads.constants import LaunchStatus, LaunchStep
-from app.modules.ads.models import CampaignLaunch, ChatTemplate, GoogleLaunch
+from app.modules.ads.models import (
+    AdSet,
+    Campaign,
+    CampaignLaunch,
+    ChatTemplate,
+    GoogleLaunch,
+)
 from app.modules.audit.constants import LLM_PURPOSE_LABELS
 from app.modules.audit.models import LLMCall
 from app.modules.audit.selectors import exact_cost
@@ -73,9 +79,11 @@ from app.modules.leads.constants import MANUAL_PROVIDER
 from app.modules.leads.models import Lead
 from app.modules.metrics.constants import MetricLevel
 from app.modules.metrics.models import MetricsDaily
+from app.modules.metrics.selectors.results import screen_kind
 from app.modules.referrals.models import ReferralBinding, ReferralReward
 from app.modules.telephony.models import PhoneConnection
 from core.metrics import formulas
+from core.metrics.outcomes import campaign_goal
 
 START_CODE = DEFAULT_PLAN_CODE
 STANDARD_CODE = AFTER_START_PLAN_CODE
@@ -995,6 +1003,29 @@ def _directions_of_pages(db: Session) -> dict[uuid.UUID, tuple[str, str]]:
     return found
 
 
+def _campaign_kinds(db: Session, owners: Any) -> dict[str, str]:
+    """What one result of each campaign is ("lead", "site_lead", a message...),
+    from the ad set that speaks for it - the rule the Reklama screen uses."""
+    adsets: dict[str, list[tuple[str, str, Any]]] = defaultdict(list)
+    for campaign, adset, goal, promoted in db.execute(
+        select(
+            Campaign.external_id,
+            AdSet.external_id,
+            AdSet.optimization_goal_raw,
+            AdSet.promoted_object_raw,
+        )
+        .join(AdSet, AdSet.campaign_id == Campaign.id)
+        .where(Campaign.owner_id.in_(owners))
+    ):
+        adsets[campaign].append(
+            (adset, goal or "", promoted if isinstance(promoted, dict) else None)
+        )
+    return {
+        campaign: str(screen_kind(*campaign_goal(rows)))
+        for campaign, rows in adsets.items()
+    }
+
+
 def ads_by(db: Session, *, window: Window, by: str) -> dict[str, Any]:
     """Advertising inside the window, split by the business's direction
     (``by="direction"``) or by the customer's role (``by="role"``).
@@ -1004,8 +1035,13 @@ def ads_by(db: Session, *, window: Window, by: str) -> dict[str, Any]:
     for - a customer with several businesses is split between them; a
     launch whose page has no business stands apart. Spend is summed in the
     currency most of it is in; a campaign billed in another is left out
-    and counted. The lead cost is that spend over the leads, whatever the
-    campaigns' goals, as the office's Reklama screen counts it.
+    and counted.
+
+    The lead cost is the spend of the campaigns run for leads over those
+    campaigns' leads: money spent for messages, visits or anything else
+    bought no lead and is not laid on the leads' price. What a campaign is
+    run for is read as the office's Reklama screen reads it - from the ad
+    set that speaks for it, and a lead where the copy has no goal.
     """
     customers = customer_ids()
     if by == "role":
@@ -1036,6 +1072,7 @@ def ads_by(db: Session, *, window: Window, by: str) -> dict[str, Any]:
                 "launched": 0,
                 "failed": 0,
                 "spend": Counter(),
+                "lead_spend": Counter(),
                 "leads": Counter(),
                 "advertisers": defaultdict(set),
             },
@@ -1062,6 +1099,11 @@ def ads_by(db: Session, *, window: Window, by: str) -> dict[str, Any]:
             bucket = "launched" if status == LaunchStatus.CREATED else "failed"
             row(found)[bucket] += 1
 
+    kinds = _campaign_kinds(db, customers)
+
+    def for_leads(campaign: str) -> bool:
+        return kinds.get(campaign, "lead") == "lead"
+
     currency_of: dict[str, str] = {}
     for campaign, owner, currency, spend in db.execute(
         select(
@@ -1085,6 +1127,8 @@ def ads_by(db: Session, *, window: Window, by: str) -> dict[str, Any]:
         if campaign in campaigns and spend:
             found_row = row(campaigns[campaign])
             found_row["spend"][currency] += int(spend)
+            if for_leads(campaign):
+                found_row["lead_spend"][currency] += int(spend)
             found_row["advertisers"][currency].add(owner)
             currency_of[campaign] = currency
     spent: Counter[str] = Counter()
@@ -1102,7 +1146,7 @@ def ads_by(db: Session, *, window: Window, by: str) -> dict[str, Any]:
         )
         .group_by(Lead.campaign_external_id)
     ):
-        if campaign in campaigns:
+        if campaign in campaigns and for_leads(campaign):
             row(campaigns[campaign])["leads"][currency_of.get(campaign, currency)] += (
                 int(count)
             )
@@ -1120,15 +1164,17 @@ def ads_by(db: Session, *, window: Window, by: str) -> dict[str, Any]:
             "advertisers": len(found_row["advertisers"][currency]),
             "spend_minor": found_row["spend"][currency],
             "spend_share_pct": _pct(found_row["spend"][currency], total_spend),
+            "lead_spend_minor": found_row["lead_spend"][currency],
             "leads": found_row["leads"][currency],
             "lead_cost_minor": formulas.cpl(
-                found_row["spend"][currency], found_row["leads"][currency]
+                found_row["lead_spend"][currency], found_row["leads"][currency]
             ),
         }
         for found_row in rows.values()
     ]
     out.sort(key=lambda found: (-found["spend_minor"], -found["launched"]))
     leads = sum(found["leads"] for found in out)
+    lead_spend = sum(found["lead_spend_minor"] for found in out)
     launched = sum(found["launched"] for found in out)
     failed = sum(found["failed"] for found in out)
     return {
@@ -1143,8 +1189,9 @@ def ads_by(db: Session, *, window: Window, by: str) -> dict[str, Any]:
             "failed": failed,
             "failed_pct": _pct(failed, launched + failed),
             "spend_minor": total_spend,
+            "lead_spend_minor": lead_spend,
             "leads": leads,
-            "lead_cost_minor": formulas.cpl(total_spend, leads),
+            "lead_cost_minor": formulas.cpl(lead_spend, leads),
         },
     }
 
