@@ -17,6 +17,7 @@ from app.modules.backoffice.permissions import staff_required
 from app.modules.backoffice.routers._out import choices, person_out, trace_out
 from app.modules.backoffice.routers.actions import router as actions
 from app.modules.backoffice.routers.activity import router as activity
+from app.modules.backoffice.routers.ad_figures import router as ad_figures
 from app.modules.backoffice.routers.advertising import router as advertising
 from app.modules.backoffice.routers.blocks import reasons_router as block_reasons
 from app.modules.backoffice.routers.blocks import (
@@ -62,6 +63,7 @@ router.include_router(directions)
 router.include_router(support_guests)
 router.include_router(support)
 router.include_router(dashboard)
+router.include_router(ad_figures)
 router.include_router(stats)
 router.include_router(payments)
 router.include_router(plans)
