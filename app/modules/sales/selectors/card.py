@@ -80,7 +80,7 @@ def history(db: Session, *, client_id: uuid.UUID) -> list[SalesActivity]:
 
 
 def _facebook(db: Session, *, client: User) -> tuple[str, str]:
-    from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
+    from app.modules.integrations.constants import LINKED_CONNECTION_STATUSES
     from app.modules.integrations.models import ProviderConnection
 
     connection = db.scalars(
@@ -92,7 +92,7 @@ def _facebook(db: Session, *, client: User) -> tuple[str, str]:
     if connection is None:
         return FB_NONE, ""
     name = connection.external_user_name
-    if connection.status in USABLE_CONNECTION_STATUSES:
+    if connection.status in LINKED_CONNECTION_STATUSES:
         return FB_CONNECTED, name
     return FB_BROKEN, name
 

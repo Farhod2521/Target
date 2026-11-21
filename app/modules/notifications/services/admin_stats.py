@@ -51,6 +51,7 @@ from app.modules.backoffice.selectors.dashboard import (
 )
 from app.modules.billing.constants import InvoiceStatus
 from app.modules.billing.models import Invoice
+from app.modules.integrations.selectors.demo import not_demo
 from app.modules.notifications.bot import owners_bot, owners_bot_configured
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,7 @@ def _payers(db: Session, *, since: datetime, until: datetime) -> int:
                 Invoice.paid_at >= since,
                 Invoice.paid_at < until,
                 or_(Invoice.amount_minor != 0, Invoice.wallet_minor != 0),
+                not_demo(Invoice.owner_id),
             )
         )
         or 0
@@ -207,7 +209,7 @@ def read_stats(db: Session, *, now: datetime) -> Stats:
     queue = waiting(db, now=now)
     newest = db.scalars(
         select(User)
-        .where(User.is_staff.is_(False), User.crm_owner_id.is_(None))
+        .where(User.is_staff.is_(False), User.crm_owner_id.is_(None), not_demo(User.id))
         .order_by(User.date_joined.desc())
         .limit(SIGNUPS_SHOWN)
     )

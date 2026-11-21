@@ -36,6 +36,7 @@ from app.modules.integrations.constants import (
     USABLE_CONNECTION_STATUSES,
 )
 from app.modules.integrations.models import PageAccount, ProviderConnection
+from app.modules.integrations.selectors.demo import is_demo_page
 from app.modules.leads.constants import (
     ANONYMIZE_LIMIT,
     DISCONNECTED,
@@ -584,6 +585,8 @@ def subscribe_page(db: Session, *, page_id: str) -> str:
     page = db.get(PageAccount, _uuid(page_id))
     if page is None:
         return "gone"
+    if is_demo_page(page):
+        return "unusable"
     try:
         token = decrypt(page.token_encrypted)
     except DecryptionFailed:
@@ -704,6 +707,8 @@ def refresh_page_forms(db: Session, *, page_id: str) -> str:
     page = db.get(PageAccount, _uuid(page_id))
     if page is None:
         return "gone"
+    if is_demo_page(page):
+        return "unusable"
     try:
         token = decrypt(page.token_encrypted)
     except DecryptionFailed:

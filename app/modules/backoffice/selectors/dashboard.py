@@ -46,6 +46,7 @@ from app.modules.billing.models import Invoice, Plan, Subscription
 from app.modules.billing.selectors import entitled_owner_ids, held_transactions
 from app.modules.integrations.constants import ConnectionStatus
 from app.modules.integrations.models import ProviderConnection
+from app.modules.integrations.selectors.demo import demo_owner_ids, not_demo
 from app.modules.leads.models import Lead
 from app.modules.metrics.constants import MetricLevel
 from app.modules.metrics.models import MetricsDaily
@@ -195,7 +196,9 @@ def bar_hint(start: date, window: Window) -> str:
 
 def _customers() -> ColumnElement[bool]:
     """Accounts that are customers: not staff, not a CRM manager's login."""
-    return and_(User.is_staff.is_(False), User.crm_owner_id.is_(None))
+    return and_(
+        User.is_staff.is_(False), User.crm_owner_id.is_(None), not_demo(User.id)
+    )
 
 
 def _change(now: int, before: int) -> int | None:
@@ -278,6 +281,7 @@ def _paid(db: Session, *, since: datetime, until: datetime) -> list[_Paid]:
             Invoice.paid_at >= since,
             Invoice.paid_at < until,
             or_(Invoice.amount_minor != 0, Invoice.wallet_minor != 0),
+            not_demo(Invoice.owner_id),
         )
     )
     return [
@@ -369,6 +373,7 @@ def takings(db: Session, *, window: Window, today: date) -> Takings:
         ).where(
             Invoice.status.in_((InvoiceStatus.PENDING, InvoiceStatus.HELD)),
             Invoice.currency == currency,
+            not_demo(Invoice.owner_id),
         )
     ).one()
     free = db.scalar(
@@ -424,6 +429,7 @@ def recent_payments(db: Session) -> tuple[PaymentRow, ...]:
             Invoice.status == InvoiceStatus.PAID,
             Invoice.paid_at.is_not(None),
             or_(Invoice.amount_minor != 0, Invoice.wallet_minor != 0),
+            not_demo(Invoice.owner_id),
         )
         .order_by(Invoice.paid_at.desc())
         .limit(RECENT_PAYMENTS)
@@ -565,7 +571,11 @@ def _launched_campaigns(db: Session) -> set[str]:
 def activity(db: Session, *, window: Window) -> Activity:
     """What the platform did in the window, as its customers saw it."""
     campaigns = _launched_campaigns(db)
-    staff = select(User.id).where(User.is_staff.is_(True))
+    # Staff try things out and a showcase account's are made up: neither
+    # is what the customers did.
+    staff = select(User.id).where(
+        or_(User.is_staff.is_(True), User.id.in_(demo_owner_ids()))
+    )
 
     def launches(status: str) -> int:
         return int(

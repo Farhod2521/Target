@@ -9,7 +9,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.modules.accounts.models import User
-from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
+from app.modules.integrations.constants import LINKED_CONNECTION_STATUSES
 from app.modules.integrations.models import (
     AdAccount,
     PageAccount,
@@ -42,7 +42,7 @@ def owner_of_meta_user(db: Session, *, external_user_id: str) -> User | None:
 
 def is_connected(db: Session, *, owner: User) -> bool:
     connection = meta_connection(db, owner=owner)
-    return connection is not None and connection.status in USABLE_CONNECTION_STATUSES
+    return connection is not None and connection.status in LINKED_CONNECTION_STATUSES
 
 
 def broken_meta_connection(db: Session, *, owner: User) -> ProviderConnection | None:
@@ -50,7 +50,7 @@ def broken_meta_connection(db: Session, *, owner: User) -> ProviderConnection | 
 
 
 def broken_of(*, connection: ProviderConnection | None) -> ProviderConnection | None:
-    if connection is None or connection.status in USABLE_CONNECTION_STATUSES:
+    if connection is None or connection.status in LINKED_CONNECTION_STATUSES:
         return None
     return connection if connection.token_fingerprint else None
 
@@ -62,7 +62,7 @@ def broken_meta_connections(db: Session) -> list[ProviderConnection]:
             .options(joinedload(ProviderConnection.owner))
             .where(
                 ProviderConnection.provider == PROVIDER,
-                ProviderConnection.status.not_in(USABLE_CONNECTION_STATUSES),
+                ProviderConnection.status.not_in(LINKED_CONNECTION_STATUSES),
                 ProviderConnection.token_fingerprint != "",
             )
             .order_by(ProviderConnection.updated_at)
@@ -252,7 +252,7 @@ def frozen_accounts(
         .where(
             AdAccount.id.in_(wanted),
             ProviderConnection.status.not_in(
-                [str(s) for s in USABLE_CONNECTION_STATUSES]
+                [str(s) for s in LINKED_CONNECTION_STATUSES]
             ),
         )
     )
@@ -281,7 +281,7 @@ def disconnected_of(
         .where(
             ProviderConnection.id.in_(list(by_connection)),
             ProviderConnection.status.not_in(
-                [str(s) for s in USABLE_CONNECTION_STATUSES]
+                [str(s) for s in LINKED_CONNECTION_STATUSES]
             ),
         )
         .order_by(ProviderConnection.created_at)

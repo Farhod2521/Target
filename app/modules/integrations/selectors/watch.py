@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
 from app.modules.integrations.constants import (
+    LINKED_CONNECTION_STATUSES,
     MIRROR_NIGHTLY_STALE_MINUTES,
     MIRROR_STALE_MINUTES,
     STALE_SAMPLE,
@@ -266,7 +267,7 @@ def frozen_mirror(db: Session) -> FrozenMirror:
             AdAccount.is_active.is_(True),
             AdAccount.owner_id.in_(subscribed_owner_ids()),
             ProviderConnection.status.not_in(
-                [str(s) for s in USABLE_CONNECTION_STATUSES]
+                [str(s) for s in LINKED_CONNECTION_STATUSES]
             ),
             Campaign.delivery.not_in([str(d) for d in NOT_RUNNING]),
         )

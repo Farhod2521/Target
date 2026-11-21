@@ -11,7 +11,7 @@ from app.modules.accounts.models import User
 from app.modules.crm.constants import SetupState
 from app.modules.crm.models import CrmCard, CrmSetup
 from app.modules.crm.quality import judged_card, junk_card, qualified_card
-from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
+from app.modules.integrations.constants import LINKED_CONNECTION_STATUSES
 from app.modules.leads.constants import SignalStatus
 from app.modules.leads.models import Lead, LeadSignal
 from app.modules.leads.selectors.reads import pixel_state
@@ -152,7 +152,7 @@ def _problem(db: Session, *, owner: User, page: PageCampaigns) -> Problem:
     state = pixel_state(db, owner=owner, ad_account=home)
     if state != "ready":
         return "pixel_unselected" if state == "unselected" else "no_pixel"
-    if home.connection.status not in USABLE_CONNECTION_STATUSES:
+    if home.connection.status not in LINKED_CONNECTION_STATUSES:
         return "connection"
     return "none"
 

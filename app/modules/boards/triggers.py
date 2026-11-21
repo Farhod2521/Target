@@ -66,11 +66,21 @@ from app.modules.boards.offer import (
 from app.modules.boards.selectors import ensure_board, live_since
 from app.modules.boards.services import move, record
 from app.modules.boards.tickets import raise_ticket
+from app.modules.integrations.selectors.demo import is_demo_owner
 from app.modules.metrics.constants import MetricLevel
 from app.modules.metrics.models import MetricsDaily
 from app.modules.surveys.models import SurveyQuestion, SurveyResponse
 
+
 # Paid once already: such a client is not a first-time sign-up.
+def _raise(db: Session, *, owner_id: uuid.UUID, **fact: Any) -> bool:
+    """A rule's ticket - for anybody but a showcase account, whose made-up
+    bills and adverts are nobody's work to chase."""
+    if is_demo_owner(db, owner_id=owner_id):
+        return False
+    return raise_ticket(db, owner_id=owner_id, **fact)
+
+
 _PAID_BEFORE = (str(InvoiceStatus.PAID), str(InvoiceStatus.REFUNDED))
 # What a Start payment leaves of an older «Sotildi» line: the client is a
 # lead again, and the full plan they buy later is the sale.
@@ -651,7 +661,7 @@ def setup_late(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         )
     )
     written = sum(
-        raise_ticket(
+        _raise(
             db,
             owner_id=owner_id,
             reason=TicketReason.SETUP,
@@ -696,7 +706,7 @@ def _setup_late_given(
         )
     )
     written = sum(
-        raise_ticket(
+        _raise(
             db,
             owner_id=owner_id,
             reason=TicketReason.SETUP,
@@ -734,7 +744,7 @@ def from_sales(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         )
     )
     written = sum(
-        raise_ticket(
+        _raise(
             db,
             owner_id=owner_id,
             reason=TicketReason.FROM_SALES,
@@ -872,7 +882,7 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         head = (
             f"«{name}» reklamasi ishga tushmadi" if name else "Reklama ishga tushmadi"
         )
-        written += raise_ticket(
+        written += _raise(
             db,
             owner_id=owner_id,
             reason=TicketReason.META_ERROR,
@@ -890,7 +900,7 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             if action in ActionType.values
             else action
         )
-        written += raise_ticket(
+        written += _raise(
             db,
             owner_id=owner_id,
             reason=TicketReason.META_ERROR,
@@ -1100,7 +1110,7 @@ def survey_help(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             for answer in answers or []
         ):
             continue
-        written += raise_ticket(
+        written += _raise(
             db,
             owner_id=owner_id,
             reason=TicketReason.SURVEY,
@@ -1147,7 +1157,7 @@ def idle_no_launch(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> i
         )
     )
     written = sum(
-        raise_ticket(
+        _raise(
             db,
             owner_id=owner_id,
             reason=TicketReason.IDLE,
@@ -1209,7 +1219,7 @@ def idle_no_spend(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> in
         )
     )
     written = sum(
-        raise_ticket(
+        _raise(
             db,
             owner_id=owner_id,
             reason=TicketReason.IDLE,

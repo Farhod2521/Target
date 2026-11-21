@@ -66,6 +66,7 @@ from app.modules.content_studio.models import Montage
 from app.modules.crm.models import CrmSetup
 from app.modules.destinations.models import FormSheet, LeadChat
 from app.modules.integrations.models import ProviderConnection
+from app.modules.integrations.selectors.demo import not_demo
 from app.modules.leads.constants import MANUAL_PROVIDER
 from app.modules.leads.models import Lead
 from app.modules.referrals.models import ReferralBinding, ReferralReward
@@ -116,7 +117,9 @@ NO_VALUE = "—"
 
 
 def _customer() -> ColumnElement[bool]:
-    return and_(User.is_staff.is_(False), User.crm_owner_id.is_(None))
+    return and_(
+        User.is_staff.is_(False), User.crm_owner_id.is_(None), not_demo(User.id)
+    )
 
 
 def payer_key(owner: uuid.UUID | None, email: str | None) -> str:
@@ -971,6 +974,7 @@ def paying_now(now: datetime) -> Select[tuple[uuid.UUID]]:
     return select(Subscription.owner_id).where(
         Subscription.status == SubscriptionStatus.ACTIVE,
         Subscription.expires_at > now,
+        not_demo(Subscription.owner_id),
     )
 
 
@@ -981,6 +985,7 @@ def ever_paid() -> Select[tuple[uuid.UUID]]:
         Invoice.kind == InvoiceKind.PLAN,
         Invoice.owner_id.is_not(None),
         or_(Invoice.amount_minor != 0, Invoice.wallet_minor != 0),
+        not_demo(Invoice.owner_id),
     )
 
 

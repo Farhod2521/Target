@@ -279,7 +279,7 @@ def _block(db: Session, *, owner: User) -> list[str]:
 
 
 def _connection(db: Session, *, owner: User) -> list[str]:
-    from app.modules.integrations.constants import ConnectionStatus
+    from app.modules.integrations.constants import LINKED_CONNECTION_STATUSES
     from app.modules.integrations.selectors.connection import (
         meta_connection,
         missing_scopes,
@@ -296,7 +296,7 @@ def _connection(db: Session, *, owner: User) -> list[str]:
         ]
     lines: list[str] = []
     name = connection.external_user_name or "a Facebook profile"
-    if connection.status != ConnectionStatus.ACTIVE:
+    if connection.status not in LINKED_CONNECTION_STATUSES:
         lines.append(
             _line(
                 PROBLEM,

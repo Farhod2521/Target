@@ -21,6 +21,7 @@ from app.modules.ads.constants import (
 from app.modules.ads.exceptions import NoAdAccount
 from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
 from app.modules.integrations.models import AdAccount, PageAccount, ProviderConnection
+from app.modules.integrations.selectors.demo import is_demo_account
 from app.modules.metrics.constants import (
     AD_METRICS_RETENTION_DAYS,
     AUTO_REFRESH_COOLING_MINUTES,
@@ -64,6 +65,8 @@ def _queue_today(db: Session, account: AdAccount) -> None:
     from app.modules.ads.services import note_sync_outcome
     from app.modules.metrics.tasks import sync_today_task
 
+    if is_demo_account(account):
+        return
     account_id = str(account.id)
     note_sync_outcome(sweep=TODAY_SWEEP, ad_account_id=account_id, outcome=SYNC_QUEUED)
     on_commit(
@@ -77,6 +80,8 @@ def _queue_today(db: Session, account: AdAccount) -> None:
 
 
 def _open_account(db: Session, *, user: User, account: AdAccount) -> bool:
+    if is_demo_account(account):
+        return False
     if not has_cooled(synced_at=last_synced_at(db, owner=user, account=account)):
         return False
     return throttle.hit(

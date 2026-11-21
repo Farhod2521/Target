@@ -48,6 +48,7 @@ from app.modules.ads.models import Ad, AdCreative, AdSet, Campaign
 from app.modules.ads.selectors.rejections import turned_down
 from app.modules.ads.services.access import token_for
 from app.modules.integrations.models import AdAccount
+from app.modules.integrations.selectors.demo import is_demo_account
 
 logger = logging.getLogger(__name__)
 OPEN_BUCKET = "ads:sync-open"
@@ -861,6 +862,8 @@ def sync_on_open(db: Session, *, user: User) -> bool:
     for account in page_advertising(db, owner=user).accounts:
         if not has_cooled(synced_at=account.synced_at):
             continue
+        if is_demo_account(account):
+            continue
         if throttle.hit(
             bucket=OPEN_BUCKET,
             key=f"{account.provider}:{account.external_id}",
@@ -875,6 +878,8 @@ def sync_on_open(db: Session, *, user: User) -> bool:
 def _queue(db: Session, account: AdAccount) -> None:
     from app.modules.ads.tasks import sync_ad_account_task
 
+    if is_demo_account(account):
+        return
     account_id = str(account.id)
     note_sync_outcome(sweep=MIRROR_SWEEP, ad_account_id=account_id, outcome=SYNC_QUEUED)
     on_commit(

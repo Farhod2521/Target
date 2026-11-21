@@ -31,6 +31,7 @@ from app.modules.billing.models import (
     Subscription,
 )
 from app.modules.businesses.models import Business
+from app.modules.integrations.selectors.demo import not_demo
 
 OPEN_STATUSES = (InvoiceStatus.PENDING, InvoiceStatus.HELD)
 CLOSED_STATUSES = (InvoiceStatus.CANCELED, InvoiceStatus.EXPIRED)
@@ -38,7 +39,9 @@ UNPAID = "unpaid"
 ARCHIVED = "archived"
 # On the books: what every list and sum here reads. An archived bill is only
 # ever read through its own chip.
-ON_BOOKS = Invoice.archived_at.is_(None)
+# A showcase account's bills are made up: they are on no list and in no sum.
+REAL = not_demo(Invoice.owner_id)
+ON_BOOKS = and_(Invoice.archived_at.is_(None), REAL)
 
 INVOICE_STATES: tuple[tuple[str, str], ...] = (
     ("", "Hammasi"),
@@ -161,6 +164,7 @@ def _stuck_where(*, now: datetime) -> tuple[ColumnElement[bool], ...]:
     return (
         PaymentTransaction.state == TransactionState.CREATED,
         PaymentTransaction.created_at <= now - timedelta(hours=STUCK_HOLD_HOURS),
+        not_demo(PaymentTransaction.owner_id),
     )
 
 
@@ -184,7 +188,7 @@ def stuck_holds(db: Session, *, now: datetime) -> list[PaymentTransaction]:
 
 def _by_state(state: str) -> ColumnElement[bool]:
     if state == ARCHIVED:
-        return Invoice.archived_at.is_not(None)
+        return and_(Invoice.archived_at.is_not(None), REAL)
     if state == "open":
         return and_(ON_BOOKS, Invoice.status.in_(OPEN_STATUSES))
     if state == "paid":
@@ -303,6 +307,7 @@ def _live(*, now: datetime) -> Select[Any]:
         .where(
             Subscription.status.in_(LIVE_SUBSCRIPTION_STATUSES),
             Subscription.expires_at > now,
+            not_demo(Subscription.owner_id),
         )
     )
 

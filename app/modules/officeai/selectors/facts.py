@@ -36,6 +36,7 @@ from app.modules.billing.constants import (
     SubscriptionStatus,
 )
 from app.modules.billing.models import Plan, Subscription
+from app.modules.integrations.selectors.demo import not_demo
 from app.modules.officeai.constants import LIST_ROWS, PROBLEM_ROWS
 from core.officeai.tools import CustomerQuery, Span
 
@@ -330,6 +331,7 @@ def plans_summary(db: Session, *, now: datetime) -> str:
                     Subscription.status.in_(LIVE_SUBSCRIPTION_STATUSES),
                     Subscription.expires_at > now,
                     User.is_staff.is_(False),
+                    not_demo(User.id),
                 )
             )
             .group_by(Subscription.plan_id, Subscription.status)

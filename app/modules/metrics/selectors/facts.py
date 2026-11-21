@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.integrations.models import AdAccount
+from app.modules.integrations.selectors.demo import is_demo_account
 from app.modules.metrics.constants import (
     AUTO_REFRESH_COOLING_MINUTES,
     EVERY_ACCOUNT,
@@ -99,6 +100,9 @@ def newest_metrics_date(
 def last_synced_at(
     db: Session, *, owner: User, account: AdAccount | None = None
 ) -> datetime | None:
+    # A showcase account has nothing to be read from: it is never behind.
+    if is_demo_account(account):
+        return utcnow()
     return db.scalar(
         select(func.max(MetricsDaily.synced_at)).where(
             *cabinet_where(db, owner=owner, account=account)
@@ -120,6 +124,8 @@ def accounts_synced_at(
 def _stalest_synced_at(
     db: Session, *, owner: User, account: AdAccount
 ) -> datetime | None:
+    if is_demo_account(account):
+        return utcnow()
     seen = db.scalars(
         select(func.max(MetricsDaily.synced_at))
         .where(

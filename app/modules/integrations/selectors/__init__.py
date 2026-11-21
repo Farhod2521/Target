@@ -42,6 +42,13 @@ from app.modules.integrations.selectors.connection import (
     pixels,
     spare_pages,
 )
+from app.modules.integrations.selectors.demo import (
+    demo_owner_ids,
+    demo_owners,
+    is_demo_account,
+    is_demo_owner,
+    not_demo,
+)
 from app.modules.integrations.selectors.google import (
     current_google_account,
     google_accounts,
@@ -151,6 +158,8 @@ __all__ = [
     "current_google_account",
     "current_pair",
     "customer_records",
+    "demo_owner_ids",
+    "demo_owners",
     "disconnected_of",
     "enabled_ad_accounts",
     "enabled_pages",
@@ -167,6 +176,8 @@ __all__ = [
     "instagram_permission_missing",
     "instagram_profile",
     "is_connected",
+    "is_demo_account",
+    "is_demo_owner",
     "local_hours",
     "meta_action_required",
     "meta_connection",
@@ -174,6 +185,7 @@ __all__ = [
     "misfit",
     "missing_scopes",
     "new_page_payer",
+    "not_demo",
     "observed",
     "observed_accounts",
     "owner_clocks",
