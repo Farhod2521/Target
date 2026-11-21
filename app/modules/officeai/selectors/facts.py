@@ -31,6 +31,7 @@ from app.modules.backoffice.selectors.dashboard import (
     waiting,
 )
 from app.modules.backoffice.selectors.problems import problems
+from app.modules.backoffice.selectors.stats import TIMED_STEPS, first_moments
 from app.modules.billing.constants import (
     LIVE_SUBSCRIPTION_STATUSES,
     SubscriptionStatus,
@@ -303,6 +304,19 @@ def _plan_line(row: Any, *, now: datetime) -> str:
     return "never had a plan"
 
 
+def _steps_line(joined: datetime, made: dict[str, datetime]) -> str:
+    """When this customer first made each step, and how long after signing up."""
+    steps = [
+        f"{label} {_day(made[key])} "
+        f"({round(max((made[key] - joined).total_seconds(), 0) / 86400, 1)} days "
+        "after sign-up)"
+        if key in made
+        else f"{label} not yet"
+        for key, label in TIMED_STEPS
+    ]
+    return f"signed up {_day(joined)}; steps: " + ", ".join(steps)
+
+
 def customer_list(db: Session, *, query: CustomerQuery, now: datetime) -> str:
     order = _ORDER.get(query.state, "newest sign-up")
     page = customer_page(
@@ -328,6 +342,11 @@ def customer_list(db: Session, *, query: CustomerQuery, now: datetime) -> str:
             f"the other {page.total - len(shown)} were not read. Say so, and "
             "narrow the filter to see them."
         )
+    moments = (
+        first_moments(db, [row.user.id for row in shown])
+        if "steps" in wanted and shown
+        else {}
+    )
     for row in shown:
         user = row.user
         parts = [f"- {user.full_name or '(no name)'} <{user.email}>"]
@@ -348,6 +367,8 @@ def customer_list(db: Session, *, query: CustomerQuery, now: datetime) -> str:
             parts.append(f"sales manager: {row.manager.full_name or row.manager.email}")
         if "problem" in wanted and row.trouble is not None:
             parts.append(f"problem: {row.trouble.label}")
+        if "steps" in wanted:
+            parts.append(_steps_line(user.date_joined, moments.get(user.id, {})))
         if not user.is_active:
             parts.append("BLOCKED")
         lines.append("; ".join(parts))

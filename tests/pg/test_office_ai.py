@@ -12,6 +12,7 @@ from llmkit import LLMResult, ToolCall
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.common.dates import localtime
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.audit.constants import LLMPurpose
@@ -483,3 +484,49 @@ def test_the_statistika_screen_is_read_block_by_block(
             db, query=Statistics(period="30", parts=parts[start : start + 4]), now=now
         )
         assert text.count("###") >= len(parts[start : start + 4])
+
+
+def test_how_long_each_step_took_is_counted_from_the_sign_up(
+    client: TestClient, db: Session
+) -> None:
+    from datetime import timedelta
+
+    from app.modules.backoffice.selectors import stats
+    from app.modules.backoffice.selectors.dashboard import asked_window
+    from app.modules.officeai.selectors import statistics
+    from core.officeai.tools import Statistics
+
+    first, second = _customers(client, db)
+    now = utcnow()
+    first.prepared_at = first.date_joined + timedelta(hours=12)
+    second.prepared_at = second.date_joined + timedelta(days=5)
+    db.commit()
+
+    window = asked_window(
+        period="7", since=None, until=None, today=localtime(now).date()
+    )
+    found = stats.timings(db, window=window)
+    setup = next(step for step in found["steps"] if step["key"] == "setup")
+    assert found["joined"] == 2 and setup["reached"] == 2
+    assert setup["median_days"] == 2.8 and setup["average_days"] == 2.8
+    assert [row["customers"] for row in setup["within"]] == [1, 1, 2]
+    assert setup["later"] == 0
+    paid = next(step for step in found["steps"] if step["key"] == "paid")
+    assert paid["reached"] == 0 and paid["median_days"] is None
+
+    text = statistics.statistics(
+        db, query=Statistics(period="7", parts=["timings"]), now=now
+    )
+    assert "### Time to each step: the 2 customers" in text
+    assert (
+        "- Tayyorgarlikni yakunladi: 2 (100.0% of those who signed up); "
+        "median 2.8 days (66.0 hours), average 2.8 days; "
+        "within 1 day 1, within 3 days 1, within 7 days 2, later 0" in text
+    )
+    assert "- Birinchi to'lov: 0 (0.0% of those who signed up); nobody yet" in text
+
+    one = facts.customer_list(
+        db, query=CustomerQuery(term="birinchi", fields=["steps"]), now=now
+    )
+    assert "Tayyorgarlikni yakunladi" in one and "(0.5 days after sign-up)" in one
+    assert "Birinchi to'lov not yet" in one

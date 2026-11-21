@@ -66,6 +66,7 @@ class Span(Days):
 
 StatPart = Literal[
     "funnel",
+    "timings",
     "statuses",
     "ladder",
     "plans_sold",
@@ -97,6 +98,10 @@ class Statistics(Days):
             "`funnel`: those who signed up in the window by the furthest step "
             "reached - profile, Meta connected, setup, first ad, first lead, "
             "first payment, Standart - and how many dropped before each. "
+            "`timings`: for those who signed up in the window, how long after "
+            "signing up they first connected Meta, finished the setup, paid, "
+            "launched an ad and got a lead - median, average, how many within "
+            "1, 3 and 7 days - and from the first payment to the first ad. "
             "`statuses`: every customer now by plan state, and paid plans "
             "ending in 7 and 30 days, with a card or without. "
             "`ladder`: everyone who ever paid, by how far up the plans they "
@@ -126,7 +131,9 @@ class Statistics(Days):
     )
 
 
-CustomerField = Literal["business", "joined", "paid", "ads", "manager", "problem"]
+CustomerField = Literal[
+    "business", "joined", "paid", "ads", "manager", "problem", "steps"
+]
 LIST_LIMIT: Final = 30
 LIST_DEFAULT: Final = 10
 
@@ -176,7 +183,9 @@ class CustomerQuery(Arguments):
             "What to add to each row beyond name, email and plan - only what "
             "the answer needs: `business` its name; `joined` sign-up day; "
             "`paid` paid in all; `ads` campaigns running and leads; `manager` "
-            "sales manager; `problem` the worst problem."
+            "sales manager; `problem` the worst problem; `steps` when this "
+            "customer first connected Meta, finished the setup, paid, launched "
+            "an ad and got a lead, and how long after signing up."
         ),
     )
     limit: int = Field(

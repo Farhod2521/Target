@@ -87,8 +87,8 @@ def _funnel(read: _Read) -> list[str]:
     lines = [
         f"### Funnel: the {found['joined']} customers who signed up in the "
         "window, by the furthest step reached",
-        "A later step counts the earlier ones as made. No times are kept "
-        "here: only how many reached each step. Each: reached it; share of "
+        "A later step counts the earlier ones as made. No times here - "
+        "`timings` has them. Each: reached it; share of "
         "those who signed up; share of the step before; dropped before it.",
     ]
     lines += [
@@ -96,6 +96,45 @@ def _funnel(read: _Read) -> list[str]:
         f"{_pct(step['of_joined_pct'])}; {_pct(step['of_previous_pct'])}; "
         f"dropped {step['dropped']}"
         for step in found["steps"]
+    ]
+    return lines
+
+
+def _took(found: dict[str, Any]) -> str:
+    """How long a step took, for those who made it."""
+    if not found["reached"]:
+        return "nobody yet"
+    within = ", ".join(
+        f"within {row['days']} day{'s' if row['days'] > 1 else ''} {row['customers']}"
+        for row in found["within"]
+    )
+    return (
+        f"median {found['median_days']} days ({found['median_hours']} hours), "
+        f"average {found['average_days']} days; {within}, later {found['later']}"
+    )
+
+
+def _timings(read: _Read) -> list[str]:
+    found = stats.timings(read.db, window=read.window)
+    pair = found["paid_then_launch"]
+    lines = [
+        f"### Time to each step: the {found['joined']} customers who signed "
+        "up in the window",
+        "Counted from the sign-up to the first time the step was made, for "
+        "those who made it. The 'within' counts add up: within 3 days holds "
+        "within 1 day too. Those who signed up lately have had less time, so "
+        "a recent window under-counts the later steps. Meta's time is from "
+        "the oldest connection still on record.",
+    ]
+    lines += [
+        f"- {step['label']}: {step['reached']} "
+        f"({_pct(step['reached_pct'])} of those who signed up); {_took(step)}"
+        for step in found["steps"]
+    ]
+    lines += [
+        f"From the first payment to the first ad, the {pair['both']} who did both:",
+        f"- Launched an ad before paying (on a trial): {pair['launched_first']}",
+        f"- Paid first, then launched: {pair['reached']}; {_took(pair)}",
     ]
     return lines
 
@@ -434,6 +473,7 @@ def _ai_top(read: _Read) -> list[str]:
 
 BLOCKS: dict[str, Callable[[_Read], list[str]]] = {
     "funnel": _funnel,
+    "timings": _timings,
     "statuses": _statuses,
     "ladder": _ladder,
     "plans_sold": _plans_sold,

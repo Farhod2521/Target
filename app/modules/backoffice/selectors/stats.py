@@ -798,6 +798,163 @@ def funnel(db: Session, buyers: dict[str, Buyer], *, window: Window) -> dict[str
     return {"joined": total, "steps": rows}
 
 
+# -- how long each step takes --------------------------------------------------------
+
+TIMED_STEPS = (
+    ("meta", "Meta'ni uladi"),
+    ("setup", "Tayyorgarlikni yakunladi"),
+    ("paid", "Birinchi to'lov"),
+    ("launch", "Birinchi reklamani chiqardi"),
+    ("lead", "Birinchi lid keldi"),
+)
+# A step made within this many days of signing up, counted together.
+WITHIN_DAYS = (1, 3, 7)
+
+
+def first_moments(db: Session, owners: Any) -> dict[uuid.UUID, dict[str, datetime]]:
+    """When each of ``owners`` (ids, or a query of ids) first made each timed
+    step. Four grouped queries, whatever the number of customers.
+
+    Meta's moment is the oldest connection still on record: one let go of
+    and made again shows the later day.
+    """
+    found: dict[uuid.UUID, dict[str, datetime]] = defaultdict(dict)
+
+    def keep(step: str, rows: Iterable[Any]) -> None:
+        for owner, moment in rows:
+            if owner is not None and moment is not None:
+                found[owner][step] = moment
+
+    keep(
+        "setup",
+        db.execute(
+            select(User.id, User.prepared_at).where(
+                User.id.in_(owners), User.prepared_at.is_not(None)
+            )
+        ),
+    )
+    keep(
+        "meta",
+        db.execute(
+            select(ProviderConnection.owner_id, func.min(ProviderConnection.created_at))
+            .where(
+                ProviderConnection.owner_id.in_(owners),
+                ProviderConnection.provider == META,
+            )
+            .group_by(ProviderConnection.owner_id)
+        ),
+    )
+    keep(
+        "paid",
+        db.execute(
+            select(Invoice.owner_id, func.min(Invoice.paid_at))
+            .where(
+                Invoice.owner_id.in_(owners),
+                Invoice.archived_at.is_(None),
+                Invoice.status == InvoiceStatus.PAID,
+                Invoice.kind == InvoiceKind.PLAN,
+                Invoice.paid_at.is_not(None),
+                or_(Invoice.amount_minor != 0, Invoice.wallet_minor != 0),
+            )
+            .group_by(Invoice.owner_id)
+        ),
+    )
+    keep(
+        "launch",
+        db.execute(
+            select(CampaignLaunch.owner_id, func.min(CampaignLaunch.created_at))
+            .where(
+                CampaignLaunch.owner_id.in_(owners),
+                CampaignLaunch.status == LaunchStatus.CREATED,
+            )
+            .group_by(CampaignLaunch.owner_id)
+        ),
+    )
+    keep(
+        "lead",
+        db.execute(
+            select(Lead.owner_id, func.min(Lead.created_at))
+            .where(Lead.owner_id.in_(owners))
+            .group_by(Lead.owner_id)
+        ),
+    )
+    return dict(found)
+
+
+def _days_between(start: datetime, end: datetime) -> float:
+    """Never below nothing: a step dated before its start took no time."""
+    return max((end - start).total_seconds(), 0.0) / 86400
+
+
+def _spread(days: list[float], *, of: int) -> dict[str, Any]:
+    """How long a step took for those who made it: the middle, the average,
+    and how many made it within a day, three and a week."""
+    return {
+        "reached": len(days),
+        "reached_pct": _pct(len(days), of),
+        "median_days": _median(days),
+        "average_days": round(sum(days) / len(days), 1) if days else None,
+        "median_hours": round(statistics.median(days) * 24, 1) if days else None,
+        "within": [
+            {"days": limit, "customers": sum(1 for value in days if value <= limit)}
+            for limit in WITHIN_DAYS
+        ],
+        "later": sum(1 for value in days if value > WITHIN_DAYS[-1]),
+    }
+
+
+def timings(db: Session, *, window: Window) -> dict[str, Any]:
+    """Customers who signed up inside the window: how long after signing up
+    each step was first made, and from the first payment to the first ad.
+
+    Those who signed up lately have had less time, so a recent window
+    under-counts the later steps.
+    """
+    joined = dict(
+        db.execute(
+            select(User.id, User.date_joined).where(
+                _customer(),
+                User.date_joined >= window.since,
+                User.date_joined < window.until,
+            )
+        ).all()
+    )
+    moments = first_moments(
+        db,
+        select(User.id).where(
+            _customer(),
+            User.date_joined >= window.since,
+            User.date_joined < window.until,
+        ),
+    )
+    steps = []
+    for key, label in TIMED_STEPS:
+        days = [
+            _days_between(joined[owner], made[key])
+            for owner, made in moments.items()
+            if key in made and owner in joined
+        ]
+        steps.append({"key": key, "label": label, **_spread(days, of=len(joined))})
+    both = [
+        made
+        for owner, made in moments.items()
+        if owner in joined and "paid" in made and "launch" in made
+    ]
+    after = [made for made in both if made["launch"] >= made["paid"]]
+    return {
+        "joined": len(joined),
+        "steps": steps,
+        "paid_then_launch": {
+            "both": len(both),
+            "launched_first": len(both) - len(after),
+            **_spread(
+                [_days_between(made["paid"], made["launch"]) for made in after],
+                of=len(both),
+            ),
+        },
+    }
+
+
 # -- the assistant's cost ------------------------------------------------------------
 
 
