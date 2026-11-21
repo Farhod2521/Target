@@ -171,11 +171,25 @@ def _purchase_value(figures: Figures, setting: Setting) -> Answer:
 
 
 def _roas(figures: Figures, setting: Setting) -> Answer:
+    """Sales over spend, by the sales the object is priced by (:func:`sales`):
+    the CRM's closed deals, or the pixel's purchases for a website goal.
+
+    A CRM with no sale closed has no revenue to divide - the leads may be
+    sold and nobody has said so - so the answer is the reason, never nought.
+    """
+    if setting.outcome in SITE_SALE_GOALS:
+        value = figures.purchase_value_site_minor
+    elif not figures.crm:
+        return missing("no_crm")
+    elif not figures.purchases_crm:
+        return missing("no_sales")
+    elif figures.sales_unpriced:
+        return missing("no_rate")
+    else:
+        value = figures.purchase_value_crm_minor
     if figures.spend_minor <= 0:
         return missing("no_spend")
-    return known(
-        hundredths(f.roas(figures.purchase_value_site_minor, figures.spend_minor))
-    )
+    return known(hundredths(f.roas(value, figures.spend_minor)))
 
 
 COMMON: Final[tuple[Metric, ...]] = (
@@ -335,7 +349,7 @@ COMMON: Final[tuple[Metric, ...]] = (
     Metric(
         key="roas",
         label="ROAS",
-        hint="Sotuv summasi ÷ Sarflandi. 3 bo'lsa, sarflangan har 1 birlik pul 3 birlik sotuv keltirgan.",
+        hint="Sotuv summasi ÷ Sarflandi: CRM'da yopilgan sotuvlar bo'yicha (sayt maqsadida pixel sanagan xaridlar). 3 bo'lsa, har 1 birlik pul 3 birlik sotuv keltirgan.",
         group="sales",
         unit="ratio",
         formula=_roas,

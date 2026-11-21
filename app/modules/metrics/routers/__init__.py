@@ -142,13 +142,8 @@ def numbers_context(
 
     page = page_campaigns(db, owner=user)
     account = page.home
-    chosen = _filters(
-        user,
-        period=period,
-        start=start,
-        end=end,
-        today=cabinet_today(db, owner=user, account=account),
-    )
+    today = cabinet_today(db, owner=user, account=account)
+    chosen = _filters(user, period=period, start=start, end=end, today=today)
     synced_at = accounts_synced_at(db, owner=user, accounts=page.accounts)
     now = utcnow()
     return {
@@ -169,7 +164,8 @@ def numbers_context(
             "until": chosen.until,
             "days": chosen.days,
             "is_custom": chosen.key == CUSTOM,
-            "earliest": utcnow().date() - timedelta(days=RANGE_MAX_DAYS - 1),
+            # The account's own day, as ``today`` is: not the server's.
+            "earliest": today - timedelta(days=RANGE_MAX_DAYS - 1),
         },
         "periods": [
             {"value": value, "label": label} for value, label in Period.choices

@@ -126,12 +126,39 @@ def test_cost_per_purchase_on_a_website_goal_is_the_pixels_sales() -> None:
     assert value("cost_per_purchase", figures, site) == 1_000
 
 
-def test_roas_is_sales_value_over_spend() -> None:
+def test_roas_is_the_crms_sales_over_spend() -> None:
     figures = Figures(
-        spend_minor=MinorUnits(6_000), purchase_value_site_minor=MinorUnits(18_000)
+        spend_minor=MinorUnits(6_000),
+        purchases_crm=2,
+        purchase_value_crm_minor=MinorUnits(18_000),
+        # The pixel's sum is another count of what may be the same buyers.
+        purchase_value_site_minor=MinorUnits(99_000),
     )
 
     assert value("roas", figures) == Decimal("3.00")
+
+
+def test_roas_on_a_website_goal_is_the_pixels_sales() -> None:
+    figures = Figures(
+        spend_minor=MinorUnits(6_000),
+        purchase_value_site_minor=MinorUnits(18_000),
+        purchases_crm=1,
+        purchase_value_crm_minor=MinorUnits(600),
+    )
+    site = Setting(level="ad", outcome="site_lead")
+
+    assert value("roas", figures, site) == Decimal("3.00")
+
+
+def test_roas_says_why_the_crm_has_no_revenue_and_never_nought() -> None:
+    spent = MinorUnits(6_000)
+
+    assert why("roas", Figures(spend_minor=spent, crm=False)) == "no_crm"
+    assert why("roas", Figures(spend_minor=spent)) == "no_sales"
+    unpriced = Figures(spend_minor=spent, purchases_crm=2, sales_unpriced=1)
+    assert why("roas", unpriced) == "no_rate"
+    sold = Figures(purchases_crm=1, purchase_value_crm_minor=MinorUnits(500))
+    assert why("roas", sold) == "no_spend"
 
 
 # -- the rest of the formulas ---------------------------------------------------------
@@ -232,7 +259,7 @@ def test_people_counts_not_read_for_the_range_are_not_summed_days() -> None:
 def test_a_cost_says_whether_the_spend_or_the_count_was_missing() -> None:
     assert why("cpql", Figures(qualified=3)) == "no_spend"
     assert why("cpql", Figures(spend_minor=MinorUnits(100))) == "no_base"
-    assert why("roas", Figures()) == "no_spend"
+    assert why("roas", Figures()) == "no_sales"
 
 
 def test_a_goal_counted_elsewhere_has_no_result() -> None:

@@ -117,6 +117,10 @@ class Figures:
     purchases_site: int = 0
     purchase_value_site_minor: MinorUnits = MinorUnits(0)  # noqa: RUF009
     purchases_crm: int = 0
+    # What the CRM's sales of these leads came to, in the ad account's
+    # currency; a sale no rate could price is counted, not added.
+    purchase_value_crm_minor: MinorUnits = MinorUnits(0)  # noqa: RUF009
+    sales_unpriced: int = 0
     video_plays: int = 0
     video_views_3s: int = 0
     video_thruplays: int = 0
