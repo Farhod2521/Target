@@ -51,10 +51,23 @@ def _money(amount: int, currency: str) -> str:
     return format_minor(amount_minor=amount, currency=currency)
 
 
+def _money_diff(now: int, before: int, currency: str) -> str:
+    if now == before:
+        return "the same"
+    return f"{_money(abs(now - before), currency)} {'more' if now > before else 'less'}"
+
+
 def _pct(value: int | None) -> str:
     if value is None:
         return "n/a (nothing to compare with)"
     return f"{value:+d}%"
+
+
+def _diff(now: int, before: int) -> str:
+    """How far apart two counts are, so nobody has to subtract."""
+    if now == before:
+        return "the same"
+    return f"{abs(now - before)} {'more' if now > before else 'fewer'}"
 
 
 def _day(moment: datetime | date | None) -> str:
@@ -100,10 +113,12 @@ def customers_summary(db: Session, *, span: Span, now: datetime) -> str:
         f"- Customers in all (staff never counted): {found.total}",
         f"- Signed up in the window: {found.joined}",
         f"- Signed up in the {window.days} days before it: {found.joined_before}"
-        f" (change: {_pct(found.joined_change_pct)})",
+        f" ({_diff(found.joined, found.joined_before)} now;"
+        f" change: {_pct(found.joined_change_pct)})",
         f"- Of those who signed up in the window, paid for a plan: "
         f"{found.joined_paid} (conversion: "
-        f"{f'{found.conversion_pct}%' if found.conversion_pct is not None else 'n/a'})",
+        f"{f'{found.conversion_pct}%' if found.conversion_pct is not None else 'n/a'})"
+        f"; did not pay: {found.joined - found.joined_paid}",
         f"- On a trial now: {found.trial}",
         f"- On a paid plan now: {found.paying}",
         f"- Plan ends within {EXPIRING_DAYS} days: {found.expiring}",
@@ -137,7 +152,9 @@ def money_summary(db: Session, *, span: Span, now: datetime) -> str:
         f"- Paid online: {_money(whole.online_minor, currency)}; "
         f"entered by hand: {_money(whole.manual_minor, currency)}",
         f"- Money in, the {window.days} days before: "
-        f"{_money(found.before_minor, currency)} (change: {_pct(found.change_pct)})",
+        f"{_money(found.before_minor, currency)} ("
+        f"{_money_diff(whole.amount_minor, found.before_minor, currency)} now; "
+        f"change: {_pct(found.change_pct)})",
         f"- Unpaid bills now: {found.unpaid}, {_money(found.unpaid_minor, currency)}",
         f"- Plans given free in the window: {found.given_free}",
         "",
@@ -194,7 +211,8 @@ def platform_activity(
         f"- Launches that failed in the window: {found.failed}",
         f"- Ad spend in the window: {spend}",
         f"- Leads in the window: {found.leads}; the {window.days} days before: "
-        f"{found.leads_before} (change: {_pct(found.leads_change_pct)})",
+        f"{found.leads_before} ({_diff(found.leads, found.leads_before)} now; "
+        f"change: {_pct(found.leads_change_pct)})",
     ]
     if sees_money:
         lines.append(
@@ -262,6 +280,14 @@ def sales_by_manager(db: Session, *, span: Span, now: datetime) -> str:
 
 # -- customers, one by one -----------------------------------------------------
 
+# The order the customers list gives each state, in words.
+_ORDER = {
+    "trial": "plan ending soonest",
+    "active": "plan ending soonest",
+    "expiring": "plan ending soonest",
+    "lapsed": "plan most recently ended",
+}
+
 
 def _plan_line(row: Any, *, now: datetime) -> str:
     if row.subscription is not None:
@@ -275,6 +301,7 @@ def _plan_line(row: Any, *, now: datetime) -> str:
 
 
 def customer_list(db: Session, *, query: CustomerQuery, now: datetime) -> str:
+    order = _ORDER.get(query.state, "newest sign-up")
     page = customer_page(
         db,
         now=now,
@@ -286,10 +313,16 @@ def customer_list(db: Session, *, query: CustomerQuery, now: datetime) -> str:
             joined_to=query.joined_to,
         ),
     )
+    shown = page.rows[:LIST_ROWS]
     lines = [f"## Customers matched: {page.total}"]
-    if page.total > len(page.rows):
-        lines.append(f"The first {len(page.rows)} are listed, newest first.")
-    for row in page.rows[:LIST_ROWS]:
+    if page.total > len(shown):
+        lines.append(
+            f"Only the first {len(shown)} are listed below, "
+            f"{order} first; "
+            f"the other {page.total - len(shown)} were not read. Say so, and "
+            "narrow the filter to see them."
+        )
+    for row in shown:
         user = row.user
         paid = (
             ", ".join(_money(amount, currency) for currency, amount in row.paid_total)

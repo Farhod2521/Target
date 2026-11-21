@@ -127,6 +127,8 @@ def test_the_figures_are_the_offices_own_and_staff_are_never_counted(
     summary = facts.customers_summary(db, span=Span(period="today"), now=now)
     assert "- Customers in all (staff never counted): 2" in summary
     assert "- Signed up in the window: 2" in summary
+    assert "; did not pay: 2" in summary
+    assert "(2 more now; change:" in summary
     assert "- On a trial now: 1" in summary
     assert "### Sign-ups per day" in summary
 
@@ -138,6 +140,25 @@ def test_the_figures_are_the_offices_own_and_staff_are_never_counted(
     assert "birinchi@example.com" in trial and "(trial)" in trial
     never = facts.customer_list(db, query=CustomerQuery(term="ikkinchi"), now=now)
     assert "never had a plan" in never
+    assert "Only the first" not in never
+
+
+def test_a_long_list_says_how_many_rows_it_gave_and_how_many_it_left(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _customers(client, db)
+    monkeypatch.setattr(facts, "LIST_ROWS", 1)
+
+    everyone = facts.customer_list(db, query=CustomerQuery(), now=utcnow())
+    assert "## Customers matched: 2" in everyone
+    assert "Only the first 1 are listed below, newest sign-up first" in everyone
+    assert "the other 1 were not read" in everyone
+    assert everyone.count("\n- ") == 1
+
+
+def test_the_rest_of_the_figures_read(client: TestClient, db: Session) -> None:
+    _customers(client, db)
+    now = utcnow()
 
     week = facts.money_summary(db, span=Span(period="7"), now=now)
     assert "- Payments: 0" in week

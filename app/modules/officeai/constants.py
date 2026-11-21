@@ -32,6 +32,8 @@ MAX_ROUNDS: Final = 6
 # Rows a customer list shows the model; the total is always given.
 LIST_ROWS: Final = 15
 PROBLEM_ROWS: Final = 10
+# A numbered list's row numbers pass the figure gate below this.
+ORDINALS_BELOW: Final = 100
 
 # A person's questions a day: a guard on the bill, not a rationing.
 QUESTIONS_PER_DAY: Final = 100

@@ -13,7 +13,7 @@ from core.officeai.tools import (
     tools_for,
 )
 
-PROMPT = Path(__file__).parents[3] / "core/agent/prompts/office_ai/v1.md"
+PROMPT = Path(__file__).parents[3] / "core/agent/prompts/office_ai/v2.md"
 
 
 def test_every_look_up_has_one_name_and_a_line_while_it_runs() -> None:
