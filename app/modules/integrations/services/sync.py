@@ -106,6 +106,7 @@ from app.modules.integrations.selectors import (
     meta_connection,
     missing_scopes,
 )
+from app.modules.integrations.selectors.demo import is_demo_page
 from app.modules.integrations.services.access import account_ref, port_for, token_for
 from app.modules.integrations.services.reach import check_chosen
 
@@ -778,6 +779,8 @@ def sync_instagram_profile_by_id(db: Session, *, page_id: object) -> str:
         return "gone"
     if not page.instagram_user_id:
         return "unlinked"
+    if is_demo_page(page):
+        return "unusable"
     try:
         token = decrypt(page.token_encrypted)
     except DecryptionFailed:

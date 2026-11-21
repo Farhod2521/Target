@@ -500,6 +500,7 @@ def heal_connections(db: Session) -> list[ProviderConnection]:
         select(ProviderConnection).where(
             ProviderConnection.provider == PROVIDER,
             ProviderConnection.status.not_in(USABLE_CONNECTION_STATUSES),
+            ProviderConnection.status != ConnectionStatus.DEMO,
             ProviderConnection.token_encrypted != NO_TOKEN,
             ProviderConnection.last_error_code != "decrypt",
         )

@@ -21,6 +21,10 @@ class ConnectionStatus(Choices):
     EXPIRED = "expired"
     REVOKED = "revoked"
     INVALID = "invalid"
+    # A showcase account's connection: nothing stands behind it at the
+    # network. It reads as a working one on every screen and is never
+    # spoken with - no token is asked of it, by a job or by a click.
+    DEMO = "demo"
 
 
 CONNECTION_STATUS_LABELS = {
@@ -28,8 +32,12 @@ CONNECTION_STATUS_LABELS = {
     ConnectionStatus.EXPIRED: "Muddati tugagan",
     ConnectionStatus.REVOKED: "Bekor qilingan",
     ConnectionStatus.INVALID: "Yaroqsiz",
+    ConnectionStatus.DEMO: "Ulangan",
 }
 USABLE_CONNECTION_STATUSES = (ConnectionStatus.ACTIVE,)
+# What a screen calls connected. ``USABLE`` answers "may a token be asked
+# for"; this answers "is there anything to tell the owner to mend".
+LINKED_CONNECTION_STATUSES = (ConnectionStatus.ACTIVE, ConnectionStatus.DEMO)
 REFRESH_WINDOW_DAYS = 7
 REFRESH_COOLDOWN_SECONDS = 15
 MIN_AUDIENCE_MEMBERS = 100

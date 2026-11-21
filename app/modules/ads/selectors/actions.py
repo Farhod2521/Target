@@ -31,6 +31,7 @@ from app.modules.ads.models import Ad, AdCreative, AdSet, Campaign, SiteCheck
 from app.modules.ads.selectors.launched import MIRRORS
 from app.modules.ads.selectors.pages import campaign_on_page, pages_by_adset
 from app.modules.integrations.models import AdAccount
+from app.modules.integrations.selectors.demo import is_demo_account
 
 _LOADS: dict[str, Any] = {
     ManagedLevel.CAMPAIGN: lambda: joinedload(Campaign.ad_account),
@@ -351,7 +352,11 @@ def last_synced_at(
     if accounts is None:
         account = cabinet_account(db, owner=owner)
         return account.synced_at if account is not None else None
-    stamps = [account.synced_at for account in accounts]
+    # A showcase account has nothing to be read from: it is never behind.
+    stamps = [
+        utcnow() if is_demo_account(account) else account.synced_at
+        for account in accounts
+    ]
     if not stamps or None in stamps:
         return None
     return min(stamp for stamp in stamps if stamp is not None)

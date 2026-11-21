@@ -39,6 +39,7 @@ from app.modules.ads.exceptions import MediaAskedRecently
 from app.modules.ads.models import CampaignLaunch, LaunchCreative, MediaAsset
 from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
 from app.modules.integrations.models import AdAccount, PageAccount
+from app.modules.integrations.selectors.demo import is_demo_page
 
 logger = logging.getLogger(__name__)
 ACCOUNT_KINDS: tuple[str, ...] = (MediaKind.IMAGE, MediaKind.VIDEO)
@@ -136,6 +137,8 @@ def _page_library(db: Session, owner: User) -> int:
     ).all()
     for page in pages:
         if not page.is_active:
+            continue
+        if is_demo_page(page):
             continue
         try:
             token = decrypt(page.token_encrypted)
@@ -442,6 +445,8 @@ def sync_recent_instagram(db: Session, *, page_id: uuid.UUID | str) -> str:
     ).first()
     if page is None or not page.instagram_user_id:
         return "gone"
+    if is_demo_page(page):
+        return "unusable"
     try:
         token = decrypt(page.token_encrypted)
     except DecryptionFailed:

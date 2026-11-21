@@ -23,6 +23,7 @@ from app.modules.ads.models import CampaignLaunch, MediaAsset
 from app.modules.ads.selectors import account_of
 from app.modules.integrations.constants import USABLE_CONNECTION_STATUSES
 from app.modules.integrations.models import AdAccount, PageAccount
+from app.modules.integrations.selectors.demo import is_demo_page
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,8 @@ def launch_page_token(db: Session, *, launch: CampaignLaunch) -> str:
 
 
 def _decrypted(page: PageAccount) -> str:
+    if is_demo_page(page):
+        raise ConnectionUnusable
     try:
         return decrypt(page.token_encrypted)
     except DecryptionFailed as exc:

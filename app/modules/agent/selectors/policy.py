@@ -15,6 +15,7 @@ from app.modules.ads.models import Ad, AdSet
 from app.modules.agent.constants import CHECK_STALE_HOURS
 from app.modules.agent.models import AdSetDiagnosis, AgentPolicy
 from app.modules.integrations.models import AdAccount
+from app.modules.integrations.selectors.demo import demo_owner_ids
 from app.modules.metrics.constants import MetricLevel
 from app.modules.metrics.models import MetricsDaily
 
@@ -48,6 +49,8 @@ def agent_owner_ids(db: Session, *, now: datetime) -> set[uuid.UUID]:
                 AdAccount.is_active.is_(True),
                 AdAccount.owner_id.in_(entitled_owner_ids(now=now)),
                 AdAccount.owner_id.not_in(refused),
+                # A showcase account's figures are made up: nothing judges them.
+                AdAccount.owner_id.not_in(demo_owner_ids()),
             )
             .distinct()
         )
@@ -74,10 +77,18 @@ def owners_to_diagnose(db: Session) -> list[str]:
     """Everybody the nightly sweep has something to do for."""
     connected = db.scalars(
         select(AdAccount.owner_id)
-        .where(AdAccount.provider == META, AdAccount.is_current.is_(True))
+        .where(
+            AdAccount.provider == META,
+            AdAccount.is_current.is_(True),
+            AdAccount.owner_id.not_in(demo_owner_ids()),
+        )
         .distinct()
     )
-    written = db.scalars(select(AdSetDiagnosis.owner_id).distinct())
+    written = db.scalars(
+        select(AdSetDiagnosis.owner_id)
+        .where(AdSetDiagnosis.owner_id.not_in(demo_owner_ids()))
+        .distinct()
+    )
     return sorted({str(owner_id) for owner_id in [*connected, *written]})
 
 

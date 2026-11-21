@@ -19,6 +19,12 @@ class ConnectionOut(_Row):
     last_verified_at: datetime | None
     action_required_at: datetime | None
 
+    @field_validator("status", mode="after")
+    @classmethod
+    def _demo_reads_as_working(cls, value: str) -> str:
+        """A showcase connection is a working one to every screen."""
+        return "active" if value == "demo" else value
+
 
 class AdAccountOut(_Row):
     id: uuid.UUID
