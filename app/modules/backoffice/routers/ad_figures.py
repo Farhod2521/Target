@@ -1,8 +1,9 @@
 """The office's advertising figures, and which of its own campaigns they count.
 
-``GET /office/ad-figures`` is the six figures for one window of days, read by
-Finance and the Owner (the money roles), as the dashboard's money is; the
-window is asked as the dashboard's is. ``/campaigns`` is the superuser's
+``GET /office/acquisition`` is the six figures for one window of days, read
+by Finance and the Owner (the money roles), as the dashboard's money is; the
+window is asked as the dashboard's is. The path does not say «ad»: ad
+blockers drop such paths. ``/campaigns`` is the superuser's
 alone; everyone else gets 404.
 
 The list holds only the campaigns of the office's ad account
@@ -39,7 +40,7 @@ from app.modules.backoffice.selectors.ad_figures import (
     office_account,
 )
 
-router = APIRouter(prefix="/ad-figures")
+router = APIRouter(prefix="/acquisition")
 Money = Annotated[User, Depends(staff_required(*MONEY_ROLES))]
 Superuser = Annotated[User, Depends(superuser_required)]
 MOST = 500

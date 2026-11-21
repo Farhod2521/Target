@@ -24,8 +24,8 @@ from tests.pg.test_office_actions import _shop, _staff
 from tests.pg.test_office_dashboard import _bill
 from tests.pg.test_supportchat import _user
 
-DASH = "/api/v1/office/ad-figures"
-PICK = "/api/v1/office/ad-figures/campaigns"
+DASH = "/api/v1/office/acquisition"
+PICK = "/api/v1/office/acquisition/campaigns"
 RATE = Decimal("12000")
 
 
