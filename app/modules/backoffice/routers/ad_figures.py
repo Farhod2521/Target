@@ -1,16 +1,17 @@
-"""The office's advertising figures, and which of its own campaigns they count.
+"""The office's advertising figures, and which campaigns and plans they count.
 
 ``GET /office/acquisition`` is the six figures for one window of days, read
 by Finance and the Owner (the money roles), as the dashboard's money is; the
 window is asked as the dashboard's is. The path does not say «ad»: ad
-blockers drop such paths. ``/campaigns`` is the superuser's
-alone; everyone else gets 404.
+blockers drop such paths.
 
-The list holds only the campaigns of the office's ad account
-(``OFFICE_AD_ACCOUNT``), those Meta still lists and those only the daily
-figures remember. Setting it replaces the whole picked set.
+``/campaigns`` and ``/plans`` are the superuser's alone (everyone else gets
+404): which campaigns of the office's ad account (``OFFICE_AD_ACCOUNT``) and
+which plans count. The campaigns are those Meta still lists and those only
+the daily figures remember. Setting either replaces its whole picked set.
 """
 
+import uuid
 from datetime import date
 from typing import Annotated, Any
 
@@ -23,7 +24,7 @@ from app.common.config import settings
 from app.common.exceptions import InputRefused
 from app.modules.accounts.models import User
 from app.modules.backoffice.constants import MONEY_ROLES
-from app.modules.backoffice.models import OfficeAdCampaign
+from app.modules.backoffice.models import OfficeAcquisitionPlan, OfficeAdCampaign
 from app.modules.backoffice.permissions import staff_required, superuser_required
 from app.modules.backoffice.routers._out import amounts
 from app.modules.backoffice.routers.dashboard import (
@@ -33,17 +34,29 @@ from app.modules.backoffice.routers.dashboard import (
     _window,
     window_out,
 )
-from app.modules.backoffice.schemas import OfficeAdCampaignsOut, OfficeAdFiguresOut
+from app.modules.backoffice.schemas import (
+    OfficeAcquisitionPlansOut,
+    OfficeAdCampaignsOut,
+    OfficeAdFiguresOut,
+)
 from app.modules.backoffice.selectors.ad_figures import (
+    EXACT_FROM,
     ad_figures,
     campaign_rows,
     office_account,
+    plan_rows,
 )
 
 router = APIRouter(prefix="/acquisition")
 Money = Annotated[User, Depends(staff_required(*MONEY_ROLES))]
 Superuser = Annotated[User, Depends(superuser_required)]
 MOST = 500
+
+
+class PlansIn(BaseModel):
+    plan_ids: list[uuid.UUID] = Field(
+        max_length=MOST, description="Plan ids; the whole picked set."
+    )
 
 
 class PickIn(BaseModel):
@@ -72,15 +85,18 @@ def figures(
         "spend": amounts(found.spend),
         "spend_uzs_minor": found.spend_home_minor,
         "unpriced_days": found.unpriced_days,
+        "plans_picked": found.plans_picked,
+        "signups": found.signups,
+        "payers": found.payers,
         "revenue_uzs_minor": found.revenue_minor,
         "roas": found.roas,
-        "new_payers": found.new_payers,
         "cac_uzs_minor": found.cac_minor,
-        "joined": found.joined,
-        "joined_paid": found.joined_paid,
         "conversion_pct": found.conversion_pct,
         "deals": found.deals,
         "deal_seconds": found.deal_seconds,
+        "estimated_from": found.estimated_from,
+        "estimated_until": found.estimated_until,
+        "exact_from": EXACT_FROM,
     }
 
 
@@ -140,3 +156,41 @@ def pick_campaigns(body: PickIn, db: Db, user: Superuser) -> dict[str, Any]:
     )
     db.commit()
     return _campaigns_out(db)
+
+
+def _plans_out(db: Db) -> dict[str, Any]:
+    return {
+        "plans": [
+            {
+                "id": row.id,
+                "name": row.name,
+                "code": row.code,
+                "is_active": row.is_active,
+                "paid": row.paid,
+                "picked": row.picked,
+            }
+            for row in plan_rows(db)
+        ]
+    }
+
+
+@router.get("/plans", responses={200: {"model": OfficeAcquisitionPlansOut}})
+def plans(db: Db, user: Superuser) -> dict[str, Any]:
+    """Every plan, each marked counted or not."""
+    return _plans_out(db)
+
+
+@router.put("/plans", responses={200: {"model": OfficeAcquisitionPlansOut}})
+def pick_plans(body: PlansIn, db: Db, user: Superuser) -> dict[str, Any]:
+    """Count exactly these plans' payments from now on."""
+    wanted = set(body.plan_ids)
+    known = {uuid.UUID(row.id) for row in plan_rows(db)}
+    foreign = sorted(str(plan) for plan in wanted - known)
+    if foreign:
+        raise InputRefused({"plan_ids": f"Bunday tarif yo'q: {', '.join(foreign)}"})
+    db.execute(delete(OfficeAcquisitionPlan))
+    db.add_all(
+        OfficeAcquisitionPlan(plan_id=plan, picked_by_id=user.id) for plan in wanted
+    )
+    db.commit()
+    return _plans_out(db)
