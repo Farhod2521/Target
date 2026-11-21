@@ -137,7 +137,7 @@ bo'lsa strelka chiqmaydi.
 `unit` (`day`/`week`/`month`) Dashboard'dagi kabi. `bars[]` har bir ustun uchun:
 `key`, `label`, `hint`, `signups`, `first_buyers`, `reached_yellow`, `reached_green`,
 `plan_takings_minor`. Grafik tepasida segment turadi: «Ro'yxatdan o'tish · Yangi
-xaridor · Standart'ga o'tish · Yashil · Tushum». Mavjud `BarChart` ishlatiladi.
+xaridor · Standart'ga o'tish · Standart 2+ yoki Pro · Tushum». Mavjud `BarChart` ishlatiladi.
 
 ### Holat. `statuses`: hamma mijozlar hozir
 
@@ -165,6 +165,10 @@ Davr oxirigacha kamida bitta pullik tarif to'lagan har mijoz bitta rangga tushad
 | `yellow` | Sariq | Standart'ni **bir marta** olgan |
 | `green` | Yashil | Standart'ni **2+ marta** olgan **yoki** Pro/Enterprise olgan |
 | `other` | Kulrang | Boshqa tarif (test). Faqat 0 bo'lmasa keladi |
+
+Rang faqat grafik belgisi. Matnda rang nomi yozilmaydi: legend va kartalarda `label` ishlatiladi
+(«Faqat Start», «Standart 1 marta», «Standart 2+ marta yoki Pro»; yuqori qatorda «Standart 2+ marta yoki Pro olganlar»).
+`statuses.rows[]` da `paying` yorlig'i «Obunasi faol»: faol obuna to'lovsiz ham bo'lishi mumkin (promo, ofis bergan kunlar).
 
 `segments[]`: `customers`, `share_pct`, `new_in_window` (shu rangga aynan shu davrda
 yetganlar). Legend'da «+N shu davrda» deb ko'rsating.
@@ -300,7 +304,7 @@ Ko'rinishi: tab yoki segment bilan almashadigan bitta kartochka, ichida foizli b
 | `kinds[]` | `plan` / `pages` / `seats` ulushi. Uzaytirish hisobi sahifa va CRM o'rnini ham o'z ichiga oladi: ularning puli `pages`/`seats`ga ajratiladi, `bills` esa hisob turi bo'yicha |
 | `methods[]` | Qanday to'langan: `payme`, `multicard` (Rahmat karta), `manual:cash`/`transfer`/`card`, `wallet`, `other` |
 | `per_payer_minor` | **ARPU**: tarif tushumi ÷ to'lagan mijozlar |
-| `lifetime_per_customer_minor` | **LTV**: davr oxirigacha bir xaridor olib kelgan tarif puli |
+| `lifetime_per_customer_minor` | **Xaridor jami to'lagani** (sahifada «LTV» deb yozilmaydi): davr oxirigacha bir xaridor olib kelgan tarif puli |
 | `wallet_minor`, `discount_minor` | Hamyondan to'langani, berilgan chegirmalar |
 | `refunded`, `refunded_minor` | Qaytarilganlar |
 | `paying_now`, `autopay_now`, `autopay_pct` | Hozir to'layotganlar va ulardan kartasi bog'langanlar |
