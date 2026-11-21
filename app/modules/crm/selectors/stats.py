@@ -136,6 +136,8 @@ class Stats:
     # Advert leads and hand-typed customers together: the board's work.
     everything: Tally
     completeness: Completeness
+    # Whose figures these are, for a screen that shows more than one pair's.
+    pair: dict[str, str] | None = None
 
 
 def share(part: int, whole: int) -> float:
@@ -207,16 +209,9 @@ def _minutes(since: datetime, until: datetime | None) -> float | None:
     return (until - since).total_seconds() / 60
 
 
-def _count_cohort(
-    db: Session,
-    *,
-    viewer: Viewer,
-    span: Range,
-    kinds: dict[uuid.UUID, str],
-    pricer: Pricer,
-) -> _Groups:
+def _empty(span: Range) -> _Groups:
     days = [span.since + timedelta(days=n) for n in range(span.days)]
-    groups = _Groups(
+    return _Groups(
         total=Tally(),
         direct=Tally(spend_minor=None),
         everything=Tally(spend_minor=None),
@@ -229,6 +224,17 @@ def _count_cohort(
         by_stage={},
         reasons={},
     )
+
+
+def _count_cohort(
+    db: Session,
+    *,
+    viewer: Viewer,
+    span: Range,
+    kinds: dict[uuid.UUID, str],
+    pricer: Pricer,
+) -> _Groups:
+    groups = _empty(span)
     for (
         stage_id,
         holder,
@@ -305,7 +311,7 @@ def spend_rows(
 
     Whose spend it is follows whose leads the CRM takes. A campaign feeds
     the CRM if a lead of it ever became a card here, or it was built here
-    with a lead form on this pair; inside those campaigns an advert counts
+    with a lead form for this pair's page; inside those campaigns an advert counts
     by the rule a new lead of it would be taken by
     (``services.takes_lead``): every advert, or the ticked ones, or - with
     «yangi reklamalar ham» - the ones that were not there to tick. An
@@ -343,7 +349,10 @@ def spend_rows(
     if owner is None:
         return []
     own = campaigns_by_pair(db, owner=owner, pairs=[pair]).get(pair.key)
-    built = sorted(own.exact | own.pageless) if own else []
+    # Only the campaigns built for this page. One built with no page named
+    # belongs to the account's every pair; it counts here once a lead of it
+    # is a card here, and not before - or two pairs would both carry it.
+    built = sorted(own.exact) if own else []
     if built:
         feeding.update(
             db.scalars(
@@ -405,13 +414,10 @@ def _add_spend(
     *,
     pricer: Pricer,
 ) -> None:
-    """Each day's spend, read in the CRM's currency at that day's rate."""
+    """Each day's spend, read in the CRM's currency at that day's rate. A
+    cell that loses a day to a missing rate is marked: its sum has a hole."""
     unpriced: set[date] = set()
     for ad, campaign, day, minor, currency in rows:
-        value = pricer.read(amount_minor=minor, currency=currency, at=day)
-        if value is None:
-            unpriced.add(day)
-            continue
         cells = [
             groups.total,
             groups.by_ad.setdefault(ad, Tally()),
@@ -420,12 +426,29 @@ def _add_spend(
         on_day = groups.by_day.get(day)
         if on_day is not None:
             cells.append(on_day)
+        value = pricer.read(amount_minor=minor, currency=currency, at=day)
+        if value is None:
+            unpriced.add(day)
+            for tally in cells:
+                tally.spend_gap = "no_rate"
+            if on_day is not None:
+                on_day.spend_unpriced_days = 1
+            continue
         for tally in cells:
             tally.spend_minor = (tally.spend_minor or 0) + value
     groups.total.spend_unpriced_days = len(unpriced)
-    for day in unpriced:
-        if day in groups.by_day:
-            groups.by_day[day].spend_unpriced_days = 1
+
+
+def _every_cell(groups: _Groups) -> list[Tally]:
+    return [
+        groups.total,
+        groups.direct,
+        groups.everything,
+        *groups.by_manager.values(),
+        *groups.by_ad.values(),
+        *groups.by_campaign.values(),
+        *groups.by_day.values(),
+    ]
 
 
 def _counted(
@@ -437,15 +460,36 @@ def _counted(
     kinds: dict[uuid.UUID, str],
     pricer: Pricer,
 ) -> _Groups:
+    from app.modules.metrics.services import ad_retention_floor
+
+    if setup is None or setup.state == SetupState.DRAFT:
+        # Never switched on: no card exists, and nothing is read to say so.
+        groups = _empty(span)
+        for tally in _every_cell(groups):
+            tally.crm = False
+        return groups
     groups = _count_cohort(db, viewer=viewer, span=span, kinds=kinds, pricer=pricer)
-    if viewer.scope is not None:
+    # The CRM has leads only from the day it began taking them; spend from
+    # before that day brought no card and is set against nothing.
+    since = max(span.since, span.earliest)
+    if viewer.scope is not None and since <= span.until:
         _add_spend(
             groups,
             spend_rows(
-                db, scope=viewer.scope, setup=setup, since=span.since, until=span.until
+                db, scope=viewer.scope, setup=setup, since=since, until=span.until
             ),
             pricer=pricer,
         )
+    cells = _every_cell(groups)
+    # Spend per advert is kept for half a year: a range reaching further
+    # back has its leads and only part of its spend.
+    if since < ad_retention_floor(today=span.today):
+        for tally in cells:
+            if tally.spend_minor is not None:
+                tally.spend_gap = "not_kept"
+    crm = setup is not None and setup.state == SetupState.ON
+    for tally in cells:
+        tally.crm = crm
     return groups
 
 
@@ -478,9 +522,6 @@ def stats(
         db, viewer=viewer, setup=setup, span=span, kinds=kinds, pricer=pricer
     )
     total = groups.total
-    total.crm = groups.direct.crm = groups.everything.crm = (
-        setup is not None and setup.state == SetupState.ON
-    )
     days = sorted(groups.by_day)
     before = (
         _counted(
@@ -547,6 +588,15 @@ def stats(
         direct=groups.direct,
         everything=everything,
         completeness=completeness(total),
+        pair=(
+            {
+                "key": viewer.pair.key,
+                "page": viewer.pair.page.name or viewer.pair.page.external_id,
+                "account": viewer.pair.account.name or viewer.pair.account.external_id,
+            }
+            if viewer.pair is not None
+            else None
+        ),
     )
 
 

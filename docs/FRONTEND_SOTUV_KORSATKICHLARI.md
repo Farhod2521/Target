@@ -29,6 +29,8 @@ CRM menejeri Dashboardni ko'rmaydi, `/crm/stats` faqat egasiga ochiq (avvalgidek
   "state": "on",
   "currency": "UZS",
   "range": {"since": "2026-10-22", "until": "2026-11-20", "days": 30},
+  "counted_since": "2026-11-05",
+  "pair": {"key": "1234:act_5678", "page": "Sahifa nomi", "account": "Akkaunt nomi"},
   "metrics": [
     {"key": "roas", "label": "ROAS", "hint": "Daromad ÷ Sarflandi. ...", "unit": "ratio", "lower_is_better": false}
   ],
@@ -41,6 +43,16 @@ CRM menejeri Dashboardni ko'rmaydi, `/crm/stats` faqat egasiga ochiq (avvalgidek
 ```
 
 `/crm/stats` da shu blokka qo'shimcha: `campaigns[]`, `ads[]`, `managers[]`, `daily[]` (4-band).
+
+### `counted_since` va `pair`
+
+- `counted_since` — hisob boshlangan birinchi kun. Odatda `range.since` ga teng. CRM davr
+  ichida yoqilgan bo'lsa, shu kun **keyinroq** bo'ladi: CRM lid ola boshlagan kundan oldingi sarf
+  hech bir kartaga to'g'ri kelmaydi va `spend` ga kirmaydi. `counted_since > range.since` bo'lsa,
+  blok ostida yozing: «CRM {sana} dan beri ishlayapti, raqamlar shu kundan».
+- `pair` — raqamlar qaysi sahifa + akkaunt juftligi uchun. Dashboard bir sahifaning bir nechta
+  akkauntini birga ko'rsatishi mumkin, `sales` esa **bitta juftlik** uchun: blok sarlavhasida
+  `pair.page · pair.account` ni yozing, shunda ikki sarf nega farq qilishi tushunarli bo'ladi.
 
 ### Katak (cell)
 
@@ -97,6 +109,8 @@ valyutasida emas. Dashboardning qolgan qismi akkaunt valyutasida (masalan USD) b
 | `no_spend` | Bu davrda sarf yo'q: ROAS, CAC, lid narxlari |
 | `no_base` | Bo'ladigan narsa yo'q (lid yo'q, sifatli lid yo'q) |
 | `not_here` | Bu kesimda bunday ko'rsatkich yo'q: menejerning o'z sarfi bo'lmaydi |
+| `no_rate` | Sarf (yoki sotuv) boshqa valyutada va shu kunlar uchun kurs yo'q. Yig'indining bir qismi yetishmaydi, shuning uchun qisman raqam o'rniga sabab qaytadi |
+| `not_kept` | Davr 180 kundan uzoq: reklama bo'yicha sarf shuncha saqlanadi. Lid va sotuvlar to'liq, sarfga bog'liq kataklar yo'q. Davrni qisqartirish taklif qilinadi |
 
 Matnni `missing_words` dan oling.
 
@@ -126,9 +140,10 @@ katak bo'lgani uchun farqni ko'rsatish oson: ikkalasida `value` bo'lsagina solis
 ### `left_out`
 
 - `sales` — boshqa valyutada yopilgan, o'sha kun kursi topilmagan sotuvlar soni (daromadga kirmagan).
-- `spend_days` — sarfi kurs topilmagani uchun qo'shilmagan kunlar soni.
+- `spend_days` — sarfi kurs topilmagan kunlar soni.
 
-Ikkalasi odatda `0`. Noldan katta bo'lsa, tegishli raqam yonida izoh bering.
+Ikkalasi odatda `0`. Noldan katta bo'lsa tegishli kataklar `no_rate` bo'lib keladi (qisman
+yig'indi ko'rsatilmaydi); bu sonlar izoh uchun: «3 kunlik sarf uchun kurs yo'q».
 
 ## 3. Hisob qoidalari (foydalanuvchiga tushuntirish uchun)
 
@@ -139,6 +154,9 @@ Ikkalasi odatda `0`. Noldan katta bo'lsa, tegishli raqam yonida izoh bering.
   reklama ham kiradi. Xabar, qamrov kabi natijasi CRM'ga tushmaydigan kampaniyalar **kirmaydi** —
   shuning uchun bu sarf Dashboarddagi «Jami sarflandi»dan kichik bo'lishi mumkin.
 - **Valyuta.** Sarf har kunning Markaziy bank kursi bilan CRM valyutasiga o'tkaziladi.
+  Kurs 10 kundan eski bo'lsa ishlatilmaydi (`no_rate`): eskirgan kurs bilan to'g'ri ko'ringan
+  noto'g'ri raqamdan ko'ra «yo'q» afzal.
+- **Qachondan.** CRM lid ola boshlagan kundan (`counted_since`).
 - **Kun.** Reklama akkauntining vaqt mintaqasi bo'yicha (`/crm/stats` → `range.time_zone`).
 - **«Sifatli»** — sotilgan yoki sifatli ustunga o'tib hali ochiq turgan lid. Sifatli bo'lib,
   keyin rad etilgani sanalmaydi (boshqa hamma joydagi qoida bilan bir xil).
@@ -175,7 +193,7 @@ Doskaning har bir ustuni uchun bitta qator, doska tartibida:
 
 | Maydon | Ma'nosi |
 |---|---|
-| `now` | Hozir shu ustunda turgan kartalar |
+| `now` | Hozir shu ustunda turgan kartalar. Yopiq ustunlarda (`won`, `lost`, `junk`) — **hamma vaqt** uchun: doska yopiq kartani 30 kundan keyin yashiradi, shuning uchun bu son doskadagidan katta bo'lishi mumkin |
 | `late` | Ulardan muddati o'tganlari |
 | `waiting_min` | Hozir turgan kartalar qancha vaqtdan beri turibdi (mediana). Yopiq ustunlarda (`won`, `lost`, `junk`) `null` |
 | `longest_wait_min` | Eng uzoq turgan karta |
@@ -197,6 +215,8 @@ Voronka (`funnel`), rad sabablari (`reasons`), ochiq va muddati o'tgan kartalar 
 Farqi:
 
 - `qualified` endi 3-banddagi qoida bilan sanaladi (rad etilgan lid sifatli hisoblanmaydi).
+- `totals` va `daily` — doskadagi hamma karta (qo'lda qo'shilganlar ham); `ads[]` — avvalgidek
+  faqat lid keltirgan reklamalar.
 - Kunlar akkaunt vaqt mintaqasida; `range.time_zone` shu mintaqani qaytaradi.
 
 Yangi dizaynda eski `totals.*` o'rniga `sales.totals` kataklaridan foydalaning.

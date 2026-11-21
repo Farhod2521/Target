@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.crm import selectors
+from app.modules.crm.models import CrmCard
 from app.modules.crm.selectors.stats import stats
 from app.modules.crm.services import collect_signals
 from app.modules.integrations.selectors.audiences import _fillable
@@ -324,3 +325,72 @@ def test_a_bulk_press_carries_a_hundred_cards_at_most(
     )
 
     assert over.status_code == 422
+
+
+def test_a_hand_typed_customer_is_erased_with_the_rest_of_the_people(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.leads.selectors.reads import unerased_count, unerased_lead_ids
+
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    card = _add(client, head).json()
+
+    # What is erased when the term runs out is people, whoever brought them.
+    assert unerased_count(db, owner=owner) == 4
+    assert uuid.UUID(card["lead"]["id"]) in unerased_lead_ids(db, owner=owner, limit=10)
+
+
+def test_erasing_the_crm_leaves_no_hand_typed_customer_behind(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.crm.services import erase_crm
+
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    _add(client, head)
+    me = db.get(User, owner.id)
+
+    erase_crm(db, owner=me, actor=me)
+    db.commit()
+
+    assert db.scalar(select(Lead).where(Lead.provider == "manual")) is None
+    # The adverts' leads stay: they are the Lidlar page's.
+    assert len(db.scalars(select(Lead)).all()) == 3
+
+
+def test_an_adverts_lead_taking_the_card_leaves_no_hand_typed_row(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.crm.services import place_lead
+
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    card = _add(client, head, phone="+998 90 555 66 77").json()
+    form = db.scalar(select(Lead.form_id).where(Lead.provider != "manual"))
+    now = utcnow()
+    again = Lead(
+        owner_id=owner.id,
+        provider="meta",
+        leadgen_id="lid-again",
+        form_id=form,
+        campaign_external_id="c_1",
+        ad_external_id="ad_1",
+        phone_e164="+998905556677",
+        full_name="Vali",
+        submitted_at=now,
+        received_at=now,
+    )
+    db.add(again)
+    db.commit()
+
+    place_lead(db, lead_id=str(again.id))
+    db.commit()
+
+    db.expire_all()
+    kept = db.get(CrmCard, uuid.UUID(card["id"]))
+    assert kept is not None and kept.lead_id == again.id
+    assert db.scalar(select(Lead).where(Lead.provider == "manual")) is None

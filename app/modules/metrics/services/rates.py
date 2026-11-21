@@ -1,12 +1,16 @@
 """The Central Bank's daily rates, kept so that money of two currencies can
 be set against each other for any past day.
 
-``store_rates`` asks the bank for each day we do not hold yet, oldest first,
-and keeps every currency it answers. It stops at the first day the bank
-does not answer and leaves the rest to the next run, so a day is never
-skipped. The bank takes about three seconds a day (measured 2026-11-20), so
-the task on the clock reads a few days a run and the past year is read
-once, by ``python -m app.modules.metrics.rates``. ``rates_for`` hands the kept rates to the arithmetic in
+``store_rates`` asks the bank for each day we do not hold yet, the newest
+first, and keeps every currency it answers. It stops at the first day the
+bank does not answer and leaves the rest to the next run. The bank takes
+about three seconds a day (measured 2026-11-20), so the task on the clock
+looks only at the last ``RECENT_DAYS`` - one day's read on an ordinary day -
+and the past year is read once, by ``python -m app.modules.metrics.rates``.
+
+Newest first matters: a figure is priced only by a rate at most
+``core.metrics.exchange.MAX_AGE_DAYS`` old, so until the recent days are
+held nothing recent can be priced at all. ``rates_for`` hands the kept rates to the arithmetic in
 ``core.metrics.exchange``.
 """
 
@@ -17,7 +21,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Final
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -31,9 +35,9 @@ CBU_DAY_URL: Final = "https://cbu.uz/uz/arkhiv-kursov-valyut/json/all/{day}/"
 TIMEOUT: Final = httpx.Timeout(10.0, connect=5.0)
 # How far back the first run reads: the longest range a report may ask for.
 HISTORY_DAYS: Final = 400
-# What one run on the clock may read: enough to make up a week of silence,
-# short enough not to hold a worker's slot.
-DAYS_PER_RUN: Final = 10
+# How far back a run on the clock looks: it makes up a week of silence by
+# itself, and reads one day when nothing was missed.
+RECENT_DAYS: Final = 7
 
 Row = tuple[date, str, Decimal]
 Fetch = Callable[[date], list[Row]]
@@ -64,18 +68,28 @@ def fetch_day(day: date) -> list[Row]:
 
 
 def store_rates(
-    db: Session, *, now: datetime, fetch: Fetch = fetch_day, limit: int | None = None
+    db: Session,
+    *,
+    now: datetime,
+    fetch: Fetch = fetch_day,
+    back: int = HISTORY_DAYS,
 ) -> int:
-    """Read the days not held yet, oldest first, up to today - at most
-    ``limit`` of them; how many rates were added."""
+    """Read every day of the last ``back`` that is not held yet, the newest
+    first, so that today's figures can be priced before last year's; how
+    many rates were added.
+
+    A day the bank answers with an earlier date - a day off - is kept under
+    its own date too, with the rate that stood on it: every day asked then
+    has a row, and none is asked twice. It stops at the first day the bank
+    does not answer; the next run goes on from there.
+    """
     today = localtime(now).date()
-    floor = today - timedelta(days=HISTORY_DAYS)
-    last = db.scalar(select(func.max(FxRate.day)))
-    day = max(last + timedelta(days=1), floor) if last else floor
-    if limit is not None:
-        today = min(today, day + timedelta(days=limit - 1))
+    floor = today - timedelta(days=back)
+    held = set(db.scalars(select(FxRate.day).where(FxRate.day >= floor).distinct()))
     added = 0
-    while day <= today:
+    for day in (today - timedelta(days=n) for n in range(back + 1)):
+        if day in held:
+            continue
         try:
             rows = fetch(day)
         except (httpx.HTTPError, ValueError) as exc:
@@ -84,35 +98,48 @@ def store_rates(
                 extra={"day": day.isoformat(), "error": f"{type(exc).__name__}: {exc}"},
             )
             break
-        if not rows:
+        fresh: dict[tuple[date, str], Decimal] = {}
+        for set_on, currency, rate in rows:
+            if set_on > day:
+                continue
+            fresh[set_on, currency] = rate
+            fresh[day, currency] = rate
+        if not fresh:
             logger.warning("metrics.rates_empty", extra={"day": day.isoformat()})
             break
-        # The bank answers a day off with the last rate it set, under that
-        # earlier date: a row we already hold is not written twice.
-        fresh = [{"day": d, "currency": c, "rate": r} for d, c, r in rows if d <= day]
-        if fresh:
-            written = db.execute(
-                insert(FxRate)
-                .values(fresh)
-                .on_conflict_do_nothing()
-                .returning(FxRate.day)
+        written = db.execute(
+            insert(FxRate)
+            .values(
+                [
+                    {"day": on, "currency": currency, "rate": rate}
+                    for (on, currency), rate in fresh.items()
+                ]
             )
-            added += len(written.all())
+            .on_conflict_do_nothing()
+            .returning(FxRate.day)
+        )
+        added += len(written.all())
         db.commit()
-        day += timedelta(days=1)
+        held.update(on for on, _ in fresh)
     return added
 
 
-def rates_for(db: Session, *, currencies: Iterable[str]) -> Rates:
+def rates_rows(
+    db: Session, *, currencies: Iterable[str]
+) -> list[tuple[str, date, Decimal]]:
     """Every kept rate of these currencies; so'm itself needs none."""
     wanted = {c.upper() for c in currencies if c} - {HOME}
     if not wanted:
-        return Rates([])
-    return Rates(
+        return []
+    return [
         (currency, day, rate)
         for currency, day, rate in db.execute(
             select(FxRate.currency, FxRate.day, FxRate.rate).where(
                 FxRate.currency.in_(wanted)
             )
         )
-    )
+    ]
+
+
+def rates_for(db: Session, *, currencies: Iterable[str]) -> Rates:
+    return Rates(rates_rows(db, currencies=currencies))

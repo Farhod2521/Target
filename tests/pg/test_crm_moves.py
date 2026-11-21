@@ -162,3 +162,30 @@ def test_a_history_that_does_not_lead_to_the_cards_column_is_closed_by_one_step(
     ).first()
     assert card is not None and last is not None
     assert last.to_stage_id == card.stage_id
+
+
+def test_a_card_that_moved_before_the_rebuild_gets_its_earlier_steps(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    card_id = board["columns"][0]["cards"][0]["id"]
+    _post(client, head, f"/cards/{card_id}/move", to=_stage(board, "open"))
+    # As on the day of the deploy: the history from before is not in the
+    # table, and the card then moves once more, measured.
+    db.execute(delete(CrmStageMove))
+    db.commit()
+    _post(client, head, f"/cards/{card_id}/move", to=_stage(board, "junk"))
+    assert _steps(db, card_id) == [("open", "junk")]
+
+    rebuild(db, apply=True)
+
+    assert _steps(db, card_id) == [("", "new"), ("new", "open"), ("open", "junk")]
+    rows = db.scalars(
+        select(CrmStageMove)
+        .where(CrmStageMove.card_id == card_id)
+        .order_by(CrmStageMove.at, CrmStageMove.created_at)
+    ).all()
+    assert [row.rebuilt for row in rows] == [True, True, False]
+    # And nothing is added on a second run.
+    assert rebuild(db, apply=True) == (0, 0)

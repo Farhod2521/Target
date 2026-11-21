@@ -352,6 +352,9 @@ def stats(
                 "conversion_pct": share(tally.won, tally.leads),
             }
             for key, tally in found.ads
+            # This list is the adverts that brought leads, as it always was;
+            # the ones that spent and brought nobody are in ``sales.ads``.
+            if tally.leads
         ],
         "reasons": [
             {

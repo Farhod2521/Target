@@ -4,9 +4,11 @@ Run once after the deploy that adds ``fx_rates``:
 
     python -m app.modules.metrics.rates
 
-The first run reads the past 400 days, about twenty minutes. It may be
-stopped and started again: it goes on from the last day it kept. After it,
-the task on the clock keeps the table up to date by itself.
+The first run reads the past 400 days, the newest first, about twenty
+minutes. It may be stopped and started again: a day already held is not
+asked for twice. After it, the task on the clock keeps the table up to date
+by itself. Until the recent days are held, figures that cross currencies
+answer «no rate» rather than a number.
 """
 
 from app.common.db import utcnow

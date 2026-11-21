@@ -113,6 +113,32 @@ def test_no_leads_divides_nothing() -> None:
     assert completeness(SalesFigures()).level == "empty"
 
 
+def test_spend_with_a_hole_in_it_prices_nothing() -> None:
+    # Ten days of thirty unpriced: the sum is two thirds of the truth, and a
+    # ROAS from it would look a half better than it is.
+    for gap in ("no_rate", "not_kept"):
+        found = answers(figures(spend_gap=gap, spend_unpriced_days=10))
+
+        for key in ("spend", "roas", "cac", "cpl", "cpql"):
+            assert (found[key].value, found[key].missing) == (None, gap)
+        # What needs no spend is still told.
+        assert found["revenue"].value == 600_000_000
+        assert found["conversion"].value == Decimal("10.00")
+
+
+def test_revenue_with_a_sale_missing_is_not_told_as_if_whole() -> None:
+    found = answers(figures(unpriced=1, revenue_minor=450_000_000))
+
+    assert (found["revenue"].value, found["revenue"].missing) == (None, "no_rate")
+    assert (found["roas"].value, found["roas"].missing) == (None, "no_rate")
+    # The price of a customer needs only the count of sales.
+    assert found["cac"].value == 30_000_000
+
+
+def test_the_words_do_not_name_a_currency() -> None:
+    assert all("so'm" not in metric.hint for metric in SALES)
+
+
 def test_a_sale_no_rate_priced_is_not_in_the_average() -> None:
     # Four sold, one written in a currency no rate prices: three are priced.
     found = answers(figures(unpriced=1, revenue_minor=450_000_000))

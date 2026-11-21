@@ -20,7 +20,7 @@ them ``rebuilt``:
 
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import event, inspect, select
@@ -117,17 +117,31 @@ def _of_kind(stages: list[CrmStage], kind: str) -> CrmStage | None:
 
 
 def steps_of(
-    card: CrmCard, *, stages: list[CrmStage], history: list[CrmActivity]
+    card: CrmCard,
+    *,
+    stages: list[CrmStage],
+    history: list[CrmActivity],
+    measured: CrmStageMove | None = None,
 ) -> list[tuple[CrmStage | None, CrmStage, datetime]]:
     """A card's steps as its history tells them, oldest first.
 
     A line that names a column the board no longer has is passed over. The
     last step always ends where the card stands now: when the history does
     not lead there, one more step is added at the card's last change.
+
+    ``measured`` is the card's first step written as it happened, for a card
+    that moved between the table arriving and this running: the history is
+    then read only up to that step, and ends in the column it left.
     """
     first = _of_kind(stages, StageKind.NEW)
     by_id = {stage.id: stage for stage in stages}
-    now_at = by_id.get(card.stage_id)
+    if measured is not None:
+        history = [line for line in history if line.created_at < measured.at]
+        now_at = by_id.get(measured.from_stage_id) if measured.from_stage_id else None
+        ends_at = measured.at
+    else:
+        now_at = by_id.get(card.stage_id)
+        ends_at = card.updated_at
     if first is None or now_at is None:
         return []
     steps: list[tuple[CrmStage | None, CrmStage, datetime]] = [
@@ -149,15 +163,24 @@ def steps_of(
             steps.append((here, entered, line.created_at))
             here = entered
     if here.id != now_at.id:
-        steps.append((here, now_at, max(card.updated_at, steps[-1][2])))
+        # For a measured card the join is put just before its first true
+        # step, so the two never share an instant.
+        at = ends_at if measured is None else ends_at - timedelta(microseconds=1)
+        steps.append((here, now_at, max(at, steps[-1][2])))
     return steps
 
 
 def rebuild(db: Session, *, apply: bool, batch: int = 500) -> tuple[int, int]:
-    """Rows for every card that has none; (cards, rows). Safe to run again:
-    a card that has rows is never touched."""
-    has_rows = select(CrmStageMove.card_id).where(CrmStageMove.card_id == CrmCard.id)
-    cards = list(db.scalars(select(CrmCard).where(~has_rows.exists())))
+    """Rows for every card that lacks its arriving one; (cards, rows). Safe
+    to run again: a card whose steps begin with its arrival is never touched.
+
+    A card that moved after the table arrived and before this ran has its
+    later steps and not its earlier ones; those are filled in up to the
+    first step written as it happened."""
+    arrived = select(CrmStageMove.card_id).where(
+        CrmStageMove.card_id == CrmCard.id, CrmStageMove.from_stage_id.is_(None)
+    )
+    cards = list(db.scalars(select(CrmCard).where(~arrived.exists())))
     boards: dict[tuple[Any, Any, Any], list[CrmStage]] = {}
     done = rows = 0
     for card in cards:
@@ -181,7 +204,13 @@ def rebuild(db: Session, *, apply: bool, batch: int = 500) -> tuple[int, int]:
                 .order_by(CrmActivity.created_at, CrmActivity.id)
             )
         )
-        steps = steps_of(card, stages=boards[key], history=history)
+        measured = db.scalars(
+            select(CrmStageMove)
+            .where(CrmStageMove.card_id == card.id)
+            .order_by(CrmStageMove.at, CrmStageMove.created_at)
+            .limit(1)
+        ).first()
+        steps = steps_of(card, stages=boards[key], history=history, measured=measured)
         if not steps:
             continue
         done += 1

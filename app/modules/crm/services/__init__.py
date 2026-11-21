@@ -111,7 +111,7 @@ from app.modules.crm.selectors import (
     seating,
     setup_of,
 )
-from app.modules.leads.constants import SignalSource, SignalStatus
+from app.modules.leads.constants import MANUAL_PROVIDER, SignalSource, SignalStatus
 from app.modules.leads.models import Lead, LeadSignal
 from core.leads import CardFacts, card_signals
 
@@ -424,6 +424,7 @@ def welcome_back(
     db: Session, *, card: CrmCard, lead: Lead, first: CrmStage, now: datetime
 ) -> CrmCard:
     was = card.stage
+    replaced = card.lead
     card.lead_id = lead.id
     card.returned += 1
     if was.kind in CLOSING_KINDS:
@@ -433,6 +434,11 @@ def welcome_back(
         card.lost_reason_id = None
         card.lost_reason_name = ""
     db.flush()
+    if replaced is not None and replaced.provider == MANUAL_PROVIDER:
+        # The hand-typed row only existed to hold this card; with an
+        # advert's lead on it, it would be a name and a telephone kept
+        # where no screen shows them.
+        delete_rows(db, Lead.__table__, Lead.id == replaced.id)
     log_card(
         db,
         card=card,
@@ -681,7 +687,6 @@ def add_manual(
     card is sold, the new enquiry gets a card of its own, as a returning
     lead does.
     """
-    from app.modules.leads.constants import MANUAL_PROVIDER
     from core.leads.phone import to_e164
 
     require_open(viewer)
@@ -1683,6 +1688,12 @@ def erase_crm(db: Session, *, owner: User, actor: User) -> None:
     )
     for model in (CrmCard, CrmStage, CrmLostReason, CrmMember, CrmSetup):
         delete_rows(db, model.__table__, model.owner_id == owner.id)
+    # The customers typed in by hand lived only on these boards.
+    delete_rows(
+        db,
+        Lead.__table__,
+        and_(Lead.owner_id == owner.id, Lead.provider == MANUAL_PROVIDER),
+    )
     subjects = [str(login.id) for login in logins]
     for login in logins:
         remove_member_login(db, user=login)

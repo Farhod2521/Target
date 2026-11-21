@@ -148,39 +148,34 @@ def test_a_sale_no_rate_prices_is_counted_apart_never_added_as_it_stands(
     assert totals["avg_deal_minor"] == 50_000_000
 
 
-def test_rates_are_read_day_by_day_and_a_day_off_is_not_written_twice(
+def test_rates_are_read_newest_first_and_a_day_off_is_kept_under_its_own_date(
     db: Session,
 ) -> None:
     now = datetime.fromisoformat("2026-11-16T10:00:00+00:00")
     today = localtime(now).date()
-    db.add(FxRate(day=today - timedelta(days=3), currency="USD", rate=Decimal("1")))
-    db.commit()
+    off = today - timedelta(days=1)
     asked: list[date] = []
 
     def fetch(day: date) -> list[tuple[date, str, Decimal]]:
         asked.append(day)
-        # The bank answers the day off (two days ago) with the day before it.
-        set_on = today - timedelta(days=3) if day == today - timedelta(days=2) else day
+        # The bank answers the day off with the rate set the day before it.
+        set_on = day - timedelta(days=1) if day == off else day
         return [(set_on, "USD", Decimal("12000")), (set_on, "EUR", Decimal("13000"))]
 
-    added = store_rates(db, now=now, fetch=fetch)
+    added = store_rates(db, now=now, fetch=fetch, back=2)
 
-    assert asked == [today - timedelta(days=n) for n in (2, 1, 0)]
-    # The day off adds only the euro its day lacked; the dollar there is kept.
-    assert added == 5
-    held = dict(
-        db.execute(
-            select(FxRate.day, FxRate.rate).where(FxRate.currency == "USD")
-        ).all()
-    )
-    assert held[today - timedelta(days=3)] == Decimal("1")
-    assert today - timedelta(days=2) not in held
-    assert held[today] == Decimal("12000")
+    # Today first; the day before the day off came with the day off's answer.
+    assert asked == [today, off]
+    assert added == 6
+    held = set(db.scalars(select(FxRate.day).where(FxRate.currency == "USD")))
+    assert held == {today, off, off - timedelta(days=1)}
+    # Every day asked has a row of its own: nothing is asked for twice.
+    asked.clear()
+    assert store_rates(db, now=now, fetch=fetch, back=2) == 0
+    assert asked == []
 
 
-def test_the_first_run_reads_the_past_and_stops_where_the_bank_is_silent(
-    db: Session,
-) -> None:
+def test_a_silent_bank_stops_the_run_and_the_next_one_goes_on(db: Session) -> None:
     now = datetime.fromisoformat("2026-11-16T10:00:00+00:00")
     today = localtime(now).date()
     asked: list[date] = []
@@ -191,17 +186,24 @@ def test_the_first_run_reads_the_past_and_stops_where_the_bank_is_silent(
             raise httpx.ConnectError("down")
         return [(day, "USD", Decimal("12000"))]
 
-    added = store_rates(db, now=now, fetch=fetch)
+    added = store_rates(db, now=now, fetch=fetch, back=5)
 
-    assert asked[0] == today - timedelta(days=HISTORY_DAYS)
-    assert (added, len(asked)) == (2, 3)
+    assert (added, asked) == (
+        2,
+        [today, today - timedelta(days=1), today - timedelta(days=2)],
+    )
     # The next run goes on from the day that failed, skipping none.
-    asked.clear()
-    store_rates(db, now=now, fetch=lambda day: asked.append(day) or [])
-    assert asked == [today - timedelta(days=HISTORY_DAYS - 2)]
+    again: list[date] = []
+
+    def answering(day: date) -> list[tuple[date, str, Decimal]]:
+        again.append(day)
+        return [(day, "USD", Decimal("12000"))]
+
+    store_rates(db, now=now, fetch=answering, back=5)
+    assert again == [today - timedelta(days=n) for n in (2, 3, 4, 5)]
 
 
-def test_a_run_on_the_clock_reads_only_a_few_days(db: Session) -> None:
+def test_the_past_year_is_reached_and_no_further(db: Session) -> None:
     now = datetime.fromisoformat("2026-11-16T10:00:00+00:00")
     today = localtime(now).date()
     asked: list[date] = []
@@ -210,8 +212,8 @@ def test_a_run_on_the_clock_reads_only_a_few_days(db: Session) -> None:
         asked.append(day)
         return [(day, "USD", Decimal("12000"))]
 
-    assert store_rates(db, now=now, fetch=fetch, limit=3) == 3
-    assert store_rates(db, now=now, fetch=fetch, limit=3) == 3
+    store_rates(db, now=now, fetch=fetch)
 
-    first = today - timedelta(days=HISTORY_DAYS)
-    assert asked == [first + timedelta(days=n) for n in range(6)]
+    assert asked[0] == today
+    assert asked[-1] == today - timedelta(days=HISTORY_DAYS)
+    assert len(asked) == HISTORY_DAYS + 1

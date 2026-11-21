@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.modules.accounts.models import User
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.crm.constants import STAGE_KIND_LABELS, StageKind
+from app.modules.leads.constants import MANUAL_PROVIDER
 
 CAMPAIGN_ROWS: Final = 12
 REASON_ROWS: Final = 3
@@ -49,6 +50,9 @@ def crm_outcomes(
         .where(
             Lead.owner_id == owner.id,
             Lead.is_test.is_(False),
+            # Advert leads only: a customer typed onto the board by hand is
+            # no campaign's outcome.
+            Lead.provider != MANUAL_PROVIDER,
             Lead.received_at >= start,
             Lead.received_at <= end,
         )
@@ -148,6 +152,7 @@ def _managers(
         .where(
             CrmCard.owner_id == owner.id,
             Lead.is_test.is_(False),
+            Lead.provider != MANUAL_PROVIDER,
             Lead.received_at >= start,
             Lead.received_at <= end,
         )
