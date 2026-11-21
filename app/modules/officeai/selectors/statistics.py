@@ -410,6 +410,58 @@ def _usage(read: _Read) -> list[str]:
     return lines
 
 
+def _ads_by(read: _Read, by: str, title: str) -> list[str]:
+    found = stats.ads_by(read.db, window=read.window, by=by)
+    currency, total = found["currency"], found["total"]
+
+    def cost(amount: int | None) -> str:
+        return "n/a (no leads)" if amount is None else _money(amount, currency)
+
+    lines = [
+        f"### Advertising in the window by {title}",
+        "Only campaigns this product launched on Meta. Each: ads launched; "
+        "launches failed (share of attempts); customers with spend; spend "
+        "(share of all); leads; cost per lead - all the spend over the "
+        "leads, whatever the campaigns' goals.",
+    ]
+    if by == "direction":
+        lines.append(
+            "A campaign counts for the business on the page it was launched "
+            f"for; «{stats.SEGMENT_LABELS[stats.NO_BUSINESS]}» is a launch "
+            "whose page has no business."
+        )
+    if not found["rows"]:
+        return [*lines, "- no advertising in the window"]
+    lines += [
+        f"- {row['label']}: launched {row['launched']}; failed {row['failed']} "
+        f"({_pct(row['failed_pct'])}); customers {row['advertisers']}; spend "
+        f"{_money(row['spend_minor'], currency) if currency else 'nothing'} "
+        f"({_pct(row['spend_share_pct'])}); leads {row['leads']}; cost per "
+        f"lead {cost(row['lead_cost_minor'])}"
+        for row in found["rows"]
+    ]
+    lines.append(
+        f"- In all: launched {total['launched']}; failed {total['failed']} "
+        f"({_pct(total['failed_pct'])}); spend "
+        f"{_money(total['spend_minor'], currency) if currency else 'nothing'}; "
+        f"leads {total['leads']}; cost per lead {cost(total['lead_cost_minor'])}"
+    )
+    if found["other_currency_campaigns"]:
+        lines.append(
+            f"- Left out, billed in another currency: "
+            f"{found['other_currency_campaigns']} campaigns"
+        )
+    return lines
+
+
+def _ads_by_direction(read: _Read) -> list[str]:
+    return _ads_by(read, "direction", "the business's direction")
+
+
+def _ads_by_role(read: _Read) -> list[str]:
+    return _ads_by(read, "role", "the customer's role")
+
+
 def _ai_cost(read: _Read) -> list[str]:
     found = read.ai
     tokens = found["tokens"]
@@ -489,6 +541,8 @@ BLOCKS: dict[str, Callable[[_Read], list[str]]] = {
     "directions": _directions,
     "cities": _cities,
     "usage": _usage,
+    "ads_by_direction": _ads_by_direction,
+    "ads_by_role": _ads_by_role,
     "ai_cost": _ai_cost,
     "ai_top": _ai_top,
 }

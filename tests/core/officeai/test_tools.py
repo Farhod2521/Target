@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
@@ -11,6 +12,7 @@ from core.officeai.tools import (
     TOOLS,
     CustomerQuery,
     Span,
+    StatPart,
     tools_for,
 )
 
@@ -33,7 +35,8 @@ def test_the_prompt_names_only_look_ups_there_are() -> None:
     prompt names one only to say how to ask it."""
     text = PROMPT.read_text(encoding="utf-8")
     named = set(re.findall(r"`([a-z]+_[a-z_]+)`", text))
-    assert named <= TOOL_NAMES | {"per_bar"}, named - TOOL_NAMES
+    known = TOOL_NAMES | set(get_args(StatPart)) | {"per_bar"}
+    assert named <= known, named - known
     for name in MONEY_TOOLS:
         assert f"`{name}`" in text, name
     assert "{{" not in text

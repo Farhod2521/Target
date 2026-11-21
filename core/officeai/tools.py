@@ -82,6 +82,8 @@ StatPart = Literal[
     "directions",
     "cities",
     "usage",
+    "ads_by_direction",
+    "ads_by_role",
     "ai_cost",
     "ai_top",
 ]
@@ -124,6 +126,10 @@ class Statistics(Days):
             "with owners and paying owners; `cities`. "
             "`usage`: of those paying now, how many use each part of the "
             "product; launches and leads in the window. "
+            "`ads_by_direction` and `ads_by_role`: advertising in the window "
+            "split by the kind of business or by the customer's role - ads "
+            "launched and failed, customers advertising, spend and its "
+            "share, leads, cost per lead. "
             "`ai_cost`: what Claude cost for customers - total, per customer "
             "a month, by purpose, model, plan and month; `ai_top`: the "
             "customers who cost most."

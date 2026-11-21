@@ -1,6 +1,7 @@
 """The office's assistant: what it reads, who may ask, and the answer."""
 
 import json
+import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -530,3 +531,194 @@ def test_how_long_each_step_took_is_counted_from_the_sign_up(
     )
     assert "Tayyorgarlikni yakunladi" in one and "(0.5 days after sign-up)" in one
     assert "Birinchi to'lov not yet" in one
+
+
+def test_advertising_is_split_by_the_pages_business_and_by_role(
+    client: TestClient, db: Session
+) -> None:
+    from datetime import timedelta
+
+    from metaads import PROVIDER
+
+    from app.modules.ads.models import CampaignLaunch
+    from app.modules.backoffice.selectors import stats
+    from app.modules.backoffice.selectors.dashboard import asked_window
+    from app.modules.businesses.models import Business, BusinessCategory
+    from app.modules.integrations.models import (
+        AdAccount,
+        PageAccount,
+        ProviderConnection,
+    )
+    from app.modules.leads.models import Lead
+    from app.modules.metrics.models import MetricsDaily
+    from app.modules.officeai.selectors import statistics
+    from core.officeai.tools import Statistics
+
+    owner, other = _customers(client, db)
+    owner.role, other.role = "business_owner", "targetolog"
+    now = utcnow()
+    today = localtime(now).date()
+    beauty = BusinessCategory(key="beauty", label_uz="Go'zallik", preset_key="beauty")
+    db.add(beauty)
+    db.flush()
+
+    def account_of(user: User) -> tuple[AdAccount, ProviderConnection]:
+        connection = ProviderConnection(
+            owner_id=user.id,
+            provider=PROVIDER,
+            external_user_id=f"fb-{user.email}",
+            token_encrypted=b"x",
+            token_fingerprint=user.email[:32],
+        )
+        db.add(connection)
+        db.flush()
+        account = AdAccount(
+            owner_id=user.id,
+            provider=PROVIDER,
+            external_id=f"act_{user.email}",
+            connection_id=connection.id,
+            name="a",
+            currency="USD",
+            timezone="Asia/Tashkent",
+        )
+        db.add(account)
+        db.flush()
+        return account, connection
+
+    def page_of(user: User, connection: ProviderConnection, tag: str) -> PageAccount:
+        page = PageAccount(
+            owner_id=user.id,
+            provider=PROVIDER,
+            external_id=f"page_{tag}",
+            connection_id=connection.id,
+            name=tag,
+            token_encrypted=b"x",
+            token_fingerprint=tag,
+        )
+        db.add(page)
+        db.flush()
+        return page
+
+    def ran(
+        user: User,
+        account: AdAccount,
+        page: PageAccount | None,
+        campaign: str,
+        *,
+        spend: int,
+        leads: int,
+        status: str = "created",
+    ) -> None:
+        db.add(
+            CampaignLaunch(
+                owner_id=user.id,
+                ad_account_id=account.id,
+                provider=PROVIDER,
+                page_id=page.id if page else None,
+                status=status,
+                finished_at=now - timedelta(hours=1),
+                created_refs={"campaign": campaign} if status == "created" else {},
+            )
+        )
+        if spend:
+            db.add(
+                MetricsDaily(
+                    owner_id=user.id,
+                    provider=PROVIDER,
+                    external_id=f"s_{campaign}",
+                    ad_account_id=account.id,
+                    level="adset",
+                    campaign_external_id=campaign,
+                    adset_external_id=f"s_{campaign}",
+                    date=today,
+                    spend_minor=spend,
+                    currency="USD",
+                    synced_at=now,
+                )
+            )
+        for _ in range(leads):
+            db.add(
+                Lead(
+                    owner_id=user.id,
+                    provider=PROVIDER,
+                    submitted_at=now,
+                    received_at=now,
+                    campaign_external_id=campaign,
+                    leadgen_id=uuid.uuid4().hex,
+                )
+            )
+
+    account, connection = account_of(owner)
+    salon, shop = (
+        page_of(owner, connection, "salon"),
+        page_of(owner, connection, "shop"),
+    )
+    db.add_all(
+        [
+            Business(
+                user_id=owner.id,
+                page_id=salon.id,
+                name="Salon",
+                direction_id=beauty.id,
+                timezone="Asia/Tashkent",
+            ),
+            Business(
+                user_id=owner.id,
+                page_id=shop.id,
+                name="Do'kon",
+                timezone="Asia/Tashkent",
+            ),
+        ]
+    )
+    ran(owner, account, salon, "c_salon", spend=6000, leads=3)
+    ran(owner, account, shop, "c_shop", spend=3000, leads=0)
+    ran(owner, account, salon, "", spend=0, leads=0, status="failed")
+    theirs, _ = account_of(other)
+    ran(other, theirs, None, "c_loose", spend=1000, leads=1)
+    # A campaign made in Ads Manager is not this product's: never counted.
+    db.add(
+        MetricsDaily(
+            owner_id=other.id,
+            provider=PROVIDER,
+            external_id="s_own",
+            ad_account_id=theirs.id,
+            level="adset",
+            campaign_external_id="c_own",
+            adset_external_id="s_own",
+            date=today,
+            spend_minor=99_000,
+            currency="USD",
+            synced_at=now,
+        )
+    )
+    db.commit()
+
+    window = asked_window(period="7", since=None, until=None, today=today)
+    found = stats.ads_by(db, window=window, by="direction")
+    rows = {row["key"]: row for row in found["rows"]}
+    assert found["currency"] == "USD"
+    assert rows["beauty"]["launched"] == 1 and rows["beauty"]["failed"] == 1
+    assert rows["beauty"]["spend_minor"] == 6000 and rows["beauty"]["leads"] == 3
+    assert rows["beauty"]["lead_cost_minor"] == 2000
+    assert rows["beauty"]["spend_share_pct"] == 60.0
+    assert rows["none"]["spend_minor"] == 3000
+    assert rows["none"]["lead_cost_minor"] is None
+    assert rows[stats.NO_BUSINESS]["spend_minor"] == 1000
+    assert found["total"]["spend_minor"] == 10_000 and found["total"]["leads"] == 4
+
+    roles = {
+        row["key"]: row for row in stats.ads_by(db, window=window, by="role")["rows"]
+    }
+    assert roles["business_owner"]["spend_minor"] == 9000
+    assert roles["business_owner"]["advertisers"] == 1
+    assert roles["targetolog"]["leads"] == 1
+
+    text = statistics.statistics(
+        db,
+        query=Statistics(period="7", parts=["ads_by_direction", "ads_by_role"]),
+        now=now,
+    )
+    assert "- Go'zallik: launched 1; failed 1 (50.0%); customers 1; spend" in text
+    assert "(60.0%); leads 3; cost per lead" in text
+    assert "cost per lead n/a (no leads)" in text
+    assert "- Targetolog: launched 1; failed 0 (0.0%)" in text
