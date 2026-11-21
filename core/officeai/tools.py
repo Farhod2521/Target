@@ -28,12 +28,14 @@ SALES: Final = "sales_by_manager"
 PAYMENTS: Final = "recent_payments"
 CUSTOMER_LIST: Final = "customer_list"
 PLANS: Final = "plans_summary"
+STATS: Final = "statistics"
 
-# Seen only by the roles the dashboard shows money to.
-MONEY_TOOLS: Final = frozenset({MONEY, PAYMENTS})
+# Seen only by the roles the dashboard shows money to - the same ones who
+# open the Statistika screen.
+MONEY_TOOLS: Final = frozenset({MONEY, PAYMENTS, STATS})
 
 
-class Span(Arguments):
+class Days(Arguments):
     """Which days to read. Every day is the office's day (Tashkent)."""
 
     period: Period = Field(
@@ -50,11 +52,76 @@ class Span(Arguments):
     until: date | None = Field(
         default=None, description="With `range`: the last day, YYYY-MM-DD."
     )
+
+
+class Span(Days):
     per_bar: bool = Field(
         default=False,
         description=(
             "Also give a row per day, week or month. Only when the person asks "
             "how it went over time; the totals come either way."
+        ),
+    )
+
+
+StatPart = Literal[
+    "funnel",
+    "statuses",
+    "ladder",
+    "plans_sold",
+    "loyal",
+    "keeping",
+    "start",
+    "money",
+    "growth",
+    "roles",
+    "signup_via",
+    "languages",
+    "sources",
+    "directions",
+    "cities",
+    "usage",
+    "ai_cost",
+    "ai_top",
+]
+STAT_PARTS_AT_ONCE: Final = 4
+
+
+class Statistics(Days):
+    parts: list[StatPart] = Field(
+        min_length=1,
+        max_length=STAT_PARTS_AT_ONCE,
+        description=(
+            "Which blocks of the Statistika screen to read - only the ones "
+            "the answer needs. "
+            "`funnel`: those who signed up in the window by the furthest step "
+            "reached - profile, Meta connected, setup, first ad, first lead, "
+            "first payment, Standart - and how many dropped before each. "
+            "`statuses`: every customer now by plan state, and paid plans "
+            "ending in 7 and 30 days, with a card or without. "
+            "`ladder`: everyone who ever paid, by how far up the plans they "
+            "got. `plans_sold`: per plan in the window - buyers, bills, money, "
+            "first or repeat purchase - and how many times customers have "
+            "bought. `loyal`: the same plan bought three times in a row. "
+            "`keeping`: paid customers at the window's start and end, lost, "
+            "came back, churn, and how many of each month's new buyers were "
+            "still paying 30, 60 ... days on. "
+            "`start`: those who first bought Start in the window - moved on "
+            "to Standart or not, the median days it took, and why the rest "
+            "stopped. `money`: takings by what was sold and by payment "
+            "method, per paying customer, lifetime value, balance and "
+            "discounts used, refunds, autopay's reach. `growth`: promo codes "
+            "and referrals. "
+            "Who the customers are, each with how many came in the window, "
+            "ever paid and pay now: `roles` (business owner, targetolog, "
+            "marketer, agency), `signup_via`, `languages`, `sources` (UTM). "
+            "`directions`: businesses by direction (the kind of business) "
+            "with owners and paying owners; `cities`. "
+            "`usage`: of those paying now, how many use each part of the "
+            "product; launches and leads in the window. "
+            "`ai_cost`: what Claude cost for customers - total, per customer "
+            "a month, by purpose, model, plan and month; `ai_top`: the "
+            "customers who cost most."
         ),
     )
 
@@ -182,6 +249,12 @@ TOOLS: Final[tuple[Tool, ...]] = (
         "Every plan with its code, price and length, whether it is on sale,",
         "and how many customers are on it now - on a trial and paying.",
     ),
+    _tool(
+        STATS,
+        Statistics,
+        "The Statistika screen, block by block, over a window of days: how the",
+        "business is going rather than what waits now. Customers only.",
+    ),
 )
 TOOL_NAMES: Final = frozenset(tool.name for tool in TOOLS)
 
@@ -202,6 +275,7 @@ LOOKING: Final[dict[str, str]] = {
     PAYMENTS: "Oxirgi to'lovlarni ko'ryapman…",
     CUSTOMER_LIST: "Mijozlarni qidiryapman…",
     PLANS: "Tariflarni o'qiyapman…",
+    STATS: "Statistikani o'qiyapman…",
 }
 
 
@@ -216,10 +290,13 @@ __all__ = [
     "PLATFORM",
     "QUEUES",
     "SALES",
+    "STATS",
     "TOOLS",
     "TOOL_NAMES",
     "CustomerQuery",
+    "Days",
     "Queues",
     "Span",
+    "Statistics",
     "tools_for",
 ]

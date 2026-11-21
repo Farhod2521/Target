@@ -449,3 +449,37 @@ def test_the_owners_bot_asks_the_same_assistant_and_answers_in_the_chat(
         == "refused"
     )
     assert telegram.split("a" * 9000, size=4000) == ["a" * 4000, "a" * 4000, "a" * 1000]
+
+
+def test_the_statistika_screen_is_read_block_by_block(
+    client: TestClient, db: Session
+) -> None:
+    from typing import get_args
+
+    from app.modules.officeai.selectors import statistics
+    from core.officeai.tools import Statistics, StatPart
+
+    _customers(client, db)
+    now = utcnow()
+
+    one = statistics.statistics(
+        db, query=Statistics(period="today", parts=["funnel"]), now=now
+    )
+    assert "### Funnel: the 2 customers" in one
+    assert "- Ro'yxatdan o'tdi: 2; 100.0%; 100.0%; dropped 0" in one
+    assert "### Customers" not in one and "Claude" not in one
+
+    states = statistics.statistics(
+        db, query=Statistics(period="today", parts=["statuses", "roles"]), now=now
+    )
+    assert "### Customers now by plan state: 2 in all" in states
+    assert "- Sinovda: 1 (50.0%)" in states
+    assert "### Customers by role" in states
+
+    # Every block reads, with nothing sold and nothing spent too.
+    parts = list(get_args(StatPart))
+    for start in range(0, len(parts), 4):
+        text = statistics.statistics(
+            db, query=Statistics(period="30", parts=parts[start : start + 4]), now=now
+        )
+        assert text.count("###") >= len(parts[start : start + 4])

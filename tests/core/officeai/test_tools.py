@@ -34,7 +34,8 @@ def test_the_prompt_names_only_look_ups_there_are() -> None:
     text = PROMPT.read_text(encoding="utf-8")
     named = set(re.findall(r"`([a-z]+_[a-z_]+)`", text))
     assert named <= TOOL_NAMES | {"per_bar"}, named - TOOL_NAMES
-    assert named >= MONEY_TOOLS
+    for name in MONEY_TOOLS:
+        assert f"`{name}`" in text, name
     assert "{{" not in text
 
 
@@ -53,3 +54,18 @@ def test_arguments_are_closed_and_bounded() -> None:
         CustomerQuery.model_validate({"limit": 31})
     with pytest.raises(ValidationError):
         CustomerQuery.model_validate({"fields": ["password"]})
+
+
+def test_every_statistika_block_can_be_asked_for_and_only_a_few_at_once() -> None:
+    from typing import get_args
+
+    from app.modules.officeai.selectors.statistics import BLOCKS
+    from core.officeai.tools import STAT_PARTS_AT_ONCE, Statistics, StatPart
+
+    assert set(BLOCKS) == set(get_args(StatPart))
+    with pytest.raises(ValidationError):
+        Statistics.model_validate({"parts": []})
+    with pytest.raises(ValidationError):
+        Statistics.model_validate({"parts": ["funnel"] * (STAT_PARTS_AT_ONCE + 1)})
+    with pytest.raises(ValidationError):
+        Statistics.model_validate({"parts": ["passwords"]})

@@ -37,7 +37,7 @@ from app.modules.officeai.constants import (
     MessageStatus,
 )
 from app.modules.officeai.models import OfficeAiMessage, OfficeAiThread
-from app.modules.officeai.selectors import facts
+from app.modules.officeai.selectors import facts, statistics
 from core.chat.markdown import render
 from core.chat.numbers import figures_in
 from core.chat.verify import FigureGate, dates_in
@@ -52,6 +52,7 @@ from core.officeai.tools import (
     PLATFORM,
     QUEUES,
     SALES,
+    STATS,
     tools_for,
 )
 
@@ -164,6 +165,8 @@ class Desk:
             return facts.customer_list(db, query=arguments, now=now)
         if call.name == PLANS:
             return facts.plans_summary(db, now=now)
+        if call.name == STATS:
+            return statistics.statistics(db, query=arguments, now=now)
         return f"There is no look-up called {call.name}."
 
 

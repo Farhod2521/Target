@@ -38,10 +38,10 @@ from app.modules.billing.constants import (
 from app.modules.billing.models import Plan, Subscription
 from app.modules.integrations.selectors.demo import not_demo
 from app.modules.officeai.constants import PROBLEM_ROWS
-from core.officeai.tools import CustomerQuery, Queues, Span
+from core.officeai.tools import CustomerQuery, Days, Queues, Span
 
 
-def window_of(span: Span, *, today: date) -> Window:
+def window_of(span: Days, *, today: date) -> Window:
     return asked_window(
         period=span.period, since=span.since, until=span.until, today=today
     )
