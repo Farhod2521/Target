@@ -113,6 +113,7 @@ def add_up(
     summed["purchase_value_site_minor"] = MinorUnits(
         summed["purchase_value_site_minor"]
     )
+    summed["purchase_value_crm_minor"] = MinorUnits(summed["purchase_value_crm_minor"])
     shown = int(summed["impressions"])
     return Figures(
         **summed,

@@ -46,10 +46,8 @@ CRM menejeri Dashboardni ko'rmaydi, `/crm/stats` faqat egasiga ochiq (avvalgidek
 
 ### `counted_since` va `pair`
 
-- `counted_since` — hisob boshlangan birinchi kun. Odatda `range.since` ga teng. CRM davr
-  ichida yoqilgan bo'lsa, shu kun **keyinroq** bo'ladi: CRM lid ola boshlagan kundan oldingi sarf
-  hech bir kartaga to'g'ri kelmaydi va `spend` ga kirmaydi. `counted_since > range.since` bo'lsa,
-  blok ostida yozing: «CRM {sana} dan beri ishlayapti, raqamlar shu kundan».
+- `counted_since` — hisob boshlangan birinchi kun: davr boshi, yoki doskadagi eng eski lid kuni (CRM yoqilgan kundan oldingi, qo'lda qo'shilgan lidlar ham hisobga olinadi) — qaysi biri keyin bo'lsa. Lidlar ham, sarf ham shu kundan sanaladi.
+  `counted_since > range.since` bo'lsa, blok ostida yozing: «Hisob {sana} dan boshlanadi: doskada undan oldingi lid yo'q».
 - `pair` — raqamlar qaysi sahifa + akkaunt juftligi uchun. Dashboard bir sahifaning bir nechta
   akkauntini birga ko'rsatishi mumkin, `sales` esa **bitta juftlik** uchun: blok sarlavhasida
   `pair.page · pair.account` ni yozing, shunda ikki sarf nega farq qilishi tushunarli bo'ladi.
@@ -220,3 +218,14 @@ Farqi:
 - Kunlar akkaunt vaqt mintaqasida; `range.time_zone` shu mintaqani qaytaradi.
 
 Yangi dizaynda eski `totals.*` o'rniga `sales.totals` kataklaridan foydalaning.
+
+## 7. Expert Dashboard bilan bog'liqlik (2026-11-21)
+
+- `GET /metrics/expert` → `headline` endi **8 ta**: `roas` va `cpql` olib tashlandi. Reklama nima sotgani
+  (ROAS, sifatli lid narxi, mijoz narxi) faqat shu hujjatdagi sotuv blokida turadi — bir ekranda ikki xil ROAS bo'lmasligi uchun.
+- Katalogdagi `roas` (Reklamalar bo'limidagi Expert jadvali, kunlik grafik, maqsad bo'yicha kesim) endi **CRM sotuvlari** bo'yicha:
+  sotuv summasi reklama akkaunti valyutasiga yopilgan kun kursi bilan o'tkaziladi. Sayt maqsadidagi kampaniyada avvalgidek piksel xaridlari.
+  Qiymat yo'q bo'lsa sababi keladi: `no_crm`, `no_sales`, `no_rate`, `no_spend` — hech qachon `0,00` emas.
+- Auditoriya, joylashuv va hudud kesimlari (`segments`, `cuts`) endi **tanlangan davr** uchun (avval har doim oxirgi 90 kun edi).
+  `days` — davrning shu kesimda ma'lumoti bor kunlari soni.
+- Expert va oddiy Dashboard bir xil kampaniyalar uchun bir xil sarfni beradi: yozuvi o'chgan kampaniyaning kunlari Expertda ham sanaladi.

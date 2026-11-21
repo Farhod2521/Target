@@ -18,7 +18,7 @@ from app.modules.accounts.models import User
 from app.modules.ads.contract.expert import cell
 from app.modules.metrics.constants import EVERY_ACCOUNT, RANGE_MAX_DAYS, MetricLevel
 from app.modules.metrics.ranges import Range
-from app.modules.metrics.selectors.dashboard import cabinet_today, page_segments
+from app.modules.metrics.selectors.dashboard import page_segments
 from app.modules.metrics.selectors.expert import (
     differing_attribution,
     figures_by,
@@ -34,12 +34,14 @@ from core.metrics.catalogue import BY_KEY, Answer, Figures, Setting, add_up, com
 from core.metrics.catalogue.board import TROUBLED_ADS, funnel, ranked, troubles
 from core.metrics.outcomes import Outcome
 
+# The advertising's own figures. What it sold - ROAS, a quality lead's and a
+# customer's price - stands above them in the sales block, counted for the
+# CRM's pair against the spend that feeds it; a second ROAS here, over every
+# campaign's spend, would be another number under the same name.
 HEADLINE: Final[tuple[str, ...]] = (
     "spend",
     "results",
     "cost_per_result",
-    "cpql",
-    "roas",
     "cpm",
     "ctr",
     "cpc",
@@ -109,9 +111,6 @@ def expert_board(
     campaigns = (
         campaigns_for(db, owner=owner, external_ids=page.ids) if page.ids else []
     )
-    accounts = list(
-        {campaign.ad_account_id: campaign.ad_account for campaign in campaigns}.values()
-    ) or list(page.accounts)
     comparable = chosen.days * 2 <= RANGE_MAX_DAYS
     before = (
         Range(
@@ -131,9 +130,22 @@ def expert_board(
     by_account: dict[Any, list[Any]] = defaultdict(list)
     for campaign in campaigns:
         by_account[campaign.ad_account].append(campaign)
+    # A campaign whose own row is gone still has its days: the plain
+    # dashboard sums them, so this one must, or the two disagree on the spend.
+    unlisted = _unlisted(
+        db,
+        owner=owner,
+        ids=page.ids - {campaign.external_id for campaign in campaigns},
+        since=(before or chosen).since,
+        until=chosen.until,
+    )
+    for account in unlisted:
+        by_account.setdefault(account, [])
+    accounts = list(by_account) or list(page.accounts)
     for account, members in by_account.items():
         currencies.add(account.currency)
-        ids = [campaign.external_id for campaign in members]
+        nameless = unlisted.get(account, [])
+        ids = [campaign.external_id for campaign in members] + nameless
         now = figures_by(
             db,
             owner=owner,
@@ -201,6 +213,18 @@ def expert_board(
             )
             if campaign.external_id in was:
                 earlier.append(was[campaign.external_id])
+        for external_id in nameless:
+            # Nothing says what it was after: read as the cabinet reads a
+            # campaign with no goal on it.
+            rows.append(
+                (
+                    external_id,
+                    now.get(external_id, Figures()),
+                    Setting(level="campaign", outcome=outcome_of_adsets([])),
+                )
+            )
+            if external_id in was:
+                earlier.append(was[external_id])
         for external_id, (campaign, ad, group) in ad_rows.items():
             ads.append(
                 (
@@ -236,12 +260,12 @@ def expert_board(
     best, worst = ranked(
         rows, totals={goal: figures for goal, figures in goals.items()}
     )
-    today = cabinet_today(db, owner=owner, account=page.home)
     segments, _ = (
         page_segments(
             db,
             owner=owner,
-            today=today,
+            since=chosen.since,
+            until=chosen.until,
             currency=page.currency,
             rows_of=EVERY_ACCOUNT,
             scope=page.condition,
@@ -316,6 +340,38 @@ def expert_board(
             )
         ),
     }
+
+
+def _unlisted(
+    db: Session, *, owner: User, ids: Any, since: Any, until: Any
+) -> dict[Any, list[str]]:
+    """The campaigns among ``ids`` that have days in the range and no row of
+    their own, by the ad account their days were read for."""
+    from sqlalchemy import select
+
+    from app.modules.integrations.models import AdAccount
+    from app.modules.metrics.models import MetricsDaily as M
+
+    wanted = [one for one in ids if one]
+    if not wanted:
+        return {}
+    found: dict[Any, list[str]] = defaultdict(list)
+    for account_id, external_id in db.execute(
+        select(M.ad_account_id, M.campaign_external_id)
+        .where(
+            M.owner_id == owner.id,
+            M.level == str(MetricLevel.ADSET),
+            M.date >= since,
+            M.date <= until,
+            M.campaign_external_id.in_(wanted),
+            M.ad_account_id.is_not(None),
+        )
+        .distinct()
+    ):
+        account = db.get(AdAccount, account_id)
+        if account is not None:
+            found[account].append(external_id)
+    return dict(found)
 
 
 def _goals(

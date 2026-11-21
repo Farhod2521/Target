@@ -1042,6 +1042,60 @@ def sales_by(
     return {key: count for key, count in rows}
 
 
+def sale_sums(
+    db: Session,
+    column: Any,
+    *,
+    owner: User,
+    since: datetime,
+    until: datetime,
+    scope: ColumnElement[bool] = EVERYTHING,
+) -> list[tuple[Any, int, str, datetime | None]]:
+    """Each sale among the leads :func:`sales_by` counts: what ``column``
+    names it by, its sum, the currency it was written in and when it was
+    closed - for a reader that prices them in one currency."""
+    rows = db.execute(
+        select(column, CrmCard.won_amount_minor, CrmCard.currency, CrmCard.closed_at)
+        .join(CrmCard, CrmCard.lead_id == Lead.id)
+        .where(
+            owned(owner),
+            _REAL,
+            priced(),
+            won_card(),
+            Lead.submitted_at >= since,
+            Lead.submitted_at <= until,
+            scope,
+        )
+    )
+    return [(key, int(minor or 0), paid, closed) for key, minor, paid, closed in rows]
+
+
+def sale_sums_by(
+    db: Session, *, owner: User, level: str, since: datetime, until: datetime
+) -> list[tuple[Any, int, str, datetime | None]]:
+    return sale_sums(db, SALE_LEVELS[level], owner=owner, since=since, until=until)
+
+
+def sale_sums_by_day(
+    db: Session,
+    *,
+    owner: User,
+    since: datetime,
+    until: datetime,
+    tzinfo: object,
+    scope: ColumnElement[bool] = EVERYTHING,
+) -> list[tuple[Any, int, str, datetime | None]]:
+    """The sales by the day their lead arrived, as the leads are counted."""
+    return sale_sums(
+        db,
+        _day(Lead.submitted_at, tzinfo),
+        owner=owner,
+        since=since,
+        until=until,
+        scope=scope,
+    )
+
+
 def daily_counts(
     db: Session,
     *,

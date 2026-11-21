@@ -566,3 +566,115 @@ def test_a_dashboard_with_no_crm_reads_no_cards(
     assert sales["state"] == "draft"
     assert sales["totals"]["leads"] == {"value": None, "missing": "no_crm"}
     assert sales["direct"]["leads"]["missing"] == "no_crm"
+
+
+def test_a_lead_older_than_the_crms_first_day_brings_its_days_spend(
+    client: TestClient, db: Session
+) -> None:
+    """A board switched on from a day still holds older leads (added by hand
+    from the leads tab). They are counted as leads, so their days' spend is
+    counted too: never leads against no spend."""
+    from app.modules.crm.models import CrmCard
+    from app.modules.leads.models import Lead
+
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    day = _lead_day(db)
+    zone = db.scalar(select(AdAccount)).tzinfo()
+    _spend(db, owner, "ad_1", "c_1", 10)
+    _spend(db, owner, "ad_1", "c_1", 40, day=day - timedelta(days=3))
+    db.execute(
+        update(CrmSetup).values(
+            leads_since=datetime.combine(day, time.min).replace(tzinfo=zone)
+        )
+    )
+    old = db.scalar(select(CrmCard.lead_id).limit(1))
+    db.execute(
+        update(Lead)
+        .where(Lead.id == old)
+        .values(submitted_at=utcnow() - timedelta(days=3, hours=2))
+    )
+    db.commit()
+
+    found = _read(db, owner)
+    page = client.get(f"{CRM}/stats?period=7", headers=head).json()
+
+    # All three leads are counted, and so is the $40 of the oldest one's day.
+    assert (found.totals.leads, found.totals.spend_minor) == (3, 5000)
+    assert page["sales"]["counted_since"] == (day - timedelta(days=3)).isoformat()
+    assert page["sales"]["totals"]["cpl"]["missing"] is None
+
+
+def test_what_the_adverts_rows_miss_of_the_ad_sets_spend_is_the_campaigns(
+    client: TestClient, db: Session
+) -> None:
+    """The dashboards sum the ad sets' rows; an advert's rows can lag behind
+    them. With every advert counted the campaign's spend is its ad sets'."""
+    owner = _owner(db)
+    head = _auth(owner)
+    _running(client, head)
+    _spend(db, owner, "ad_1", "c_1", 10)
+    _spend(db, owner, "as_1", "c_1", 15, level="adset")
+
+    found = _read(db, owner)
+
+    assert found.totals.spend_minor == 1500
+    assert dict(found.campaigns)["c_1"].spend_minor == 1500
+    # The $5 no advert's rows hold is nobody's line.
+    assert dict(found.ads)["ad_1"].spend_minor == 1000
+    assert sum(cell.spend_minor or 0 for cell in found.daily) == 1500
+
+    # With ticked adverts the remainder cannot be told apart: left out.
+    flow = {
+        "since": "month",
+        "every_ad": False,
+        "ad": ["ad_1"],
+        "offered": ["ad_1"],
+        "take_new_ads": False,
+    }
+    assert client.post(f"{CRM}/settings/flow", headers=head, json=flow).is_success
+    assert _read(db, owner).totals.spend_minor == 1000
+
+
+def test_the_expert_rows_roas_is_the_crms_sales_in_the_accounts_currency(
+    client: TestClient, db: Session
+) -> None:
+    from adskit import MinorUnits
+
+    from app.modules.metrics.ranges import CUSTOM, Range
+    from app.modules.metrics.selectors.expert import figures_by
+    from core.metrics.catalogue import Setting, compute
+
+    owner = _owner(db)
+    head = _auth(owner)
+    board = _running(client, head)
+    _som(client, head)
+    _rate(db)
+    _spend(db, owner, "as_1", "c_1", 10, level="adset")
+    account = db.scalar(select(AdAccount))
+    day = _lead_day(db)
+    asked = Range(since=day - timedelta(days=6), until=day, key=CUSTOM)
+    row = Setting(level="campaign", outcome="lead")
+
+    def read() -> Any:
+        db.expire_all()
+        return figures_by(
+            db,
+            owner=db.get(User, owner.id),
+            account=account,
+            level="campaign",
+            ids=["c_1"],
+            date_range=asked,
+        )["c_1"]
+
+    # Leads and no sale closed: the reason, never 0.00.
+    assert compute("roas", read(), row).missing == "no_sales"
+
+    _sell(client, head, board)
+    sold = read()
+
+    # 600 000 so'm at 12 000 is $50, set against the $10 spent.
+    assert (sold.purchases_crm, sold.sales_unpriced) == (1, 0)
+    assert sold.purchase_value_crm_minor == MinorUnits(5_000)
+    assert compute("roas", sold, row).value == Decimal("5.00")

@@ -132,6 +132,24 @@ def _leads(
     return counts, sales_by(db, owner=owner, level=str(level), since=since, until=until)
 
 
+def _priced(
+    db: Session, rows: Iterable[tuple[Any, int, str, Any]], *, currency: str
+) -> dict[Any, tuple[int, int]]:
+    """The sales summed by their key in ``currency``, each at its closing
+    day's rate: (the sum, how many no rate could price)."""
+    from app.modules.crm.selectors.money import Pricer
+
+    pricer = Pricer(db, target=currency)
+    found: dict[Any, tuple[int, int]] = {}
+    for key, minor, paid, closed in rows:
+        value = pricer.read(amount_minor=minor, currency=paid, at=closed)
+        total, unpriced = found.get(key, (0, 0))
+        found[key] = (
+            (total, unpriced + 1) if value is None else (total + value, unpriced)
+        )
+    return found
+
+
 def figures_by(
     db: Session,
     *,
@@ -162,6 +180,13 @@ def figures_by(
         else {}
     )
     counts, sold = _leads(db, owner=owner, level=level, since=since, until=until)
+    from app.modules.leads.selectors import sale_sums_by
+
+    revenue = _priced(
+        db,
+        sale_sums_by(db, owner=owner, level=str(level), since=since, until=until),
+        currency=account.currency,
+    )
     read = newest_metrics_date(db, ad_account=account) is not None
     crm = account.id in crm_account_ids(db, owner_id=owner.id)
     found: dict[str, Figures] = {}
@@ -181,6 +206,8 @@ def figures_by(
             leads_ours=leads,
             qualified=qualified,
             purchases_crm=sold.get(one, 0),
+            purchase_value_crm_minor=MinorUnits(revenue.get(one, (0, 0))[0]),
+            sales_unpriced=revenue.get(one, (0, 0))[1],
             reach=_people(counted.reach if counted else None, shown=shown),
             unique_link_clicks=_people(
                 counted.unique_link_clicks if counted else None, shown=shown
@@ -202,7 +229,7 @@ def figures_by_day(
     """The campaigns' days, summed: every count a day can add up. People are
     not among them, as a day's reach does not add to the next one's."""
     from app.modules.leads.models import Lead
-    from app.modules.leads.selectors import daily_counts
+    from app.modules.leads.selectors import daily_counts, sale_sums_by_day
 
     ids = [one for one in campaign_ids if one]
     found = {day: Figures() for day in _walk(date_range)}
@@ -236,6 +263,19 @@ def figures_by_day(
         tzinfo=zone,
         scope=Lead.campaign_external_id.in_(ids),
     )
+    # The day's sales are its leads' sales, whenever they closed.
+    sales = sale_sums_by_day(
+        db,
+        owner=owner,
+        since=start_of(date_range.since, zone),
+        until=end_of(date_range.until, zone),
+        tzinfo=zone,
+        scope=Lead.campaign_external_id.in_(ids),
+    )
+    sold: dict[Any, int] = {}
+    for key, *_ in sales:
+        sold[key] = sold.get(key, 0) + 1
+    revenue = _priced(db, sales, currency=next(iter(accounts)).currency)
     read = any(newest_metrics_date(db, ad_account=one) is not None for one in accounts)
     on = crm_account_ids(db, owner_id=owner.id)
     crm = any(one.id in on for one in accounts)
@@ -246,8 +286,16 @@ def figures_by_day(
             given.get("purchase_value_site_minor", 0)
         )
         count, qualified = leads.get(day, (0, 0))
+        value, unpriced = revenue.get(day, (0, 0))
         found[day] = Figures(
-            **given, leads_ours=count, qualified=qualified, read=read, crm=crm
+            **given,
+            leads_ours=count,
+            qualified=qualified,
+            purchases_crm=sold.get(day, 0),
+            purchase_value_crm_minor=MinorUnits(value),
+            sales_unpriced=unpriced,
+            read=read,
+            crm=crm,
         )
     return found
 

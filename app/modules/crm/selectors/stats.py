@@ -16,7 +16,7 @@ it.
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Any, Final
 
@@ -102,6 +102,28 @@ def read_range(
     first = min(first, last)
     first = max(first, last - timedelta(days=MAX_DAYS - 1))
     return Range(since=first, until=last, today=today, earliest=earliest, zone=zone)
+
+
+def _from_first_card(db: Session, *, viewer: Viewer, span: Range) -> Range:
+    """The range with its first counted day moved back to the oldest lead the
+    board holds.
+
+    A board is switched on from a day, and still holds older leads: ones
+    added by hand from the leads tab, or taken in before the day was moved.
+    They are counted as leads, so the spend of their days must be counted
+    too - or a range shows leads against no spend at all.
+    """
+    if viewer.scope is None:
+        return span
+    first = db.scalar(
+        select(func.min(Lead.submitted_at))
+        .join(CrmCard, CrmCard.lead_id == Lead.id)
+        .where(holds(viewer.scope, CrmCard), Lead.provider != MANUAL_PROVIDER)
+    )
+    if first is None:
+        return span
+    day = localtime(first, span.zone).date()
+    return replace(span, earliest=day) if day < span.earliest else span
 
 
 # One group's counts. The name the older callers know it by.
@@ -391,6 +413,7 @@ def spend_rows(
         )
         .group_by(M.external_id, M.campaign_external_id, M.date)
     )
+    by_ad = list(rows)
     every = setup is None or setup.every_ad
     ticked = set(setup.ad_external_ids or []) if setup is not None else set()
     offered = set(setup.offered_ad_ids or []) if setup is not None else set()
@@ -401,10 +424,73 @@ def spend_rows(
             return True
         return new_too and ad not in offered
 
-    return [
+    found = [
         (ad, campaign, day, int(minor), currency or account.currency)
-        for ad, campaign, day, minor, currency in rows
+        for ad, campaign, day, minor, currency in by_ad
         if counts(ad)
+    ]
+    if every and feeding:
+        found.extend(
+            _unread_by_ad(
+                db,
+                scope=scope,
+                feeding=feeding,
+                since=since,
+                until=until,
+                read=found,
+                currency=account.currency,
+            )
+        )
+    return found
+
+
+def _unread_by_ad(
+    db: Session,
+    *,
+    scope: Scope,
+    feeding: set[str],
+    since: date,
+    until: date,
+    read: list[tuple[str, str, date, int, str]],
+    currency: str,
+) -> list[tuple[str, str, date, int, str]]:
+    """What a campaign's ad sets spent on a day beyond what its adverts' rows
+    hold, as a row with no advert.
+
+    The dashboards sum the ad sets' rows, and an advert's rows are read
+    apart and can lag or be missing. Where every advert of a campaign
+    counts, the campaign's spend is its ad sets' - so the remainder is the
+    CRM's too, only no one advert's. With ticked adverts the remainder
+    cannot be given to the ticked or the unticked, and is left out.
+    """
+    from app.modules.metrics.constants import MetricLevel
+    from app.modules.metrics.models import MetricsDaily as M
+
+    held: dict[tuple[str, date], int] = {}
+    for _, campaign, day, minor, _ in read:
+        held[(campaign, day)] = held.get((campaign, day), 0) + minor
+    rows = db.execute(
+        select(
+            M.campaign_external_id,
+            M.date,
+            func.sum(M.spend_minor),
+            func.max(M.currency),
+        )
+        .where(
+            M.owner_id == scope.owner_id,
+            M.ad_account_id == scope.ad_account_id,
+            M.level == str(MetricLevel.ADSET),
+            M.date >= since,
+            M.date <= until,
+            M.spend_minor > 0,
+            M.campaign_external_id.in_(feeding),
+        )
+        .group_by(M.campaign_external_id, M.date)
+    )
+    return [
+        ("", campaign, day, int(minor) - held.get((campaign, day), 0), paid or currency)
+        for campaign, day, minor, paid in rows
+        if int(minor) > held.get((campaign, day), 0)
     ]
 
 
@@ -418,11 +504,10 @@ def _add_spend(
     cell that loses a day to a missing rate is marked: its sum has a hole."""
     unpriced: set[date] = set()
     for ad, campaign, day, minor, currency in rows:
-        cells = [
-            groups.total,
-            groups.by_ad.setdefault(ad, Tally()),
-            groups.by_campaign.setdefault(campaign, Tally()),
-        ]
+        cells = [groups.total, groups.by_campaign.setdefault(campaign, Tally())]
+        # A campaign's spend no advert's rows hold is nobody's line.
+        if ad:
+            cells.append(groups.by_ad.setdefault(ad, Tally()))
         on_day = groups.by_day.get(day)
         if on_day is not None:
             cells.append(on_day)
@@ -469,8 +554,8 @@ def _counted(
             tally.crm = False
         return groups
     groups = _count_cohort(db, viewer=viewer, span=span, kinds=kinds, pricer=pricer)
-    # The CRM has leads only from the day it began taking them; spend from
-    # before that day brought no card and is set against nothing.
+    # The board holds leads only from its first one's day (``_from_first_card``);
+    # spend from before that day brought no card and is set against nothing.
     since = max(span.since, span.earliest)
     if viewer.scope is not None and since <= span.until:
         _add_spend(
@@ -511,8 +596,12 @@ def stats(
 ) -> Stats:
     setup = setup_of(db, scope=viewer.scope)
     zone = viewer.pair.account.tzinfo() if viewer.pair is not None else None
-    span = read_range(
-        period=period, since=since, until=until, now=now, setup=setup, zone=zone
+    span = _from_first_card(
+        db,
+        viewer=viewer,
+        span=read_range(
+            period=period, since=since, until=until, now=now, setup=setup, zone=zone
+        ),
     )
     stages = stages_of(db, scope=viewer.scope)
     kinds = {stage.id: stage.kind for stage in stages}

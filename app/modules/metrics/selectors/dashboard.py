@@ -38,6 +38,7 @@ from app.modules.metrics.selectors.facts import (
     cabinet_where,
     campaigns_scope,
     daily_facts,
+    end_of,
     facts_by_campaign,
     last_synced_at,
 )
@@ -185,11 +186,12 @@ def dashboard(
         tzinfo=tzinfo,
         scope=scope,
     )
-    since = today - timedelta(days=BREAKDOWN_RETENTION_DAYS - 1)
+    # The cuts cover the days on screen, like every other figure here.
     segments, spans = page_segments(
         db,
         owner=owner,
-        today=today,
+        since=chosen.since,
+        until=chosen.until,
         currency=currency,
         rows_of=rows_of,
         scope=scope,
@@ -215,8 +217,8 @@ def dashboard(
             cities=by_city if city_source == CITY_FROM_LEADS else (),
             names=names,
             spans=spans,
-            since=since,
-            today=today,
+            since=chosen.since,
+            today=chosen.until,
             currency=currency,
             account=rows_of,
             scope=scope,
@@ -321,7 +323,9 @@ def _period(
         db,
         owner=owner,
         since=_moment(chosen.since, tzinfo=tzinfo),
-        until=_moment(chosen.until + timedelta(days=1), tzinfo=tzinfo),
+        # The day's last moment, not the next day's first: the count takes
+        # both ends in, and a lead at midnight would fall in two ranges.
+        until=end_of(chosen.until, tzinfo),
         scope=scope(Lead),
     )
     earlier = (
@@ -603,26 +607,28 @@ def page_segments(
     db: Session,
     *,
     owner: User,
-    today: date,
+    since: date,
+    until: date,
     currency: str,
     rows_of: Account,
     scope: Scope,
     account: AdAccount | None,
     campaign_ids: Any,
 ) -> tuple[tuple[SegmentBlock, ...], dict[str, int]]:
-    """The age, placement and region cuts of a page, and how many days each
-    cut holds - shared by the dashboard and the expert dashboard."""
-    since = today - timedelta(days=BREAKDOWN_RETENTION_DAYS - 1)
+    """The age, placement and region cuts of a page over the range on
+    screen, and how many of its days each cut holds - shared by the dashboard
+    and the expert dashboard."""
     spans = {
         str(cut): _span(
-            db, owner=owner, kind=str(cut), today=today, since=since, account=rows_of
+            db, owner=owner, kind=str(cut), today=until, since=since, account=rows_of
         )
         for cut in SEGMENT_TITLES
     }
     segments = _segments(
         db,
         owner=owner,
-        today=today,
+        since=since,
+        today=until,
         currency=currency,
         account=rows_of,
         scope=both(scope, form_scope(db, owner=owner)),
@@ -640,12 +646,13 @@ def _segments(
     owner: User,
     today: date,
     currency: str,
+    since: date | None = None,
     account: Account = None,
     scope: Scope = EVERYTHING,
     has_forms: bool = True,
     spans: dict[str, int] | None = None,
 ) -> tuple[SegmentBlock, ...]:
-    since = today - timedelta(days=BREAKDOWN_RETENTION_DAYS - 1)
+    since = since or today - timedelta(days=BREAKDOWN_RETENTION_DAYS - 1)
     return tuple(
         _segment_block(
             kind=str(kind),
@@ -685,7 +692,7 @@ def _span(
     account: Account = None,
 ) -> int:
     oldest = oldest_breakdown_date(db, owner=owner, kind=kind, account=account)
-    if oldest is None:
+    if oldest is None or oldest > today:
         return 0
     return (today - max(oldest, since)).days + 1
 
