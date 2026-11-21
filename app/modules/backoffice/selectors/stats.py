@@ -89,7 +89,7 @@ USD_MICROS = MICROS_PER_MINOR * 100  # micros of a cent, a hundred cents a dolla
 RED, YELLOW, GREEN, GREY = "red", "yellow", "green", "other"
 LADDER_LABELS = {
     RED: "Faqat Start",
-    YELLOW: "Start → Standart",
+    YELLOW: "Standart 1 marta",
     GREEN: "Standart 2+ marta yoki Pro",
     GREY: "Boshqa tarif",
 }
@@ -1550,7 +1550,7 @@ KPI_LABELS = (
     ("signups", "Ro'yxatdan o'tganlar"),
     ("first_buyers", "Yangi xaridorlar"),
     ("reached_yellow", "Standart yoki yuqoriga o'tganlar"),
-    ("reached_green", "Yashilga chiqqanlar"),
+    ("reached_green", "Standart 2+ marta yoki Pro olganlar"),
     ("ai_per_customer_month_micros", "AI / mijoz / oy"),
 )
 
@@ -1696,7 +1696,7 @@ def statuses(db: Session, *, now: datetime) -> dict[str, Any]:
         )
     ).one()
     rows = (
-        ("paying", "To'layapti", paying),
+        ("paying", "Obunasi faol", paying),
         ("trial", "Sinovda", trying),
         ("ended", "Muddati tugagan", ended),
         ("never", "Hech qachon obuna bo'lmagan", never),
