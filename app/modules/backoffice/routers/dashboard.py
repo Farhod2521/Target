@@ -18,6 +18,7 @@ from app.modules.backoffice.constants import ADMIN_ROLES, MONEY_ROLES, Severity
 from app.modules.backoffice.permissions import has_role, staff_required
 from app.modules.backoffice.routers._out import amounts, choices, person_out
 from app.modules.backoffice.schemas import DashboardOut, TakingsOut
+from app.modules.backoffice.selectors.ad_figures import AdFigures, ad_figures
 from app.modules.backoffice.selectors.dashboard import (
     PERIODS,
     Slice,
@@ -108,6 +109,27 @@ def takings_out(found: Takings, *, bar: str = "") -> dict[str, Any]:
         "unpaid": found.unpaid,
         "unpaid_minor": found.unpaid_minor,
         "given_free": found.given_free,
+    }
+
+
+def ad_figures_out(found: AdFigures, *, can_pick: bool) -> dict[str, Any]:
+    return {
+        "account": found.account_name,
+        "account_found": found.account_found,
+        "picked": found.picked,
+        "can_pick": can_pick,
+        "spend": amounts(found.spend),
+        "spend_uzs_minor": found.spend_home_minor,
+        "unpriced_days": found.unpriced_days,
+        "revenue_uzs_minor": found.revenue_minor,
+        "roas": found.roas,
+        "new_payers": found.new_payers,
+        "cac_uzs_minor": found.cac_minor,
+        "joined": found.joined,
+        "joined_paid": found.joined_paid,
+        "conversion_pct": found.conversion_pct,
+        "deals": found.deals,
+        "deal_seconds": found.deal_seconds,
     }
 
 
@@ -210,6 +232,13 @@ def dashboard(
             {"manager": person_out(row.manager), "sold": row.sold, "open": row.open}
             for row in sales(db, window=window)
         ],
+        "ad_figures": (
+            ad_figures_out(
+                ad_figures(db, window=window), can_pick=bool(user.is_superuser)
+            )
+            if sees_money
+            else None
+        ),
     }
 
 

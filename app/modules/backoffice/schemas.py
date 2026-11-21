@@ -1397,6 +1397,27 @@ class DashSalesOut(BaseModel):
     open: int = Field(description="Cards open now.")
 
 
+class DashAdFiguresOut(BaseModel):
+    account: str = Field(description="The office's ad account's name.")
+    account_found: bool = Field(description="False: the account is in no cabinet.")
+    picked: int = Field(description="Campaigns counted; 0 counts no spend.")
+    can_pick: bool = Field(description="The superuser alone picks the campaigns.")
+    spend: list[AmountOut] = Field(description="Picked campaigns' spend, per currency.")
+    spend_uzs_minor: int | None = Field(
+        description="The same in so'm at each day's rate; null when a day has none."
+    )
+    unpriced_days: int = Field(description="Days with spend and no bank rate.")
+    revenue_uzs_minor: int = Field(description="Paid bills in so'm, as takings.")
+    roas: float | None = Field(description="Revenue / spend in so'm; blended.")
+    new_payers: int = Field(description="Customers whose first paid plan fell here.")
+    cac_uzs_minor: int | None = Field(description="Spend in so'm / new payers.")
+    joined: int
+    joined_paid: int = Field(description="Of those who joined here, who paid a plan.")
+    conversion_pct: float | None
+    deals: int = Field(description="First paid plan other than Start, in the window.")
+    deal_seconds: int | None = Field(description="Median from joining to that bill.")
+
+
 class DashboardOut(BaseModel):
     window: WindowOut
     sees_money: bool
@@ -1407,6 +1428,7 @@ class DashboardOut(BaseModel):
     problems: DashProblemsOut
     payments: list[DashPaymentOut] | None = Field(description="Money roles only.")
     sales: list[DashSalesOut]
+    ad_figures: DashAdFiguresOut | None = Field(description="Money roles only.")
 
 
 class PaymentTotalsOut(BaseModel):
@@ -2391,3 +2413,23 @@ class StatsLostOut(BaseModel):
     total: int
     deleted: int = Field(description="Deleted accounts: counted, not listed.")
     rows: list[StatsLostRowOut]
+
+
+class OfficeAdCampaignOut(BaseModel):
+    id: str = Field(description="Meta's campaign id.")
+    name: str
+    status: str = Field(description="Meta's effective status; `DELETED` when gone.")
+    sites: list[str] = Field(description="Hosts its ads link to.")
+    first_day: date | None
+    last_day: date | None
+    spend_minor: int = Field(description="Every day it ran, in `currency`.")
+    leads: int = Field(description="Results Meta reported, every day.")
+    picked: bool
+
+
+class OfficeAdCampaignsOut(BaseModel):
+    account: str
+    account_id: str
+    account_found: bool
+    currency: str
+    campaigns: list[OfficeAdCampaignOut]

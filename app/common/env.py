@@ -314,6 +314,11 @@ class Env(BaseSettings):
     media_root: Path = Field(default=BASE_DIR / "media", alias="MEDIA_ROOT")
     geoip_db_path: str = Field(default="", alias="GEOIP_DB_PATH")
     usd_uzs_rate: str = Field(default="", alias="USD_UZS_RATE")
+    # The ad account the office advertises targetolog.ai from: the dashboard's
+    # advertising figures read only the campaigns picked from it.
+    office_ad_account: str = Field(
+        default="act_2476855969492902", alias="OFFICE_AD_ACCOUNT"
+    )
     media_url: str = Field(default="/media/", alias="MEDIA_URL")
     agent_small_budgets: dict[str, tuple[int, int]] = {"USD": (1_000, 500)}
     frequency_min_spend: dict[str, int] = {"USD": 300}
