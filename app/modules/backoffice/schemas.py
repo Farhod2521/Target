@@ -1397,7 +1397,8 @@ class DashSalesOut(BaseModel):
     open: int = Field(description="Cards open now.")
 
 
-class DashAdFiguresOut(BaseModel):
+class OfficeAdFiguresOut(BaseModel):
+    window: WindowOut
     account: str = Field(description="The office's ad account's name.")
     account_found: bool = Field(description="False: the account is in no cabinet.")
     picked: int = Field(description="Campaigns counted; 0 counts no spend.")
@@ -1428,7 +1429,6 @@ class DashboardOut(BaseModel):
     problems: DashProblemsOut
     payments: list[DashPaymentOut] | None = Field(description="Money roles only.")
     sales: list[DashSalesOut]
-    ad_figures: DashAdFiguresOut | None = Field(description="Money roles only.")
 
 
 class PaymentTotalsOut(BaseModel):

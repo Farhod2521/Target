@@ -24,7 +24,7 @@ from tests.pg.test_office_actions import _shop, _staff
 from tests.pg.test_office_dashboard import _bill
 from tests.pg.test_supportchat import _user
 
-DASH = "/api/v1/office/dashboard"
+DASH = "/api/v1/office/ad-figures"
 PICK = "/api/v1/office/ad-figures/campaigns"
 RATE = Decimal("12000")
 
@@ -123,24 +123,15 @@ def test_the_six_figures_for_the_picked_campaigns(
     _, finance = _staff(db, Role.FINANCE, email="finance@office.test")
     _, support = _staff(db, Role.SUPPORT, email="support@office.test")
 
-    empty = client.get(DASH, headers=finance, params={"period": "7"}).json()[
-        "ad_figures"
-    ]
+    empty = client.get(DASH, headers=finance, params={"period": "7"}).json()
     assert empty["picked"] == 0 and empty["spend_uzs_minor"] == 0
     assert empty["roas"] is None and empty["can_pick"] is False
 
     client.put(PICK, headers=chief, json={"campaign_ids": ["c_site", "c_gone"]})
 
     shop, pro = _shop(db)  # joined 3 days ago
-    start = Plan(
-        code="start",
-        name="Start",
-        price=49000,
-        currency="UZS",
-        period_days=7,
-        max_adsets=1,
-        llm_cost_limit_minor=0,
-    )
+    start = Plan(code="start", name="Start", price=49000, currency="UZS", period_days=7,
+                 max_adsets=1, llm_cost_limit_minor=0)  # fmt: skip
     db.add(start)
     db.flush()
     now = utcnow()
@@ -153,19 +144,14 @@ def test_the_six_figures_for_the_picked_campaigns(
     old = _user(db, "old@client.test", date_joined=now - timedelta(days=90))
     _bill(db, pro, old.id, amount_minor=12_000_000, status=InvoiceStatus.PAID,
           paid_at=now - timedelta(days=60))  # fmt: skip
-    _bill(
-        db,
-        pro,
-        old.id,
-        amount_minor=12_000_000,
-        status=InvoiceStatus.PAID,
-        paid_at=now - timedelta(hours=2),
-    )  # a renewal: revenue, not a new payer
+    # A renewal: revenue, not a new payer.
+    _bill(db, pro, old.id, amount_minor=12_000_000, status=InvoiceStatus.PAID,
+          paid_at=now - timedelta(hours=2))  # fmt: skip
     db.commit()
 
     seen = client.get(DASH, headers=chief, params={"period": "7"})
     assert seen.status_code == 200, seen.text
-    fig = seen.json()["ad_figures"]
+    fig = seen.json()
     assert fig["can_pick"] is True and fig["picked"] == 2
     assert fig["spend"] == [{"currency": "USD", "amount_minor": 11_000}], (
         "picked only, the window only, the deleted one counted"
@@ -182,7 +168,7 @@ def test_the_six_figures_for_the_picked_campaigns(
     assert fig["deals"] == 1, "Start is not a deal"
     assert abs(fig["deal_seconds"] - 2 * 86400) < 60
 
-    assert client.get(DASH, headers=support).json()["ad_figures"] is None
+    assert client.get(DASH, headers=support).status_code == 404, "money roles only"
 
 
 def test_a_day_without_a_rate_leaves_the_som_figures_unknown(
@@ -193,7 +179,7 @@ def test_a_day_without_a_rate_leaves_the_som_figures_unknown(
     for row in db.scalars(select(FxRate)):
         db.delete(row)
     db.commit()
-    fig = client.get(DASH, headers=chief, params={"period": "7"}).json()["ad_figures"]
+    fig = client.get(DASH, headers=chief, params={"period": "7"}).json()
     assert fig["spend"] == [{"currency": "USD", "amount_minor": 10_000}]
     assert fig["spend_uzs_minor"] is None and fig["unpriced_days"] == 2
     assert fig["roas"] is None and fig["cac_uzs_minor"] is None
