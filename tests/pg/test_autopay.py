@@ -557,3 +557,38 @@ def test_a_renewal_from_the_card_carries_the_bought_pages(
     # The plan and the page bought beside it, in one debit.
     assert renewal.pages == 1
     assert renewal.amount_minor == 490000_00 + 249000_00
+
+
+def test_a_card_callback_is_read_however_multicard_wraps_the_session(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    client.post(
+        "/api/v1/billing/card/bind",
+        headers=auth,
+        json={"consent": True, "phone": "998901234567"},
+    )
+
+    reported = client.post(
+        "/webhooks/cards/multicard",
+        content=f"payer_id={SESSION}&card_token=secret",
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    )
+
+    assert reported.status_code == 200, reported.text
+    card = db.scalar(select(SavedCard))
+    assert card is not None and card.status == "active"
+
+
+def test_a_card_callback_without_a_session_is_logged_without_its_token(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level("WARNING"):
+        reported = client.post(
+            "/webhooks/cards/multicard",
+            json={"card_token": "secret-token", "status": "draft"},
+        )
+
+    assert reported.status_code == 400
+    assert "draft" in caplog.text
+    assert "secret-token" not in caplog.text
