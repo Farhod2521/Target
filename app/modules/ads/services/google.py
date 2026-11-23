@@ -77,6 +77,7 @@ from app.modules.ads.exceptions import (
     GooglePlacesUnread,
     GoogleWebsiteRequired,
     GoogleWordsInvalid,
+    LaunchNotDiscardable,
     NoAdAccount,
     ProfileIncomplete,
     UnknownTarget,
@@ -273,6 +274,15 @@ def save_google_answers(
     on_commit(db, lambda: prepare_google_launch_task.delay(launch_id, run))
     db.commit()
     return launch
+
+
+def discard_google_launch(db: Session, *, user: User, launch: GoogleLaunch) -> None:
+    """Throw the preparation away. A campaign being made, or made, stays."""
+    row = _locked(db, owner=user, launch_id=launch.id)
+    if row.status not in OPEN_STATUSES:
+        raise LaunchNotDiscardable
+    db.delete(row)
+    db.flush()
 
 
 def _website(url: str) -> str:

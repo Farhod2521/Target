@@ -596,10 +596,15 @@ def expire_stale_drafts_task() -> int:
 
 @celery_app.task(queue=GOOGLE_QUEUE)
 def prepare_google_launch_task(launch_id: str, run: str) -> str:
+    from app.modules.ads.exceptions import GoogleLaunchClosed
     from app.modules.ads.services.google import prepare_google_launch
 
     with task_session() as db:
-        return prepare_google_launch(db, launch_id=launch_id, run=run)
+        try:
+            return prepare_google_launch(db, launch_id=launch_id, run=run)
+        except GoogleLaunchClosed:
+            # Thrown away while the AI was writing: nothing is left to finish.
+            return "gone"
 
 
 @celery_app.task(queue=GOOGLE_SYNC_QUEUE, ignore_result=True)

@@ -156,6 +156,16 @@ def create_google(db: Session, *, user: User, launch: GoogleLaunch) -> LaunchDra
     return read_google(db, launch)
 
 
+def discard_google(db: Session, *, user: User, launch: GoogleLaunch) -> None:
+    """«O'chirish» on the review, and «Qaytadan boshlash» after a refusal."""
+    launch_id = launch.id
+    committed(
+        db,
+        lambda: google_services.discard_google_launch(db, user=user, launch=launch),
+    )
+    kept.forget(launch_id)
+
+
 def retry_google(db: Session, *, user: User, launch: GoogleLaunch) -> LaunchDraft:
     """Words never written are asked again; refused words are sent again."""
     if launch.ai_written_at:
@@ -215,6 +225,7 @@ def save_words(
 
 __all__ = [
     "create_google",
+    "discard_google",
     "google_of",
     "patch_google",
     "read_google",

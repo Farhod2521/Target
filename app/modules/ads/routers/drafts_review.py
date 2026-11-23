@@ -60,6 +60,7 @@ from app.modules.ads.routers.drafts import (
 )
 from app.modules.ads.routers.drafts_google import (
     create_google,
+    discard_google,
     google_of,
     retry_google,
 )
@@ -212,6 +213,10 @@ def retry(
 
 @router.post("/{draft_id}/discard", status_code=status.HTTP_204_NO_CONTENT)
 def discard(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> Response:
+    google = google_of(db, user=user, draft_id=draft_id)
+    if google is not None:
+        discard_google(db, user=user, launch=google)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
     review_routes.discard(draft_id, db, user)
     kept.forget(draft_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -224,6 +229,11 @@ def clean_up(draft_id: uuid.UUID, db: Db, user: CurrentUser) -> Response:
     With nothing left there, the press still means "throw it away and start
     again", so the draft is discarded instead.
     """
+    google = google_of(db, user=user, draft_id=draft_id)
+    if google is not None:
+        # Google's side has no clean-up here: the press means "throw it away".
+        discard_google(db, user=user, launch=google)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
     try:
         review_routes.clean_up(draft_id, db, user)
     except NothingToCleanUp:

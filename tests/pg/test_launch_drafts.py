@@ -865,3 +865,53 @@ def test_a_draft_left_for_a_day_is_deleted_and_a_fresh_one_kept(
     fresh = _start(client, auth, None)["id"]
     assert expire_stale_drafts(db, now=utcnow()) == 0
     assert db.get(CampaignLaunch, uuid.UUID(fresh)) is not None
+
+
+def test_a_google_draft_is_thrown_away_from_the_review(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, user = _ready(client, db)
+    _account, launch = _google(db, monkeypatch, user)
+    launch.status = "ready"
+    db.commit()
+    launch_id = launch.id
+    path = f"/api/v1/launch/drafts/{launch_id}"
+
+    gone = client.post(f"{path}/discard", headers=auth)
+
+    assert gone.status_code == 204, gone.text
+    db.expire_all()
+    assert db.get(GoogleLaunch, launch_id) is None
+    assert client.get(path, headers=auth).status_code == 404
+
+
+def test_a_google_campaign_being_made_is_not_thrown_away(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, user = _ready(client, db)
+    _account, launch = _google(db, monkeypatch, user)
+    launch.status = "creating"
+    db.commit()
+
+    kept = client.post(f"/api/v1/launch/drafts/{launch.id}/discard", headers=auth)
+
+    assert kept.status_code == 400, kept.text
+    db.expire_all()
+    assert db.get(GoogleLaunch, launch.id) is not None
+
+
+def test_a_refused_google_draft_is_thrown_away_by_start_again(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, user = _ready(client, db)
+    _account, launch = _google(db, monkeypatch, user)
+    launch.status = "failed"
+    launch.error_code = "policy"
+    db.commit()
+    launch_id = launch.id
+
+    gone = client.post(f"/api/v1/launch/drafts/{launch_id}/clean-up", headers=auth)
+
+    assert gone.status_code == 204, gone.text
+    db.expire_all()
+    assert db.get(GoogleLaunch, launch_id) is None
