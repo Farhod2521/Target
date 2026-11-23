@@ -2,11 +2,12 @@
 and throwing it away or clearing what a failed one left behind."""
 
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.common import storage
@@ -52,7 +53,9 @@ from app.modules.ads.exceptions import (
 from app.modules.ads.models import CampaignLaunch, LaunchCreative
 from app.modules.ads.rows import fresh
 from app.modules.ads.selectors.launches import (
+    OPEN_STATUSES,
     answers_complete,
+    launch_for,
     open_launch,
     provider_for,
     stranded_refs,
@@ -65,6 +68,11 @@ from app.modules.audit.constants import EventName
 logger = logging.getLogger(__name__)
 INITIAL_PROGRESS: Final = 5
 LIVE_STATUSES = (LaunchStatus.CREATING, LaunchStatus.CREATED)
+# A preparation nobody touched for this long is not coming back.
+STALE_DRAFT_HOURS: Final = 24
+STALE_DRAFT_BATCH: Final = 500
+# How many leftover drafts one «Reklama berish» clears on its page.
+FRESH_DISCARDS: Final = 5
 CLEANUP_KEY: Final = "cleanup"
 CLEANUP_PENDING: Final = "pending"
 CLEANUP_REFUSED: Final = "refused"
@@ -124,8 +132,22 @@ def check_preparation_allowance(db: Session, *, owner: User) -> None:
         raise FreeProposalsUsed(limit=FREE_PROPOSALS)
 
 
-def start_launch(db: Session, *, user: User) -> CampaignLaunch:
-    """The launch the wizard is about to walk through. Caller commits."""
+def start_launch(
+    db: Session,
+    *,
+    user: User,
+    resume: UUID | None = None,
+    fresh: bool = False,
+) -> CampaignLaunch:
+    """The launch the wizard is about to walk through. Caller commits.
+
+    ``resume`` carries on that one preparation when it is still open here.
+    ``fresh`` is «Reklama berish» pressed again: a preparation still at
+    ``draft`` is thrown away and a new one opened - owners came back days
+    later to a half-made advert and took it for a new one. A preparation
+    already handed to the worker or the network is returned, as before:
+    its page says how that went.
+    """
     from app.modules.ads.services.manage import check_campaign_allowance
     from app.modules.billing.services import (
         require_preparation,
@@ -152,7 +174,26 @@ def start_launch(db: Session, *, user: User) -> CampaignLaunch:
         if page is not None
         else active_ad_account(db, owner=user)
     )
+    if resume is not None:
+        asked = launch_for(db, owner=user, launch_id=resume)
+        if (
+            asked is not None
+            and asked.status in OPEN_STATUSES
+            and account is not None
+            and asked.ad_account_id == account.id
+            and (page is None or asked.page_id in (page.id, None))
+        ):
+            return asked
     existing = open_launch(db, owner=user, page=page, ad_account=account)
+    if fresh:
+        for _ in range(FRESH_DISCARDS):
+            if existing is None or existing.status != LaunchStatus.DRAFT:
+                break
+            if not is_discardable(db, launch=existing):
+                return existing
+            drop_launch(db, launch=existing)
+            db.flush()
+            existing = open_launch(db, owner=user, page=page, ad_account=account)
     if existing is not None:
         return existing
     check_preparation_allowance(db, owner=user)
@@ -318,10 +359,16 @@ def is_discardable(db: Session, *, launch: CampaignLaunch) -> bool:
 
 def discard_launch(db: Session, *, launch: CampaignLaunch) -> None:
     """Delete the preparation and the files it was carrying. Commits."""
-    from app.modules.audit.services import emit
-
     if not is_discardable(db, launch=launch):
         raise LaunchNotDiscardable
+    drop_launch(db, launch=launch)
+    db.commit()
+
+
+def drop_launch(db: Session, *, launch: CampaignLaunch) -> None:
+    """Delete the preparation; its files go once the caller commits."""
+    from app.modules.audit.services import emit
+
     emit(
         db,
         owner_id=launch.owner_id,
@@ -338,7 +385,41 @@ def discard_launch(db: Session, *, launch: CampaignLaunch) -> None:
         db.delete(row)
     db.delete(launch)
     on_commit(db, lambda: _remove_all(uploads))
-    db.commit()
+
+
+def expire_stale_drafts(db: Session, *, now: datetime) -> int:
+    """Delete every preparation left at ``draft`` for a day. Commits each.
+
+    Only ``draft``: one handed to the worker or the network has a page that
+    says how it went, and a failed one may sit under a Support ticket.
+    """
+    cutoff = now - timedelta(hours=STALE_DRAFT_HOURS)
+    stale = list(
+        db.scalars(
+            select(CampaignLaunch)
+            .where(
+                CampaignLaunch.status == str(LaunchStatus.DRAFT),
+                CampaignLaunch.updated_at < cutoff,
+            )
+            .order_by(CampaignLaunch.updated_at)
+            .limit(STALE_DRAFT_BATCH)
+        )
+    )
+    dropped = 0
+    for launch in stale:
+        if not is_discardable(db, launch=launch):
+            continue
+        try:
+            drop_launch(db, launch=launch)
+            db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+            logger.exception("stale_draft_not_dropped", extra={"launch": str(launch.id)})
+            continue
+        dropped += 1
+    if dropped:
+        logger.info("stale drafts dropped", extra={"count": dropped})
+    return dropped
 
 
 def _remove_all(uploads: list[str]) -> None:

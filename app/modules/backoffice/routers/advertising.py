@@ -104,6 +104,7 @@ def row_out(row: AdRow) -> dict[str, Any]:
         "result_word": row.result_word,
         "result_cost_minor": row.result_cost_minor,
         "result_cost_label": row.result_cost_label,
+        "result_kind": row.kind,
         "note": row.note,
         "impressions": row.impressions,
         "reach": row.reach,
@@ -149,6 +150,7 @@ def audience_out(lines: AudienceLines | None) -> dict[str, Any] | None:
 def question_out(row: FormQuestion) -> dict[str, Any]:
     return {
         "label": row.label,
+        "kind": row.kind,
         "kind_label": row.kind_label,
         "options": list(row.options),
         "by": row.by,
@@ -166,6 +168,7 @@ def form_setup_out(found: FormSetup | None) -> dict[str, Any] | None:
         "by_label": found.by_label,
         "name": found.name,
         "higher_intent": found.higher_intent,
+        "depth": found.depth,
         "depth_label": found.depth_label,
         "questions": [question_out(row) for row in found.questions],
     }
@@ -228,6 +231,7 @@ def settings_out(found: LaunchSettings) -> dict[str, Any]:
                 "picture": ad.picture,
                 "is_video": ad.is_video,
                 "video_url": ad.video_url,
+                "media_kind": ad.media_kind,
                 "media_kind_label": ad.media_kind_label,
                 "post_url": ad.post_url,
             }
@@ -288,6 +292,7 @@ def live_out(found: AdReading) -> dict[str, Any]:
                     {
                         "external_id": ad.post.external_id,
                         "url": ad.post.url,
+                        "kind": ad.post.kind,
                         "kind_label": ad.post.kind_label,
                         "text": ad.post.text,
                         "picture": ad.post.picture,
@@ -306,6 +311,7 @@ def line_out(line: AdLine) -> dict[str, Any]:
     return {
         "external_id": line.external_id,
         "name": line.name,
+        "delivery": line.delivery,
         "delivery_label": line.delivery_label,
         "quality_ranking": line.quality_ranking,
         "sums": sums_out(line.sums),
@@ -318,6 +324,7 @@ def group_out(group: GroupLine) -> dict[str, Any]:
     return {
         "external_id": group.external_id,
         "name": group.name,
+        "delivery": group.delivery,
         "delivery_label": group.delivery_label,
         "optimization_goal": group.optimization_goal,
         "optimization_goal_label": group.optimization_goal_label,
@@ -354,6 +361,7 @@ def figures_out(found: AdReading) -> dict[str, Any] | None:
             "cost_minor": result.cost_minor,
             "cost_label": result.cost_label,
             "note": result.note,
+            "kind": result.kind,
         },
         "leads": found.leads,
         "qualified": found.qualified,
@@ -381,6 +389,7 @@ def campaign_out(found: AdReading) -> dict[str, Any] | None:
         ),
         "special_ad_categories": list(campaign.special_ad_categories or ()),
         "status": campaign.effective_status or campaign.status,
+        "delivery": row.delivery,
         "delivery_label": row.delivery_label,
         "is_running": row.is_running,
         "daily_budget_minor": campaign.daily_budget_minor,

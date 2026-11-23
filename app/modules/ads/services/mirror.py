@@ -473,6 +473,7 @@ def write_creatives(
             "call_to_action": creative.call_to_action,
             "image_hash": creative.image_hash,
             "video_id": creative.video_id,
+            "is_video": creative.is_video,
             "thumbnail_url": creative.thumbnail_url,
             "page_id": creative.page_id,
             "instagram_user_id": creative.instagram_user_id,
@@ -482,6 +483,9 @@ def write_creatives(
         }
         if creative.ref.id in held:
             defaults = only_filled(defaults)
+            # An unread creative saying "not a video" is not news.
+            if not defaults.get("is_video"):
+                defaults.pop("is_video", None)
         row = _upsert(
             db,
             AdCreative,

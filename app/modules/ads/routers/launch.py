@@ -95,9 +95,23 @@ class GoalReadingIn(BaseModel):
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def start(db: Db, user: CurrentUser) -> dict[str, Any]:
-    """Open a preparation - or carry on the one already open."""
-    launch = committed(db, lambda: launch_services.start_launch(db, user=user))
+def start(
+    db: Db,
+    user: CurrentUser,
+    resume: uuid.UUID | None = None,
+    fresh: bool = False,
+) -> dict[str, Any]:
+    """Open a preparation - or carry on the one already open.
+
+    The new wizard (``POST /launch/drafts``) passes ``fresh``; as a route of
+    its own this stays what it was: the open preparation is carried on.
+    """
+    launch = committed(
+        db,
+        lambda: launch_services.start_launch(
+            db, user=user, resume=resume, fresh=fresh
+        ),
+    )
     return launch_head(launch)
 
 

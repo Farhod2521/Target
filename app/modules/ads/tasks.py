@@ -583,6 +583,14 @@ def sweep_abandoned_uploads_task() -> int:
         return sweep_abandoned_uploads(db, now=now)
 
 
+@celery_app.task(queue="sync", ignore_result=True)
+def expire_stale_drafts_task() -> int:
+    from app.modules.ads.services.launch import expire_stale_drafts
+
+    with task_session() as db:
+        return expire_stale_drafts(db, now=utcnow())
+
+
 # -- Google ----------------------------------------------------------------------------
 
 

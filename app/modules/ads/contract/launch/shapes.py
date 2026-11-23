@@ -341,6 +341,8 @@ class LaunchDraft(Camel):
 
 class DraftStart(Camel):
     flow: Literal["campaigns", "google"] = "campaigns"
+    # The draft to carry on. Null opens a new one: a draft left unfinished
+    # on this page is thrown away, not reopened.
     resume: str | None = None
 
 

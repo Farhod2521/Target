@@ -799,3 +799,69 @@ def test_the_site_form_picks_its_pixel_on_the_plan(
     db.refresh(launch)
     assert launch.answers["pixel_id"] == "72"
     assert went.json()["page"]["pixelId"] == "72"
+
+
+# --- «Reklama berish» pressed again ------------------------------------------
+def _start(client: TestClient, auth: dict[str, str], resume: str | None) -> dict:
+    opened = client.post(
+        "/api/v1/launch/drafts",
+        json={"flow": "campaigns", "resume": resume},
+        headers=auth,
+    )
+    assert opened.status_code == 200, opened.text
+    return opened.json()
+
+
+def test_resume_null_throws_the_unfinished_draft_away(
+    client: TestClient, db: Session
+) -> None:
+    auth, old = _opened(client, db)
+
+    new = _start(client, auth, None)
+
+    assert new["id"] != old and new["status"] == "draft" and new["step"] == "plan"
+    assert db.get(CampaignLaunch, uuid.UUID(old)) is None
+
+
+def test_resume_carries_on_the_named_draft(client: TestClient, db: Session) -> None:
+    auth, old = _opened(client, db)
+
+    assert _start(client, auth, old)["id"] == old
+
+
+def test_a_launch_past_the_draft_is_not_thrown_away(
+    client: TestClient, db: Session
+) -> None:
+    auth, old = _opened(client, db)
+    launch = db.get(CampaignLaunch, uuid.UUID(old))
+    assert launch is not None
+    launch.status = "failed"
+    db.commit()
+
+    assert _start(client, auth, None)["id"] == old
+
+
+def test_a_draft_left_for_a_day_is_deleted_and_a_fresh_one_kept(
+    client: TestClient, db: Session
+) -> None:
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from app.modules.ads.services.launch import expire_stale_drafts
+
+    auth, old = _opened(client, db)
+    db.execute(
+        update(CampaignLaunch)
+        .where(CampaignLaunch.id == uuid.UUID(old))
+        .values(updated_at=utcnow() - timedelta(hours=25))
+    )
+    db.commit()
+
+    assert expire_stale_drafts(db, now=utcnow()) == 1
+    db.expire_all()
+    assert db.get(CampaignLaunch, uuid.UUID(old)) is None
+
+    fresh = _start(client, auth, None)["id"]
+    assert expire_stale_drafts(db, now=utcnow()) == 0
+    assert db.get(CampaignLaunch, uuid.UUID(fresh)) is not None

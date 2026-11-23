@@ -58,6 +58,11 @@ class ColumnOut(BaseModel):
         description="`manual`: a button moves cards here; `auto`: what happened to the client does."
     )
     is_final: bool
+    is_default_name: bool = Field(
+        True,
+        description="The name it was seeded with: a screen in another language "
+        "names it by `code`. False once the office renamed it.",
+    )
 
 
 class ColumnsOut(BaseModel):
@@ -423,6 +428,9 @@ class ClientPageOut(BaseModel):
 
 class ClientBillOut(BaseModel):
     number: str | None = None
+    kind: str = Field(
+        "", description="`plan`, `pages`, `seats`...: `kind_label` as a code."
+    )
     kind_label: str
     status: str
     status_label: str

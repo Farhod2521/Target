@@ -53,6 +53,7 @@ from app.modules.boards.constants import (
     SalesKind,
     SupportColumn,
     TicketReason,
+    is_default_column_name,
 )
 from app.modules.boards.models import BoardCard, BoardCardEvent
 from app.modules.boards.selectors import ColumnView, columns_for
@@ -477,6 +478,9 @@ def board_view(
                 "position": item.position,
                 "kind": item.kind,
                 "is_final": item.is_final,
+                "is_default_name": is_default_column_name(
+                    board=str(board), code=item.code, name=item.name
+                ),
                 "total": total,
                 "recent_days": SUPPORT_DONE_SHOWN_DAYS if recent_only else None,
                 "cards": [card_brief(card, extras=extras, now=now) for card in cards],

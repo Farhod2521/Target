@@ -997,7 +997,9 @@ def card_view(db: Session, *, viewer: Viewer, card_id: str) -> CardView | None:
     )
     lead = card.lead
     source = (
-        ad_label(db, owner=viewer.owner, external_id=lead.ad_external_id)
+        ad_label(
+            db, owner=viewer.owner, external_id=lead.ad_external_id, with_media=True
+        )
         if lead.ad_external_id
         else None
     )

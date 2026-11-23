@@ -77,6 +77,7 @@ def brief(db: Session, *, owner: User, now: datetime) -> dict[str, Any]:
         "bills": [
             {
                 "number": invoice.number,
+                "kind": invoice.kind,
                 "kind_label": _label(INVOICE_KIND_LABELS, invoice.kind),
                 "status": invoice.status,
                 "status_label": _label(INVOICE_STATUS_LABELS, invoice.status),

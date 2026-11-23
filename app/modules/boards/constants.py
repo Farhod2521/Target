@@ -187,6 +187,18 @@ SEED_COLUMNS: Final[tuple[SeedColumn, ...]] = (
     _renewal(RenewalColumn.DECLINED, ColumnKind.MANUAL, final=True),
 )
 
+# The name each column was seeded with. A column still carrying it is named
+# by its code on a screen in another language; a renamed one is the office's
+# own word and shown as typed.
+SEED_COLUMN_NAMES: Final[dict[tuple[str, str], str]] = {
+    (str(seed.board), seed.code): str(seed.name) for seed in SEED_COLUMNS
+}
+
+
+def is_default_column_name(*, board: str, code: str, name: str) -> bool:
+    return SEED_COLUMN_NAMES.get((str(board), code)) == name
+
+
 # Columns only a board's lead (and the superuser or Owner) sees. Support's
 # own Yopildi is its person's to read.
 LEAD_ONLY_COLUMNS: Final = frozenset(

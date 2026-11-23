@@ -20,6 +20,23 @@ _STANDING: tuple[str, ...] = (
 )
 
 
+def ad_format(content: Any) -> str:
+    """``video`` or ``image``: what people see, for a creative row or None.
+
+    ``is_video`` is filled by the sync; ``kind`` and ``video_id`` answer for
+    a row the sync has not reached since the column was added.
+    """
+    if content is None:
+        return "image"
+    if (
+        getattr(content, "is_video", False)
+        or (getattr(content, "kind", "") or "") == "video"
+        or getattr(content, "video_id", "")
+    ):
+        return "video"
+    return "image"
+
+
 @dataclass(frozen=True, slots=True)
 class CreativeState:
     delivery: str

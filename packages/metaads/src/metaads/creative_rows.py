@@ -64,6 +64,23 @@ class CreativeRow(MetaDTO):
     # fills it on creatives it built; it is a page id on a page's advert
     # and is left alone on anything else - see ``page_id``.
     actor_id: str = ""
+    # Meta's own word for what the creative shows: VIDEO, PHOTO, SHARE,
+    # STATUS... Read only to tell a video from a picture where the story
+    # spec has no ``video_data`` block - a boosted post, a reel.
+    object_type: str = ""
+    # The creative's own video id, beside the one inside ``video_data``.
+    # Filled on a creative made from a video post, where the spec is empty.
+    creative_video_id: str = Field(default="", alias="video_id")
+
+    @property
+    def is_video(self) -> bool:
+        """Whether people see a video, whatever shape the creative took."""
+        return bool(
+            self.kind == "video"
+            or self.video_id
+            or _text(self.creative_video_id)
+            or _text(self.object_type).upper() == "VIDEO"
+        )
 
     @property
     def kind(self) -> str:

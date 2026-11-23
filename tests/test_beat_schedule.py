@@ -42,6 +42,7 @@ def test_the_ads_tasks_keep_django_s_minutes() -> None:
         "close_stalled_changes_task": ("3,13,23,33,43,53", "*"),
         "restart_launches_task": ("8,18,28,38,48,58", "*"),
         "sweep_abandoned_uploads_task": ("6,36", "*"),
+        "expire_stale_drafts_task": ("17", "*"),
         "sweep_lapsed_subscriptions": ("5,20,35,50", "*"),
         "check_all_sites_task": ("25", "*"),
     }

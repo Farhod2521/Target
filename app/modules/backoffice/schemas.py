@@ -559,6 +559,10 @@ class AdRowOut(BaseModel):
     result_word: str
     result_cost_minor: int | None
     result_cost_label: str
+    result_kind: str = Field(
+        "",
+        description="What one result is: `lead`, `site_lead`, `chat`, `call`, `click`, `view`, `recall`, `profile`.",
+    )
     note: str = Field(description="Instead of a figure this screen cannot count.")
     impressions: int
     reach: int | None = Field(description="Null when nobody counted this window.")
@@ -652,6 +656,9 @@ class AdResultOut(BaseModel):
     cost_minor: int | None
     cost_label: str
     note: str
+    kind: str = Field(
+        "", description="Same codes as `result_kind`; empty where `label` is."
+    )
 
 
 class AdBarOut(BaseModel):
@@ -692,6 +699,9 @@ class AdCampaignOut(BaseModel):
     objective_label: str
     special_ad_categories: list[str]
     status: str = Field(description="Meta's own status word, as the sync saw it.")
+    delivery: str = Field(
+        "", description="`active`, `paused`, `pending`... the code of `delivery_label`."
+    )
     delivery_label: str
     is_running: bool
     daily_budget_minor: int | None
@@ -738,12 +748,16 @@ class LaunchAdOut(BaseModel):
     picture: str
     is_video: bool
     video_url: str
+    media_kind: str = Field(
+        "", description="`image`, `video`, `post`, `upload`, `ig_image`, `ig_video`."
+    )
     media_kind_label: str
     post_url: str = Field(description="The post it was built from; empty for none.")
 
 
 class FormQuestionOut(BaseModel):
     label: str
+    kind: str = Field("", description="`autofilled`, `options` or `open`.")
     kind_label: str
     options: list[str]
     by: str = Field(
@@ -760,6 +774,7 @@ class FormSetupOut(BaseModel):
     by_label: str
     name: str
     higher_intent: bool = Field(description="Meta's review step before sending.")
+    depth: str = Field("", description="`short` or `deep`.")
     depth_label: str
     questions: list[FormQuestionOut] = Field(description="Empty on a ready form.")
 
@@ -803,6 +818,9 @@ class AdSettingsOut(BaseModel):
 class AdPostOut(BaseModel):
     external_id: str
     url: str = Field(description="Empty when this post has no address we know.")
+    kind: str = Field(
+        "", description="A library `media_kind`, or `facebook_post` for one it lacks."
+    )
     kind_label: str
     text: str
     picture: str
@@ -862,6 +880,9 @@ class AdLiveOut(BaseModel):
 class AdLineOut(BaseModel):
     external_id: str
     name: str
+    delivery: str = Field(
+        "", description="`active`, `paused`, `pending`... the code of `delivery_label`."
+    )
     delivery_label: str
     quality_ranking: str
     sums: AdSumsOut
@@ -872,6 +893,9 @@ class AdLineOut(BaseModel):
 class AdGroupOut(BaseModel):
     external_id: str
     name: str
+    delivery: str = Field(
+        "", description="`active`, `paused`, `pending`... the code of `delivery_label`."
+    )
     delivery_label: str
     optimization_goal: str
     optimization_goal_label: str
@@ -1792,6 +1816,7 @@ class PayoutCustomerOut(PersonOut):
 class PayoutMoneyOut(BaseModel):
     amount_minor: int
     currency: str
+    method: str = Field("", description="The code of `method_label`.")
     method_label: str
     card_last4: str = Field(description="Empty for a payout recorded by hand.")
 

@@ -47,6 +47,7 @@ from app.modules.boards.constants import (
     CardAction,
     CloseReason,
     DeclineReason,
+    is_default_column_name,
 )
 from app.modules.boards.models import ContactReason
 from app.modules.boards.schemas import (
@@ -186,6 +187,9 @@ def columns(db: Db, staff: BoardStaff) -> dict[str, Any]:
                 "position": column.position,
                 "kind": column.kind,
                 "is_final": column.is_final,
+                "is_default_name": is_default_column_name(
+                    board=str(staff.board), code=column.code, name=column.name
+                ),
             }
             for column in selectors.columns_for(
                 db, board=staff.board, access=staff.access

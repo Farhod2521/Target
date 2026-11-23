@@ -285,3 +285,29 @@ def _staff_head(db: Session, user: User) -> dict[str, str]:
     fresh = db.get(User, user.id)
     assert fresh is not None
     return _auth(fresh)
+
+
+def test_a_column_says_whether_it_still_has_its_seeded_name(
+    client: TestClient, db: Session
+) -> None:
+    """A screen in Russian or English names a seeded column by its code; one
+    the office renamed is the office's own word."""
+    boss = _staff(db, "boss@office.test", superuser=True)
+    path = f"{URL}/boards/support/columns"
+    first = ColumnsOut.model_validate(client.get(path, headers=boss).json())
+    assert all(column.is_default_name for column in first.columns)
+
+    order = [(c.code, c.name) for c in first.columns]
+    renamed = [(code, "Kelgan" if code == "new" else name) for code, name in order]
+    saved = client.patch(
+        path,
+        json={"columns": [{"code": c, "name": n} for c, n in renamed]},
+        headers=boss,
+    )
+    assert saved.status_code == 200, saved.text
+    flags = {
+        c.code: c.is_default_name
+        for c in ColumnsOut.model_validate(saved.json()).columns
+    }
+    assert flags["new"] is False
+    assert all(flag for code, flag in flags.items() if code != "new")
