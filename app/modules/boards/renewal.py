@@ -21,10 +21,10 @@ from app.modules.billing.constants import (
     InvoiceStatus,
 )
 from app.modules.billing.models import Invoice, Plan, Subscription
+from app.modules.boards import reason_lists
 from app.modules.boards.access import Access, works_on
 from app.modules.boards.constants import (
     ATTEMPTS_MAX,
-    DECLINE_REASON_LABELS,
     RENEWAL_ACTIONS,
     RENEWAL_BILL_FROM,
     RENEWAL_DECLINE_DAYS,
@@ -37,6 +37,7 @@ from app.modules.boards.constants import (
     CardAction,
     DeclineReason,
     EventKind,
+    ReasonPurpose,
     RenewalColumn,
 )
 from app.modules.boards.exceptions import (
@@ -44,7 +45,6 @@ from app.modules.boards.exceptions import (
     CardClosed,
     NoteRequired,
     NotOnBoard,
-    ReasonRequired,
     ReportPeriodInvalid,
 )
 from app.modules.boards.models import BoardCard, BoardCardEvent, BoardSetting
@@ -552,18 +552,23 @@ def act(
         raise ActionNotHere
     body = said
     if action == CardAction.DECLINE:
-        if reason not in DeclineReason.values:
-            raise ReasonRequired
-        if reason == DeclineReason.OTHER and not note:
+        found = reason_lists.picked(
+            db, board=Board.RENEWAL, purpose=ReasonPurpose.DECLINE, code=reason
+        )
+        if found.note_required and not note:
             raise NoteRequired
-        card.close_reason = reason
+        card.close_reason = found.code
         card.close_note = note
         card.closed_at = now
-        label = str(DECLINE_REASON_LABELS[DeclineReason(reason)])
-        body = f"{label}. {note}" if note else label
+        body = reason_lists.said(found, note)
     elif action == CardAction.CONTACTED:
         card.contact_mark = str(CardAction.CONTACTED)
     elif action == CardAction.NO_CONTACT:
+        from app.modules.boards.services import no_contact_reason
+
+        why = no_contact_reason(db, board=Board.RENEWAL, code=reason, note=note)
+        if why:
+            body = f"{why}. {said}" if said else why
         card.contact_mark = str(CardAction.NO_CONTACT)
         card.attempts = min(card.attempts + 1, ATTEMPTS_MAX)
     to, kind = _MOVES[action]
@@ -647,6 +652,7 @@ def briefs(
     if not mine:
         return {}
     owners = list({card.owner_id for card in mine})
+    names = decline_labels(db)
     plans = dict(
         db.execute(
             select(Plan.code, Plan.name).where(
@@ -704,7 +710,7 @@ def briefs(
             "payments": int(payments.get(card.owner_id, 0)),
             "last_login": card.owner.last_login,
             "decline_reason": card.close_reason,
-            "decline_label": decline_label(card.close_reason),
+            "decline_label": names.get(card.close_reason, ""),
             "paid": {"minor": bill.amount_minor, "currency": bill.currency}
             if bill
             else None,
@@ -721,10 +727,9 @@ def days_between(ends_at: datetime, now: datetime) -> int:
     return -int(-seconds // 86_400)
 
 
-def decline_label(code: str) -> str:
-    if code in DeclineReason.values:
-        return str(DECLINE_REASON_LABELS[DeclineReason(code)])
-    return ""
+def decline_labels(db: Session) -> dict[str, str]:
+    """Every «Rad etdi» reason's name by its code, the archived ones too."""
+    return reason_lists.labels(db, board=Board.RENEWAL, purpose=ReasonPurpose.DECLINE)
 
 
 def order(code: str, now: datetime) -> tuple[Any, ...]:
@@ -760,6 +765,11 @@ def report(
     if end < start or (end - start).days > REPORT_MAX_DAYS:
         raise ReportPeriodInvalid
     first, after = day_bounds(start, end)
+    listed = reason_lists.rows(
+        db, board=Board.RENEWAL, purpose=ReasonPurpose.DECLINE, archived=True
+    )
+    reason_names = {row.code: row.name for row in listed}
+    reason_order = {row.code: index for index, row in enumerate(listed)}
     scope = [
         BoardCard.board == BOARD,
         BoardCard.term_ends_at >= first,
@@ -822,13 +832,12 @@ def report(
                 for currency, minor in sorted(paid.items(), key=lambda p: -p[1])
             ],
             "reasons": [
-                {
-                    "code": str(reason),
-                    "label": str(DECLINE_REASON_LABELS[reason]),
-                    "count": why.get(str(reason), 0),
-                }
-                for reason in DeclineReason
-                if why.get(str(reason), 0)
+                {"code": code, "label": reason_names.get(code, code), "count": count}
+                for code, count in sorted(
+                    why.items(),
+                    key=lambda item: (reason_order.get(item[0], 999), item[0]),
+                )
+                if count and code in reason_names
             ],
         }
 

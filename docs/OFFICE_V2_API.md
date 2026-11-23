@@ -350,6 +350,39 @@ Faqat `is_custom` ustun. O'chirilmaydi, yashiriladi: javobning `removed` ro'yxat
 
 Yakuniy ustunlardan oldin turadi. **422** `column_name_taken`, `too_many_columns`.
 
+### Sabablar ro'yxatlari (2026-11-23)
+
+Kodda qat'iy yozilgan sabablar endi bazada, superuser boshqaradi. Karta sababning `code`ini
+saqlaydi: nomi o'zgarsa yoki arxivlansa ham eski kartalar va hisobotlar to'g'ri o'qiladi.
+
+| Kanban | Ro'yxat (`purpose`) | Qachon so'raladi | Boshida |
+|---|---|---|---|
+| Sotuv | `close` | «Yopish» | 5 ta (eski kodlar) |
+| Uzaytirish | `decline` | «Rad etdi» | 7 ta (eski kodlar) |
+| Sotuv, Uzaytirish | `no_contact` | «Bog'lanib bo'lmadi» — faqat ro'yxatda sabab bo'lsa, shunda majburiy | bo'sh |
+| Uchala kanban | `move` | «Ko'chirish» — ro'yxatda sabab bo'lsa tanlash majburiy, bo'sh bo'lsa matn majburiy | bo'sh |
+
+Support «Bog'lanib bo'lmadi» o'z ro'yxatida qoladi (`contact-reasons`); uni ham endi faqat
+superuser o'zgartiradi (Egasi o'qiydi, `may_edit: false`).
+
+- `GET /boards/{board}/reasons?purpose=` → `[{value, label, note_required}]`, faqat faollari.
+  `purpose` bo'sh bo'lsa asosiy ro'yxat (`sales` → `close`, `renewal` → `decline`,
+  `support` → `move`). Eski `GET /boards/sales/reasons` va `/boards/renewal/reasons` shu yo'l.
+- `GET /boards/{board}/reason-lists` → sozlamalar uchun: `{board, may_edit, lists: [{purpose, label, hint, rows}]}`,
+  `rows` arxivdagilar bilan: `{id, code, name, position, note_required, is_archived, is_default}`.
+- `POST /boards/{board}/reason-lists/{purpose}` `{name, note_required}` → **201** qator.
+- `PUT /boards/{board}/reason-lists/{purpose}/{id}` `{name, position, note_required}`.
+- `POST .../{id}/archive`, `POST .../{id}/restore`.
+
+Yozish faqat superuser (Egasi **403**). Xatolar: **422** `reason_name_required`,
+`reason_name_taken`, `too_many_reasons` (50); **404** `no_such_reason_list`, `no_such_reason`.
+
+Kartada: `actions[].reason` — tugma sabab so'rasa ro'yxat nomi (`close`, `decline`,
+`no_contact`; Support uchun `unreachable`), aks holda bo'sh. Tanlangan `code` `reason` da yuboriladi;
+sababning `note_required` rost bo'lsa `note` majburiy (**422** `note_required`).
+`POST /cards/{id}/move`: `reason_code` (ro'yxatdan) va `reason` (matn); `reason` endi bo'sh
+bo'lishi mumkin, agar `reason_code` berilgan bo'lsa.
+
 ### Xodimlar
 
 Ofis frontida xodimlar va rollar endi faqat **Jamoa** bo'limida (`/api/v1/office/team`, Egasi va superuser):

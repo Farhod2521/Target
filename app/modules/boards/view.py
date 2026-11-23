@@ -19,7 +19,7 @@ from app.modules.billing.constants import (
     InvoiceStatus,
 )
 from app.modules.billing.models import Invoice, Subscription
-from app.modules.boards import reasons
+from app.modules.boards import reason_lists, reasons
 from app.modules.boards.access import Access
 from app.modules.boards.constants import (
     ACTION_DUE_OPTIONAL,
@@ -27,7 +27,6 @@ from app.modules.boards.constants import (
     ACTION_NOTE_REQUIRED,
     CARD_ACTION_LABELS,
     CLIENT_SEARCH_ROWS,
-    CLOSE_REASON_LABELS,
     CONFIRM_HOURS,
     EVENT_KIND_LABELS,
     LEAD_TAKE_LIMIT,
@@ -46,9 +45,10 @@ from app.modules.boards.constants import (
     TICKET_TAKE_LIMIT,
     AttemptsFilter,
     Board,
-    CloseReason,
+    CardAction,
     DueFilter,
     EventKind,
+    ReasonPurpose,
     SalesColumn,
     SalesKind,
     SupportColumn,
@@ -572,7 +572,31 @@ def _take_lead(db: Session, *, user: User, now: datetime) -> dict[str, Any]:
     }
 
 
-def _actions(card: BoardCard) -> list[dict[str, Any]]:
+def close_reason_label(db: Session, card: BoardCard) -> str:
+    """Why the card closed, in the words its list has now."""
+    if not card.close_reason:
+        return ""
+    if card.close_reason == OFFER_ENDED_REASON:
+        return OFFER_ENDED_LABEL
+    purpose = (
+        ReasonPurpose.DECLINE
+        if card.board == str(Board.RENEWAL)
+        else ReasonPurpose.CLOSE
+    )
+    names = reason_lists.labels(db, board=Board(card.board), purpose=purpose)
+    return names.get(card.close_reason, "")
+
+
+# The list a button's reason is picked from; Support's «Bog'lanib bo'lmadi»
+# reads its own list (`contact-reasons`).
+_ACTION_REASONS: dict[CardAction, str] = {
+    CardAction.CLOSE: str(ReasonPurpose.CLOSE),
+    CardAction.DECLINE: str(ReasonPurpose.DECLINE),
+    CardAction.UNREACHABLE: "unreachable",
+}
+
+
+def _actions(db: Session, card: BoardCard) -> list[dict[str, Any]]:
     if card.board == str(Board.SUPPORT):
         offered = SUPPORT_ACTIONS.get(card.column_code, ())
     elif card.closed_at is not None:
@@ -582,6 +606,15 @@ def _actions(card: BoardCard) -> list[dict[str, Any]]:
     else:
         offered = SALES_ACTIONS.get(card.column_code, ())
     labels = SUPPORT_ACTION_LABELS if card.board == str(Board.SUPPORT) else {}
+    # «Bog'lanib bo'lmadi» asks for a reason only while its list has one.
+    no_contact = (
+        str(ReasonPurpose.NO_CONTACT)
+        if CardAction.NO_CONTACT in offered
+        and reason_lists.asked(
+            db, board=Board(card.board), purpose=ReasonPurpose.NO_CONTACT
+        )
+        else ""
+    )
     return [
         {
             "value": str(action),
@@ -592,6 +625,9 @@ def _actions(card: BoardCard) -> list[dict[str, Any]]:
             if action in ACTION_DUE_OPTIONAL
             else "",
             "note_required": action in ACTION_NOTE_REQUIRED,
+            "reason": no_contact
+            if action == CardAction.NO_CONTACT
+            else _ACTION_REASONS.get(action, ""),
         }
         for action in offered
     ]
@@ -723,17 +759,7 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
             select(User).where(User.id.in_({e.actor_id for e in events if e.actor_id}))
         )
     }
-    from app.modules.boards.renewal import decline_label
-
-    reason = (
-        decline_label(card.close_reason)
-        if card.board == str(Board.RENEWAL)
-        else str(CLOSE_REASON_LABELS[CloseReason(card.close_reason)])
-        if card.close_reason in CloseReason.values
-        else OFFER_ENDED_LABEL
-        if card.close_reason == OFFER_ENDED_REASON
-        else ""
-    )
+    reason = close_reason_label(db, card)
     extras = extras_for(db, [card], now=now)
     brief = card_brief(card, extras=extras, now=now)
     own_columns = custom_names(db, board=card.board)
@@ -758,7 +784,7 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
         "close_reason": card.close_reason,
         "close_reason_label": reason,
         "close_note": card.close_note,
-        "actions": _actions(card),
+        "actions": _actions(db, card),
         "history": [
             {
                 "kind": event.kind,

@@ -346,6 +346,13 @@ class ActionOut(BaseModel):
         "`optional`: offer the time; empty: none."
     )
     note_required: bool = Field(description="Ask for a line and send it as `note`.")
+    reason: str = Field(
+        "",
+        description="Ask for a reason and send its code as `reason`: `close`, "
+        "`decline` or `no_contact` names the list in "
+        "`GET /office/boards/{board}/reasons?purpose=`; `unreachable` is "
+        "Support's own list (`contact-reasons`, the `id`). Empty: none asked.",
+    )
 
 
 class BillOut(BaseModel):
@@ -525,12 +532,14 @@ class ActionIn(BaseModel):
         max_length=36,
         description="`close`: a code from `GET /office/boards/sales/reasons`. "
         "`decline`: one from `GET /office/boards/renewal/reasons`. "
+        "`no_contact`: one from `GET /office/boards/{board}/reasons?purpose=no_contact`, "
+        "required while the action's `reason` says so. "
         "`unreachable`: an `id` from `GET /office/boards/support/contact-reasons`.",
     )
     note: str = Field(
         "",
         max_length=2000,
-        description="Required for `close` and `decline` with `other` and where the action's "
+        description="Required with a reason whose `note_required` is true and where the action's "
         "`note_required` is true.",
     )
 
@@ -602,6 +611,43 @@ class ContactReasonIn(BaseModel):
 class ReasonOut(BaseModel):
     value: str
     label: str
+    note_required: bool = Field(
+        False, description="Picked with a line written: send it as `note`."
+    )
+
+
+class ReasonRowOut(BaseModel):
+    id: str
+    code: str = Field(description="What a card keeps; never changes.")
+    name: str
+    position: int
+    note_required: bool
+    is_archived: bool
+    is_default: bool = Field(description="One the board came with.")
+
+
+class ReasonListOut(BaseModel):
+    purpose: str = Field(description="`close`, `decline`, `no_contact` or `move`.")
+    label: str
+    hint: str = Field(description="When the list is asked, in a line.")
+    rows: list[ReasonRowOut] = Field(description="In order, archived ones too.")
+
+
+class ReasonListsOut(BaseModel):
+    board: str
+    may_edit: bool = Field(description="The superuser: adds, renames, archives.")
+    lists: list[ReasonListOut]
+
+
+class ReasonAddIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    note_required: bool = False
+
+
+class ReasonEditIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    position: int = Field(ge=0, le=10_000)
+    note_required: bool = False
 
 
 class StaffListOut(BaseModel):
@@ -654,7 +700,18 @@ class MoveIn(BaseModel):
     column: str = Field(
         max_length=24, description="A visible column's code on the card's board."
     )
-    reason: str = Field(min_length=1, max_length=2000)
+    reason: str = Field(
+        "",
+        max_length=2000,
+        description="Why, in the mover's words. Required while the board's "
+        "`move` list is empty, and with a listed reason whose `note_required` is true.",
+    )
+    reason_code: str = Field(
+        "",
+        max_length=24,
+        description="A code from `GET /office/boards/{board}/reasons?purpose=move`; "
+        "required once that list has a reason.",
+    )
     contact_reason: str = Field(
         default="",
         max_length=64,

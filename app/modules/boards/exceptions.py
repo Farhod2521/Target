@@ -38,7 +38,38 @@ class ReasonRequired(DomainError):
     status_code = 422
 
     def __init__(self) -> None:
-        super().__init__("Yopish sababini tanlang.")
+        super().__init__("Sababni ro'yxatdan tanlang.")
+
+
+class NoSuchReasonList(NotFound):
+    def __init__(self) -> None:
+        super().__init__("Bu kanbanda bunday sabablar ro'yxati yo'q.")
+
+
+class NoSuchReason(NotFound):
+    def __init__(self) -> None:
+        super().__init__("Sabab topilmadi.")
+
+
+class ReasonNameRequired(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Sabab nomini yozing.")
+
+
+class ReasonNameTaken(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bu sabab ro'yxatda bor. Boshqa nom yozing.")
+
+
+class TooManyReasons(DomainError):
+    status_code = 422
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"Bir ro'yxatda ko'pi bilan {limit} ta sabab bo'ladi.")
 
 
 class NoteRequired(DomainError):

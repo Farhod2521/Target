@@ -21,6 +21,7 @@ from app.modules.boards import (
     help_options,
     kinds,
     phone_take,
+    reason_lists,
     renewal,
     sales_kinds,
     selectors,
@@ -39,16 +40,13 @@ from app.modules.boards.access import (
 )
 from app.modules.boards.constants import (
     BOARD_LABELS,
-    CLOSE_REASON_LABELS,
+    BOARD_MAIN_PURPOSE,
     COLUMN_CARDS,
     COLUMN_CARDS_MAX,
     COLUMNS_MAX,
-    DECLINE_REASON_LABELS,
     REPORT_DEFAULT_DAYS,
     Board,
     CardAction,
-    CloseReason,
-    DeclineReason,
     is_default_column_name,
 )
 from app.modules.boards.models import ContactReason
@@ -73,7 +71,11 @@ from app.modules.boards.schemas import (
     MoveIn,
     NoteIn,
     PhoneTakeIn,
+    ReasonAddIn,
+    ReasonEditIn,
+    ReasonListsOut,
     ReasonOut,
+    ReasonRowOut,
     RenewalManagerIn,
     RenewalManagerOut,
     RenewalReportOut,
@@ -368,13 +370,136 @@ def add_card(db: Db, staff: BoardStaff, body: CardAddIn) -> dict[str, Any]:
     return view.card_detail(db, card=found, now=now)
 
 
-@router.get("/boards/sales/reasons", responses={200: {"model": list[ReasonOut]}})
-def close_reasons(staff: Staff) -> list[dict[str, str]]:
-    """Why a Sales card is closed."""
+@router.get("/boards/{board}/reasons", responses={200: {"model": list[ReasonOut]}})
+def board_reasons(
+    db: Db,
+    staff: BoardStaff,
+    purpose: Annotated[
+        str,
+        Query(
+            description="`close` (Sotuv), `decline` (Uzaytirish), `no_contact`, "
+            "`move`. Empty: the board's main list (`close`, `decline`; `move` on Support)."
+        ),
+    ] = "",
+) -> list[dict[str, Any]]:
+    """The reasons to pick from, in order: why a Sales card is closed, why
+    a client does not renew, why a call did not reach them, why a card is
+    moved by hand. An empty `no_contact` or `move` list is not asked."""
+    chosen = reason_lists.checked_purpose(
+        staff.board, purpose or str(BOARD_MAIN_PURPOSE[staff.board])
+    )
+    reason_lists.ensure(db, now=utcnow())
+    db.commit()
     return [
-        {"value": str(reason), "label": str(CLOSE_REASON_LABELS[reason])}
-        for reason in CloseReason
+        {"value": row.code, "label": row.name, "note_required": row.note_required}
+        for row in reason_lists.rows(db, board=staff.board, purpose=chosen)
     ]
+
+
+@router.get("/boards/{board}/reason-lists", responses={200: {"model": ReasonListsOut}})
+def reason_lists_view(db: Db, staff: BoardStaff) -> dict[str, Any]:
+    """Every list of reasons the board has, for its settings."""
+    reason_lists.ensure(db, now=utcnow())
+    db.commit()
+    return reason_lists.lists_view(
+        db, board=staff.board, may_edit=bool(staff.user.is_superuser)
+    )
+
+
+@router.post(
+    "/boards/{board}/reason-lists/{purpose}",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": ReasonRowOut}},
+)
+def add_reason(
+    db: Db, staff: BoardStaff, purpose: str, body: ReasonAddIn
+) -> dict[str, Any]:
+    """A new reason at the end of the list. For the superuser."""
+    _columns_keeper(staff)
+    row = reason_lists.add(
+        db,
+        board=staff.board,
+        purpose=reason_lists.checked_purpose(staff.board, purpose),
+        name=body.name,
+        note_required=body.note_required,
+        actor_id=staff.user.id,
+        now=utcnow(),
+    )
+    logger.info(
+        "board reason added",
+        extra={
+            "board": str(staff.board),
+            "purpose": purpose,
+            "code": row.code,
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return reason_lists.row_out(row)
+
+
+@router.put(
+    "/boards/{board}/reason-lists/{purpose}/{reason_id}",
+    responses={200: {"model": ReasonRowOut}},
+)
+def edit_reason(
+    db: Db, staff: BoardStaff, purpose: str, reason_id: uuid.UUID, body: ReasonEditIn
+) -> dict[str, Any]:
+    """New words, place, or whether a line is asked; cards that carry the
+    reason read the new words. For the superuser."""
+    _columns_keeper(staff)
+    return reason_lists.row_out(
+        reason_lists.edit(
+            db,
+            board=staff.board,
+            purpose=reason_lists.checked_purpose(staff.board, purpose),
+            reason_id=reason_id,
+            name=body.name,
+            position=body.position,
+            note_required=body.note_required,
+            now=utcnow(),
+        )
+    )
+
+
+@router.post(
+    "/boards/{board}/reason-lists/{purpose}/{reason_id}/archive",
+    responses={200: {"model": ReasonRowOut}},
+)
+def archive_reason(
+    db: Db, staff: BoardStaff, purpose: str, reason_id: uuid.UUID
+) -> dict[str, Any]:
+    """Off the list to pick from; cards and reports keep it."""
+    _columns_keeper(staff)
+    return reason_lists.row_out(
+        reason_lists.set_archived(
+            db,
+            board=staff.board,
+            purpose=reason_lists.checked_purpose(staff.board, purpose),
+            reason_id=reason_id,
+            archived=True,
+            now=utcnow(),
+        )
+    )
+
+
+@router.post(
+    "/boards/{board}/reason-lists/{purpose}/{reason_id}/restore",
+    responses={200: {"model": ReasonRowOut}},
+)
+def restore_reason(
+    db: Db, staff: BoardStaff, purpose: str, reason_id: uuid.UUID
+) -> dict[str, Any]:
+    _columns_keeper(staff)
+    return reason_lists.row_out(
+        reason_lists.set_archived(
+            db,
+            board=staff.board,
+            purpose=reason_lists.checked_purpose(staff.board, purpose),
+            reason_id=reason_id,
+            archived=False,
+            now=utcnow(),
+        )
+    )
 
 
 @router.get("/boards/sales/report", responses={200: {"model": SalesReportOut}})
@@ -410,8 +535,9 @@ def _contact_reader(db: Db, user: Staff) -> Any:
 
 
 def _contact_keeper(db: Db, user: Staff) -> None:
-    """The Owner and the superuser keep the list."""
-    if not _contact_reader(db, user).full:
+    """The superuser keeps the list, as every list of reasons."""
+    _contact_reader(db, user)
+    if not user.is_superuser:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Ruxsat yo'q.")
 
 
@@ -437,11 +563,12 @@ def _contact_row(db: Db, reason_id: uuid.UUID) -> ContactReason:
 def contact_reasons(db: Db, user: Staff) -> dict[str, Any]:
     """Why Support cannot reach a client: what «Bog'lanib bo'lmadi» asks
     for. Archived ones only for who keeps the list."""
-    keeps = _contact_reader(db, user).full
+    full = _contact_reader(db, user).full
+    keeps = bool(user.is_superuser)
     query = select(ContactReason).order_by(
         ContactReason.position, ContactReason.created_at
     )
-    if not keeps:
+    if not full:
         query = query.where(ContactReason.is_archived.is_(False))
     return {"rows": [_contact_out(row) for row in db.scalars(query)], "may_edit": keeps}
 
@@ -514,16 +641,6 @@ def _renewal(db: Db, user: Staff) -> Any:
     if not access.sees(Board.RENEWAL):
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     return access
-
-
-@router.get("/boards/renewal/reasons", responses={200: {"model": list[ReasonOut]}})
-def decline_reasons(db: Db, user: Staff) -> list[dict[str, str]]:
-    """Why a client does not renew: what «Rad etdi» asks for."""
-    _renewal(db, user)
-    return [
-        {"value": str(reason), "label": str(DECLINE_REASON_LABELS[reason])}
-        for reason in DeclineReason
-    ]
 
 
 @router.get("/boards/renewal/report", responses={200: {"model": RenewalReportOut}})
@@ -912,6 +1029,7 @@ def move_card(db: Db, user: Staff, card_id: str, body: MoveIn) -> dict[str, Any]
         access=access_for(db, user),
         to=body.column,
         reason=body.reason,
+        reason_code=body.reason_code,
         contact_reason=body.contact_reason,
         now=now,
     )

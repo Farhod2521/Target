@@ -584,6 +584,92 @@ CLOSE_REASON_LABELS = {
 }
 
 
+class ReasonPurpose(Choices):
+    """What a list of reasons is asked for."""
+
+    # Sales: «Yopish».
+    CLOSE = "close"
+    # Uzaytirish: «Rad etdi».
+    DECLINE = "decline"
+    # «Bog'lanib bo'lmadi» on Sales and Uzaytirish; asked only once the
+    # superuser has written a reason into the list.
+    NO_CONTACT = "no_contact"
+    # «Ko'chirish» by hand; with an empty list the mover writes the reason.
+    MOVE = "move"
+
+
+REASON_PURPOSE_LABELS = {
+    ReasonPurpose.CLOSE: "«Yopish» sabablari",
+    ReasonPurpose.DECLINE: "«Rad etdi» sabablari",
+    ReasonPurpose.NO_CONTACT: "«Bog'lanib bo'lmadi» sabablari",
+    ReasonPurpose.MOVE: "«Ko'chirish» sabablari",
+}
+REASON_PURPOSE_HINTS = {
+    ReasonPurpose.CLOSE: "Menejer kartani yopganda shu ro'yxatdan tanlaydi.",
+    ReasonPurpose.DECLINE: "Mijoz uzaytirmasa, menejer shu ro'yxatdan tanlaydi. "
+    "«Javob bermadi» ni 30 kun javobsiz qolgan kartaga tizim o'zi qo'yadi.",
+    ReasonPurpose.NO_CONTACT: "Ro'yxat bo'sh bo'lsa sabab so'ralmaydi. Sabab "
+    "qo'shilsa, «Bog'lanib bo'lmadi» bosilganda tanlash majburiy bo'ladi.",
+    ReasonPurpose.MOVE: "Ro'yxat bo'sh bo'lsa ko'chiruvchi sababni o'zi yozadi. "
+    "Sabab qo'shilsa, ro'yxatdan tanlash majburiy bo'ladi.",
+}
+# The lists each board has, in the order the settings show them.
+BOARD_REASON_PURPOSES: Final[dict[Board, tuple[ReasonPurpose, ...]]] = {
+    Board.SALES: (ReasonPurpose.CLOSE, ReasonPurpose.NO_CONTACT, ReasonPurpose.MOVE),
+    Board.SUPPORT: (ReasonPurpose.MOVE,),
+    Board.RENEWAL: (
+        ReasonPurpose.DECLINE,
+        ReasonPurpose.NO_CONTACT,
+        ReasonPurpose.MOVE,
+    ),
+}
+# The list a board's reasons are read from when none is named.
+BOARD_MAIN_PURPOSE: Final = {
+    Board.SALES: ReasonPurpose.CLOSE,
+    Board.SUPPORT: ReasonPurpose.MOVE,
+    Board.RENEWAL: ReasonPurpose.DECLINE,
+}
+REASON_NAME_MAX: Final = 80
+# A list holds at most this many reasons, the archived ones too.
+REASONS_MAX: Final = 50
+# The code of a reason the superuser added: this and ten hex digits.
+CUSTOM_REASON_PREFIX: Final = "r_"
+
+
+class SeedReason(NamedTuple):
+    board: Board
+    purpose: ReasonPurpose
+    code: str
+    name: str
+    note_required: bool
+
+
+# The reasons the boards came with, in their first order. The codes are
+# what cards closed before the lists were editable carry.
+SEED_REASONS: Final[tuple[SeedReason, ...]] = (
+    *(
+        SeedReason(
+            Board.SALES,
+            ReasonPurpose.CLOSE,
+            str(reason),
+            str(CLOSE_REASON_LABELS[reason]),
+            reason == CloseReason.OTHER,
+        )
+        for reason in CloseReason
+    ),
+    *(
+        SeedReason(
+            Board.RENEWAL,
+            ReasonPurpose.DECLINE,
+            str(reason),
+            str(DECLINE_REASON_LABELS[reason]),
+            reason == DeclineReason.OTHER,
+        )
+        for reason in DeclineReason
+    ),
+)
+
+
 class EventKind(Choices):
     OPENED = "opened"
     TAKEN = "taken"

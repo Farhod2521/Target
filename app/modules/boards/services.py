@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.common.dates import localtime
 from app.modules.accounts.models import User
-from app.modules.boards import reasons
+from app.modules.boards import reason_lists, reasons
 from app.modules.boards.access import Access, works_on
 from app.modules.boards.constants import (
     ACTION_DUE_OPTIONAL,
@@ -30,8 +30,8 @@ from app.modules.boards.constants import (
     TICKET_TAKE_LIMIT,
     Board,
     CardAction,
-    CloseReason,
     EventKind,
+    ReasonPurpose,
     SalesColumn,
     SupportColumn,
 )
@@ -51,7 +51,6 @@ from app.modules.boards.exceptions import (
     NothingToTake,
     NoTicketToTake,
     NotOnBoard,
-    ReasonRequired,
     TakeLimit,
     TicketHeld,
 )
@@ -385,24 +384,27 @@ def act(
         return card
     if action in ACTION_NOTE_REQUIRED and not text:
         raise NoteRequired
+    why = ""
     if action == CardAction.CLOSE:
-        if reason not in CloseReason.values:
-            raise ReasonRequired
-        if reason == CloseReason.OTHER and not text:
+        found = reason_lists.picked(
+            db, board=Board.SALES, purpose=ReasonPurpose.CLOSE, code=reason
+        )
+        if found.note_required and not text:
             raise NoteRequired
-        card.close_reason = reason
+        card.close_reason = found.code
         card.close_note = text
         card.closed_at = now
     elif action == CardAction.CONTACTED:
         card.contact_mark = str(CardAction.CONTACTED)
     elif action == CardAction.NO_CONTACT:
+        why = no_contact_reason(db, board=Board.SALES, code=reason, note=text)
         card.contact_mark = str(CardAction.NO_CONTACT)
         card.attempts = min(card.attempts + 1, ATTEMPTS_MAX)
     elif action == CardAction.RELEASE:
         card.manager_id = None
     to, kind = _SALES_MOVES[action]
     card.due_at = due
-    said = _said(text, due)
+    said = _said(f"{why}. {text}" if why and text else why or text, due)
     if action != CardAction.CLOSE and card.column_code in OFFER_COLUMNS:
         # The discount's clock owns this column: the call leaves its mark.
         record(db, card=card, kind=kind, now=now, actor=user, body=said)
@@ -431,6 +433,18 @@ def act(
         move(db, card=card, to=str(to), kind=kind, now=now, actor=user, body=said)
     db.commit()
     return card
+
+
+def no_contact_reason(db: Session, *, board: Board, code: str, note: str) -> str:
+    """«Bog'lanib bo'lmadi»: the reason's name when the board's list has
+    reasons to pick (then one is required), nothing when it is empty."""
+    purpose = ReasonPurpose.NO_CONTACT
+    if not reason_lists.asked(db, board=board, purpose=purpose):
+        return ""
+    found = reason_lists.picked(db, board=board, purpose=purpose, code=code)
+    if found.note_required and not note:
+        raise NoteRequired
+    return found.name
 
 
 def _offer_on_talk(
@@ -880,11 +894,14 @@ def move_by_hand(
     reason: str,
     now: datetime,
     contact_reason: str = "",
+    reason_code: str = "",
 ) -> BoardCard:
     """The superuser or the Owner puts a card in any visible column of its
-    board, saying why. A final column closes the card; leaving one opens it.
+    board, saying why: a reason from the board's «Ko'chirish» list
+    (``reason_code``) when the list has any, their own words when it is
+    empty. A final column closes the card; leaving one opens it.
     Ishlanmagan has nobody on the card. Support's «Bog'lanib bo'lmadi» also
-    takes a reason from the Owner's list, as the button does."""
+    takes a reason from its own list, as the button does."""
     from app.modules.boards.exceptions import MoveReasonRequired, NoSuchColumn
     from app.modules.boards.models import BoardColumn
 
@@ -892,6 +909,14 @@ def move_by_hand(
         raise CardNotFound
     card = card_for(db, card_id=card_id, user=user, access=access, lock=True)
     why = reason.strip()[:NOTE_MAX]
+    board = Board(card.board)
+    if reason_lists.asked(db, board=board, purpose=ReasonPurpose.MOVE):
+        listed = reason_lists.picked(
+            db, board=board, purpose=ReasonPurpose.MOVE, code=reason_code
+        )
+        if listed.note_required and not why:
+            raise NoteRequired
+        why = reason_lists.said(listed, why)[:NOTE_MAX]
     if not why:
         raise MoveReasonRequired
     column = db.scalar(
