@@ -56,7 +56,7 @@ from app.modules.boards.constants import (
     is_default_column_name,
 )
 from app.modules.boards.models import BoardCard, BoardCardEvent
-from app.modules.boards.selectors import ColumnView, columns_for
+from app.modules.boards.selectors import ColumnView, columns_for, custom_names
 
 
 def _person(user: User | None) -> dict[str, str] | None:
@@ -481,6 +481,7 @@ def board_view(
                 "is_default_name": is_default_column_name(
                     board=str(board), code=item.code, name=item.name
                 ),
+                "is_custom": item.is_custom,
                 "total": total,
                 "recent_days": SUPPORT_DONE_SHOWN_DAYS if recent_only else None,
                 "cards": [card_brief(card, extras=extras, now=now) for card in cards],
@@ -735,6 +736,7 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
     )
     extras = extras_for(db, [card], now=now)
     brief = card_brief(card, extras=extras, now=now)
+    own_columns = custom_names(db, board=card.board)
     # Imported here: telephony's routes read who is on a board.
     from app.modules.telephony import calls as phone_calls
 
@@ -765,6 +767,8 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
                 else event.kind,
                 "from_column": event.from_column,
                 "to_column": event.to_column,
+                "from_name": own_columns.get(event.from_column, ""),
+                "to_name": own_columns.get(event.to_column, ""),
                 "actor": _person(actors.get(event.actor_id))
                 if event.actor_id
                 else None,

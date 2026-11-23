@@ -157,6 +157,7 @@ def test_a_card_goes_through_a_custom_column_by_hand(
         client.get(f"{URL}/boards/sales", headers=boss).json()
     )
     column = next(item for item in board.columns if item.code == code)
+    assert column.is_custom
     assert [item.id for item in column.cards] == [str(card.id)]
     pressed = client.post(
         f"{URL}/cards/{card.id}/actions", json={"action": "contacted"}, headers=boss
@@ -178,10 +179,16 @@ def test_a_card_goes_through_a_custom_column_by_hand(
         ).json()
     )
     assert back.column == "contacted" and back.history[0].from_column == code
+    assert back.history[0].from_name == "Demo" and back.history[0].to_name == ""
 
     gone = _out(client.delete(f"{path}/{code}", headers=boss))
     assert code not in [column.code for column in gone.columns]
     assert [column.code for column in gone.removed] == [code]
+    # The card's history still names the column it went through.
+    after = CardDetailOut.model_validate(
+        client.get(f"{URL}/cards/{card.id}", headers=boss).json()
+    )
+    assert after.history[0].from_name == "Demo"
     # Off the board: nothing moves there, and its name is free again.
     refused = client.post(
         f"{URL}/cards/{card.id}/move",

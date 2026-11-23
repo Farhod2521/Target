@@ -120,6 +120,19 @@ def removed_columns(db: Session, *, board: Board) -> list[ColumnView]:
     return [_view(row) for row in rows]
 
 
+def custom_names(db: Session, *, board: str) -> dict[str, str]:
+    """The superuser's own columns by code, the removed ones too: what a
+    card's history names them by."""
+    return {
+        code: name
+        for code, name in db.execute(
+            select(BoardColumn.code, BoardColumn.name).where(
+                BoardColumn.board == board, BoardColumn.is_custom.is_(True)
+            )
+        )
+    }
+
+
 def _locked_rows(db: Session, board: Board) -> list[BoardColumn]:
     return list(
         db.scalars(

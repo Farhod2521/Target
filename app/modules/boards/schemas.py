@@ -362,6 +362,12 @@ class HistoryOut(BaseModel):
     label: str
     from_column: str
     to_column: str
+    from_name: str = Field(
+        "",
+        description="The column's name when it is the superuser's own (also one "
+        "taken off the board since); empty for the columns the board came with.",
+    )
+    to_name: str = Field("", description="As `from_name`.")
     actor: PersonOut | None = Field(description="Empty when a rule did it.")
     body: str
     at: datetime
