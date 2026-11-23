@@ -165,6 +165,7 @@ def test_one_advert_reads_its_figures_over_the_window(
     assert body["live"]["status"] == "Yaratildi"
     assert body["live"]["ads"][0]["delivery_label"] == "Ishlayapti"
     assert group["delivery_label"] == "Ishlayapti"
+    assert group["delivery"] == "active"
 
     every = client.get(f"{url}?period=all", headers=headers).json()
     assert every["figures"]["sums"]["spend_minor"] == 3500
@@ -228,6 +229,7 @@ def test_every_question_of_a_new_form_says_who_put_it_there(
     assert rows["Ism va familiya"]["by"] == "ai"
     assert rows["Qaysi tort?"]["by"] == "owner"
     assert rows["Qaysi tort?"]["kind_label"] == "Variantli savol"
+    assert rows["Qaysi tort?"]["kind"] == "options"
     assert rows["Qaysi tort?"]["options"] == ["Asal", "Olma"]
     assert rows["Telefon raqamingiz"]["by"] == "system"
     CustomerAdOut.model_validate(body)
@@ -286,6 +288,7 @@ def test_the_post_opens_where_it_lives(client: TestClient, db: Session) -> None:
     [ad] = client.get(url, headers=headers).json()["live"]["ads"]
     assert ad["post"]["url"] == "https://www.facebook.com/page_1_777"
     assert ad["post"]["kind_label"] == "Facebook posti"
+    assert ad["post"]["kind"] == "facebook_post"
 
     creative.post_external_id = "1788"
     db.add(
@@ -304,6 +307,7 @@ def test_the_post_opens_where_it_lives(client: TestClient, db: Session) -> None:
     assert ad["post"]["url"] == "https://www.instagram.com/p/abc/"
     assert ad["post"]["text"] == "Instagramdagi post"
     assert ad["post"]["kind_label"] == "Instagram rasmi"
+    assert ad["post"]["kind"] == "ig_image"
 
 
 def test_a_launch_that_made_no_campaign_is_read_without_figures(

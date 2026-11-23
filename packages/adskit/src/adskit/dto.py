@@ -258,6 +258,9 @@ class CreativeDTO(BaseModel):
     image_hash: str = ""
     video_id: str = ""
     thumbnail_url: str = ""
+    # Whether people see a video. Not the same as ``kind == "video"``: a
+    # boosted video post is ``kind == "post"`` and still a video on screen.
+    is_video: bool = False
 
     # Who the ad ran as. Plain ids and not refs: a page belongs to a
     # different part of the domain and is synced by a different job.

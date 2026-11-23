@@ -215,12 +215,24 @@ def read_draft(db: Session, *, user: User, launch: CampaignLaunch) -> LaunchDraf
 
 @router.post("", response_model=LaunchDraft)
 def start(body: DraftStart, db: Db, user: CurrentUser) -> LaunchDraft:
-    """Open a draft, or carry on the preparation already open."""
+    """Open a new draft, or carry on the one ``resume`` names.
+
+    ``resume: null`` is «Reklama berish» pressed afresh: a preparation left
+    at ``draft`` is thrown away rather than reopened. One already handed to
+    the worker or the network comes back, since its page says how it went.
+    """
     if body.flow == "google":
         return start_google(db, user)
-    opened = plan_routes.start(db, user)
+    opened = plan_routes.start(db, user, resume=_draft_id(body.resume), fresh=True)
     launch = launch_of(db, user=user, draft_id=uuid.UUID(opened["id"]))
     return read_draft(db, user=user, launch=launch)
+
+
+def _draft_id(value: str | None) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(value) if value else None
+    except ValueError:
+        return None
 
 
 @router.get("/{draft_id}", response_model=LaunchDraft)

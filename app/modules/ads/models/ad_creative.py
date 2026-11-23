@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.common.db import Base, Json, utcnow
@@ -34,6 +34,8 @@ class AdCreative(Base):
     image_hash: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     video_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     thumbnail_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # People see a video: a video creative, a boosted video post, a reel.
+    is_video: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     page_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     instagram_user_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     post_external_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")

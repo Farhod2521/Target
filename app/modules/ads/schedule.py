@@ -46,6 +46,11 @@ SCHEDULE: Final = [
         "6,36",
     ),
     Periodic(
+        "Bir kundan eski tugallanmagan qoralamalarni o'chirish",
+        f"{TASKS}.expire_stale_drafts_task",
+        "17",
+    ),
+    Periodic(
         "Obunasi tugaganlarning reklamasini to'xtatish",
         f"{TASKS}.sweep_lapsed_subscriptions",
         "5,20,35,50",

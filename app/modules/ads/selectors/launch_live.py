@@ -26,6 +26,7 @@ from app.modules.ads.constants import (
     MediaKind,
 )
 from app.modules.ads.models import Ad, AdCreative, AdSet, CampaignLaunch, MediaAsset
+from app.modules.ads.selectors.creatives import ad_format
 from app.modules.ads.selectors.launch_settings import (
     POST_KINDS,
     FormQuestion,
@@ -39,6 +40,7 @@ from app.modules.leads.selectors import FormOption, form_card, forms_by_external
 
 FACEBOOK_POST: Final = "https://www.facebook.com/{post}"
 FACEBOOK_POST_LABEL: Final = "Facebook posti"
+FACEBOOK_POST_KIND: Final = "facebook_post"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +52,9 @@ class LivePost:
     kind_label: str
     text: str
     picture: str
+    # ``MediaKind`` of the library post, or ``facebook_post`` for one the
+    # library does not hold.
+    kind: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,7 +235,7 @@ def _live(ad: Ad, creative: AdCreative | None, library: _Library) -> LiveAd:
         delivery_label=str(DELIVERY_LABELS.get(ad.delivery, ad.delivery)),
         problem=ad_problem(ad),
         picture=picture,
-        is_video=bool(creative is not None and creative.video_id),
+        is_video=creative is not None and ad_format(creative) == "video",
         text=creative.message if creative is not None else "",
         headline=creative.headline if creative is not None else "",
         description=creative.description if creative is not None else "",
@@ -261,6 +266,7 @@ def _post(
         else FACEBOOK_POST_LABEL,
         text=(asset.name if asset is not None else "") or creative.message,
         picture=(asset.thumbnail_url if asset is not None else "") or picture,
+        kind=asset.kind if asset is not None else FACEBOOK_POST_KIND,
     )
 
 

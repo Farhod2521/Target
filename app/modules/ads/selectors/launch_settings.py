@@ -98,6 +98,12 @@ ORIGIN_READY: Final = "ready"
 AUTOFILLED: Final = "Avtomatik to'ldiriladi"
 WITH_OPTIONS: Final = "Variantli savol"
 OPEN_ANSWER: Final = "Ochiq savol"
+# The same three as codes, for a screen that words them itself.
+QUESTION_KIND_CODES: Final = {
+    AUTOFILLED: "autofilled",
+    WITH_OPTIONS: "options",
+    OPEN_ANSWER: "open",
+}
 BID_LOWEST_COST: Final = "LOWEST_COST_WITHOUT_CAP"
 BID_COST_CAP: Final = "COST_CAP"
 _PIN: Final = "a pin at "
@@ -151,6 +157,8 @@ class LaunchAd:
     video_url: str
     media_kind_label: str
     post_url: str
+    # ``MediaKind``; empty when the advert has no picture yet.
+    media_kind: str = ""
 
     @property
     def words_by_label(self) -> str:
@@ -165,6 +173,11 @@ class FormQuestion:
     kind_label: str
     options: tuple[str, ...]
     by: str
+
+    @property
+    def kind(self) -> str:
+        """``autofilled``, ``options`` or ``open``: ``kind_label`` as a code."""
+        return QUESTION_KIND_CODES.get(self.kind_label, "")
 
     @property
     def by_label(self) -> str:
@@ -183,6 +196,8 @@ class FormSetup:
     higher_intent: bool
     depth_label: str
     questions: tuple[FormQuestion, ...]
+    # ``FormDepth``: ``short`` or ``deep``.
+    depth: str = ""
 
     @property
     def by_label(self) -> str:
@@ -397,6 +412,7 @@ def _form_setup(launch: CampaignLaunch, stored: dict[str, Any]) -> FormSetup | N
         higher_intent=bool(answers.get(HIGHER_INTENT)),
         depth_label=str(FORM_DEPTH_LABELS[FormDepth(form_depth(launch=launch))]),
         questions=() if ready else _written_questions(launch, stored),
+        depth=str(FormDepth(form_depth(launch=launch))),
     )
 
 
@@ -583,6 +599,7 @@ def _ad(row: LaunchCreative, *, proposed: list[dict[str, Any]]) -> LaunchAd:
         video_url=video_address(asset),
         media_kind_label=_media_label(row, asset),
         post_url=post_address(asset),
+        media_kind=_media_kind(row, asset),
     )
 
 
@@ -606,6 +623,12 @@ def _media_label(row: LaunchCreative, asset: MediaAsset | None) -> str:
     if asset is not None:
         return str(MEDIA_KIND_LABELS.get(asset.kind, asset.kind))
     return str(MEDIA_KIND_LABELS[MediaKind.UPLOAD]) if row.media_upload else ""
+
+
+def _media_kind(row: LaunchCreative, asset: MediaAsset | None) -> str:
+    if asset is not None:
+        return str(asset.kind)
+    return str(MediaKind.UPLOAD) if row.media_upload else ""
 
 
 def _address(url: str) -> str:

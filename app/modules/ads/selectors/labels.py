@@ -19,7 +19,7 @@ from app.modules.ads.constants import (
     LaunchStep,
     ManagedLevel,
 )
-from app.modules.ads.models import Ad, AdSet, Campaign, CampaignLaunch
+from app.modules.ads.models import Ad, AdCreative, AdSet, Campaign, CampaignLaunch
 from app.modules.ads.selectors.launched import (
     all_launched_campaign_ids,
     shared_adset_ids,
@@ -38,6 +38,12 @@ class AdLabel:
     campaign_name: str = ""
     campaign_id: str = ""
     delivery: str = ""
+    # The creative's picture and what it shows, ``image`` or ``video``. Read
+    # only when asked for (``with_media``); empty when the creative was not
+    # read, or the advert's creative is not in the mirror. The picture is
+    # Meta's own address, which expires: a screen keeps a fallback.
+    thumb_url: str = ""
+    format: str = ""
 
     @property
     def title(self) -> str:
@@ -45,21 +51,62 @@ class AdLabel:
 
 
 def ad_labels(
-    db: Session, *, owner: User, external_ids: Iterable[str]
+    db: Session,
+    *,
+    owner: User,
+    external_ids: Iterable[str],
+    with_media: bool = False,
 ) -> dict[str, AdLabel]:
+    """Names for adverts; with ``with_media`` their picture and format too.
+
+    The creatives are one more query, made only where a screen draws them.
+    """
     wanted = {value for value in external_ids if value}
     if not wanted:
         return {}
-    rows = db.scalars(
-        select(Ad)
-        .options(joinedload(Ad.adset).joinedload(AdSet.campaign))
-        .where(Ad.owner_id == owner.id, Ad.external_id.in_(wanted))
+    rows = list(
+        db.scalars(
+            select(Ad)
+            .options(joinedload(Ad.adset).joinedload(AdSet.campaign))
+            .where(Ad.owner_id == owner.id, Ad.external_id.in_(wanted))
+        )
     )
-    return {row.external_id: _label(row) for row in rows}
+    creatives = _creatives(db, owner=owner, ads=rows) if with_media else {}
+    return {
+        row.external_id: _label(
+            row, creatives.get((row.provider, row.creative_external_id))
+        )
+        for row in rows
+    }
 
 
-def ad_label(db: Session, *, owner: User, external_id: str) -> AdLabel | None:
-    return ad_labels(db, owner=owner, external_ids=[external_id]).get(external_id)
+def ad_label(
+    db: Session, *, owner: User, external_id: str, with_media: bool = False
+) -> AdLabel | None:
+    return ad_labels(
+        db, owner=owner, external_ids=[external_id], with_media=with_media
+    ).get(external_id)
+
+
+def _creatives(
+    db: Session, *, owner: User, ads: list[Ad]
+) -> dict[tuple[str, str], AdCreative]:
+    keys = {
+        (ad.provider, ad.creative_external_id) for ad in ads if ad.creative_external_id
+    }
+    if not keys:
+        return {}
+    rows = db.scalars(
+        select(AdCreative).where(
+            AdCreative.owner_id == owner.id,
+            AdCreative.external_id.in_([external_id for _, external_id in keys]),
+        )
+    )
+    return {
+        (row.provider, row.external_id): row
+        for row in rows
+        if (row.provider, row.external_id) in keys
+    }
 
 
 def campaign_names(
@@ -76,9 +123,12 @@ def campaign_names(
     return {external_id: name for external_id, name in rows if name}
 
 
-def _label(row: Ad) -> AdLabel:
+def _label(row: Ad, creative: AdCreative | None = None) -> AdLabel:
+    from app.modules.ads.selectors.creatives import ad_format
+
     adset = row.adset
     campaign = adset.campaign if adset is not None else None
+    thumb = creative.thumbnail_url if creative is not None else ""
     return AdLabel(
         external_id=row.external_id,
         name=row.name,
@@ -87,6 +137,8 @@ def _label(row: Ad) -> AdLabel:
         campaign_name=campaign.name if campaign is not None else "",
         campaign_id=str(campaign.id) if campaign is not None else "",
         delivery=row.delivery,
+        thumb_url=thumb if thumb.startswith(("https://", "http://")) else "",
+        format=ad_format(creative) if creative is not None else "",
     )
 
 

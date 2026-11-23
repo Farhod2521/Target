@@ -78,9 +78,12 @@ ADSET_SETTINGS_FIELDS = (
 # an advert built in Ads Manager from an existing post - may carry neither
 # that nor ``object_story_id``, and then the only two fields naming its page
 # are these. An advert nothing can place is money on no screen at all.
+# ``object_type`` and the top-level ``video_id`` say whether the advert is a
+# video when the story spec does not: a boosted video post or reel carries
+# no ``video_data`` block, and without these two it reads as a picture.
 CREATIVE_SUBFIELDS = (
     "id,name,status,thumbnail_url,object_story_id,object_story_spec,"
-    "effective_object_story_id,actor_id"
+    "effective_object_story_id,actor_id,object_type,video_id"
 )
 AD_FIELDS = (
     f"id,name,adset_id,status,effective_status,creative{{{CREATIVE_SUBFIELDS}}},"

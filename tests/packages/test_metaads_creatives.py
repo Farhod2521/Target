@@ -283,3 +283,38 @@ def test_what_this_product_wrote_outranks_what_meta_worked_out() -> None:
 
     assert row.page_id == "77"
     assert row.post_id == "77_1"
+
+
+# --- Video or picture, whatever the shape ---------------------------------
+def test_video_and_object_type_are_asked_for() -> None:
+    """Without them a boosted video post reads as a picture."""
+    for field in ("object_type", "video_id"):
+        assert field in AD_FIELDS
+
+
+def test_a_boosted_video_post_is_a_video() -> None:
+    """No ``video_data`` block, only Meta's own word and the video id."""
+    row = CreativeRow.model_validate(
+        {"id": "9", "object_story_id": "99_1", "object_type": "VIDEO", "video_id": "77"}
+    )
+
+    assert row.kind == "post"
+    assert row.is_video is True
+
+
+def test_a_creative_with_only_its_own_video_id_is_a_video() -> None:
+    row = CreativeRow.model_validate({"id": "9", "video_id": "77"})
+
+    assert row.is_video is True
+
+
+def test_a_video_data_creative_is_a_video_and_a_photo_post_is_not() -> None:
+    video = CreativeRow.model_validate(
+        {"id": "9", "object_story_spec": {"video_data": {"video_id": "77"}}}
+    )
+    photo = CreativeRow.model_validate(
+        {"id": "9", "object_story_id": "99_1", "object_type": "PHOTO"}
+    )
+
+    assert video.is_video is True
+    assert photo.is_video is False

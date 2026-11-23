@@ -1048,6 +1048,7 @@ class MetaCampaigns:
             call_to_action=row.call_to_action,
             image_hash=row.image_hash,
             video_id=row.video_id,
+            is_video=row.is_video,
             # Meta's own rendering of the creative when it sent one, and
             # the still the advertiser supplied for a video when it did
             # not. Two fields with one job on screen, so one column.

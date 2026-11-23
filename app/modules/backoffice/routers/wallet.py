@@ -59,6 +59,7 @@ def _money(row: WithdrawalRequest) -> dict[str, Any]:
     return {
         "amount_minor": row.amount_minor,
         "currency": row.currency,
+        "method": row.method,
         "method_label": PAYOUT_METHOD_LABELS.get(row.method, row.method),
         "card_last4": row.card_last4,
     }

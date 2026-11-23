@@ -10,6 +10,7 @@ from app.modules.accounts.models import User
 from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.contract.listing import figures_of
 from app.modules.ads.contract.words import controls_of, last_action_of, status_of
+from app.modules.ads.selectors.creatives import ad_format
 from app.modules.ads.selectors.failures import last_refusal
 from app.modules.ads.selectors.rejections import (
     POST_KINDS,
@@ -29,7 +30,7 @@ def ad_item(ad: Any, *, position: int, chips: Any, currency: str) -> dict[str, A
         "id": str(ad.id),
         "external_id": ad.external_id,
         "position": position,
-        "format": "video" if kind == "video" else "image",
+        "format": ad_format(content),
         "name": ad.name or None,
         "thumb": getattr(content, "thumbnail_url", "") or None,
         "headline": getattr(content, "headline", "") or None,

@@ -84,6 +84,9 @@ class Result:
     cost_minor: int | None
     cost_label: str
     note: str
+    # What one result is - "lead", "chat", "view"... - for a screen
+    # that words it itself. Empty where ``label`` is: a result not counted.
+    kind: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +113,7 @@ class AdLine:
     sums: FigureSums
     leads: int
     lead_cost_minor: int | None
+    delivery: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +136,7 @@ class GroupLine:
     conversion_event: str = ""
     start_time: datetime | None = None
     end_time: datetime | None = None
+    delivery: str = ""
 
     @property
     def optimization_goal_label(self) -> str:
@@ -315,6 +320,7 @@ def _result(
         cost_minor=_cost(sums, count=count, text=text),
         cost_label=str(text.cost_label),
         note=note,
+        kind=str(text.outcome) if text.field else "",
     )
 
 
@@ -397,6 +403,7 @@ def _ad_line(
         delivery_label=str(DELIVERY_LABELS.get(ad.delivery, ad.delivery))
         if ad is not None
         else "",
+        delivery=ad.delivery if ad is not None else "",
         quality_ranking=figures.quality_ranking if figures is not None else "",
         sums=sums,
         leads=leads,
@@ -444,6 +451,7 @@ def _groups(
                 external_id=adset.external_id,
                 name=adset.name,
                 delivery_label=str(DELIVERY_LABELS.get(adset.delivery, adset.delivery)),
+                delivery=adset.delivery,
                 optimization_goal=adset.optimization_goal_raw,
                 daily_budget_minor=adset.daily_budget_minor,
                 is_learning=adset.is_learning,
