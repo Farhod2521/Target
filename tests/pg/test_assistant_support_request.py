@@ -129,3 +129,33 @@ def test_a_request_solved_long_ago_is_not_shown(client: TestClient, db: Session)
     card.column_since = utcnow() - timedelta(days=5)
     db.commit()
     assert support_request(db, owner=owner, now=utcnow()) is None
+
+
+def test_a_request_in_a_column_of_the_offices_own_is_named_by_it(
+    client: TestClient, db: Session
+) -> None:
+    """The superuser adds columns to the Support board: the assistant names
+    such a step by its name, never by its code, and Support still has it."""
+    from app.modules.boards.models import BoardColumn
+
+    _headers, owner = _with_plan(client, db)
+    card = _request(db, owner)
+    db.add(
+        BoardColumn(
+            board="support",
+            code="c_bank000001",
+            name="Bank javobi kutilmoqda",
+            position=99,
+            kind="manual",
+            is_custom=True,
+        )
+    )
+    card.column_code = "c_bank000001"
+    db.commit()
+    found = support_request(db, owner=owner, now=utcnow())
+    assert found is not None and found.in_hand
+    assert found.column_name == "Bank javobi kutilmoqda"
+    text = _health(db, owner)
+    assert "it stands at the step «Bank javobi kutilmoqda»" in text
+    assert "c_bank000001" not in text
+    assert "prepare no new request" in text

@@ -69,10 +69,14 @@ class SupportRequest:
     topics: tuple[str, ...]
     solved_note: str
     wrote_in_chat: bool
+    # The column's name when it is one the office added to its board: the
+    # code of such a column says nothing.
+    column_name: str = ""
 
     @property
     def in_hand(self) -> bool:
-        return self.column in IN_HAND
+        # A column of the office's own is a step of the work: Support has it.
+        return self.column in IN_HAND or bool(self.column_name)
 
 
 def support_request(
@@ -124,8 +128,11 @@ def support_request(
         and chat.last_office_at is not None
         and chat.last_office_at >= since
     )
+    from app.modules.boards.selectors import custom_names
+
     return SupportRequest(
         column=card.column_code,
+        column_name=custom_names(db, board=card.board).get(card.column_code, ""),
         opened_at=card.opened_at,
         column_since=card.column_since,
         topics=topics,
@@ -163,7 +170,11 @@ def request_lines(request: SupportRequest | None, *, now: datetime) -> list[str]
     """The request as the health check's lines, each one fact."""
     if request is None:
         return ["- OK: no request to Support is open."]
-    state = _STATE.get(request.column, f"its state is {request.column}.")
+    state = _STATE.get(request.column) or (
+        f"Support is working on it; it stands at the step «{request.column_name}»."
+        if request.column_name
+        else f"its state is {request.column}."
+    )
     lines = [
         f"- OK: a request to Support, opened {ago(request.opened_at, now=now)}: "
         f"{state} (since {ago(request.column_since, now=now)})"

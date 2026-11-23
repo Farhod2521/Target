@@ -128,6 +128,10 @@ def _tickets(
             )
         )
     }
+    from app.modules.boards.selectors import custom_names
+
+    # A column the superuser added to the board is named as they named it.
+    own_columns = custom_names(db, board=str(Board.SUPPORT)) if cards else {}
     out: dict[uuid.UUID, dict[str, Any]] = {}
     for card in cards:
         manager = people.get(card.manager_id) if card.manager_id else None
@@ -135,7 +139,7 @@ def _tickets(
         label = (
             SUPPORT_COLUMN_LABELS[SupportColumn(column)]
             if column in SupportColumn.values
-            else column
+            else own_columns.get(column, column)
         )
         out[card.owner_id] = {
             "id": str(card.id),
