@@ -246,7 +246,8 @@ def test_the_buttons_follow_the_column(client: TestClient, db: Session) -> None:
     assert (
         client.post(press, json={"action": "contacted"}, headers=ali).status_code == 409
     )
-    assert client.post(press, json={"action": "jump"}, headers=ali).status_code == 422
+    # A code no column has is a button that is not here.
+    assert client.post(press, json={"action": "jump"}, headers=ali).status_code == 409
 
 
 def test_a_manager_sees_only_their_own_cards(client: TestClient, db: Session) -> None:

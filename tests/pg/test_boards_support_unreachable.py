@@ -137,7 +137,7 @@ def test_from_waiting_and_back_by_hand(client: TestClient, db: Session) -> None:
     assert started.column == "in_progress" and started.unreachable_reason == ""
 
 
-def test_the_owner_and_the_superuser_keep_the_list(
+def test_the_superuser_keeps_the_list_and_the_owner_reads_it(
     client: TestClient, db: Session
 ) -> None:
     _live(db)
@@ -153,7 +153,9 @@ def test_the_owner_and_the_superuser_keep_the_list(
     assert client.get(REASONS, headers=sales).status_code == 404
     assert client.post(REASONS, json={"name": "X"}, headers=zarina).status_code == 403
 
-    added = client.post(REASONS, json={"name": " Raqam o'chiq "}, headers=owner)
+    # Since 2026-11-23 every list of reasons is the superuser's alone.
+    assert client.post(REASONS, json={"name": "X"}, headers=owner).status_code == 403
+    added = client.post(REASONS, json={"name": " Raqam o'chiq "}, headers=boss)
     assert added.status_code == 201, added.text
     assert added.json()["name"] == "Raqam o'chiq" and added.json()["position"] == 3
     by_boss = client.post(REASONS, json={"name": "Boshqa"}, headers=boss)
@@ -161,7 +163,7 @@ def test_the_owner_and_the_superuser_keep_the_list(
     renamed = client.put(
         f"{REASONS}/{added.json()['id']}",
         json={"name": "Raqam doim o'chiq", "position": 3},
-        headers=owner,
+        headers=boss,
     )
     assert renamed.json()["name"] == "Raqam doim o'chiq"
     assert (
@@ -171,10 +173,13 @@ def test_the_owner_and_the_superuser_keep_the_list(
         is True
     )
 
-    # Support picks from what is live; the keepers see the archived too.
+    # Support picks from what is live; the Owner and the superuser see the
+    # archived too.
     names = [r["name"] for r in client.get(REASONS, headers=zarina).json()["rows"]]
     assert names == [wrong.name, telegram.name, "Raqam doim o'chiq"]
-    kept = client.get(REASONS, headers=owner).json()
+    read_all = client.get(REASONS, headers=owner).json()
+    assert read_all["may_edit"] is False and len(read_all["rows"]) == 4
+    kept = client.get(REASONS, headers=boss).json()
     assert kept["may_edit"] is True and len(kept["rows"]) == 4
 
     # An archived reason cannot be picked.

@@ -1,6 +1,7 @@
 """The office boards, version 2: ``/api/v2/office/...``. Version 1's sales
 board is not read or changed here."""
 
+import logging
 import uuid
 from datetime import date, timedelta
 from typing import Annotated, Any
@@ -15,12 +16,15 @@ from app.modules.accounts.models import User
 from app.modules.backoffice.constants import ADMIN_ROLES, ROLE_LABELS, Role
 from app.modules.backoffice.services import seen
 from app.modules.boards import (
+    buttons,
     client,
     developer,  # noqa: F401 - closes a ticket when its fault is settled
     help_options,
     kinds,
     phone_take,
+    reason_lists,
     renewal,
+    rules,
     sales_kinds,
     selectors,
     services,
@@ -38,15 +42,12 @@ from app.modules.boards.access import (
 )
 from app.modules.boards.constants import (
     BOARD_LABELS,
-    CLOSE_REASON_LABELS,
+    BOARD_MAIN_PURPOSE,
     COLUMN_CARDS,
     COLUMN_CARDS_MAX,
-    DECLINE_REASON_LABELS,
+    COLUMNS_MAX,
     REPORT_DEFAULT_DAYS,
     Board,
-    CardAction,
-    CloseReason,
-    DeclineReason,
     is_default_column_name,
 )
 from app.modules.boards.models import ContactReason
@@ -54,10 +55,15 @@ from app.modules.boards.schemas import (
     ActionIn,
     AssignIn,
     BoardViewOut,
+    ButtonAddIn,
+    ButtonEditIn,
+    ButtonResetIn,
+    ButtonsOut,
     CardAddIn,
     CardClientOut,
     CardDetailOut,
     ClientsFoundOut,
+    ColumnAddIn,
     ColumnsIn,
     ColumnsOut,
     ContactReasonIn,
@@ -70,10 +76,17 @@ from app.modules.boards.schemas import (
     MoveIn,
     NoteIn,
     PhoneTakeIn,
+    ReasonAddIn,
+    ReasonEditIn,
+    ReasonListsOut,
     ReasonOut,
+    ReasonRowOut,
     RenewalManagerIn,
     RenewalManagerOut,
     RenewalReportOut,
+    RuleAddIn,
+    RuleEditIn,
+    RulesOut,
     SalesKindsIn,
     SalesKindsOut,
     SalesReportOut,
@@ -90,6 +103,8 @@ from app.modules.boards.schemas import (
     TicketAnswerOut,
     TicketQuestionStateOut,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/office", tags=["office boards v2"])
 # The client's side: the one question Support asks them.
@@ -163,6 +178,7 @@ def me(db: Db, user: Staff) -> dict[str, Any]:
             "add_lead": access.leads_board(Board.SALES),
             "add_ticket": access.sees(Board.SUPPORT),
             "columns": access.full,
+            "edit_columns": bool(user.is_superuser),
             "staff": access.full,
             "telephony": access.full,
             "client_card": bool(user.is_superuser)
@@ -177,24 +193,35 @@ def columns(db: Db, staff: BoardStaff) -> dict[str, Any]:
     """The board's columns as this person sees them, in order."""
     selectors.ensure_board(db, board=staff.board, now=utcnow())
     db.commit()
+    board_code = str(staff.board)
+
+    def out(column: selectors.ColumnView) -> dict[str, Any]:
+        return {
+            "code": column.code,
+            "name": column.name,
+            "position": column.position,
+            "kind": column.kind,
+            "is_final": column.is_final,
+            "is_default_name": is_default_column_name(
+                board=board_code, code=column.code, name=column.name
+            ),
+            "is_custom": column.is_custom,
+        }
+
     return {
-        "board": str(staff.board),
+        "board": board_code,
         "live_since": selectors.live_since(db, board=staff.board),
         "columns": [
-            {
-                "code": column.code,
-                "name": column.name,
-                "position": column.position,
-                "kind": column.kind,
-                "is_final": column.is_final,
-                "is_default_name": is_default_column_name(
-                    board=str(staff.board), code=column.code, name=column.name
-                ),
-            }
+            out(column)
             for column in selectors.columns_for(
                 db, board=staff.board, access=staff.access
             )
         ],
+        "removed": [
+            out(column) for column in selectors.removed_columns(db, board=staff.board)
+        ],
+        "may_edit": bool(staff.user.is_superuser),
+        "max_columns": COLUMNS_MAX,
     }
 
 
@@ -351,13 +378,136 @@ def add_card(db: Db, staff: BoardStaff, body: CardAddIn) -> dict[str, Any]:
     return view.card_detail(db, card=found, now=now)
 
 
-@router.get("/boards/sales/reasons", responses={200: {"model": list[ReasonOut]}})
-def close_reasons(staff: Staff) -> list[dict[str, str]]:
-    """Why a Sales card is closed."""
+@router.get("/boards/{board}/reasons", responses={200: {"model": list[ReasonOut]}})
+def board_reasons(
+    db: Db,
+    staff: BoardStaff,
+    purpose: Annotated[
+        str,
+        Query(
+            description="`close` (Sotuv), `decline` (Uzaytirish), `no_contact`, "
+            "`move`. Empty: the board's main list (`close`, `decline`; `move` on Support)."
+        ),
+    ] = "",
+) -> list[dict[str, Any]]:
+    """The reasons to pick from, in order: why a Sales card is closed, why
+    a client does not renew, why a call did not reach them, why a card is
+    moved by hand. An empty `no_contact` or `move` list is not asked."""
+    chosen = reason_lists.checked_purpose(
+        staff.board, purpose or str(BOARD_MAIN_PURPOSE[staff.board])
+    )
+    reason_lists.ensure(db, now=utcnow())
+    db.commit()
     return [
-        {"value": str(reason), "label": str(CLOSE_REASON_LABELS[reason])}
-        for reason in CloseReason
+        {"value": row.code, "label": row.name, "note_required": row.note_required}
+        for row in reason_lists.rows(db, board=staff.board, purpose=chosen)
     ]
+
+
+@router.get("/boards/{board}/reason-lists", responses={200: {"model": ReasonListsOut}})
+def reason_lists_view(db: Db, staff: BoardStaff) -> dict[str, Any]:
+    """Every list of reasons the board has, for its settings."""
+    reason_lists.ensure(db, now=utcnow())
+    db.commit()
+    return reason_lists.lists_view(
+        db, board=staff.board, may_edit=bool(staff.user.is_superuser)
+    )
+
+
+@router.post(
+    "/boards/{board}/reason-lists/{purpose}",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": ReasonRowOut}},
+)
+def add_reason(
+    db: Db, staff: BoardStaff, purpose: str, body: ReasonAddIn
+) -> dict[str, Any]:
+    """A new reason at the end of the list. For the superuser."""
+    _columns_keeper(staff)
+    row = reason_lists.add(
+        db,
+        board=staff.board,
+        purpose=reason_lists.checked_purpose(staff.board, purpose),
+        name=body.name,
+        note_required=body.note_required,
+        actor_id=staff.user.id,
+        now=utcnow(),
+    )
+    logger.info(
+        "board reason added",
+        extra={
+            "board": str(staff.board),
+            "purpose": purpose,
+            "code": row.code,
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return reason_lists.row_out(row)
+
+
+@router.put(
+    "/boards/{board}/reason-lists/{purpose}/{reason_id}",
+    responses={200: {"model": ReasonRowOut}},
+)
+def edit_reason(
+    db: Db, staff: BoardStaff, purpose: str, reason_id: uuid.UUID, body: ReasonEditIn
+) -> dict[str, Any]:
+    """New words, place, or whether a line is asked; cards that carry the
+    reason read the new words. For the superuser."""
+    _columns_keeper(staff)
+    return reason_lists.row_out(
+        reason_lists.edit(
+            db,
+            board=staff.board,
+            purpose=reason_lists.checked_purpose(staff.board, purpose),
+            reason_id=reason_id,
+            name=body.name,
+            position=body.position,
+            note_required=body.note_required,
+            now=utcnow(),
+        )
+    )
+
+
+@router.post(
+    "/boards/{board}/reason-lists/{purpose}/{reason_id}/archive",
+    responses={200: {"model": ReasonRowOut}},
+)
+def archive_reason(
+    db: Db, staff: BoardStaff, purpose: str, reason_id: uuid.UUID
+) -> dict[str, Any]:
+    """Off the list to pick from; cards and reports keep it."""
+    _columns_keeper(staff)
+    return reason_lists.row_out(
+        reason_lists.set_archived(
+            db,
+            board=staff.board,
+            purpose=reason_lists.checked_purpose(staff.board, purpose),
+            reason_id=reason_id,
+            archived=True,
+            now=utcnow(),
+        )
+    )
+
+
+@router.post(
+    "/boards/{board}/reason-lists/{purpose}/{reason_id}/restore",
+    responses={200: {"model": ReasonRowOut}},
+)
+def restore_reason(
+    db: Db, staff: BoardStaff, purpose: str, reason_id: uuid.UUID
+) -> dict[str, Any]:
+    _columns_keeper(staff)
+    return reason_lists.row_out(
+        reason_lists.set_archived(
+            db,
+            board=staff.board,
+            purpose=reason_lists.checked_purpose(staff.board, purpose),
+            reason_id=reason_id,
+            archived=False,
+            now=utcnow(),
+        )
+    )
 
 
 @router.get("/boards/sales/report", responses={200: {"model": SalesReportOut}})
@@ -393,8 +543,9 @@ def _contact_reader(db: Db, user: Staff) -> Any:
 
 
 def _contact_keeper(db: Db, user: Staff) -> None:
-    """The Owner and the superuser keep the list."""
-    if not _contact_reader(db, user).full:
+    """The superuser keeps the list, as every list of reasons."""
+    _contact_reader(db, user)
+    if not user.is_superuser:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Ruxsat yo'q.")
 
 
@@ -420,11 +571,12 @@ def _contact_row(db: Db, reason_id: uuid.UUID) -> ContactReason:
 def contact_reasons(db: Db, user: Staff) -> dict[str, Any]:
     """Why Support cannot reach a client: what «Bog'lanib bo'lmadi» asks
     for. Archived ones only for who keeps the list."""
-    keeps = _contact_reader(db, user).full
+    full = _contact_reader(db, user).full
+    keeps = bool(user.is_superuser)
     query = select(ContactReason).order_by(
         ContactReason.position, ContactReason.created_at
     )
-    if not keeps:
+    if not full:
         query = query.where(ContactReason.is_archived.is_(False))
     return {"rows": [_contact_out(row) for row in db.scalars(query)], "may_edit": keeps}
 
@@ -497,16 +649,6 @@ def _renewal(db: Db, user: Staff) -> Any:
     if not access.sees(Board.RENEWAL):
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     return access
-
-
-@router.get("/boards/renewal/reasons", responses={200: {"model": list[ReasonOut]}})
-def decline_reasons(db: Db, user: Staff) -> list[dict[str, str]]:
-    """Why a client does not renew: what «Rad etdi» asks for."""
-    _renewal(db, user)
-    return [
-        {"value": str(reason), "label": str(DECLINE_REASON_LABELS[reason])}
-        for reason in DeclineReason
-    ]
 
 
 @router.get("/boards/renewal/report", responses={200: {"model": RenewalReportOut}})
@@ -699,17 +841,13 @@ def card_client(db: Db, user: Staff, card_id: str) -> dict[str, Any]:
 @router.post("/cards/{card_id}/actions", responses={200: {"model": CardDetailOut}})
 def press(db: Db, user: Staff, card_id: str, body: ActionIn) -> dict[str, Any]:
     """A button on the card. Only the buttons in its `actions` are accepted."""
-    if body.action not in CardAction.values:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Noma'lum tugma."
-        )
     now = utcnow()
     found = services.act(
         db,
         card_id=_card_id(card_id),
         user=user,
         access=access_for(db, user),
-        action=CardAction(body.action),
+        code=body.action,
         now=now,
         on=body.on,
         reason=body.reason,
@@ -803,12 +941,296 @@ def set_survey_help(
     )
 
 
+@router.get("/boards/{board}/buttons", responses={200: {"model": ButtonsOut}})
+def board_buttons(db: Db, staff: BoardStaff) -> dict[str, Any]:
+    """Every column of the board with the buttons its cards show, the
+    buttons a column may be given and the columns a button may send a card
+    to. Read by whoever opens the board's settings."""
+    selectors.ensure_board(db, board=staff.board, now=utcnow())
+    out = buttons.settings_view(
+        db, board=staff.board, may_edit=bool(staff.user.is_superuser)
+    )
+    db.commit()
+    return out
+
+
+@router.post(
+    "/boards/{board}/buttons",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": ButtonsOut}},
+)
+def add_button(db: Db, staff: BoardStaff, body: ButtonAddIn) -> dict[str, Any]:
+    """One more button on a column: one of the code's it lacks, or one of
+    the superuser's own (`go`) with its words and its column."""
+    _columns_keeper(staff)
+    row = buttons.add(
+        db,
+        board=staff.board,
+        column_code=body.column,
+        action=body.action,
+        label=body.label,
+        to_column=body.to_column,
+        due=body.due,
+        note_required=body.note_required,
+        actor_id=staff.user.id,
+        now=utcnow(),
+    )
+    logger.info(
+        "board button added",
+        extra={
+            "board": str(staff.board),
+            "column": body.column,
+            "code": row.code,
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return board_buttons(db, staff)
+
+
+@router.post("/boards/{board}/buttons/reset", responses={200: {"model": ButtonsOut}})
+def reset_buttons(db: Db, staff: BoardStaff, body: ButtonResetIn) -> dict[str, Any]:
+    """The column's buttons as the code gives them («Standartga qaytarish»)."""
+    _columns_keeper(staff)
+    buttons.reset(db, board=staff.board, column_code=body.column, now=utcnow())
+    logger.info(
+        "board buttons reset",
+        extra={
+            "board": str(staff.board),
+            "column": body.column,
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return board_buttons(db, staff)
+
+
+@router.put(
+    "/boards/{board}/buttons/{button_id}", responses={200: {"model": ButtonsOut}}
+)
+def edit_button(
+    db: Db, staff: BoardStaff, button_id: uuid.UUID, body: ButtonEditIn
+) -> dict[str, Any]:
+    """A button's words, column and place; one of the superuser's own also
+    what it asks for."""
+    _columns_keeper(staff)
+    buttons.edit(
+        db,
+        board=staff.board,
+        button_id=button_id,
+        label=body.label,
+        to_column=body.to_column,
+        due=body.due,
+        note_required=body.note_required,
+        position=body.position,
+        now=utcnow(),
+    )
+    return board_buttons(db, staff)
+
+
+@router.delete(
+    "/boards/{board}/buttons/{button_id}", responses={200: {"model": ButtonsOut}}
+)
+def remove_button(db: Db, staff: BoardStaff, button_id: uuid.UUID) -> dict[str, Any]:
+    """The button off its column."""
+    _columns_keeper(staff)
+    column = buttons.remove(db, board=staff.board, button_id=button_id)
+    logger.info(
+        "board button removed",
+        extra={
+            "board": str(staff.board),
+            "column": column,
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return board_buttons(db, staff)
+
+
+@router.get("/boards/{board}/rules", responses={200: {"model": RulesOut}})
+def board_rules(db: Db, staff: BoardStaff) -> dict[str, Any]:
+    """Every automatic rule of the board in plain words: the system's with
+    what may be changed of each, then the superuser's own. Read by whoever
+    opens the board's settings."""
+    selectors.ensure_board(db, board=staff.board, now=utcnow())
+    out = rules.settings_view(
+        db, board=staff.board, may_edit=bool(staff.user.is_superuser)
+    )
+    db.commit()
+    return out
+
+
+@router.post(
+    "/boards/{board}/rules",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": RulesOut}},
+)
+def add_rule(db: Db, staff: BoardStaff, body: RuleAddIn) -> dict[str, Any]:
+    """A rule of the superuser's own: a card that stood in a column long
+    enough (`stay`), or whose own time passed (`due`), goes to another."""
+    _columns_keeper(staff)
+    row = rules.add_custom(
+        db,
+        board=staff.board,
+        actor_id=staff.user.id,
+        now=utcnow(),
+        kind=body.kind,
+        name=body.name,
+        from_columns=body.from_columns,
+        to_column=body.to_column,
+        amount=body.amount,
+        unit=body.unit,
+        reason=body.reason,
+    )
+    logger.info(
+        "board rule added",
+        extra={
+            "board": str(staff.board),
+            "code": row.code,
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return board_rules(db, staff)
+
+
+@router.patch("/boards/{board}/rules/{rule_id}", responses={200: {"model": RulesOut}})
+def edit_rule(
+    db: Db, staff: BoardStaff, rule_id: uuid.UUID, body: RuleEditIn
+) -> dict[str, Any]:
+    """Change a rule: of the system's, the fields its `editable` names; of
+    the superuser's own, everything (send it whole)."""
+    _columns_keeper(staff)
+    sent = body.model_dump(exclude_unset=True)
+    now = utcnow()
+    if rules.is_custom(db, board=staff.board, rule_id=rule_id):
+        rules.edit_custom(
+            db,
+            board=staff.board,
+            rule_id=rule_id,
+            actor_id=staff.user.id,
+            now=now,
+            is_enabled=bool(sent.get("is_enabled", True)),
+            kind=str(sent.get("kind", "")),
+            name=str(sent.get("name", "")),
+            from_columns=list(sent.get("from_columns") or []),
+            to_column=str(sent.get("to_column", "")),
+            amount=int(sent.get("amount") or 0),
+            unit=str(sent.get("unit", "")),
+            reason=str(sent.get("reason", "")),
+        )
+    else:
+        rules.edit_system(
+            db,
+            board=staff.board,
+            rule_id=rule_id,
+            changes={
+                key: value
+                for key, value in sent.items()
+                if key
+                in ("is_enabled", "from_columns", "to_column", "amount", "reason")
+                and value is not None
+            },
+            actor_id=staff.user.id,
+            now=now,
+        )
+    logger.info(
+        "board rule changed",
+        extra={
+            "board": str(staff.board),
+            "rule_id": str(rule_id),
+            "fields": sorted(sent),
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return board_rules(db, staff)
+
+
+@router.post(
+    "/boards/{board}/rules/{rule_id}/reset", responses={200: {"model": RulesOut}}
+)
+def reset_rule(db: Db, staff: BoardStaff, rule_id: uuid.UUID) -> dict[str, Any]:
+    """A rule of the system's as the code has it («Standartga qaytarish»)."""
+    _columns_keeper(staff)
+    rules.reset_system(
+        db, board=staff.board, rule_id=rule_id, actor_id=staff.user.id, now=utcnow()
+    )
+    return board_rules(db, staff)
+
+
+@router.delete("/boards/{board}/rules/{rule_id}", responses={200: {"model": RulesOut}})
+def remove_rule(db: Db, staff: BoardStaff, rule_id: uuid.UUID) -> dict[str, Any]:
+    """One of the superuser's own rules, gone. The system's are switched
+    off, never removed."""
+    _columns_keeper(staff)
+    rules.remove_custom(db, board=staff.board, rule_id=rule_id)
+    return board_rules(db, staff)
+
+
+def _columns_keeper(staff: BoardStaff) -> None:
+    """Only the superuser changes a board's columns; the Owner reads them."""
+    if staff.user.is_superuser:
+        return
+    if staff.access.full:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Ruxsat yo'q.")
+    raise HTTPException(status.HTTP_404_NOT_FOUND)
+
+
+@router.post(
+    "/boards/{board}/columns",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": ColumnsOut}},
+)
+def add_column(db: Db, staff: BoardStaff, body: ColumnAddIn) -> dict[str, Any]:
+    """A new column of the superuser's own. Cards reach it and leave it
+    only by `POST /cards/{id}/move`; no rule and no button knows it, and it
+    never closes a card. The board's columns, the new one among them."""
+    _columns_keeper(staff)
+    now = utcnow()
+    selectors.ensure_board(db, board=staff.board, now=now)
+    code = selectors.add_column(
+        db,
+        board=staff.board,
+        name=body.name,
+        after=body.after or None,
+        actor_id=staff.user.id,
+        now=now,
+    )
+    logger.info(
+        "board column added",
+        extra={"board": str(staff.board), "code": code, "actor_id": str(staff.user.id)},
+    )
+    return columns(db, staff)
+
+
+@router.delete("/boards/{board}/columns/{code}", responses={200: {"model": ColumnsOut}})
+def remove_column(db: Db, staff: BoardStaff, code: str) -> dict[str, Any]:
+    """Take one of the superuser's own columns off the board. Refused
+    while a card stands in it, and for the columns the board came with."""
+    _columns_keeper(staff)
+    selectors.remove_column(
+        db, board=staff.board, code=code, actor_id=staff.user.id, now=utcnow()
+    )
+    logger.info(
+        "board column removed",
+        extra={"board": str(staff.board), "code": code, "actor_id": str(staff.user.id)},
+    )
+    return columns(db, staff)
+
+
+@router.post(
+    "/boards/{board}/columns/{code}/restore", responses={200: {"model": ColumnsOut}}
+)
+def restore_column(db: Db, staff: BoardStaff, code: str) -> dict[str, Any]:
+    """Put a removed column back, before the final columns."""
+    _columns_keeper(staff)
+    selectors.restore_column(
+        db, board=staff.board, code=code, actor_id=staff.user.id, now=utcnow()
+    )
+    return columns(db, staff)
+
+
 @router.patch("/boards/{board}/columns", responses={200: {"model": ColumnsOut}})
 def edit_columns(db: Db, staff: BoardStaff, body: ColumnsIn) -> dict[str, Any]:
-    """Rename and reorder the board's columns. For the superuser and the
-    Owner. Send every visible column, in the order wanted."""
-    if not staff.access.full:
-        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    """Rename and reorder the board's columns. For the superuser. Send
+    every visible column, in the order wanted."""
+    _columns_keeper(staff)
     now = utcnow()
     selectors.ensure_board(db, board=staff.board, now=now)
     selectors.rename_and_order(
@@ -833,6 +1255,7 @@ def move_card(db: Db, user: Staff, card_id: str, body: MoveIn) -> dict[str, Any]
         access=access_for(db, user),
         to=body.column,
         reason=body.reason,
+        reason_code=body.reason_code,
         contact_reason=body.contact_reason,
         now=now,
     )

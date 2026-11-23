@@ -38,9 +38,9 @@ from app.modules.accounts.constants import SIGNUP_VIA_LABELS, SignupVia
 from app.modules.accounts.models import User
 from app.modules.billing.constants import InvoiceKind, InvoiceStatus
 from app.modules.billing.models import Invoice
+from app.modules.boards import reason_lists
 from app.modules.boards.access import Access, works_on
 from app.modules.boards.constants import (
-    CLOSE_REASON_LABELS,
     OFFER_ENDED_LABEL,
     OFFER_ENDED_REASON,
     REPORT_MAX_DAYS,
@@ -50,6 +50,7 @@ from app.modules.boards.constants import (
     Board,
     CloseReason,
     EventKind,
+    ReasonPurpose,
     SalesColumn,
 )
 from app.modules.boards.exceptions import ReportPeriodInvalid
@@ -264,6 +265,9 @@ def report(
         raise ReportPeriodInvalid
     first, after = day_bounds(start, end)
     lead = access.leads_board(Board.SALES)
+    reason_names = reason_lists.labels(
+        db, board=Board.SALES, purpose=ReasonPurpose.CLOSE
+    )
     cells: dict[tuple[str, date], Figures] = defaultdict(Figures)
     reasons: dict[str, dict[str, int]] = defaultdict(dict)
     # (person, how the card was taken): taken and sold, for «Turlar».
@@ -481,7 +485,7 @@ def report(
                 **figures.out(rate_base=figures.taken),
                 "open_now": open_now,
                 "overdue_now": overdue_now,
-                "reasons": _reasons_out(reasons.get(key, {})),
+                "reasons": _reasons_out(reasons.get(key, {}), reason_names),
                 "kinds": _kinds_out(by_kind, {key}),
             }
         )
@@ -494,7 +498,7 @@ def report(
                 **figures.out(rate_base=0),
                 "open_now": 0,
                 "overdue_now": 0,
-                "reasons": _reasons_out(reasons.get(NOBODY, {})),
+                "reasons": _reasons_out(reasons.get(NOBODY, {}), reason_names),
             }
         )
 
@@ -512,7 +516,7 @@ def report(
         "queue": _queue(db, now=now) if lead else None,
         "days": days,
         "staff": staff,
-        "reasons": _reasons_out(every_reason),
+        "reasons": _reasons_out(every_reason, reason_names),
         "kinds": _kinds_out(by_kind, allowed - {NOBODY}),
         "sources": _sources(db, first=first, after=after) if lead else [],
         "campaigns": _campaigns(db, first=first, after=after) if lead else [],
@@ -590,13 +594,11 @@ def _queue(db: Session, *, now: datetime) -> dict[str, Any]:
     return {"waiting": int(count or 0), "oldest_at": oldest}
 
 
-def _reasons_out(counts: dict[str, int]) -> list[dict[str, Any]]:
+def _reasons_out(counts: dict[str, int], names: dict[str, str]) -> list[dict[str, Any]]:
     def label(code: str) -> str:
         if code == OFFER_ENDED_REASON:
             return OFFER_ENDED_LABEL
-        if code in CloseReason.values:
-            return str(CLOSE_REASON_LABELS[CloseReason(code)])
-        return code
+        return names.get(code, code)
 
     return [
         {"code": code, "label": label(code), "count": count}

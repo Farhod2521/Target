@@ -21,30 +21,24 @@ from app.modules.billing.constants import (
     InvoiceStatus,
 )
 from app.modules.billing.models import Invoice, Plan, Subscription
+from app.modules.boards import reason_lists, rules
 from app.modules.boards.access import Access, works_on
 from app.modules.boards.constants import (
     ATTEMPTS_MAX,
-    DECLINE_REASON_LABELS,
-    RENEWAL_ACTIONS,
-    RENEWAL_BILL_FROM,
     RENEWAL_DECLINE_DAYS,
-    RENEWAL_OPEN_DAYS,
     RENEWAL_PLAN_CODES,
-    RENEWAL_SILENT_COLUMNS,
     REPORT_MAX_DAYS,
     SWEEP_BATCH,
     Board,
     CardAction,
     DeclineReason,
     EventKind,
+    ReasonPurpose,
     RenewalColumn,
 )
 from app.modules.boards.exceptions import (
-    ActionNotHere,
-    CardClosed,
     NoteRequired,
     NotOnBoard,
-    ReasonRequired,
     ReportPeriodInvalid,
 )
 from app.modules.boards.models import BoardCard, BoardCardEvent, BoardSetting
@@ -170,6 +164,7 @@ def open_cards(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     client's earlier card is still worked (``follow_terms`` moves its date).
     The first run after the board is switched on loads the terms that have
     ended already the same way."""
+    opens = rules.get(db, "renewal.opened")
     carded = exists().where(
         BoardCard.board == BOARD,
         BoardCard.owner_id == Subscription.owner_id,
@@ -188,7 +183,7 @@ def open_cards(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             .where(
                 Subscription.status.in_(_LIVE),
                 Plan.code.in_(RENEWAL_PLAN_CODES),
-                Subscription.expires_at <= now + timedelta(days=RENEWAL_OPEN_DAYS),
+                Subscription.expires_at <= now + opens.delta,
                 Subscription.expires_at > now - timedelta(days=RENEWAL_DECLINE_DAYS),
                 User.crm_owner_id.is_(None),
                 User.is_staff.is_(False),
@@ -350,6 +345,7 @@ def follow_terms(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
 def mark_ended(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """The term ended and the card still stands in Tugayapti: to Tugagan. A
     card the manager moved on stays where they put it."""
+    why = rules.get(db, "renewal.ended").reason
     rows = list(
         db.scalars(
             select(BoardCard)
@@ -372,6 +368,7 @@ def mark_ended(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             to=str(RenewalColumn.ENDED),
             kind=EventKind.TERM_ENDED,
             now=now,
+            body=why,
         )
     db.commit()
     return len(rows)
@@ -387,6 +384,11 @@ def _open_bills(now: datetime) -> Any:
 def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """The client opened a Standart or Pro bill: the card goes to «To'lov
     kutilmoqda». Once per bill, so a card the manager moved on stays."""
+    from app.modules.boards.triggers import bill_words
+
+    rule = rules.get(db, "renewal.bill_opened")
+    if not rule.enabled:
+        return 0
     bills = _open_bills(now)
     seen = exists().where(
         BoardCardEvent.card_id == BoardCard.id,
@@ -399,7 +401,7 @@ def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
             .where(
                 BoardCard.board == BOARD,
                 BoardCard.closed_at.is_(None),
-                BoardCard.column_code.in_(RENEWAL_BILL_FROM),
+                BoardCard.column_code.in_(rule.from_columns),
                 ~seen,
             )
             .order_by(bills.c.created_at)
@@ -416,9 +418,10 @@ def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
         move(
             db,
             card=card,
-            to=str(RenewalColumn.AWAITING),
+            to=rule.to_column,
             kind=EventKind.BILL_OPENED,
             now=now,
+            body=rule.said(bill_words(db, bill_id)),
             ref=f"bill:{bill_id}",
         )
     db.commit()
@@ -430,6 +433,10 @@ def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
     theirs can be paid any more: to «Qayta aloqa», due now, so the manager
     calls. A card the manager put there with «To'laydi» is theirs to move.
     Runs after ``mark_renewed``: who paid is in Uzaytirdi, not here."""
+    rule = rules.get(db, "renewal.bill_unpaid")
+    if not rule.enabled:
+        return 0
+    seat = rules.get(db, "renewal.bill_opened").to_column
     bills = _open_bills(now)
     by_bill = (
         select(BoardCardEvent.ref)
@@ -448,7 +455,7 @@ def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
             .where(
                 BoardCard.board == BOARD,
                 BoardCard.closed_at.is_(None),
-                BoardCard.column_code == str(RenewalColumn.AWAITING),
+                BoardCard.column_code == seat,
                 by_bill.is_not(None),
                 ~exists().where(bills.c.owner_id == BoardCard.owner_id),
             )
@@ -464,9 +471,10 @@ def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
         move(
             db,
             card=card,
-            to=str(RenewalColumn.CALLBACK),
+            to=rule.to_column,
             kind=EventKind.BILL_UNPAID,
             now=now,
+            body=rule.reason,
             ref=str(ref).replace("bill:", "unpaid:", 1),
         )
     db.commit()
@@ -476,14 +484,17 @@ def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
 def decline_silent(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """Thirty days after the term ended and nobody reached the client (the
     card is in Tugagan or Bog'lanilmadi): to Rad etdi, «javob bermadi»."""
+    rule = rules.get(db, "renewal.silent")
+    if not rule.enabled:
+        return 0
     rows = list(
         db.scalars(
             select(BoardCard)
             .where(
                 BoardCard.board == BOARD,
                 BoardCard.closed_at.is_(None),
-                BoardCard.column_code.in_(RENEWAL_SILENT_COLUMNS),
-                BoardCard.term_ends_at <= now - timedelta(days=RENEWAL_DECLINE_DAYS),
+                BoardCard.column_code.in_(rule.from_columns),
+                BoardCard.term_ends_at <= now - rule.delta,
             )
             .order_by(BoardCard.term_ends_at)
             .limit(limit)
@@ -502,6 +513,7 @@ def decline_silent(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> i
             to=str(RenewalColumn.DECLINED),
             kind=EventKind.SILENT,
             now=now,
+            body=rule.reason,
         )
     db.commit()
     return len(rows)
@@ -518,6 +530,9 @@ def sweep(db: Session, *, now: datetime) -> int:
     done += bills_opened(db, now=now)
     done += bills_unpaid(db, now=now)
     done += decline_silent(db, now=now)
+    # Last: the superuser's own rules see the cards where the rules above
+    # left them.
+    done += rules.run_custom(db, board=Board.RENEWAL, now=now)
     return done
 
 
@@ -543,32 +558,44 @@ def act(
     due: datetime | None,
     said: str,
     now: datetime,
+    to_column: str = "",
 ) -> BoardCard:
-    """One button of a renewal card. «Rad etdi» asks for its reason, and
-    «Boshqa» for the words; «Bog'lanib bo'lmadi» counts the attempt."""
-    if card.closed_at is not None:
-        raise CardClosed
-    if action not in RENEWAL_ACTIONS.get(card.column_code, ()):
-        raise ActionNotHere
+    """One button of a renewal card, already found on its column. «Rad
+    etdi» asks for its reason, and a reason marked so for the words;
+    «Bog'lanib bo'lmadi» counts the attempt. ``to_column``: the superuser's
+    column for the button, where it has one."""
     body = said
     if action == CardAction.DECLINE:
-        if reason not in DeclineReason.values:
-            raise ReasonRequired
-        if reason == DeclineReason.OTHER and not note:
+        found = reason_lists.picked(
+            db, board=Board.RENEWAL, purpose=ReasonPurpose.DECLINE, code=reason
+        )
+        if found.note_required and not note:
             raise NoteRequired
-        card.close_reason = reason
+        card.close_reason = found.code
         card.close_note = note
         card.closed_at = now
-        label = str(DECLINE_REASON_LABELS[DeclineReason(reason)])
-        body = f"{label}. {note}" if note else label
+        body = reason_lists.said(found, note)
     elif action == CardAction.CONTACTED:
         card.contact_mark = str(CardAction.CONTACTED)
     elif action == CardAction.NO_CONTACT:
+        from app.modules.boards.services import no_contact_reason
+
+        why = no_contact_reason(db, board=Board.RENEWAL, code=reason, note=note)
+        if why:
+            body = f"{why}. {said}" if said else why
         card.contact_mark = str(CardAction.NO_CONTACT)
         card.attempts = min(card.attempts + 1, ATTEMPTS_MAX)
-    to, kind = _MOVES[action]
+    seat, kind = _MOVES[action]
     card.due_at = due
-    move(db, card=card, to=str(to), kind=kind, now=now, actor=user, body=body)
+    move(
+        db,
+        card=card,
+        to=to_column or str(seat),
+        kind=kind,
+        now=now,
+        actor=user,
+        body=body,
+    )
     db.commit()
     return card
 
@@ -647,6 +674,7 @@ def briefs(
     if not mine:
         return {}
     owners = list({card.owner_id for card in mine})
+    names = decline_labels(db)
     plans = dict(
         db.execute(
             select(Plan.code, Plan.name).where(
@@ -704,7 +732,7 @@ def briefs(
             "payments": int(payments.get(card.owner_id, 0)),
             "last_login": card.owner.last_login,
             "decline_reason": card.close_reason,
-            "decline_label": decline_label(card.close_reason),
+            "decline_label": names.get(card.close_reason, ""),
             "paid": {"minor": bill.amount_minor, "currency": bill.currency}
             if bill
             else None,
@@ -721,10 +749,9 @@ def days_between(ends_at: datetime, now: datetime) -> int:
     return -int(-seconds // 86_400)
 
 
-def decline_label(code: str) -> str:
-    if code in DeclineReason.values:
-        return str(DECLINE_REASON_LABELS[DeclineReason(code)])
-    return ""
+def decline_labels(db: Session) -> dict[str, str]:
+    """Every «Rad etdi» reason's name by its code, the archived ones too."""
+    return reason_lists.labels(db, board=Board.RENEWAL, purpose=ReasonPurpose.DECLINE)
 
 
 def order(code: str, now: datetime) -> tuple[Any, ...]:
@@ -760,6 +787,11 @@ def report(
     if end < start or (end - start).days > REPORT_MAX_DAYS:
         raise ReportPeriodInvalid
     first, after = day_bounds(start, end)
+    listed = reason_lists.rows(
+        db, board=Board.RENEWAL, purpose=ReasonPurpose.DECLINE, archived=True
+    )
+    reason_names = {row.code: row.name for row in listed}
+    reason_order = {row.code: index for index, row in enumerate(listed)}
     scope = [
         BoardCard.board == BOARD,
         BoardCard.term_ends_at >= first,
@@ -822,13 +854,12 @@ def report(
                 for currency, minor in sorted(paid.items(), key=lambda p: -p[1])
             ],
             "reasons": [
-                {
-                    "code": str(reason),
-                    "label": str(DECLINE_REASON_LABELS[reason]),
-                    "count": why.get(str(reason), 0),
-                }
-                for reason in DeclineReason
-                if why.get(str(reason), 0)
+                {"code": code, "label": reason_names.get(code, code), "count": count}
+                for code, count in sorted(
+                    why.items(),
+                    key=lambda item: (reason_order.get(item[0], 999), item[0]),
+                )
+                if count and code in reason_names
             ],
         }
 

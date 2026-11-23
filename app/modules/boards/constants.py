@@ -229,6 +229,10 @@ WORKER_ROLES: Final = {
 FULL_ROLES: Final = (Role.OWNER,)
 
 COLUMN_NAME_MAX: Final = 40
+# A board shows at most this many columns, the superuser's own among them.
+COLUMNS_MAX: Final = 20
+# The code of a column the superuser added: this and ten hex digits.
+CUSTOM_COLUMN_PREFIX: Final = "c_"
 CODE_MAX: Final = 24
 
 
@@ -492,6 +496,154 @@ RENEWAL_SILENT_COLUMNS: Final = frozenset(
 )
 
 
+# -- the buttons a column shows ---------------------------------------------
+
+# The superuser's own button: it only moves the card to its column.
+GO_ACTION: Final = "go"
+GO_ACTION_LABEL: Final = "O'z tugmasi"
+CUSTOM_BUTTON_PREFIX: Final = "b_"
+BUTTON_LABEL_MAX: Final = 40
+BUTTONS_PER_COLUMN_MAX: Final = 10
+BUTTON_DUE_CHOICES: Final = ("", "optional", "required")
+
+# The buttons of the code each board's columns may show, in the order the
+# settings offer them.
+BOARD_BUTTON_ACTIONS: Final[dict[Board, tuple[CardAction, ...]]] = {
+    Board.SALES: (
+        CardAction.CONTACTED,
+        CardAction.NO_CONTACT,
+        CardAction.CALLBACK,
+        CardAction.WILL_PAY,
+        CardAction.NEEDS_SUPPORT,
+        CardAction.RELEASE,
+        CardAction.CLOSE,
+    ),
+    Board.SUPPORT: (
+        CardAction.START,
+        CardAction.WAIT,
+        CardAction.UNREACHABLE,
+        CardAction.TO_DEVELOPER,
+        CardAction.RESOLVE,
+        CardAction.RELEASE,
+    ),
+    Board.RENEWAL: (
+        CardAction.CONTACTED,
+        CardAction.NO_CONTACT,
+        CardAction.CALLBACK,
+        CardAction.WILL_PAY,
+        CardAction.DECLINE,
+    ),
+}
+# Where each button puts the card when the superuser names no column; an
+# empty one stays where it is.
+BUTTON_DEFAULT_TO: Final[dict[Board, dict[CardAction, str]]] = {
+    Board.SALES: {
+        CardAction.CONTACTED: str(SalesColumn.CONTACTED),
+        CardAction.NO_CONTACT: str(SalesColumn.NO_CONTACT),
+        CardAction.CALLBACK: str(SalesColumn.CALLBACK),
+        CardAction.WILL_PAY: str(SalesColumn.AWAITING),
+        CardAction.NEEDS_SUPPORT: "",
+        CardAction.RELEASE: str(SalesColumn.UNWORKED),
+        CardAction.CLOSE: str(SalesColumn.CLOSED),
+    },
+    Board.SUPPORT: {
+        CardAction.START: str(SupportColumn.IN_PROGRESS),
+        CardAction.WAIT: str(SupportColumn.WAITING),
+        CardAction.UNREACHABLE: str(SupportColumn.UNREACHABLE),
+        CardAction.TO_DEVELOPER: str(SupportColumn.DEVELOPER),
+        CardAction.RESOLVE: str(SupportColumn.CONFIRMING),
+        CardAction.RELEASE: str(SupportColumn.NEW),
+    },
+    Board.RENEWAL: {
+        CardAction.CONTACTED: str(RenewalColumn.CONTACTED),
+        CardAction.NO_CONTACT: str(RenewalColumn.NO_CONTACT),
+        CardAction.CALLBACK: str(RenewalColumn.CALLBACK),
+        CardAction.WILL_PAY: str(RenewalColumn.AWAITING),
+        CardAction.DECLINE: str(RenewalColumn.DECLINED),
+    },
+}
+# The buttons whose column the superuser may change. The others carry a
+# rule of their own (a discount's clock, a close, the client's yes or no, a
+# developer's fault) and go where that rule says.
+BUTTON_MOVABLE: Final[dict[Board, frozenset[CardAction]]] = {
+    Board.SALES: frozenset(
+        {CardAction.NO_CONTACT, CardAction.CALLBACK, CardAction.WILL_PAY}
+    ),
+    Board.SUPPORT: frozenset({CardAction.WAIT}),
+    Board.RENEWAL: frozenset(
+        {
+            CardAction.CONTACTED,
+            CardAction.NO_CONTACT,
+            CardAction.CALLBACK,
+            CardAction.WILL_PAY,
+        }
+    ),
+}
+# A word on the buttons that go where their own rule says.
+BUTTON_RULE_NOTES: Final[dict[tuple[Board, CardAction], str]] = {
+    (Board.SALES, CardAction.CONTACTED): "Chegirma bo'lsa chegirma ustuniga, "
+    "bo'lmasa Bog'lanildi ga",
+    (Board.SALES, CardAction.NEEDS_SUPPORT): "Karta joyida qoladi, belgi qo'yiladi",
+    (Board.SALES, CardAction.RELEASE): "Navbatga, menejersiz",
+    (Board.SUPPORT, CardAction.RESOLVE): "Mijozdan tasdiq so'raladi",
+    (Board.SUPPORT, CardAction.RELEASE): "Navbatga, xodimsiz",
+}
+# The queues: a card there is nobody's, and its one button is the code's.
+QUEUE_COLUMNS: Final = frozenset(
+    {(Board.SALES, str(SalesColumn.UNWORKED)), (Board.SUPPORT, str(SupportColumn.NEW))}
+)
+# The columns each board came with that close a card.
+FINAL_SEED_COLUMNS: Final = frozenset(
+    (seed.board, seed.code) for seed in SEED_COLUMNS if seed.is_final
+)
+
+
+# -- automatic rules -----------------------------------------------------------
+
+
+class RuleKind(Choices):
+    # A rule the code runs.
+    SYSTEM = "system"
+    # The superuser's: a card stood in a column this long.
+    STAY = "stay"
+    # The superuser's: a card's own time (its deadline) passed.
+    DUE = "due"
+
+
+RULE_KIND_LABELS = {
+    RuleKind.SYSTEM: "Tizim qoidasi",
+    RuleKind.STAY: "Ustunda turgan vaqt bo'yicha",
+    RuleKind.DUE: "Karta muddati kelganda",
+}
+
+
+class RuleUnit(Choices):
+    MINUTES = "minutes"
+    HOURS = "hours"
+    DAYS = "days"
+
+
+RULE_UNIT_LABELS = {
+    RuleUnit.MINUTES: "daqiqa",
+    RuleUnit.HOURS: "soat",
+    RuleUnit.DAYS: "kun",
+}
+RULE_UNIT_MINUTES: Final = {
+    RuleUnit.MINUTES: 1,
+    RuleUnit.HOURS: 60,
+    RuleUnit.DAYS: 1440,
+}
+RULE_REASON_MAX: Final = 200
+RULE_NAME_MAX: Final = 80
+CUSTOM_RULE_PREFIX: Final = "u_"
+# The superuser's own rules a board holds at most.
+CUSTOM_RULES_MAX: Final = 20
+# A card moved by a «turgan vaqt» rule stood there at least this long: two
+# such rules cannot throw a card back and forth every minute.
+STAY_RULE_MIN_MINUTES: Final = 60
+RULE_AMOUNT_MAX: Final = 365
+
+
 class DeclineReason(Choices):
     EXPENSIVE = "expensive"
     NO_RESULT = "no_result"
@@ -580,6 +732,92 @@ CLOSE_REASON_LABELS = {
 }
 
 
+class ReasonPurpose(Choices):
+    """What a list of reasons is asked for."""
+
+    # Sales: «Yopish».
+    CLOSE = "close"
+    # Uzaytirish: «Rad etdi».
+    DECLINE = "decline"
+    # «Bog'lanib bo'lmadi» on Sales and Uzaytirish; asked only once the
+    # superuser has written a reason into the list.
+    NO_CONTACT = "no_contact"
+    # «Ko'chirish» by hand; with an empty list the mover writes the reason.
+    MOVE = "move"
+
+
+REASON_PURPOSE_LABELS = {
+    ReasonPurpose.CLOSE: "«Yopish» sabablari",
+    ReasonPurpose.DECLINE: "«Rad etdi» sabablari",
+    ReasonPurpose.NO_CONTACT: "«Bog'lanib bo'lmadi» sabablari",
+    ReasonPurpose.MOVE: "«Ko'chirish» sabablari",
+}
+REASON_PURPOSE_HINTS = {
+    ReasonPurpose.CLOSE: "Menejer kartani yopganda shu ro'yxatdan tanlaydi.",
+    ReasonPurpose.DECLINE: "Mijoz uzaytirmasa, menejer shu ro'yxatdan tanlaydi. "
+    "«Javob bermadi» ni 30 kun javobsiz qolgan kartaga tizim o'zi qo'yadi.",
+    ReasonPurpose.NO_CONTACT: "Ro'yxat bo'sh bo'lsa sabab so'ralmaydi. Sabab "
+    "qo'shilsa, «Bog'lanib bo'lmadi» bosilganda tanlash majburiy bo'ladi.",
+    ReasonPurpose.MOVE: "Ro'yxat bo'sh bo'lsa ko'chiruvchi sababni o'zi yozadi. "
+    "Sabab qo'shilsa, ro'yxatdan tanlash majburiy bo'ladi.",
+}
+# The lists each board has, in the order the settings show them.
+BOARD_REASON_PURPOSES: Final[dict[Board, tuple[ReasonPurpose, ...]]] = {
+    Board.SALES: (ReasonPurpose.CLOSE, ReasonPurpose.NO_CONTACT, ReasonPurpose.MOVE),
+    Board.SUPPORT: (ReasonPurpose.MOVE,),
+    Board.RENEWAL: (
+        ReasonPurpose.DECLINE,
+        ReasonPurpose.NO_CONTACT,
+        ReasonPurpose.MOVE,
+    ),
+}
+# The list a board's reasons are read from when none is named.
+BOARD_MAIN_PURPOSE: Final = {
+    Board.SALES: ReasonPurpose.CLOSE,
+    Board.SUPPORT: ReasonPurpose.MOVE,
+    Board.RENEWAL: ReasonPurpose.DECLINE,
+}
+REASON_NAME_MAX: Final = 80
+# A list holds at most this many reasons, the archived ones too.
+REASONS_MAX: Final = 50
+# The code of a reason the superuser added: this and ten hex digits.
+CUSTOM_REASON_PREFIX: Final = "r_"
+
+
+class SeedReason(NamedTuple):
+    board: Board
+    purpose: ReasonPurpose
+    code: str
+    name: str
+    note_required: bool
+
+
+# The reasons the boards came with, in their first order. The codes are
+# what cards closed before the lists were editable carry.
+SEED_REASONS: Final[tuple[SeedReason, ...]] = (
+    *(
+        SeedReason(
+            Board.SALES,
+            ReasonPurpose.CLOSE,
+            str(reason),
+            str(CLOSE_REASON_LABELS[reason]),
+            reason == CloseReason.OTHER,
+        )
+        for reason in CloseReason
+    ),
+    *(
+        SeedReason(
+            Board.RENEWAL,
+            ReasonPurpose.DECLINE,
+            str(reason),
+            str(DECLINE_REASON_LABELS[reason]),
+            reason == DeclineReason.OTHER,
+        )
+        for reason in DeclineReason
+    ),
+)
+
+
 class EventKind(Choices):
     OPENED = "opened"
     TAKEN = "taken"
@@ -641,6 +879,10 @@ class EventKind(Choices):
     DUE_REMINDED = "due_reminded"
     # The card's person was told the client opened a bill.
     BILL_TOLD = "bill_told"
+    # One of the superuser's own buttons moved the card.
+    BUTTON = "button"
+    # One of the superuser's own rules moved the card.
+    RULE = "rule"
 
 
 EVENT_KIND_LABELS = {
@@ -698,6 +940,8 @@ EVENT_KIND_LABELS = {
     EventKind.CALL_AGAIN: "Qayta qo'ng'iroq vaqti keldi",
     EventKind.DUE_REMINDED: "Telegramga eslatma yuborildi",
     EventKind.BILL_TOLD: "Hisob ochgani Telegramga yuborildi",
+    EventKind.BUTTON: "Tugma bosildi",
+    EventKind.RULE: "Avtomatik qoida",
 }
 
 NOTE_MAX: Final = 2000

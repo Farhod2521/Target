@@ -29,7 +29,14 @@ class CanOut(BaseModel):
     move: bool = Field(description="Moves a card to any column.")
     add_lead: bool = Field(description="Puts a client on the Sales board by hand.")
     add_ticket: bool = Field(description="Opens a Support ticket by hand.")
-    columns: bool = Field(description="Renames and reorders columns.")
+    columns: bool = Field(
+        description="Opens the boards' settings and reads the columns there."
+    )
+    edit_columns: bool = Field(
+        False,
+        description="The superuser: renames and reorders columns, adds their "
+        "own and takes those off.",
+    )
     staff: bool = Field(description="Adds staff and gives roles.")
     telephony: bool = Field(description="Opens the telephony settings.")
     client_card: bool = Field(
@@ -63,6 +70,11 @@ class ColumnOut(BaseModel):
         description="The name it was seeded with: a screen in another language "
         "names it by `code`. False once the office renamed it.",
     )
+    is_custom: bool = Field(
+        False,
+        description="Added by the superuser. No rule and no button moves cards "
+        "here: only `POST /cards/{id}/move`. Only these may be taken off.",
+    )
 
 
 class ColumnsOut(BaseModel):
@@ -71,6 +83,15 @@ class ColumnsOut(BaseModel):
         description="Sign-ups and events before it are not on the board."
     )
     columns: list[ColumnOut]
+    removed: list[ColumnOut] = Field(
+        default_factory=list,
+        description="The superuser's columns taken off the board: a card's "
+        "history may still name them, and the superuser may put them back.",
+    )
+    may_edit: bool = Field(
+        False, description="This person may change the columns (the superuser)."
+    )
+    max_columns: int = Field(20, description="A board shows at most this many.")
 
 
 class ClientOut(BaseModel):
@@ -155,6 +176,14 @@ class LeadKindOut(BaseModel):
     label: str
 
 
+class WhyOut(BaseModel):
+    kind: str
+    label: str
+    body: str = Field(description="The reason as written; may be empty.")
+    auto: bool = Field(description="A rule put the card there, not a person.")
+    at: datetime
+
+
 class CardOut(BaseModel):
     id: str
     board: str
@@ -221,6 +250,11 @@ class CardOut(BaseModel):
     )
     opened_at: datetime
     column_since: datetime
+    why: WhyOut | None = Field(
+        None,
+        description="Why the card stands in its column: the line that put it "
+        "there (a button, a rule, a move by hand). None: it was opened there.",
+    )
     closed_at: datetime | None
 
 
@@ -318,13 +352,28 @@ class ClientDetailOut(ClientOut):
 
 
 class ActionOut(BaseModel):
-    value: str
+    value: str = Field(
+        description="What `POST /cards/{id}/actions` takes as `action`: a button "
+        "of the code (`contacted`, `resolve`, …) or one of the superuser's own (`b_…`)."
+    )
     label: str
+    is_default_label: bool = Field(
+        True,
+        description="The button's own words: a screen in another language names it "
+        "by `value`. False: the superuser's words, shown as typed.",
+    )
     due: str = Field(
         description="`required`: ask for a time and send it as `due_at`; "
         "`optional`: offer the time; empty: none."
     )
     note_required: bool = Field(description="Ask for a line and send it as `note`.")
+    reason: str = Field(
+        "",
+        description="Ask for a reason and send its code as `reason`: `close`, "
+        "`decline` or `no_contact` names the list in "
+        "`GET /office/boards/{board}/reasons?purpose=`; `unreachable` is "
+        "Support's own list (`contact-reasons`, the `id`). Empty: none asked.",
+    )
 
 
 class BillOut(BaseModel):
@@ -341,6 +390,12 @@ class HistoryOut(BaseModel):
     label: str
     from_column: str
     to_column: str
+    from_name: str = Field(
+        "",
+        description="The column's name when it is the superuser's own (also one "
+        "taken off the board since); empty for the columns the board came with.",
+    )
+    to_name: str = Field("", description="As `from_name`.")
     actor: PersonOut | None = Field(description="Empty when a rule did it.")
     body: str
     at: datetime
@@ -498,12 +553,14 @@ class ActionIn(BaseModel):
         max_length=36,
         description="`close`: a code from `GET /office/boards/sales/reasons`. "
         "`decline`: one from `GET /office/boards/renewal/reasons`. "
+        "`no_contact`: one from `GET /office/boards/{board}/reasons?purpose=no_contact`, "
+        "required while the action's `reason` says so. "
         "`unreachable`: an `id` from `GET /office/boards/support/contact-reasons`.",
     )
     note: str = Field(
         "",
         max_length=2000,
-        description="Required for `close` and `decline` with `other` and where the action's "
+        description="Required with a reason whose `note_required` is true and where the action's "
         "`note_required` is true.",
     )
 
@@ -575,6 +632,43 @@ class ContactReasonIn(BaseModel):
 class ReasonOut(BaseModel):
     value: str
     label: str
+    note_required: bool = Field(
+        False, description="Picked with a line written: send it as `note`."
+    )
+
+
+class ReasonRowOut(BaseModel):
+    id: str
+    code: str = Field(description="What a card keeps; never changes.")
+    name: str
+    position: int
+    note_required: bool
+    is_archived: bool
+    is_default: bool = Field(description="One the board came with.")
+
+
+class ReasonListOut(BaseModel):
+    purpose: str = Field(description="`close`, `decline`, `no_contact` or `move`.")
+    label: str
+    hint: str = Field(description="When the list is asked, in a line.")
+    rows: list[ReasonRowOut] = Field(description="In order, archived ones too.")
+
+
+class ReasonListsOut(BaseModel):
+    board: str
+    may_edit: bool = Field(description="The superuser: adds, renames, archives.")
+    lists: list[ReasonListOut]
+
+
+class ReasonAddIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    note_required: bool = False
+
+
+class ReasonEditIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    position: int = Field(ge=0, le=10_000)
+    note_required: bool = False
 
 
 class StaffListOut(BaseModel):
@@ -606,6 +700,173 @@ class ColumnEditIn(BaseModel):
     name: str = Field(min_length=1, max_length=40)
 
 
+class ButtonTargetOut(BaseModel):
+    code: str
+    name: str
+
+
+class RuleOut(BaseModel):
+    id: str
+    code: str
+    kind: str = Field(description="`system`, or the superuser's own: `stay`, `due`.")
+    name: str
+    sentence: str = Field(description="The rule in a line of plain words.")
+    is_enabled: bool
+    from_columns: list[str]
+    to_column: str
+    default_to: str
+    amount: int
+    unit: str
+    amount_of: str = Field(description="What `amount` counts: «to'lovdan keyin».")
+    reason: str = Field(
+        description="What the card's history keeps; empty: the system writes it each time."
+    )
+    editable: list[str] = Field(
+        description="Of `enabled`, `from`, `to`, `amount`, `reason`: what the superuser may change."
+    )
+    note: str = Field(description="Why the rest is fixed, or what is wrong.")
+    is_changed: bool = Field(description="Differs from the code's own.")
+    is_custom: bool
+
+
+class RuleChoiceOut(BaseModel):
+    value: str
+    label: str
+
+
+class RulesOut(BaseModel):
+    board: str
+    may_edit: bool = Field(description="The superuser.")
+    max_custom: int
+    rules: list[RuleOut] = Field(description="The system's, then the superuser's own.")
+    kinds: list[RuleChoiceOut] = Field(description="The kinds a new rule may be.")
+    units: list[RuleChoiceOut]
+    from_choices: list[ButtonTargetOut] = Field(
+        description="Columns a rule may read cards from."
+    )
+    to_choices: list[ButtonTargetOut] = Field(
+        description="Columns a rule may send a card to."
+    )
+
+
+class RuleEditIn(BaseModel):
+    """Only the fields sent are changed; a system rule takes those its `editable` names."""
+
+    is_enabled: bool | None = None
+    from_columns: list[str] | None = Field(None, max_length=30)
+    to_column: str | None = Field(None, max_length=24)
+    amount: int | None = Field(None, ge=0, le=600_000)
+    reason: str | None = Field(None, max_length=200)
+    # The superuser's own rules only.
+    name: str | None = Field(None, max_length=80)
+    unit: str | None = Field(None, max_length=16)
+    kind: str | None = Field(None, max_length=16)
+
+
+class RuleAddIn(BaseModel):
+    kind: str = Field(max_length=16, description="`stay` or `due`.")
+    name: str = Field(min_length=1, max_length=80)
+    from_columns: list[str] = Field(min_length=1, max_length=30)
+    to_column: str = Field(max_length=24)
+    amount: int = Field(ge=0, le=600_000)
+    unit: str = Field(max_length=16, description="`minutes`, `hours`, `days`.")
+    reason: str = Field("", max_length=200)
+
+
+class ButtonOut(BaseModel):
+    id: str
+    code: str
+    action: str = Field(
+        description="A button of the code, or `go`: the superuser's own."
+    )
+    is_custom: bool
+    label: str
+    is_default_label: bool
+    default_label: str
+    to_column: str = Field(description="The superuser's column; empty: `default_to`.")
+    default_to: str = Field(
+        description="Where the button's own rule puts the card; empty: it stays."
+    )
+    movable: bool = Field(description="Whether `to_column` may be set.")
+    rule_note: str = Field(
+        description="A word on a button that goes where its rule says."
+    )
+    to_missing: bool = Field(description="Its column was taken off the board.")
+    due: str
+    note_required: bool
+    position: int
+    is_default: bool
+
+
+class ButtonColumnOut(BaseModel):
+    code: str
+    name: str
+    is_custom: bool
+    configurable: bool = Field(
+        description="False: a queue or a column that closes a card; `fixed` names its buttons."
+    )
+    marks_only: bool = Field(
+        description="A discount column: buttons leave a mark, the card stays."
+    )
+    is_changed: bool = Field(description="Differs from what the code gives it.")
+    buttons: list[ButtonOut]
+    fixed: list[str]
+
+
+class ButtonCatalogOut(BaseModel):
+    action: str
+    label: str
+    due: str
+    note_required: bool
+    movable: bool
+    default_to: str
+    rule_note: str
+
+
+class ButtonsOut(BaseModel):
+    board: str
+    may_edit: bool = Field(description="The superuser.")
+    max_per_column: int
+    columns: list[ButtonColumnOut]
+    catalog: list[ButtonCatalogOut] = Field(
+        description="The buttons a column may be given; `go` is the superuser's own."
+    )
+    targets: list[ButtonTargetOut] = Field(
+        description="The columns a button may send a card to."
+    )
+
+
+class ButtonAddIn(BaseModel):
+    column: str = Field(max_length=24)
+    action: str = Field(max_length=24, description="From `catalog`.")
+    label: str = Field("", max_length=40, description="Required for `go`.")
+    to_column: str = Field("", max_length=24, description="Required for `go`.")
+    due: str = Field("", max_length=16, description="`go`: ``, `optional`, `required`.")
+    note_required: bool = False
+
+
+class ButtonEditIn(BaseModel):
+    label: str = Field("", max_length=40)
+    to_column: str = Field("", max_length=24)
+    due: str = Field("", max_length=16)
+    note_required: bool = False
+    position: int = Field(ge=0, le=10_000)
+
+
+class ButtonResetIn(BaseModel):
+    column: str = Field(max_length=24)
+
+
+class ColumnAddIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    after: str | None = Field(
+        None,
+        max_length=24,
+        description="The visible column's code it stands right after. Empty: "
+        "before the first final column.",
+    )
+
+
 class ColumnsIn(BaseModel):
     columns: list[ColumnEditIn] = Field(
         max_length=20,
@@ -617,7 +878,18 @@ class MoveIn(BaseModel):
     column: str = Field(
         max_length=24, description="A visible column's code on the card's board."
     )
-    reason: str = Field(min_length=1, max_length=2000)
+    reason: str = Field(
+        "",
+        max_length=2000,
+        description="Why, in the mover's words. Required while the board's "
+        "`move` list is empty, and with a listed reason whose `note_required` is true.",
+    )
+    reason_code: str = Field(
+        "",
+        max_length=24,
+        description="A code from `GET /office/boards/{board}/reasons?purpose=move`; "
+        "required once that list has a reason.",
+    )
     contact_reason: str = Field(
         default="",
         max_length=64,

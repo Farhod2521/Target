@@ -19,26 +19,17 @@ from app.modules.billing.constants import (
     InvoiceStatus,
 )
 from app.modules.billing.models import Invoice, Subscription
-from app.modules.boards import reasons
+from app.modules.boards import buttons, reason_lists, reasons
 from app.modules.boards.access import Access
 from app.modules.boards.constants import (
-    ACTION_DUE_OPTIONAL,
-    ACTION_DUE_REQUIRED,
-    ACTION_NOTE_REQUIRED,
-    CARD_ACTION_LABELS,
     CLIENT_SEARCH_ROWS,
-    CLOSE_REASON_LABELS,
     CONFIRM_HOURS,
     EVENT_KIND_LABELS,
     LEAD_TAKE_LIMIT,
     OFFER_ENDED_LABEL,
     OFFER_ENDED_REASON,
-    RENEWAL_ACTIONS,
     RENEWAL_PLAN_CODES,
-    SALES_ACTIONS,
     SEARCH_MAX,
-    SUPPORT_ACTION_LABELS,
-    SUPPORT_ACTIONS,
     SUPPORT_DONE_COLUMNS,
     SUPPORT_DONE_SHOWN_DAYS,
     SUPPORT_FINAL_COLUMNS,
@@ -46,9 +37,10 @@ from app.modules.boards.constants import (
     TICKET_TAKE_LIMIT,
     AttemptsFilter,
     Board,
-    CloseReason,
+    CardAction,
     DueFilter,
     EventKind,
+    ReasonPurpose,
     SalesColumn,
     SalesKind,
     SupportColumn,
@@ -56,7 +48,7 @@ from app.modules.boards.constants import (
     is_default_column_name,
 )
 from app.modules.boards.models import BoardCard, BoardCardEvent
-from app.modules.boards.selectors import ColumnView, columns_for
+from app.modules.boards.selectors import ColumnView, columns_for, custom_names
 
 
 def _person(user: User | None) -> dict[str, str] | None:
@@ -244,6 +236,8 @@ class Extras:
     heat: dict[uuid.UUID, Any] = field(default_factory=dict)
     # owner id -> the kind of lead the client is now (boards.sales_kinds).
     kinds: dict[uuid.UUID, str] = field(default_factory=dict)
+    # card id -> the line that put the card in its column: why it is there.
+    whys: dict[uuid.UUID, dict[str, Any]] = field(default_factory=dict)
 
 
 def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
@@ -258,8 +252,9 @@ def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
     ]
     sales = [card for card in cards if card.board == str(Board.SALES)]
     marks = _client_marks(db, cards)
+    whys = column_whys(db, cards)
     if not billed:
-        return Extras(offered={}, bills={}, renewal=renewal, marks=marks)
+        return Extras(offered={}, bills={}, renewal=renewal, marks=marks, whys=whys)
     bills: dict[uuid.UUID, Invoice] = {}
     for bill in db.scalars(
         open_bills(now)
@@ -284,7 +279,42 @@ def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
         marks=marks,
         heat=heat,
         kinds=kinds,
+        whys=whys,
     )
+
+
+def column_whys(db: Session, cards: list[BoardCard]) -> dict[uuid.UUID, dict[str, Any]]:
+    """Why each card stands where it does: the newest line of its history
+    that put it in its column — a button, a rule of the system or of the
+    superuser's, a move by hand. One query whatever the cards."""
+    if not cards:
+        return {}
+    rows = db.scalars(
+        select(BoardCardEvent)
+        .join(BoardCard, BoardCard.id == BoardCardEvent.card_id)
+        .where(
+            BoardCardEvent.card_id.in_([card.id for card in cards]),
+            BoardCardEvent.to_column == BoardCard.column_code,
+            BoardCardEvent.created_at >= BoardCard.column_since,
+        )
+        .order_by(BoardCardEvent.created_at.desc(), BoardCardEvent.id)
+    )
+    out: dict[uuid.UUID, dict[str, Any]] = {}
+    for event in rows:
+        # Newest first: a card's first line here is the one that counts.
+        if event.card_id in out:
+            continue
+        out[event.card_id] = {
+            "kind": event.kind,
+            "label": str(EVENT_KIND_LABELS.get(EventKind(event.kind), event.kind))
+            if event.kind in EventKind.values
+            else event.kind,
+            "body": event.body,
+            # Nobody pressed anything: a rule did it.
+            "auto": event.actor_id is None,
+            "at": event.created_at,
+        }
+    return out
 
 
 _CLIENT_KINDS = (str(EventKind.DENIED), str(EventKind.CLIENT_REPLIED))
@@ -418,6 +448,7 @@ def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, A
         "opened_at": card.opened_at,
         "column_since": card.column_since,
         "closed_at": card.closed_at,
+        "why": extras.whys.get(card.id),
     }
 
 
@@ -481,6 +512,7 @@ def board_view(
                 "is_default_name": is_default_column_name(
                     board=str(board), code=item.code, name=item.name
                 ),
+                "is_custom": item.is_custom,
                 "total": total,
                 "recent_days": SUPPORT_DONE_SHOWN_DAYS if recent_only else None,
                 "cards": [card_brief(card, extras=extras, now=now) for card in cards],
@@ -571,28 +603,55 @@ def _take_lead(db: Session, *, user: User, now: datetime) -> dict[str, Any]:
     }
 
 
-def _actions(card: BoardCard) -> list[dict[str, Any]]:
-    if card.board == str(Board.SUPPORT):
-        offered = SUPPORT_ACTIONS.get(card.column_code, ())
-    elif card.closed_at is not None:
-        offered = ()
-    elif card.board == str(Board.RENEWAL):
-        offered = RENEWAL_ACTIONS.get(card.column_code, ())
-    else:
-        offered = SALES_ACTIONS.get(card.column_code, ())
-    labels = SUPPORT_ACTION_LABELS if card.board == str(Board.SUPPORT) else {}
+def close_reason_label(db: Session, card: BoardCard) -> str:
+    """Why the card closed, in the words its list has now."""
+    if not card.close_reason:
+        return ""
+    if card.close_reason == OFFER_ENDED_REASON:
+        return OFFER_ENDED_LABEL
+    purpose = (
+        ReasonPurpose.DECLINE
+        if card.board == str(Board.RENEWAL)
+        else ReasonPurpose.CLOSE
+    )
+    names = reason_lists.labels(db, board=Board(card.board), purpose=purpose)
+    return names.get(card.close_reason, "")
+
+
+# The list a button's reason is picked from; Support's «Bog'lanib bo'lmadi»
+# reads its own list (`contact-reasons`).
+_ACTION_REASONS: dict[CardAction, str] = {
+    CardAction.CLOSE: str(ReasonPurpose.CLOSE),
+    CardAction.DECLINE: str(ReasonPurpose.DECLINE),
+    CardAction.UNREACHABLE: "unreachable",
+}
+
+
+def _actions(db: Session, card: BoardCard) -> list[dict[str, Any]]:
+    """The card's buttons where it stands, as the superuser set them."""
+    board = Board(card.board)
+    offered = buttons.offered(db, card)
+    # «Bog'lanib bo'lmadi» asks for a reason only while its list has one.
+    no_contact = (
+        str(ReasonPurpose.NO_CONTACT)
+        if any(item.action == CardAction.NO_CONTACT for item in offered)
+        and reason_lists.asked(db, board=board, purpose=ReasonPurpose.NO_CONTACT)
+        else ""
+    )
     return [
         {
-            "value": str(action),
-            "label": str(labels.get(action, CARD_ACTION_LABELS[action])),
-            "due": "required"
-            if action in ACTION_DUE_REQUIRED
-            else "optional"
-            if action in ACTION_DUE_OPTIONAL
-            else "",
-            "note_required": action in ACTION_NOTE_REQUIRED,
+            "value": item.code,
+            "label": item.label,
+            "is_default_label": item.is_default_label,
+            "due": item.due,
+            "note_required": item.note_required,
+            "reason": ""
+            if item.action is None
+            else no_contact
+            if item.action == CardAction.NO_CONTACT
+            else _ACTION_REASONS.get(item.action, ""),
         }
-        for action in offered
+        for item in offered
     ]
 
 
@@ -722,19 +781,10 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
             select(User).where(User.id.in_({e.actor_id for e in events if e.actor_id}))
         )
     }
-    from app.modules.boards.renewal import decline_label
-
-    reason = (
-        decline_label(card.close_reason)
-        if card.board == str(Board.RENEWAL)
-        else str(CLOSE_REASON_LABELS[CloseReason(card.close_reason)])
-        if card.close_reason in CloseReason.values
-        else OFFER_ENDED_LABEL
-        if card.close_reason == OFFER_ENDED_REASON
-        else ""
-    )
+    reason = close_reason_label(db, card)
     extras = extras_for(db, [card], now=now)
     brief = card_brief(card, extras=extras, now=now)
+    own_columns = custom_names(db, board=card.board)
     # Imported here: telephony's routes read who is on a board.
     from app.modules.telephony import calls as phone_calls
 
@@ -756,7 +806,7 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
         "close_reason": card.close_reason,
         "close_reason_label": reason,
         "close_note": card.close_note,
-        "actions": _actions(card),
+        "actions": _actions(db, card),
         "history": [
             {
                 "kind": event.kind,
@@ -765,6 +815,8 @@ def card_detail(db: Session, *, card: BoardCard, now: datetime) -> dict[str, Any
                 else event.kind,
                 "from_column": event.from_column,
                 "to_column": event.to_column,
+                "from_name": own_columns.get(event.from_column, ""),
+                "to_name": own_columns.get(event.to_column, ""),
                 "actor": _person(actors.get(event.actor_id))
                 if event.actor_id
                 else None,

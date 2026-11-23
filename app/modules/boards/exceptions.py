@@ -38,7 +38,38 @@ class ReasonRequired(DomainError):
     status_code = 422
 
     def __init__(self) -> None:
-        super().__init__("Yopish sababini tanlang.")
+        super().__init__("Sababni ro'yxatdan tanlang.")
+
+
+class NoSuchReasonList(NotFound):
+    def __init__(self) -> None:
+        super().__init__("Bu kanbanda bunday sabablar ro'yxati yo'q.")
+
+
+class NoSuchReason(NotFound):
+    def __init__(self) -> None:
+        super().__init__("Sabab topilmadi.")
+
+
+class ReasonNameRequired(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Sabab nomini yozing.")
+
+
+class ReasonNameTaken(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bu sabab ro'yxatda bor. Boshqa nom yozing.")
+
+
+class TooManyReasons(DomainError):
+    status_code = 422
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"Bir ro'yxatda ko'pi bilan {limit} ta sabab bo'ladi.")
 
 
 class NoteRequired(DomainError):
@@ -74,6 +105,147 @@ class ColumnNameRequired(DomainError):
 
     def __init__(self) -> None:
         super().__init__("Ustun nomini yozing.")
+
+
+class ColumnNameTaken(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bu nomli ustun bor. Boshqa nom yozing.")
+
+
+class TooManyColumns(DomainError):
+    status_code = 422
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"Bir kanbanda ko'pi bilan {limit} ta ustun bo'ladi.")
+
+
+class ColumnNotCustom(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu standart ustun: avtomatik qoidalar shu ustun bilan ishlaydi, "
+            "uni olib tashlab bo'lmaydi."
+        )
+
+
+class ColumnHasCards(DomainError):
+    status_code = 422
+
+    def __init__(self, count: int) -> None:
+        super().__init__(
+            f"Ustunda {count} ta karta bor. Avval ularni boshqa ustunga ko'chiring."
+        )
+
+
+class NoSuchRule(NotFound):
+    def __init__(self) -> None:
+        super().__init__("Qoida topilmadi.")
+
+
+class RuleFieldFixed(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bu qoidaning bu qismi o'zgarmaydi: uni tizim boshqaradi.")
+
+
+class RuleInvalid(DomainError):
+    status_code = 422
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
+class TooManyRules(DomainError):
+    status_code = 422
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"Bir kanbanda ko'pi bilan {limit} ta o'z qoidangiz bo'ladi.")
+
+
+class ColumnHasRules(DomainError):
+    status_code = 422
+
+    def __init__(self, count: int) -> None:
+        super().__init__(
+            f"Bu ustun bilan {count} ta avtomatik qoida ishlaydi. Avval ularni "
+            "o'zgartiring yoki olib tashlang."
+        )
+
+
+class NoSuchButton(NotFound):
+    def __init__(self) -> None:
+        super().__init__("Tugma topilmadi.")
+
+
+class UnknownButton(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bu kanbanda bunday tugma yo'q.")
+
+
+class ButtonExists(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bu tugma shu ustunda bor.")
+
+
+class ButtonLabelRequired(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Tugma nomini yozing.")
+
+
+class ButtonColumnFixed(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu ustunning tugmalari o'zgarmaydi: navbat va yakuniy ustunlarni "
+            "tizim boshqaradi."
+        )
+
+
+class ButtonTargetFixed(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu tugma kartani qayerga o'tkazishini tizim qoidasi belgilaydi."
+        )
+
+
+class ButtonTargetInvalid(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Tugma kartani faqat qo'lda ishlanadigan, yakuniy bo'lmagan boshqa "
+            "ustunga o'tkaza oladi."
+        )
+
+
+class TooManyButtons(DomainError):
+    status_code = 422
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"Bir ustunda ko'pi bilan {limit} ta tugma bo'ladi.")
+
+
+class ColumnHasButtons(DomainError):
+    status_code = 422
+
+    def __init__(self, count: int) -> None:
+        super().__init__(
+            f"Bu ustunga {count} ta tugma karta o'tkazadi. Avval ularni "
+            "o'zgartiring yoki olib tashlang."
+        )
 
 
 class NoSuchColumn(DomainError):

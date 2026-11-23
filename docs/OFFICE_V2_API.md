@@ -319,6 +319,163 @@ Hamma ko'rinadigan ustunlarni yangi tartibda va nomi bilan yuboring:
 
 Ro'yxat to'liq bo'lmasa: **422** `columns_mismatch`. Kodlar o'zgarmaydi.
 
+**2026-11-23 dan: ustunlarni faqat superuser o'zgartiradi** (`me.can.edit_columns`,
+javobdagi `may_edit`). Egasi sozlamalarni ochadi va o'qiydi (`can.columns`), o'zgartirsa **403**.
+
+### Ustun qo'shish: `POST /api/v2/office/boards/{board}/columns`
+
+```json
+{"name": "Demo ko'rsatildi", "after": "contacted"}
+```
+
+`after` — qaysi ko'rinadigan ustundan keyin tursin; bo'sh bo'lsa birinchi yakuniy ustundan
+(Sotildi, Hal qilindi, Uzaytirdi) oldin. Javob **201**: doskaning barcha ustunlari
+(`GET .../columns` bilan bir xil). Yangi ustun: `code` = `c_` + 10 belgi, `is_custom: true`,
+`kind: "manual"`, `is_final: false`.
+
+Qoidasi: bu ustunni hech bir avtomatik qoida va hech bir tugma bilmaydi. Karta unga faqat
+`POST /cards/{id}/move` bilan kiradi va chiqadi, kartada `actions` bo'sh. To'lov kelsa karta
+baribir «Sotildi»ga o'tadi (u har qanday ustundan ishlaydi).
+
+Xatolar (**422**): `column_name_required`, `column_name_taken` (shu doskada shu nom bor),
+`too_many_columns` (ko'rinadigan ustun 20 tadan oshmaydi, `max_columns`), `no_such_column` (`after`).
+
+### Ustunni olib tashlash: `DELETE /api/v2/office/boards/{board}/columns/{code}`
+
+Faqat `is_custom` ustun. O'chirilmaydi, yashiriladi: javobning `removed` ro'yxatiga o'tadi
+(karta tarixi uni nomi bilan ko'rsatishi uchun). Xatolar (**422**): `column_not_custom`
+(standart ustun), `column_has_cards` (ichida karta bor, avval ko'chiring), `no_such_column`.
+
+### Qaytarish: `POST /api/v2/office/boards/{board}/columns/{code}/restore`
+
+Yakuniy ustunlardan oldin turadi. **422** `column_name_taken`, `too_many_columns`.
+
+### Sabablar ro'yxatlari (2026-11-23)
+
+Kodda qat'iy yozilgan sabablar endi bazada, superuser boshqaradi. Karta sababning `code`ini
+saqlaydi: nomi o'zgarsa yoki arxivlansa ham eski kartalar va hisobotlar to'g'ri o'qiladi.
+
+| Kanban | Ro'yxat (`purpose`) | Qachon so'raladi | Boshida |
+|---|---|---|---|
+| Sotuv | `close` | «Yopish» | 5 ta (eski kodlar) |
+| Uzaytirish | `decline` | «Rad etdi» | 7 ta (eski kodlar) |
+| Sotuv, Uzaytirish | `no_contact` | «Bog'lanib bo'lmadi» — faqat ro'yxatda sabab bo'lsa, shunda majburiy | bo'sh |
+| Uchala kanban | `move` | «Ko'chirish» — ro'yxatda sabab bo'lsa tanlash majburiy, bo'sh bo'lsa matn majburiy | bo'sh |
+
+Support «Bog'lanib bo'lmadi» o'z ro'yxatida qoladi (`contact-reasons`); uni ham endi faqat
+superuser o'zgartiradi (Egasi o'qiydi, `may_edit: false`).
+
+- `GET /boards/{board}/reasons?purpose=` → `[{value, label, note_required}]`, faqat faollari.
+  `purpose` bo'sh bo'lsa asosiy ro'yxat (`sales` → `close`, `renewal` → `decline`,
+  `support` → `move`). Eski `GET /boards/sales/reasons` va `/boards/renewal/reasons` shu yo'l.
+- `GET /boards/{board}/reason-lists` → sozlamalar uchun: `{board, may_edit, lists: [{purpose, label, hint, rows}]}`,
+  `rows` arxivdagilar bilan: `{id, code, name, position, note_required, is_archived, is_default}`.
+- `POST /boards/{board}/reason-lists/{purpose}` `{name, note_required}` → **201** qator.
+- `PUT /boards/{board}/reason-lists/{purpose}/{id}` `{name, position, note_required}`.
+- `POST .../{id}/archive`, `POST .../{id}/restore`.
+
+Yozish faqat superuser (Egasi **403**). Xatolar: **422** `reason_name_required`,
+`reason_name_taken`, `too_many_reasons` (50); **404** `no_such_reason_list`, `no_such_reason`.
+
+Kartada: `actions[].reason` — tugma sabab so'rasa ro'yxat nomi (`close`, `decline`,
+`no_contact`; Support uchun `unreachable`), aks holda bo'sh. Tanlangan `code` `reason` da yuboriladi;
+sababning `note_required` rost bo'lsa `note` majburiy (**422** `note_required`).
+`POST /cards/{id}/move`: `reason_code` (ro'yxatdan) va `reason` (matn); `reason` endi bo'sh
+bo'lishi mumkin, agar `reason_code` berilgan bo'lsa.
+
+### Ustun tugmalari (2026-11-23)
+
+Har ustun kartasida qaysi tugmalar chiqishi endi bazada (`board_buttons`), superuser sozlaydi.
+Boshida hammasi kod bergandek (migratsiya 0079). Karta `actions[]` shu jadvaldan o'qiladi.
+
+Tugma ikki xil:
+
+- **Kod tugmasi** (`contacted`, `no_contact`, `callback`, `will_pay`, `needs_support`, `release`,
+  `close`; Support: `start`, `wait`, `unreachable`, `to_developer`, `resolve`, `release`;
+  Uzaytirish: `contacted`, `no_contact`, `callback`, `will_pay`, `decline`). Nima qilishi kodda
+  (yopish sababi, chegirma soati, mijozdan tasdiq, dasturchiga xato). Superuser: qaysi ustunda
+  chiqishini, nomini (`label`), va `movable` bo'lganlari uchun qaysi ustunga o'tkazishini belgilaydi.
+  `movable`: Sotuv `no_contact`, `callback`, `will_pay`; Support `wait`; Uzaytirish `contacted`,
+  `no_contact`, `callback`, `will_pay`. Qolganlari o'z qoidasi bo'yicha yuradi (`rule_note`).
+- **O'z tugmasi** (`action: "go"`, kodi `b_…`): faqat kartani tanlangan ustunga o'tkazadi.
+  Nomi, ustuni, vaqt so'rashi (`due`: bo'sh, `optional`, `required`) va izoh majburiyligi sozlanadi.
+  Tarixda `button` («Tugma bosildi»), matni: tugma nomi va izoh.
+
+Cheklovlar:
+
+- Navbat (Sotuv «Ishlanmagan», Support «Yangi»), yakuniy ustunlar va Support'ning hal qilingan
+  ustunlari sozlanmaydi (`configurable: false`, tugmalari `fixed` da): **422** `button_column_fixed`.
+- Tugma kartani faqat ko'rinadigan, qo'lda ishlanadigan (`kind: manual`), yakuniy bo'lmagan boshqa
+  ustunga o'tkazadi (`targets`): **422** `button_target_invalid`.
+- Chegirma ustunlarida (`marks_only`) tugma belgi qo'yadi, karta joyida qoladi: u yerda ustun
+  tanlab bo'lmaydi va o'z tugmasi qo'shilmaydi: **422** `button_target_fixed`. O'z qoidasi bor tugmaga
+  ustun berilsa ham shu xato.
+- Bir ustunda ko'pi bilan 10 ta tugma (`too_many_buttons`); kod tugmasi ustunda bir marta (`button_exists`).
+- Tugma o'tkazadigan ustunni doskadan olib bo'lmaydi: **422** `column_has_buttons`.
+
+Yo'llar (yozish faqat superuser, Egasi **403**; javob har doim butun `ButtonsOut`):
+
+- `GET /boards/{board}/buttons` → `{board, may_edit, max_per_column, columns, catalog, targets}`.
+- `POST /boards/{board}/buttons` `{column, action, label, to_column, due, note_required}` → **201**.
+- `PUT /boards/{board}/buttons/{id}` `{label, to_column, due, note_required, position}`.
+- `DELETE /boards/{board}/buttons/{id}`.
+- `POST /boards/{board}/buttons/reset` `{column}` — «Standartga qaytarish»: ustun tugmalari kod
+  bergandek; superuser qo'shgan ustunda bo'sh qoladi.
+
+Front uchun: `actions[].value` endi `b_…` ham bo'lishi mumkin — `POST /cards/{id}/actions` ga
+`action` sifatida shu yuboriladi. `actions[].is_default_label: false` bo'lsa `label` yozilganidek
+ko'rsatiladi (tarjima qilinmaydi). Ustunda yo'q tugma kodi: **409** `action_not_here` (avval noma'lum
+kod uchun 422 edi).
+
+### Avtomatik qoidalar (2026-11-23)
+
+Tizim o'zi qiladigan har bir ko'chirish endi alohida qoida, bazada o'z qatori bilan (`board_rules`,
+migratsiya 0080: 28 ta, hammasi kodda bo'lgan qiymatlar bilan). Superuser qoidaning ochiq qismlarini
+o'zgartiradi; qolgani kodda qoladi.
+
+`GET /boards/{board}/rules` → `{board, may_edit, max_custom, rules, kinds, units, from_choices, to_choices}`.
+Har qoida: `{id, code, kind, name, sentence, is_enabled, from_columns, to_column, default_to, amount, unit,
+amount_of, reason, editable, note, is_changed, is_custom}`. `sentence` — qoida oddiy gapda (o'zbekcha,
+ustun nomlari bilan). `editable` — `enabled`, `from`, `to`, `amount`, `reason` dan qaysilari ochiq.
+
+| Qoida | Ochiq qismlari |
+|---|---|
+| `sales.bill_opened`, `renewal.bill_opened` (mijoz hisob ochdi) | yoqish, qaysi ustunlardan, qaysi ustunga, sabab |
+| `sales.bill_unpaid`, `renewal.bill_unpaid` (hisob to'lanmadi) | yoqish, qaysi ustunga, sabab |
+| `support.due_back` (kutish vaqti keldi), `support.client_replied` (mijoz yozdi) | yoqish, qaysi ustunlardan, qaysi ustunga, sabab |
+| `support.setup_late` (60 daqiqa), `support.meta_error` (30 daqiqa), `support.idle_no_launch` (3 kun), `support.idle_no_spend` (24 soat) | yoqish, muddat |
+| `support.from_sales`, `support.survey` | yoqish |
+| `renewal.opened` (muddat tugashidan 3 kun oldin) | muddat |
+| `renewal.silent` (30 kun javobsiz → «Rad etdi») | yoqish, qaysi ustunlardan, muddat, sabab |
+| `sales.sold`, `sales.start_bought`, `sales.offer_step`, `sales.offer_ended`, `support.unanswered`, `renewal.ended` | faqat sabab matni (pul va tasdiq qoidalari) |
+| qolganlari (`sales.lead_opened`, `sales.given`, `support.reopened`, `renewal.renewed`, …) | hech narsa: sababni tizim har safar o'zi yozadi |
+
+Sabab matni (`reason`) karta tarixiga yoziladi. Avval bo'sh yoziladigan 14 ta ko'chirish endi sabab bilan
+yoziladi; hisob qoidalarida hisob raqami va summasi qo'shiladi («…: №TA-123, 490 000 UZS»).
+
+**Superuserning o'z qoidalari** (`kind`): `stay` — karta ustunda shuncha tursa (kamida 1 soat);
+`due` — kartaga qo'yilgan vaqt o'tsa (0 dan boshlab). Ikkalasi kartani tanlangan ustunga o'tkazadi,
+tarixda `rule` («Avtomatik qoida»), matni: qoida nomi va sababi. Har daqiqalik tekshiruvda, tizim
+qoidalaridan keyin ishlaydi. Bir kanbanda ko'pi bilan 20 ta.
+
+Cheklovlar (**422** `rule_invalid`): qoida faqat ko'rinadigan ochiq ustunlardan o'qiydi (navbat,
+chegirma va yakuniy ustunlardan emas) va faqat qo'lda ishlanadigan, yakuniy bo'lmagan ustunga
+o'tkazadi. Tizim qoidasining yopiq qismi yuborilsa: **422** `rule_field_fixed`. Qoida ishlatadigan
+ustunni doskadan olib bo'lmaydi: **422** `column_has_rules`.
+
+Yo'llar (yozish faqat superuser, Egasi **403**; javob har doim butun `RulesOut`):
+
+- `POST /boards/{board}/rules` `{kind, name, from_columns, to_column, amount, unit, reason}` → **201**.
+- `PATCH /boards/{board}/rules/{id}` — tizim qoidasi uchun faqat o'zgargan maydonlar
+  (`is_enabled`, `from_columns`, `to_column`, `amount`, `reason`); o'z qoidasi uchun butunligicha
+  (`kind, name, from_columns, to_column, amount, unit, reason, is_enabled`).
+- `POST /boards/{board}/rules/{id}/reset` — tizim qoidasini kod qiymatlariga qaytaradi.
+- `DELETE /boards/{board}/rules/{id}` — faqat o'z qoidasi (tizimniki o'chirilmaydi, faqat `is_enabled: false`).
+
+**Kartada «nega shu ustunda»**: `CardOut.why` (doskada ham, karta ichida ham):
+`{kind, label, body, auto, at}` — kartani hozirgi ustuniga qo'ygan oxirgi tarix qatori.
+`auto: true` — qoida ko'chirgan (odam emas). `null` — karta shu ustunda ochilgan.
+
 ### Xodimlar
 
 Ofis frontida xodimlar va rollar endi faqat **Jamoa** bo'limida (`/api/v1/office/team`, Egasi va superuser):
