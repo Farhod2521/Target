@@ -319,6 +319,37 @@ Hamma ko'rinadigan ustunlarni yangi tartibda va nomi bilan yuboring:
 
 Ro'yxat to'liq bo'lmasa: **422** `columns_mismatch`. Kodlar o'zgarmaydi.
 
+**2026-11-23 dan: ustunlarni faqat superuser o'zgartiradi** (`me.can.edit_columns`,
+javobdagi `may_edit`). Egasi sozlamalarni ochadi va o'qiydi (`can.columns`), o'zgartirsa **403**.
+
+### Ustun qo'shish: `POST /api/v2/office/boards/{board}/columns`
+
+```json
+{"name": "Demo ko'rsatildi", "after": "contacted"}
+```
+
+`after` — qaysi ko'rinadigan ustundan keyin tursin; bo'sh bo'lsa birinchi yakuniy ustundan
+(Sotildi, Hal qilindi, Uzaytirdi) oldin. Javob **201**: doskaning barcha ustunlari
+(`GET .../columns` bilan bir xil). Yangi ustun: `code` = `c_` + 10 belgi, `is_custom: true`,
+`kind: "manual"`, `is_final: false`.
+
+Qoidasi: bu ustunni hech bir avtomatik qoida va hech bir tugma bilmaydi. Karta unga faqat
+`POST /cards/{id}/move` bilan kiradi va chiqadi, kartada `actions` bo'sh. To'lov kelsa karta
+baribir «Sotildi»ga o'tadi (u har qanday ustundan ishlaydi).
+
+Xatolar (**422**): `column_name_required`, `column_name_taken` (shu doskada shu nom bor),
+`too_many_columns` (ko'rinadigan ustun 20 tadan oshmaydi, `max_columns`), `no_such_column` (`after`).
+
+### Ustunni olib tashlash: `DELETE /api/v2/office/boards/{board}/columns/{code}`
+
+Faqat `is_custom` ustun. O'chirilmaydi, yashiriladi: javobning `removed` ro'yxatiga o'tadi
+(karta tarixi uni nomi bilan ko'rsatishi uchun). Xatolar (**422**): `column_not_custom`
+(standart ustun), `column_has_cards` (ichida karta bor, avval ko'chiring), `no_such_column`.
+
+### Qaytarish: `POST /api/v2/office/boards/{board}/columns/{code}/restore`
+
+Yakuniy ustunlardan oldin turadi. **422** `column_name_taken`, `too_many_columns`.
+
 ### Xodimlar
 
 Ofis frontida xodimlar va rollar endi faqat **Jamoa** bo'limida (`/api/v1/office/team`, Egasi va superuser):

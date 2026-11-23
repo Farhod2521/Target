@@ -1,6 +1,7 @@
 """The office boards, version 2: ``/api/v2/office/...``. Version 1's sales
 board is not read or changed here."""
 
+import logging
 import uuid
 from datetime import date, timedelta
 from typing import Annotated, Any
@@ -41,6 +42,7 @@ from app.modules.boards.constants import (
     CLOSE_REASON_LABELS,
     COLUMN_CARDS,
     COLUMN_CARDS_MAX,
+    COLUMNS_MAX,
     DECLINE_REASON_LABELS,
     REPORT_DEFAULT_DAYS,
     Board,
@@ -58,6 +60,7 @@ from app.modules.boards.schemas import (
     CardClientOut,
     CardDetailOut,
     ClientsFoundOut,
+    ColumnAddIn,
     ColumnsIn,
     ColumnsOut,
     ContactReasonIn,
@@ -90,6 +93,8 @@ from app.modules.boards.schemas import (
     TicketAnswerOut,
     TicketQuestionStateOut,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/office", tags=["office boards v2"])
 # The client's side: the one question Support asks them.
@@ -163,6 +168,7 @@ def me(db: Db, user: Staff) -> dict[str, Any]:
             "add_lead": access.leads_board(Board.SALES),
             "add_ticket": access.sees(Board.SUPPORT),
             "columns": access.full,
+            "edit_columns": bool(user.is_superuser),
             "staff": access.full,
             "telephony": access.full,
             "client_card": bool(user.is_superuser)
@@ -177,24 +183,35 @@ def columns(db: Db, staff: BoardStaff) -> dict[str, Any]:
     """The board's columns as this person sees them, in order."""
     selectors.ensure_board(db, board=staff.board, now=utcnow())
     db.commit()
+    board_code = str(staff.board)
+
+    def out(column: selectors.ColumnView) -> dict[str, Any]:
+        return {
+            "code": column.code,
+            "name": column.name,
+            "position": column.position,
+            "kind": column.kind,
+            "is_final": column.is_final,
+            "is_default_name": is_default_column_name(
+                board=board_code, code=column.code, name=column.name
+            ),
+            "is_custom": column.is_custom,
+        }
+
     return {
-        "board": str(staff.board),
+        "board": board_code,
         "live_since": selectors.live_since(db, board=staff.board),
         "columns": [
-            {
-                "code": column.code,
-                "name": column.name,
-                "position": column.position,
-                "kind": column.kind,
-                "is_final": column.is_final,
-                "is_default_name": is_default_column_name(
-                    board=str(staff.board), code=column.code, name=column.name
-                ),
-            }
+            out(column)
             for column in selectors.columns_for(
                 db, board=staff.board, access=staff.access
             )
         ],
+        "removed": [
+            out(column) for column in selectors.removed_columns(db, board=staff.board)
+        ],
+        "may_edit": bool(staff.user.is_superuser),
+        "max_columns": COLUMNS_MAX,
     }
 
 
@@ -803,12 +820,74 @@ def set_survey_help(
     )
 
 
+def _columns_keeper(staff: BoardStaff) -> None:
+    """Only the superuser changes a board's columns; the Owner reads them."""
+    if staff.user.is_superuser:
+        return
+    if staff.access.full:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Ruxsat yo'q.")
+    raise HTTPException(status.HTTP_404_NOT_FOUND)
+
+
+@router.post(
+    "/boards/{board}/columns",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": ColumnsOut}},
+)
+def add_column(db: Db, staff: BoardStaff, body: ColumnAddIn) -> dict[str, Any]:
+    """A new column of the superuser's own. Cards reach it and leave it
+    only by `POST /cards/{id}/move`; no rule and no button knows it, and it
+    never closes a card. The board's columns, the new one among them."""
+    _columns_keeper(staff)
+    now = utcnow()
+    selectors.ensure_board(db, board=staff.board, now=now)
+    code = selectors.add_column(
+        db,
+        board=staff.board,
+        name=body.name,
+        after=body.after or None,
+        actor_id=staff.user.id,
+        now=now,
+    )
+    logger.info(
+        "board column added",
+        extra={"board": str(staff.board), "code": code, "actor_id": str(staff.user.id)},
+    )
+    return columns(db, staff)
+
+
+@router.delete("/boards/{board}/columns/{code}", responses={200: {"model": ColumnsOut}})
+def remove_column(db: Db, staff: BoardStaff, code: str) -> dict[str, Any]:
+    """Take one of the superuser's own columns off the board. Refused
+    while a card stands in it, and for the columns the board came with."""
+    _columns_keeper(staff)
+    selectors.remove_column(
+        db, board=staff.board, code=code, actor_id=staff.user.id, now=utcnow()
+    )
+    logger.info(
+        "board column removed",
+        extra={"board": str(staff.board), "code": code, "actor_id": str(staff.user.id)},
+    )
+    return columns(db, staff)
+
+
+@router.post(
+    "/boards/{board}/columns/{code}/restore", responses={200: {"model": ColumnsOut}}
+)
+def restore_column(db: Db, staff: BoardStaff, code: str) -> dict[str, Any]:
+    """Put a removed column back, before the final columns."""
+    _columns_keeper(staff)
+    selectors.restore_column(
+        db, board=staff.board, code=code, actor_id=staff.user.id, now=utcnow()
+    )
+    return columns(db, staff)
+
+
 @router.patch("/boards/{board}/columns", responses={200: {"model": ColumnsOut}})
 def edit_columns(db: Db, staff: BoardStaff, body: ColumnsIn) -> dict[str, Any]:
-    """Rename and reorder the board's columns. For the superuser and the
-    Owner. Send every visible column, in the order wanted."""
-    if not staff.access.full:
-        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    """Rename and reorder the board's columns. For the superuser. Send
+    every visible column, in the order wanted."""
+    _columns_keeper(staff)
     now = utcnow()
     selectors.ensure_board(db, board=staff.board, now=now)
     selectors.rename_and_order(

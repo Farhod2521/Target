@@ -229,6 +229,10 @@ WORKER_ROLES: Final = {
 FULL_ROLES: Final = (Role.OWNER,)
 
 COLUMN_NAME_MAX: Final = 40
+# A board shows at most this many columns, the superuser's own among them.
+COLUMNS_MAX: Final = 20
+# The code of a column the superuser added: this and ten hex digits.
+CUSTOM_COLUMN_PREFIX: Final = "c_"
 CODE_MAX: Final = 24
 
 

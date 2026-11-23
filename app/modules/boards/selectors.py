@@ -1,5 +1,7 @@
-"""Reading a board's columns and the moment it went live."""
+"""A board's columns and the moment it went live: reading them, and the
+superuser's changes (names, order, their own columns)."""
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -10,11 +12,14 @@ from sqlalchemy.orm import Session
 from app.modules.boards.access import Access
 from app.modules.boards.constants import (
     COLUMN_NAME_MAX,
+    COLUMNS_MAX,
+    CUSTOM_COLUMN_PREFIX,
     LEAD_ONLY_COLUMNS,
     SEED_COLUMNS,
     Board,
+    ColumnKind,
 )
-from app.modules.boards.models import BoardColumn, BoardSetting
+from app.modules.boards.models import BoardCard, BoardColumn, BoardSetting
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +29,18 @@ class ColumnView:
     position: int
     kind: str
     is_final: bool
+    is_custom: bool = False
+
+
+def _view(row: BoardColumn) -> ColumnView:
+    return ColumnView(
+        code=row.code,
+        name=row.name,
+        position=row.position,
+        kind=row.kind,
+        is_final=row.is_final,
+        is_custom=row.is_custom,
+    )
 
 
 def ensure_board(db: Session, *, board: Board, now: datetime) -> None:
@@ -84,16 +101,174 @@ def columns_for(db: Session, *, board: Board, access: Access) -> list[ColumnView
     )
     lead = access.leads_board(board)
     return [
-        ColumnView(
-            code=row.code,
-            name=row.name,
-            position=row.position,
-            kind=row.kind,
-            is_final=row.is_final,
-        )
-        for row in rows
-        if lead or (board, row.code) not in LEAD_ONLY_COLUMNS
+        _view(row) for row in rows if lead or (board, row.code) not in LEAD_ONLY_COLUMNS
     ]
+
+
+def removed_columns(db: Session, *, board: Board) -> list[ColumnView]:
+    """The superuser's own columns taken off the board: a card's history
+    still names them, and they may be put back."""
+    rows = db.scalars(
+        select(BoardColumn)
+        .where(
+            BoardColumn.board == str(board),
+            BoardColumn.is_custom.is_(True),
+            BoardColumn.is_visible.is_(False),
+        )
+        .order_by(BoardColumn.name, BoardColumn.code)
+    )
+    return [_view(row) for row in rows]
+
+
+def _locked_rows(db: Session, board: Board) -> list[BoardColumn]:
+    return list(
+        db.scalars(
+            select(BoardColumn)
+            .where(BoardColumn.board == str(board))
+            .order_by(BoardColumn.position, BoardColumn.code)
+            .with_for_update()
+        )
+    )
+
+
+def _renumber(shown: list[BoardColumn], rows: list[BoardColumn]) -> None:
+    """``shown`` in its order from 1, the hidden ones after them."""
+    position = 0
+    for row in shown:
+        position += 1
+        row.position = position
+    for row in rows:
+        if not row.is_visible:
+            position += 1
+            row.position = position
+
+
+def _clean_name(name: str) -> str:
+    from app.modules.boards.exceptions import ColumnNameRequired
+
+    cleaned = " ".join(name.split())[:COLUMN_NAME_MAX]
+    if not cleaned:
+        raise ColumnNameRequired
+    return cleaned
+
+
+def _place(shown: list[BoardColumn], row: BoardColumn, after: str | None) -> None:
+    """``row`` into ``shown`` right after the column ``after``; with none
+    named, before the first final column (Sotildi, Hal qilindi, …)."""
+    from app.modules.boards.exceptions import NoSuchColumn
+
+    if after:
+        codes = [item.code for item in shown]
+        if after not in codes:
+            raise NoSuchColumn
+        shown.insert(codes.index(after) + 1, row)
+        return
+    first_final = next(
+        (index for index, item in enumerate(shown) if item.is_final), len(shown)
+    )
+    shown.insert(first_final, row)
+
+
+def _room_for_one(shown: list[BoardColumn], name: str) -> None:
+    from app.modules.boards.exceptions import ColumnNameTaken, TooManyColumns
+
+    if len(shown) >= COLUMNS_MAX:
+        raise TooManyColumns(COLUMNS_MAX)
+    if any(item.name.casefold() == name.casefold() for item in shown):
+        raise ColumnNameTaken
+
+
+def add_column(
+    db: Session,
+    *,
+    board: Board,
+    name: str,
+    after: str | None,
+    actor_id: uuid.UUID,
+    now: datetime,
+) -> str:
+    """A column of the superuser's own. No rule knows it: cards come and go
+    by hand («Ko'chirish»), and it never closes a card. Its code."""
+    cleaned = _clean_name(name)
+    rows = _locked_rows(db, board)
+    shown = [row for row in rows if row.is_visible]
+    _room_for_one(shown, cleaned)
+    row = BoardColumn(
+        board=str(board),
+        code=f"{CUSTOM_COLUMN_PREFIX}{uuid.uuid4().hex[:10]}",
+        name=cleaned,
+        position=0,
+        kind=str(ColumnKind.MANUAL),
+        is_final=False,
+        is_visible=True,
+        is_custom=True,
+        created_by_id=actor_id,
+        updated_by_id=actor_id,
+        created_at=now,
+        updated_at=now,
+    )
+    _place(shown, row, after)
+    db.add(row)
+    _renumber(shown, rows)
+    db.commit()
+    return row.code
+
+
+def _custom(rows: list[BoardColumn], code: str) -> BoardColumn:
+    from app.modules.boards.exceptions import ColumnNotCustom, NoSuchColumn
+
+    found = next((row for row in rows if row.code == code), None)
+    if found is None:
+        raise NoSuchColumn
+    if not found.is_custom:
+        raise ColumnNotCustom
+    return found
+
+
+def remove_column(
+    db: Session, *, board: Board, code: str, actor_id: uuid.UUID, now: datetime
+) -> None:
+    """One of the superuser's own columns off the board, once no card
+    stands in it. Hidden, not deleted."""
+    from app.modules.boards.exceptions import ColumnHasCards
+
+    rows = _locked_rows(db, board)
+    found = _custom(rows, code)
+    if not found.is_visible:
+        return
+    cards = int(
+        db.scalar(
+            select(func.count())
+            .select_from(BoardCard)
+            .where(BoardCard.board == str(board), BoardCard.column_code == code)
+        )
+        or 0
+    )
+    if cards:
+        raise ColumnHasCards(cards)
+    found.is_visible = False
+    found.updated_by_id = actor_id
+    found.updated_at = now
+    _renumber([row for row in rows if row.is_visible], rows)
+    db.commit()
+
+
+def restore_column(
+    db: Session, *, board: Board, code: str, actor_id: uuid.UUID, now: datetime
+) -> None:
+    """A removed column back on the board, before the final columns."""
+    rows = _locked_rows(db, board)
+    found = _custom(rows, code)
+    if found.is_visible:
+        return
+    shown = [row for row in rows if row.is_visible]
+    _room_for_one(shown, found.name)
+    found.is_visible = True
+    found.updated_by_id = actor_id
+    found.updated_at = now
+    _place(shown, found, None)
+    _renumber(shown, rows)
+    db.commit()
 
 
 def rename_and_order(

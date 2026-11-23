@@ -76,6 +76,39 @@ class ColumnNameRequired(DomainError):
         super().__init__("Ustun nomini yozing.")
 
 
+class ColumnNameTaken(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bu nomli ustun bor. Boshqa nom yozing.")
+
+
+class TooManyColumns(DomainError):
+    status_code = 422
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"Bir kanbanda ko'pi bilan {limit} ta ustun bo'ladi.")
+
+
+class ColumnNotCustom(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu standart ustun: avtomatik qoidalar shu ustun bilan ishlaydi, "
+            "uni olib tashlab bo'lmaydi."
+        )
+
+
+class ColumnHasCards(DomainError):
+    status_code = 422
+
+    def __init__(self, count: int) -> None:
+        super().__init__(
+            f"Ustunda {count} ta karta bor. Avval ularni boshqa ustunga ko'chiring."
+        )
+
+
 class NoSuchColumn(DomainError):
     status_code = 422
 

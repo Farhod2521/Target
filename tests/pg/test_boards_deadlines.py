@@ -394,6 +394,7 @@ def test_a_ticket_is_opened_by_hand(client: TestClient, db: Session) -> None:
         "move": False,
         "add_lead": False,
         "columns": False,
+        "edit_columns": False,
         "staff": False,
         "telephony": False,
         "renewal_manager": False,

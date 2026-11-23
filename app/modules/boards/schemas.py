@@ -29,7 +29,14 @@ class CanOut(BaseModel):
     move: bool = Field(description="Moves a card to any column.")
     add_lead: bool = Field(description="Puts a client on the Sales board by hand.")
     add_ticket: bool = Field(description="Opens a Support ticket by hand.")
-    columns: bool = Field(description="Renames and reorders columns.")
+    columns: bool = Field(
+        description="Opens the boards' settings and reads the columns there."
+    )
+    edit_columns: bool = Field(
+        False,
+        description="The superuser: renames and reorders columns, adds their "
+        "own and takes those off.",
+    )
     staff: bool = Field(description="Adds staff and gives roles.")
     telephony: bool = Field(description="Opens the telephony settings.")
     client_card: bool = Field(
@@ -63,6 +70,11 @@ class ColumnOut(BaseModel):
         description="The name it was seeded with: a screen in another language "
         "names it by `code`. False once the office renamed it.",
     )
+    is_custom: bool = Field(
+        False,
+        description="Added by the superuser. No rule and no button moves cards "
+        "here: only `POST /cards/{id}/move`. Only these may be taken off.",
+    )
 
 
 class ColumnsOut(BaseModel):
@@ -71,6 +83,15 @@ class ColumnsOut(BaseModel):
         description="Sign-ups and events before it are not on the board."
     )
     columns: list[ColumnOut]
+    removed: list[ColumnOut] = Field(
+        default_factory=list,
+        description="The superuser's columns taken off the board: a card's "
+        "history may still name them, and the superuser may put them back.",
+    )
+    may_edit: bool = Field(
+        False, description="This person may change the columns (the superuser)."
+    )
+    max_columns: int = Field(20, description="A board shows at most this many.")
 
 
 class ClientOut(BaseModel):
@@ -604,6 +625,16 @@ class HelpOptionsIn(BaseModel):
 class ColumnEditIn(BaseModel):
     code: str = Field(max_length=24)
     name: str = Field(min_length=1, max_length=40)
+
+
+class ColumnAddIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    after: str | None = Field(
+        None,
+        max_length=24,
+        description="The visible column's code it stands right after. Empty: "
+        "before the first final column.",
+    )
 
 
 class ColumnsIn(BaseModel):
