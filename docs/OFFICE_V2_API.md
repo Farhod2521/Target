@@ -383,6 +383,50 @@ sababning `note_required` rost bo'lsa `note` majburiy (**422** `note_required`).
 `POST /cards/{id}/move`: `reason_code` (ro'yxatdan) va `reason` (matn); `reason` endi bo'sh
 bo'lishi mumkin, agar `reason_code` berilgan bo'lsa.
 
+### Ustun tugmalari (2026-11-23)
+
+Har ustun kartasida qaysi tugmalar chiqishi endi bazada (`board_buttons`), superuser sozlaydi.
+Boshida hammasi kod bergandek (migratsiya 0079). Karta `actions[]` shu jadvaldan o'qiladi.
+
+Tugma ikki xil:
+
+- **Kod tugmasi** (`contacted`, `no_contact`, `callback`, `will_pay`, `needs_support`, `release`,
+  `close`; Support: `start`, `wait`, `unreachable`, `to_developer`, `resolve`, `release`;
+  Uzaytirish: `contacted`, `no_contact`, `callback`, `will_pay`, `decline`). Nima qilishi kodda
+  (yopish sababi, chegirma soati, mijozdan tasdiq, dasturchiga xato). Superuser: qaysi ustunda
+  chiqishini, nomini (`label`), va `movable` bo'lganlari uchun qaysi ustunga o'tkazishini belgilaydi.
+  `movable`: Sotuv `no_contact`, `callback`, `will_pay`; Support `wait`; Uzaytirish `contacted`,
+  `no_contact`, `callback`, `will_pay`. Qolganlari o'z qoidasi bo'yicha yuradi (`rule_note`).
+- **O'z tugmasi** (`action: "go"`, kodi `b_…`): faqat kartani tanlangan ustunga o'tkazadi.
+  Nomi, ustuni, vaqt so'rashi (`due`: bo'sh, `optional`, `required`) va izoh majburiyligi sozlanadi.
+  Tarixda `button` («Tugma bosildi»), matni: tugma nomi va izoh.
+
+Cheklovlar:
+
+- Navbat (Sotuv «Ishlanmagan», Support «Yangi»), yakuniy ustunlar va Support'ning hal qilingan
+  ustunlari sozlanmaydi (`configurable: false`, tugmalari `fixed` da): **422** `button_column_fixed`.
+- Tugma kartani faqat ko'rinadigan, qo'lda ishlanadigan (`kind: manual`), yakuniy bo'lmagan boshqa
+  ustunga o'tkazadi (`targets`): **422** `button_target_invalid`.
+- Chegirma ustunlarida (`marks_only`) tugma belgi qo'yadi, karta joyida qoladi: u yerda ustun
+  tanlab bo'lmaydi va o'z tugmasi qo'shilmaydi: **422** `button_target_fixed`. O'z qoidasi bor tugmaga
+  ustun berilsa ham shu xato.
+- Bir ustunda ko'pi bilan 10 ta tugma (`too_many_buttons`); kod tugmasi ustunda bir marta (`button_exists`).
+- Tugma o'tkazadigan ustunni doskadan olib bo'lmaydi: **422** `column_has_buttons`.
+
+Yo'llar (yozish faqat superuser, Egasi **403**; javob har doim butun `ButtonsOut`):
+
+- `GET /boards/{board}/buttons` → `{board, may_edit, max_per_column, columns, catalog, targets}`.
+- `POST /boards/{board}/buttons` `{column, action, label, to_column, due, note_required}` → **201**.
+- `PUT /boards/{board}/buttons/{id}` `{label, to_column, due, note_required, position}`.
+- `DELETE /boards/{board}/buttons/{id}`.
+- `POST /boards/{board}/buttons/reset` `{column}` — «Standartga qaytarish»: ustun tugmalari kod
+  bergandek; superuser qo'shgan ustunda bo'sh qoladi.
+
+Front uchun: `actions[].value` endi `b_…` ham bo'lishi mumkin — `POST /cards/{id}/actions` ga
+`action` sifatida shu yuboriladi. `actions[].is_default_label: false` bo'lsa `label` yozilganidek
+ko'rsatiladi (tarjima qilinmaydi). Ustunda yo'q tugma kodi: **409** `action_not_here` (avval noma'lum
+kod uchun 422 edi).
+
 ### Xodimlar
 
 Ofis frontida xodimlar va rollar endi faqat **Jamoa** bo'limida (`/api/v1/office/team`, Egasi va superuser):

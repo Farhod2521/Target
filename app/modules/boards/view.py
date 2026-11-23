@@ -19,25 +19,17 @@ from app.modules.billing.constants import (
     InvoiceStatus,
 )
 from app.modules.billing.models import Invoice, Subscription
-from app.modules.boards import reason_lists, reasons
+from app.modules.boards import buttons, reason_lists, reasons
 from app.modules.boards.access import Access
 from app.modules.boards.constants import (
-    ACTION_DUE_OPTIONAL,
-    ACTION_DUE_REQUIRED,
-    ACTION_NOTE_REQUIRED,
-    CARD_ACTION_LABELS,
     CLIENT_SEARCH_ROWS,
     CONFIRM_HOURS,
     EVENT_KIND_LABELS,
     LEAD_TAKE_LIMIT,
     OFFER_ENDED_LABEL,
     OFFER_ENDED_REASON,
-    RENEWAL_ACTIONS,
     RENEWAL_PLAN_CODES,
-    SALES_ACTIONS,
     SEARCH_MAX,
-    SUPPORT_ACTION_LABELS,
-    SUPPORT_ACTIONS,
     SUPPORT_DONE_COLUMNS,
     SUPPORT_DONE_SHOWN_DAYS,
     SUPPORT_FINAL_COLUMNS,
@@ -597,39 +589,30 @@ _ACTION_REASONS: dict[CardAction, str] = {
 
 
 def _actions(db: Session, card: BoardCard) -> list[dict[str, Any]]:
-    if card.board == str(Board.SUPPORT):
-        offered = SUPPORT_ACTIONS.get(card.column_code, ())
-    elif card.closed_at is not None:
-        offered = ()
-    elif card.board == str(Board.RENEWAL):
-        offered = RENEWAL_ACTIONS.get(card.column_code, ())
-    else:
-        offered = SALES_ACTIONS.get(card.column_code, ())
-    labels = SUPPORT_ACTION_LABELS if card.board == str(Board.SUPPORT) else {}
+    """The card's buttons where it stands, as the superuser set them."""
+    board = Board(card.board)
+    offered = buttons.offered(db, card)
     # «Bog'lanib bo'lmadi» asks for a reason only while its list has one.
     no_contact = (
         str(ReasonPurpose.NO_CONTACT)
-        if CardAction.NO_CONTACT in offered
-        and reason_lists.asked(
-            db, board=Board(card.board), purpose=ReasonPurpose.NO_CONTACT
-        )
+        if any(item.action == CardAction.NO_CONTACT for item in offered)
+        and reason_lists.asked(db, board=board, purpose=ReasonPurpose.NO_CONTACT)
         else ""
     )
     return [
         {
-            "value": str(action),
-            "label": str(labels.get(action, CARD_ACTION_LABELS[action])),
-            "due": "required"
-            if action in ACTION_DUE_REQUIRED
-            else "optional"
-            if action in ACTION_DUE_OPTIONAL
-            else "",
-            "note_required": action in ACTION_NOTE_REQUIRED,
-            "reason": no_contact
-            if action == CardAction.NO_CONTACT
-            else _ACTION_REASONS.get(action, ""),
+            "value": item.code,
+            "label": item.label,
+            "is_default_label": item.is_default_label,
+            "due": item.due,
+            "note_required": item.note_required,
+            "reason": ""
+            if item.action is None
+            else no_contact
+            if item.action == CardAction.NO_CONTACT
+            else _ACTION_REASONS.get(item.action, ""),
         }
-        for action in offered
+        for item in offered
     ]
 
 

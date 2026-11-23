@@ -16,6 +16,7 @@ from app.modules.accounts.models import User
 from app.modules.backoffice.constants import ADMIN_ROLES, ROLE_LABELS, Role
 from app.modules.backoffice.services import seen
 from app.modules.boards import (
+    buttons,
     client,
     developer,  # noqa: F401 - closes a ticket when its fault is settled
     help_options,
@@ -46,7 +47,6 @@ from app.modules.boards.constants import (
     COLUMNS_MAX,
     REPORT_DEFAULT_DAYS,
     Board,
-    CardAction,
     is_default_column_name,
 )
 from app.modules.boards.models import ContactReason
@@ -54,6 +54,10 @@ from app.modules.boards.schemas import (
     ActionIn,
     AssignIn,
     BoardViewOut,
+    ButtonAddIn,
+    ButtonEditIn,
+    ButtonResetIn,
+    ButtonsOut,
     CardAddIn,
     CardClientOut,
     CardDetailOut,
@@ -833,17 +837,13 @@ def card_client(db: Db, user: Staff, card_id: str) -> dict[str, Any]:
 @router.post("/cards/{card_id}/actions", responses={200: {"model": CardDetailOut}})
 def press(db: Db, user: Staff, card_id: str, body: ActionIn) -> dict[str, Any]:
     """A button on the card. Only the buttons in its `actions` are accepted."""
-    if body.action not in CardAction.values:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Noma'lum tugma."
-        )
     now = utcnow()
     found = services.act(
         db,
         card_id=_card_id(card_id),
         user=user,
         access=access_for(db, user),
-        action=CardAction(body.action),
+        code=body.action,
         now=now,
         on=body.on,
         reason=body.reason,
@@ -935,6 +935,109 @@ def set_survey_help(
     return help_options.set_help_options(
         db, question_id=_card_id(question_id), indexes=body.options, user=user
     )
+
+
+@router.get("/boards/{board}/buttons", responses={200: {"model": ButtonsOut}})
+def board_buttons(db: Db, staff: BoardStaff) -> dict[str, Any]:
+    """Every column of the board with the buttons its cards show, the
+    buttons a column may be given and the columns a button may send a card
+    to. Read by whoever opens the board's settings."""
+    selectors.ensure_board(db, board=staff.board, now=utcnow())
+    out = buttons.settings_view(
+        db, board=staff.board, may_edit=bool(staff.user.is_superuser)
+    )
+    db.commit()
+    return out
+
+
+@router.post(
+    "/boards/{board}/buttons",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": ButtonsOut}},
+)
+def add_button(db: Db, staff: BoardStaff, body: ButtonAddIn) -> dict[str, Any]:
+    """One more button on a column: one of the code's it lacks, or one of
+    the superuser's own (`go`) with its words and its column."""
+    _columns_keeper(staff)
+    row = buttons.add(
+        db,
+        board=staff.board,
+        column_code=body.column,
+        action=body.action,
+        label=body.label,
+        to_column=body.to_column,
+        due=body.due,
+        note_required=body.note_required,
+        actor_id=staff.user.id,
+        now=utcnow(),
+    )
+    logger.info(
+        "board button added",
+        extra={
+            "board": str(staff.board),
+            "column": body.column,
+            "code": row.code,
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return board_buttons(db, staff)
+
+
+@router.post("/boards/{board}/buttons/reset", responses={200: {"model": ButtonsOut}})
+def reset_buttons(db: Db, staff: BoardStaff, body: ButtonResetIn) -> dict[str, Any]:
+    """The column's buttons as the code gives them («Standartga qaytarish»)."""
+    _columns_keeper(staff)
+    buttons.reset(db, board=staff.board, column_code=body.column, now=utcnow())
+    logger.info(
+        "board buttons reset",
+        extra={
+            "board": str(staff.board),
+            "column": body.column,
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return board_buttons(db, staff)
+
+
+@router.put(
+    "/boards/{board}/buttons/{button_id}", responses={200: {"model": ButtonsOut}}
+)
+def edit_button(
+    db: Db, staff: BoardStaff, button_id: uuid.UUID, body: ButtonEditIn
+) -> dict[str, Any]:
+    """A button's words, column and place; one of the superuser's own also
+    what it asks for."""
+    _columns_keeper(staff)
+    buttons.edit(
+        db,
+        board=staff.board,
+        button_id=button_id,
+        label=body.label,
+        to_column=body.to_column,
+        due=body.due,
+        note_required=body.note_required,
+        position=body.position,
+        now=utcnow(),
+    )
+    return board_buttons(db, staff)
+
+
+@router.delete(
+    "/boards/{board}/buttons/{button_id}", responses={200: {"model": ButtonsOut}}
+)
+def remove_button(db: Db, staff: BoardStaff, button_id: uuid.UUID) -> dict[str, Any]:
+    """The button off its column."""
+    _columns_keeper(staff)
+    column = buttons.remove(db, board=staff.board, button_id=button_id)
+    logger.info(
+        "board button removed",
+        extra={
+            "board": str(staff.board),
+            "column": column,
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return board_buttons(db, staff)
 
 
 def _columns_keeper(staff: BoardStaff) -> None:

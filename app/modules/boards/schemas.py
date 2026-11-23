@@ -339,8 +339,16 @@ class ClientDetailOut(ClientOut):
 
 
 class ActionOut(BaseModel):
-    value: str
+    value: str = Field(
+        description="What `POST /cards/{id}/actions` takes as `action`: a button "
+        "of the code (`contacted`, `resolve`, …) or one of the superuser's own (`b_…`)."
+    )
     label: str
+    is_default_label: bool = Field(
+        True,
+        description="The button's own words: a screen in another language names it "
+        "by `value`. False: the superuser's words, shown as typed.",
+    )
     due: str = Field(
         description="`required`: ask for a time and send it as `due_at`; "
         "`optional`: offer the time; empty: none."
@@ -677,6 +685,95 @@ class HelpOptionsIn(BaseModel):
 class ColumnEditIn(BaseModel):
     code: str = Field(max_length=24)
     name: str = Field(min_length=1, max_length=40)
+
+
+class ButtonOut(BaseModel):
+    id: str
+    code: str
+    action: str = Field(
+        description="A button of the code, or `go`: the superuser's own."
+    )
+    is_custom: bool
+    label: str
+    is_default_label: bool
+    default_label: str
+    to_column: str = Field(description="The superuser's column; empty: `default_to`.")
+    default_to: str = Field(
+        description="Where the button's own rule puts the card; empty: it stays."
+    )
+    movable: bool = Field(description="Whether `to_column` may be set.")
+    rule_note: str = Field(
+        description="A word on a button that goes where its rule says."
+    )
+    to_missing: bool = Field(description="Its column was taken off the board.")
+    due: str
+    note_required: bool
+    position: int
+    is_default: bool
+
+
+class ButtonColumnOut(BaseModel):
+    code: str
+    name: str
+    is_custom: bool
+    configurable: bool = Field(
+        description="False: a queue or a column that closes a card; `fixed` names its buttons."
+    )
+    marks_only: bool = Field(
+        description="A discount column: buttons leave a mark, the card stays."
+    )
+    is_changed: bool = Field(description="Differs from what the code gives it.")
+    buttons: list[ButtonOut]
+    fixed: list[str]
+
+
+class ButtonCatalogOut(BaseModel):
+    action: str
+    label: str
+    due: str
+    note_required: bool
+    movable: bool
+    default_to: str
+    rule_note: str
+
+
+class ButtonTargetOut(BaseModel):
+    code: str
+    name: str
+
+
+class ButtonsOut(BaseModel):
+    board: str
+    may_edit: bool = Field(description="The superuser.")
+    max_per_column: int
+    columns: list[ButtonColumnOut]
+    catalog: list[ButtonCatalogOut] = Field(
+        description="The buttons a column may be given; `go` is the superuser's own."
+    )
+    targets: list[ButtonTargetOut] = Field(
+        description="The columns a button may send a card to."
+    )
+
+
+class ButtonAddIn(BaseModel):
+    column: str = Field(max_length=24)
+    action: str = Field(max_length=24, description="From `catalog`.")
+    label: str = Field("", max_length=40, description="Required for `go`.")
+    to_column: str = Field("", max_length=24, description="Required for `go`.")
+    due: str = Field("", max_length=16, description="`go`: ``, `optional`, `required`.")
+    note_required: bool = False
+
+
+class ButtonEditIn(BaseModel):
+    label: str = Field("", max_length=40)
+    to_column: str = Field("", max_length=24)
+    due: str = Field("", max_length=16)
+    note_required: bool = False
+    position: int = Field(ge=0, le=10_000)
+
+
+class ButtonResetIn(BaseModel):
+    column: str = Field(max_length=24)
 
 
 class ColumnAddIn(BaseModel):

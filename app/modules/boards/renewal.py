@@ -25,7 +25,6 @@ from app.modules.boards import reason_lists
 from app.modules.boards.access import Access, works_on
 from app.modules.boards.constants import (
     ATTEMPTS_MAX,
-    RENEWAL_ACTIONS,
     RENEWAL_BILL_FROM,
     RENEWAL_DECLINE_DAYS,
     RENEWAL_OPEN_DAYS,
@@ -41,8 +40,6 @@ from app.modules.boards.constants import (
     RenewalColumn,
 )
 from app.modules.boards.exceptions import (
-    ActionNotHere,
-    CardClosed,
     NoteRequired,
     NotOnBoard,
     ReportPeriodInvalid,
@@ -543,13 +540,12 @@ def act(
     due: datetime | None,
     said: str,
     now: datetime,
+    to_column: str = "",
 ) -> BoardCard:
-    """One button of a renewal card. «Rad etdi» asks for its reason, and
-    «Boshqa» for the words; «Bog'lanib bo'lmadi» counts the attempt."""
-    if card.closed_at is not None:
-        raise CardClosed
-    if action not in RENEWAL_ACTIONS.get(card.column_code, ()):
-        raise ActionNotHere
+    """One button of a renewal card, already found on its column. «Rad
+    etdi» asks for its reason, and a reason marked so for the words;
+    «Bog'lanib bo'lmadi» counts the attempt. ``to_column``: the superuser's
+    column for the button, where it has one."""
     body = said
     if action == CardAction.DECLINE:
         found = reason_lists.picked(
@@ -571,9 +567,17 @@ def act(
             body = f"{why}. {said}" if said else why
         card.contact_mark = str(CardAction.NO_CONTACT)
         card.attempts = min(card.attempts + 1, ATTEMPTS_MAX)
-    to, kind = _MOVES[action]
+    seat, kind = _MOVES[action]
     card.due_at = due
-    move(db, card=card, to=str(to), kind=kind, now=now, actor=user, body=body)
+    move(
+        db,
+        card=card,
+        to=to_column or str(seat),
+        kind=kind,
+        now=now,
+        actor=user,
+        body=body,
+    )
     db.commit()
     return card
 

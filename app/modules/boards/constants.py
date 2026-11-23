@@ -496,6 +496,108 @@ RENEWAL_SILENT_COLUMNS: Final = frozenset(
 )
 
 
+# -- the buttons a column shows ---------------------------------------------
+
+# The superuser's own button: it only moves the card to its column.
+GO_ACTION: Final = "go"
+GO_ACTION_LABEL: Final = "O'z tugmasi"
+CUSTOM_BUTTON_PREFIX: Final = "b_"
+BUTTON_LABEL_MAX: Final = 40
+BUTTONS_PER_COLUMN_MAX: Final = 10
+BUTTON_DUE_CHOICES: Final = ("", "optional", "required")
+
+# The buttons of the code each board's columns may show, in the order the
+# settings offer them.
+BOARD_BUTTON_ACTIONS: Final[dict[Board, tuple[CardAction, ...]]] = {
+    Board.SALES: (
+        CardAction.CONTACTED,
+        CardAction.NO_CONTACT,
+        CardAction.CALLBACK,
+        CardAction.WILL_PAY,
+        CardAction.NEEDS_SUPPORT,
+        CardAction.RELEASE,
+        CardAction.CLOSE,
+    ),
+    Board.SUPPORT: (
+        CardAction.START,
+        CardAction.WAIT,
+        CardAction.UNREACHABLE,
+        CardAction.TO_DEVELOPER,
+        CardAction.RESOLVE,
+        CardAction.RELEASE,
+    ),
+    Board.RENEWAL: (
+        CardAction.CONTACTED,
+        CardAction.NO_CONTACT,
+        CardAction.CALLBACK,
+        CardAction.WILL_PAY,
+        CardAction.DECLINE,
+    ),
+}
+# Where each button puts the card when the superuser names no column; an
+# empty one stays where it is.
+BUTTON_DEFAULT_TO: Final[dict[Board, dict[CardAction, str]]] = {
+    Board.SALES: {
+        CardAction.CONTACTED: str(SalesColumn.CONTACTED),
+        CardAction.NO_CONTACT: str(SalesColumn.NO_CONTACT),
+        CardAction.CALLBACK: str(SalesColumn.CALLBACK),
+        CardAction.WILL_PAY: str(SalesColumn.AWAITING),
+        CardAction.NEEDS_SUPPORT: "",
+        CardAction.RELEASE: str(SalesColumn.UNWORKED),
+        CardAction.CLOSE: str(SalesColumn.CLOSED),
+    },
+    Board.SUPPORT: {
+        CardAction.START: str(SupportColumn.IN_PROGRESS),
+        CardAction.WAIT: str(SupportColumn.WAITING),
+        CardAction.UNREACHABLE: str(SupportColumn.UNREACHABLE),
+        CardAction.TO_DEVELOPER: str(SupportColumn.DEVELOPER),
+        CardAction.RESOLVE: str(SupportColumn.CONFIRMING),
+        CardAction.RELEASE: str(SupportColumn.NEW),
+    },
+    Board.RENEWAL: {
+        CardAction.CONTACTED: str(RenewalColumn.CONTACTED),
+        CardAction.NO_CONTACT: str(RenewalColumn.NO_CONTACT),
+        CardAction.CALLBACK: str(RenewalColumn.CALLBACK),
+        CardAction.WILL_PAY: str(RenewalColumn.AWAITING),
+        CardAction.DECLINE: str(RenewalColumn.DECLINED),
+    },
+}
+# The buttons whose column the superuser may change. The others carry a
+# rule of their own (a discount's clock, a close, the client's yes or no, a
+# developer's fault) and go where that rule says.
+BUTTON_MOVABLE: Final[dict[Board, frozenset[CardAction]]] = {
+    Board.SALES: frozenset(
+        {CardAction.NO_CONTACT, CardAction.CALLBACK, CardAction.WILL_PAY}
+    ),
+    Board.SUPPORT: frozenset({CardAction.WAIT}),
+    Board.RENEWAL: frozenset(
+        {
+            CardAction.CONTACTED,
+            CardAction.NO_CONTACT,
+            CardAction.CALLBACK,
+            CardAction.WILL_PAY,
+        }
+    ),
+}
+# A word on the buttons that go where their own rule says.
+BUTTON_RULE_NOTES: Final[dict[tuple[Board, CardAction], str]] = {
+    (Board.SALES, CardAction.CONTACTED): "Chegirma bo'lsa chegirma ustuniga, "
+    "bo'lmasa Bog'lanildi ga",
+    (Board.SALES, CardAction.NEEDS_SUPPORT): "Karta joyida qoladi, belgi qo'yiladi",
+    (Board.SALES, CardAction.RELEASE): "Navbatga, menejersiz",
+    (Board.SUPPORT, CardAction.RESOLVE): "Mijozdan tasdiq so'raladi",
+    (Board.SUPPORT, CardAction.RELEASE): "Navbatga, xodimsiz",
+}
+# The queues: a card there is nobody's, and its one button is the code's.
+QUEUE_COLUMNS: Final = frozenset(
+    {(Board.SALES, str(SalesColumn.UNWORKED)), (Board.SUPPORT, str(SupportColumn.NEW))}
+)
+# The columns each board came with that close a card.
+FINAL_SEED_COLUMNS: Final = frozenset(
+    (seed.board, seed.code) for seed in SEED_COLUMNS if seed.is_final
+)
+
+
 class DeclineReason(Choices):
     EXPENSIVE = "expensive"
     NO_RESULT = "no_result"
@@ -731,6 +833,8 @@ class EventKind(Choices):
     DUE_REMINDED = "due_reminded"
     # The card's person was told the client opened a bill.
     BILL_TOLD = "bill_told"
+    # One of the superuser's own buttons moved the card.
+    BUTTON = "button"
 
 
 EVENT_KIND_LABELS = {
@@ -788,6 +892,7 @@ EVENT_KIND_LABELS = {
     EventKind.CALL_AGAIN: "Qayta qo'ng'iroq vaqti keldi",
     EventKind.DUE_REMINDED: "Telegramga eslatma yuborildi",
     EventKind.BILL_TOLD: "Hisob ochgani Telegramga yuborildi",
+    EventKind.BUTTON: "Tugma bosildi",
 }
 
 NOTE_MAX: Final = 2000

@@ -140,6 +140,78 @@ class ColumnHasCards(DomainError):
         )
 
 
+class NoSuchButton(NotFound):
+    def __init__(self) -> None:
+        super().__init__("Tugma topilmadi.")
+
+
+class UnknownButton(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bu kanbanda bunday tugma yo'q.")
+
+
+class ButtonExists(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bu tugma shu ustunda bor.")
+
+
+class ButtonLabelRequired(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Tugma nomini yozing.")
+
+
+class ButtonColumnFixed(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu ustunning tugmalari o'zgarmaydi: navbat va yakuniy ustunlarni "
+            "tizim boshqaradi."
+        )
+
+
+class ButtonTargetFixed(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu tugma kartani qayerga o'tkazishini tizim qoidasi belgilaydi."
+        )
+
+
+class ButtonTargetInvalid(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Tugma kartani faqat qo'lda ishlanadigan, yakuniy bo'lmagan boshqa "
+            "ustunga o'tkaza oladi."
+        )
+
+
+class TooManyButtons(DomainError):
+    status_code = 422
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"Bir ustunda ko'pi bilan {limit} ta tugma bo'ladi.")
+
+
+class ColumnHasButtons(DomainError):
+    status_code = 422
+
+    def __init__(self, count: int) -> None:
+        super().__init__(
+            f"Bu ustunga {count} ta tugma karta o'tkazadi. Avval ularni "
+            "o'zgartiring yoki olib tashlang."
+        )
+
+
 class NoSuchColumn(DomainError):
     status_code = 422
 

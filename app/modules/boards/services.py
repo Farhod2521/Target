@@ -10,11 +10,9 @@ from sqlalchemy.orm import Session, aliased
 
 from app.common.dates import localtime
 from app.modules.accounts.models import User
-from app.modules.boards import reason_lists, reasons
+from app.modules.boards import buttons, reason_lists, reasons
 from app.modules.boards.access import Access, works_on
 from app.modules.boards.constants import (
-    ACTION_DUE_OPTIONAL,
-    ACTION_DUE_REQUIRED,
     ACTION_NOTE_REQUIRED,
     ATTEMPTS_MAX,
     DUE_MAX_DAYS,
@@ -23,8 +21,6 @@ from app.modules.boards.constants import (
     NOTE_MAX,
     OFFER_COLUMNS,
     OFFER_STEPS,
-    SALES_ACTIONS,
-    SUPPORT_ACTIONS,
     SUPPORT_DONE_COLUMNS,
     SUPPORT_FINAL_COLUMNS,
     TICKET_TAKE_LIMIT,
@@ -320,22 +316,41 @@ def act(
     card_id: uuid.UUID,
     user: User,
     access: Access,
-    action: CardAction,
+    code: str,
     now: datetime,
     on: bool = True,
     reason: str = "",
     note: str = "",
     due_at: datetime | None = None,
 ) -> BoardCard:
-    """One button of a card, if its column has it. A button that moves the
-    card ends its deadline, unless it sets a new one."""
+    """One button of a card, by its code, if its column has it (the
+    superuser sets which, ``buttons``). A button that moves the card ends
+    its deadline, unless it sets a new one."""
     card = card_for(db, card_id=card_id, user=user, access=access, lock=True)
     text = note.strip()[:NOTE_MAX]
     due = checked_due(due_at, now=now)
-    if action in ACTION_DUE_REQUIRED and due is None:
+    if card.board != str(Board.SUPPORT) and card.closed_at is not None:
+        raise CardClosed
+    button = buttons.pressed(db, card, code)
+    if button is None:
+        raise ActionNotHere
+    if button.due == "required" and due is None:
         raise DueRequired
-    if action not in ACTION_DUE_REQUIRED and action not in ACTION_DUE_OPTIONAL:
+    if not button.due:
         due = None
+    if button.action is None:
+        return _go(
+            db,
+            card=card,
+            button=button,
+            user=user,
+            access=access,
+            note=text,
+            due=due,
+            now=now,
+        )
+    action = button.action
+    to_column = button.to_column
     if card.board == str(Board.SUPPORT):
         return _support_act(
             db,
@@ -347,6 +362,7 @@ def act(
             due=due,
             now=now,
             reason=reason,
+            to_column=to_column,
         )
     if card.board == str(Board.RENEWAL):
         from app.modules.boards import renewal
@@ -361,11 +377,8 @@ def act(
             due=due,
             said=_said(text, due),
             now=now,
+            to_column=to_column,
         )
-    if card.closed_at is not None:
-        raise CardClosed
-    if action not in SALES_ACTIONS.get(card.column_code, ()):
-        raise ActionNotHere
     if action == CardAction.NEEDS_SUPPORT:
         # Support reads why: the mark is set with its reason written.
         if on and not text:
@@ -402,7 +415,10 @@ def act(
         card.attempts = min(card.attempts + 1, ATTEMPTS_MAX)
     elif action == CardAction.RELEASE:
         card.manager_id = None
-    to, kind = _SALES_MOVES[action]
+    seat, kind = _SALES_MOVES[action]
+    # The superuser's column for this button, where the button has no rule
+    # of its own.
+    to = to_column or str(seat)
     card.due_at = due
     said = _said(f"{why}. {text}" if why and text else why or text, due)
     if action != CardAction.CLOSE and card.column_code in OFFER_COLUMNS:
@@ -430,7 +446,45 @@ def act(
         else:
             move(db, card=card, to=column, kind=kind, now=now, actor=user, body=said)
     else:
-        move(db, card=card, to=str(to), kind=kind, now=now, actor=user, body=said)
+        move(db, card=card, to=to, kind=kind, now=now, actor=user, body=said)
+    db.commit()
+    return card
+
+
+def _go(
+    db: Session,
+    *,
+    card: BoardCard,
+    button: "buttons.Button",
+    user: User,
+    access: Access,
+    note: str,
+    due: datetime | None,
+    now: datetime,
+) -> BoardCard:
+    """One of the superuser's own buttons: the card goes to its column, and
+    the history keeps the button's words. A ticket somebody else works is
+    theirs here too."""
+    board = Board(card.board)
+    if board == Board.SUPPORT and held_by_another(card, user=user, access=access):
+        raise TicketHeld
+    if button.note_required and not note:
+        raise NoteRequired
+    target = buttons.go_target(db, board=board, code=button.to_column)
+    if target is None or target.code == card.column_code:
+        # Its column was taken off the board since the card was drawn.
+        raise ActionNotHere
+    card.due_at = due
+    said = f"{button.label}. {note}" if note else button.label
+    move(
+        db,
+        card=card,
+        to=target.code,
+        kind=EventKind.BUTTON,
+        now=now,
+        actor=user,
+        body=_said(said, due),
+    )
     db.commit()
     return card
 
@@ -494,14 +548,13 @@ def _support_act(
     due: datetime | None,
     now: datetime,
     reason: str = "",
+    to_column: str = "",
 ) -> BoardCard:
     """A ticket's buttons are its person's, and the superuser's and the
     Owner's. «Ishlayapman» on a ticket with nobody makes who pressed its
     person. «Hal qilindi» does not close it: the client is asked first, and
     the ticket waits in Tasdiq kutilmoqda for their answer. «Bog'lanib
     bo'lmadi» names a reason from the office's list (``reason``: its id)."""
-    if action not in SUPPORT_ACTIONS.get(card.column_code, ()):
-        raise ActionNotHere
     if held_by_another(card, user=user, access=access):
         raise TicketHeld
     if action in ACTION_NOTE_REQUIRED and not note:
@@ -533,10 +586,13 @@ def _support_act(
         reasons.solve_open(card, by=user, note=note, now=now)
         to, kind = SupportColumn.CONFIRMING, EventKind.RESOLVED
     card.due_at = due
+    # «Mijoz kutilmoqda» is the one ticket button whose column the
+    # superuser may change.
+    seat = to_column if action == CardAction.WAIT and to_column else str(to)
     move(
         db,
         card=card,
-        to=str(to),
+        to=seat,
         kind=kind,
         now=now,
         actor=user,
