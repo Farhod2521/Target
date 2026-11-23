@@ -239,6 +239,9 @@ def close_unanswered(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) ->
             .execution_options(populate_existing=True)
         )
     )
+    from app.modules.boards import rules
+
+    why = rules.get(db, "support.unanswered").reason if cards else ""
     for card in cards:
         card.closed_at = now
         card.due_at = None
@@ -248,6 +251,7 @@ def close_unanswered(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) ->
             to=str(SupportColumn.CLOSED),
             kind=EventKind.UNANSWERED,
             now=now,
+            body=why,
         )
     db.commit()
     return len(cards)

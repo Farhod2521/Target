@@ -140,6 +140,42 @@ class ColumnHasCards(DomainError):
         )
 
 
+class NoSuchRule(NotFound):
+    def __init__(self) -> None:
+        super().__init__("Qoida topilmadi.")
+
+
+class RuleFieldFixed(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__("Bu qoidaning bu qismi o'zgarmaydi: uni tizim boshqaradi.")
+
+
+class RuleInvalid(DomainError):
+    status_code = 422
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
+class TooManyRules(DomainError):
+    status_code = 422
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"Bir kanbanda ko'pi bilan {limit} ta o'z qoidangiz bo'ladi.")
+
+
+class ColumnHasRules(DomainError):
+    status_code = 422
+
+    def __init__(self, count: int) -> None:
+        super().__init__(
+            f"Bu ustun bilan {count} ta avtomatik qoida ishlaydi. Avval ularni "
+            "o'zgartiring yoki olib tashlang."
+        )
+
+
 class NoSuchButton(NotFound):
     def __init__(self) -> None:
         super().__init__("Tugma topilmadi.")

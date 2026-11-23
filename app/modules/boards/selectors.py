@@ -265,6 +265,12 @@ def remove_column(
     pointing = buttons.pointing_at(db, board=board, column_code=code)
     if pointing:
         raise ColumnHasButtons(pointing)
+    from app.modules.boards import rules
+    from app.modules.boards.exceptions import ColumnHasRules
+
+    ruled = rules.pointing_at(db, board=board, column_code=code)
+    if ruled:
+        raise ColumnHasRules(ruled)
     found.is_visible = False
     found.updated_by_id = actor_id
     found.updated_at = now

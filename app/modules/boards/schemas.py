@@ -176,6 +176,14 @@ class LeadKindOut(BaseModel):
     label: str
 
 
+class WhyOut(BaseModel):
+    kind: str
+    label: str
+    body: str = Field(description="The reason as written; may be empty.")
+    auto: bool = Field(description="A rule put the card there, not a person.")
+    at: datetime
+
+
 class CardOut(BaseModel):
     id: str
     board: str
@@ -242,6 +250,11 @@ class CardOut(BaseModel):
     )
     opened_at: datetime
     column_since: datetime
+    why: WhyOut | None = Field(
+        None,
+        description="Why the card stands in its column: the line that put it "
+        "there (a button, a rule, a move by hand). None: it was opened there.",
+    )
     closed_at: datetime | None
 
 
@@ -687,6 +700,79 @@ class ColumnEditIn(BaseModel):
     name: str = Field(min_length=1, max_length=40)
 
 
+class ButtonTargetOut(BaseModel):
+    code: str
+    name: str
+
+
+class RuleOut(BaseModel):
+    id: str
+    code: str
+    kind: str = Field(description="`system`, or the superuser's own: `stay`, `due`.")
+    name: str
+    sentence: str = Field(description="The rule in a line of plain words.")
+    is_enabled: bool
+    from_columns: list[str]
+    to_column: str
+    default_to: str
+    amount: int
+    unit: str
+    amount_of: str = Field(description="What `amount` counts: «to'lovdan keyin».")
+    reason: str = Field(
+        description="What the card's history keeps; empty: the system writes it each time."
+    )
+    editable: list[str] = Field(
+        description="Of `enabled`, `from`, `to`, `amount`, `reason`: what the superuser may change."
+    )
+    note: str = Field(description="Why the rest is fixed, or what is wrong.")
+    is_changed: bool = Field(description="Differs from the code's own.")
+    is_custom: bool
+
+
+class RuleChoiceOut(BaseModel):
+    value: str
+    label: str
+
+
+class RulesOut(BaseModel):
+    board: str
+    may_edit: bool = Field(description="The superuser.")
+    max_custom: int
+    rules: list[RuleOut] = Field(description="The system's, then the superuser's own.")
+    kinds: list[RuleChoiceOut] = Field(description="The kinds a new rule may be.")
+    units: list[RuleChoiceOut]
+    from_choices: list[ButtonTargetOut] = Field(
+        description="Columns a rule may read cards from."
+    )
+    to_choices: list[ButtonTargetOut] = Field(
+        description="Columns a rule may send a card to."
+    )
+
+
+class RuleEditIn(BaseModel):
+    """Only the fields sent are changed; a system rule takes those its `editable` names."""
+
+    is_enabled: bool | None = None
+    from_columns: list[str] | None = Field(None, max_length=30)
+    to_column: str | None = Field(None, max_length=24)
+    amount: int | None = Field(None, ge=0, le=600_000)
+    reason: str | None = Field(None, max_length=200)
+    # The superuser's own rules only.
+    name: str | None = Field(None, max_length=80)
+    unit: str | None = Field(None, max_length=16)
+    kind: str | None = Field(None, max_length=16)
+
+
+class RuleAddIn(BaseModel):
+    kind: str = Field(max_length=16, description="`stay` or `due`.")
+    name: str = Field(min_length=1, max_length=80)
+    from_columns: list[str] = Field(min_length=1, max_length=30)
+    to_column: str = Field(max_length=24)
+    amount: int = Field(ge=0, le=600_000)
+    unit: str = Field(max_length=16, description="`minutes`, `hours`, `days`.")
+    reason: str = Field("", max_length=200)
+
+
 class ButtonOut(BaseModel):
     id: str
     code: str
@@ -735,11 +821,6 @@ class ButtonCatalogOut(BaseModel):
     movable: bool
     default_to: str
     rule_note: str
-
-
-class ButtonTargetOut(BaseModel):
-    code: str
-    name: str
 
 
 class ButtonsOut(BaseModel):

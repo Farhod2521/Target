@@ -34,20 +34,15 @@ from app.modules.billing.constants import (
     SubscriptionStatus,
 )
 from app.modules.billing.models import Invoice, Plan, Subscription
-from app.modules.boards import confirm, notices
+from app.modules.boards import confirm, notices, rules
 from app.modules.boards.constants import (
-    BILL_FROM_COLUMNS,
     CAMPAIGN_FRESH_HOURS,
-    IDLE_NO_LAUNCH_DAYS,
-    META_ERROR_WAIT_MINUTES,
-    NO_SPEND_HOURS,
     NO_SPEND_LOOKBACK_DAYS,
     NOTE_MAX,
     OFFER_COLUMNS,
     OFFER_HOURS,
     OFFER_STEPS,
     SALES_NOTES_CARRIED,
-    SETUP_GRACE_MINUTES,
     START_TALKED_COLUMNS,
     SURVEY_LOOKBACK_HOURS,
     SWEEP_BATCH,
@@ -271,6 +266,7 @@ def mark_sold(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             .execution_options(populate_existing=True)
         )
     )
+    why = rules.get(db, "sales.sold").reason if rows else ""
     for card, paid_at in rows:
         card.closed_at = paid_at or now
         card.close_reason = ""
@@ -281,6 +277,7 @@ def mark_sold(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             to=str(SalesColumn.SOLD),
             kind=EventKind.SOLD,
             now=now,
+            body=why,
             ref="sold",
         )
     db.commit()
@@ -447,7 +444,15 @@ def start_bought(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
         if to == card.column_code:
             record(db, card=card, kind=EventKind.START_BOUGHT, now=now, ref=ref)
         else:
-            move(db, card=card, to=to, kind=EventKind.START_BOUGHT, now=now, ref=ref)
+            move(
+                db,
+                card=card,
+                to=to,
+                kind=EventKind.START_BOUGHT,
+                now=now,
+                body=rules.get(db, "sales.start_bought").reason,
+                ref=ref,
+            )
         moved += 1
     db.commit()
     return moved
@@ -517,13 +522,36 @@ def step_offers(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
         if to == card.column_code:
             continue
         if to is not None:
-            move(db, card=card, to=to, kind=EventKind.OFFER_STEP, now=now)
+            move(
+                db,
+                card=card,
+                to=to,
+                kind=EventKind.OFFER_STEP,
+                now=now,
+                body=rules.get(db, "sales.offer_step").reason,
+            )
         else:
             to = str(SalesColumn.CONTACTED if card.manager_id else SalesColumn.UNWORKED)
-            move(db, card=card, to=to, kind=EventKind.OFFER_ENDED, now=now)
+            move(
+                db,
+                card=card,
+                to=to,
+                kind=EventKind.OFFER_ENDED,
+                now=now,
+                body=rules.get(db, "sales.offer_ended").reason,
+            )
         moved += 1
     db.commit()
     return moved
+
+
+def bill_words(db: Session, bill_id: Any) -> str:
+    """A bill in a line of a card's history: its number and its sum."""
+    bill = db.get(Invoice, bill_id)
+    if bill is None:
+        return ""
+    amount = f"{int(bill.amount_minor) // 100:,}".replace(",", " ")
+    return f"№{bill.number}, {amount} {bill.currency}"
 
 
 def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
@@ -533,6 +561,9 @@ def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
     discount from the column, and the card must stay in it."""
     from app.modules.boards.view import open_bills
 
+    rule = rules.get(db, "sales.bill_opened")
+    if not rule.enabled:
+        return 0
     bills = open_bills(now).subquery()
     seen = exists().where(
         BoardCardEvent.card_id == BoardCard.id,
@@ -546,7 +577,7 @@ def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
                 BoardCard.board == str(Board.SALES),
                 BoardCard.closed_at.is_(None),
                 BoardCard.manager_id.is_not(None),
-                BoardCard.column_code.in_(BILL_FROM_COLUMNS),
+                BoardCard.column_code.in_(rule.from_columns),
                 ~seen,
             )
             .order_by(bills.c.created_at)
@@ -564,9 +595,10 @@ def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
         move(
             db,
             card=card,
-            to=str(SalesColumn.AWAITING),
+            to=rule.to_column,
             kind=EventKind.BILL_OPENED,
             now=now,
+            body=rule.said(bill_words(db, bill_id)),
             ref=f"bill:{bill_id}",
         )
     db.commit()
@@ -580,6 +612,10 @@ def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
     move. Runs after ``mark_sold``: who paid is in Sotildi, not here."""
     from app.modules.boards.view import open_bills
 
+    rule = rules.get(db, "sales.bill_unpaid")
+    if not rule.enabled:
+        return 0
+    seat = rules.get(db, "sales.bill_opened").to_column
     bills = open_bills(now).subquery()
     by_bill = (
         select(BoardCardEvent.ref)
@@ -598,7 +634,9 @@ def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
             .where(
                 BoardCard.board == str(Board.SALES),
                 BoardCard.closed_at.is_(None),
-                BoardCard.column_code == str(SalesColumn.AWAITING),
+                # Where the bill put the card: the column «Mijoz hisob
+                # ochdi» sends to, whichever the superuser set.
+                BoardCard.column_code == seat,
                 by_bill.is_not(None),
                 ~exists().where(bills.c.owner_id == BoardCard.owner_id),
             )
@@ -614,9 +652,10 @@ def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
         move(
             db,
             card=card,
-            to=str(SalesColumn.CALLBACK),
+            to=rule.to_column,
             kind=EventKind.BILL_UNPAID,
             now=now,
+            body=rule.reason,
             ref=str(ref).replace("bill:", "unpaid:", 1),
         )
     db.commit()
@@ -630,6 +669,9 @@ def sweep_sales(db: Session, *, now: datetime) -> tuple[int, int]:
     opened += start_expired_leads(db, now=now)
     moved = start_bought(db, now=now) + step_offers(db, now=now)
     moved += bills_opened(db, now=now) + bills_unpaid(db, now=now)
+    # Last: the superuser's own rules see the cards where the rules above
+    # left them.
+    moved += rules.run_custom(db, board=Board.SALES, now=now)
     return opened, sold + moved
 
 
@@ -643,6 +685,9 @@ def setup_late(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     since = _since(db)
     if since is None:
         return 0
+    rule = rules.get(db, "support.setup_late")
+    if not rule.enabled:
+        return 0
     rows = list(
         db.execute(
             select(Invoice.id, Invoice.owner_id)
@@ -651,7 +696,7 @@ def setup_late(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
                 Invoice.status == str(InvoiceStatus.PAID),
                 Invoice.kind == str(InvoiceKind.PLAN),
                 Invoice.paid_at >= since,
-                Invoice.paid_at <= now - timedelta(minutes=SETUP_GRACE_MINUTES),
+                Invoice.paid_at <= now - rule.delta,
                 Subscription.status.in_([str(s) for s in LIVE_SUBSCRIPTION_STATUSES]),
                 Subscription.setup_completed_at.is_(None),
                 ~_has_ref(Invoice.owner_id, func.concat("setup:", Invoice.id)),
@@ -681,6 +726,7 @@ def _setup_late_given(
 ) -> int:
     """The same hour for a plan the office gave: no bill names it, so the
     subscription itself is the fact."""
+    rule = rules.get(db, "support.setup_late")
     billed = exists().where(
         Invoice.owner_id == Subscription.owner_id,
         Invoice.status == str(InvoiceStatus.PAID),
@@ -695,7 +741,7 @@ def _setup_late_given(
                 Subscription.activated_by_id.is_not(None),
                 Subscription.setup_completed_at.is_(None),
                 Subscription.started_at >= since,
-                Subscription.started_at <= now - timedelta(minutes=SETUP_GRACE_MINUTES),
+                Subscription.started_at <= now - rule.delta,
                 ~billed,
                 ~_has_ref(
                     Subscription.owner_id, func.concat("setup:given:", Subscription.id)
@@ -724,7 +770,7 @@ def from_sales(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """A client Sales marked «Support kerak» paid: the ticket opens now,
     not an hour later. Start is a payment too: its buyer is using the
     system, so the mark on their card opens the ticket at once."""
-    if _since(db) is None:
+    if _since(db) is None or not rules.get(db, "support.from_sales").enabled:
         return 0
     paid = exists().where(
         Invoice.owner_id == BoardCard.owner_id,
@@ -801,7 +847,10 @@ def meta_errors(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     since = _since(db)
     if since is None:
         return 0
-    settled = now - timedelta(minutes=META_ERROR_WAIT_MINUTES)
+    rule = rules.get(db, "support.meta_error")
+    if not rule.enabled:
+        return 0
+    settled = now - rule.delta
     not_meta = sorted(PASSING_CODES | SYSTEM_CODES)
     finished = func.coalesce(CampaignLaunch.finished_at, CampaignLaunch.updated_at)
     launches = list(
@@ -969,6 +1018,7 @@ def sweep_support(db: Session, *, now: datetime) -> int:
         + wait_over(db, now=now)
         + confirm.close_unanswered(db, now=now)
         + confirm.ask_clients(db, now=now)
+        + rules.run_custom(db, board=Board.SUPPORT, now=now)
         # Last: the lines the rules above wrote are told in the same run.
         + notices.tell_ticket_people(db, now=now)
     )
@@ -978,14 +1028,15 @@ def wait_over(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """«Mijoz kutilmoqda» with its time up, or «Bog'lanib bo'lmadi» with
     its time to call again come: the ticket is back in Ishlanmoqda with its
     person, whatever they hold already."""
+    rule = rules.get(db, "support.due_back")
+    if not rule.enabled:
+        return 0
     cards = list(
         db.scalars(
             select(BoardCard)
             .where(
                 BoardCard.board == str(Board.SUPPORT),
-                BoardCard.column_code.in_(
-                    [str(SupportColumn.WAITING), str(SupportColumn.UNREACHABLE)]
-                ),
+                BoardCard.column_code.in_(rule.from_columns),
                 BoardCard.due_at <= now,
             )
             .order_by(BoardCard.due_at)
@@ -1001,7 +1052,7 @@ def wait_over(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             if card.column_code == SupportColumn.UNREACHABLE
             else EventKind.WAIT_OVER
         )
-        move(db, card=card, to=str(SupportColumn.IN_PROGRESS), kind=kind, now=now)
+        move(db, card=card, to=rule.to_column, kind=kind, now=now, body=rule.reason)
     db.commit()
     return len(cards)
 
@@ -1018,14 +1069,15 @@ def client_replied(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> i
         SupportMessage.deleted_at.is_(None),
         SupportMessage.created_at > BoardCard.column_since,
     )
+    rule = rules.get(db, "support.client_replied")
+    if not rule.enabled:
+        return 0
     cards = list(
         db.scalars(
             select(BoardCard)
             .where(
                 BoardCard.board == str(Board.SUPPORT),
-                BoardCard.column_code.in_(
-                    [str(SupportColumn.WAITING), str(SupportColumn.UNREACHABLE)]
-                ),
+                BoardCard.column_code.in_(rule.from_columns),
                 wrote,
             )
             .order_by(BoardCard.column_since)
@@ -1039,9 +1091,10 @@ def client_replied(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> i
         move(
             db,
             card=card,
-            to=str(SupportColumn.IN_PROGRESS),
+            to=rule.to_column,
             kind=EventKind.CLIENT_REPLIED,
             now=now,
+            body=rule.reason,
         )
     db.commit()
     return len(cards)
@@ -1053,6 +1106,8 @@ def survey_help(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     and the help may be picked in its last save. One ticket per answer still."""
     since = _since(db)
     if since is None:
+        return 0
+    if not rules.get(db, "support.survey").enabled:
         return 0
     marked: dict[str, set[int]] = {}
     for question_id, index in db.execute(
@@ -1128,6 +1183,9 @@ def idle_no_launch(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> i
     since = _since(db)
     if since is None:
         return 0
+    rule = rules.get(db, "support.idle_no_launch")
+    if not rule.enabled:
+        return 0
     meta = exists().where(
         CampaignLaunch.owner_id == Invoice.owner_id,
         CampaignLaunch.status == str(LaunchStatus.CREATED),
@@ -1146,7 +1204,7 @@ def idle_no_launch(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> i
                 Invoice.status == str(InvoiceStatus.PAID),
                 Invoice.kind == str(InvoiceKind.PLAN),
                 Invoice.paid_at >= since,
-                Invoice.paid_at <= now - timedelta(days=IDLE_NO_LAUNCH_DAYS),
+                Invoice.paid_at <= now - rule.delta,
                 Subscription.status.in_([str(s) for s in LIVE_SUBSCRIPTION_STATUSES]),
                 ~meta,
                 ~google,
@@ -1163,7 +1221,7 @@ def idle_no_launch(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> i
             reason=TicketReason.IDLE,
             ref=f"idle:{invoice_id}",
             now=now,
-            detail=f"To'lovdan {IDLE_NO_LAUNCH_DAYS} kun o'tdi, birorta reklama yoqilmagan.",
+            detail=f"To'lovdan {rule.amount} kun o'tdi, birorta reklama yoqilmagan.",
         )
         for invoice_id, owner_id in rows
         if owner_id is not None
@@ -1182,6 +1240,9 @@ def idle_no_spend(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> in
     hour, oldest first, until the batch held nothing else."""
     since = _since(db)
     if since is None:
+        return 0
+    rule = rules.get(db, "support.idle_no_spend")
+    if not rule.enabled:
         return 0
     switched_on = CampaignLaunch.delivery_started_at
     external = CampaignLaunch.created_refs["campaign"].as_string()
@@ -1206,7 +1267,7 @@ def idle_no_spend(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> in
                 CampaignLaunch.status == str(LaunchStatus.CREATED),
                 switched_on.is_not(None),
                 switched_on >= max(since, now - timedelta(days=NO_SPEND_LOOKBACK_DAYS)),
-                switched_on <= now - timedelta(hours=NO_SPEND_HOURS),
+                switched_on <= now - rule.delta,
                 func.coalesce(external, "") != "",
                 running,
                 ~spent,
@@ -1225,7 +1286,7 @@ def idle_no_spend(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> in
             reason=TicketReason.IDLE,
             ref=f"nospend:{launch_id}",
             now=now,
-            detail=f"Reklama yoqilganiga {NO_SPEND_HOURS} soatdan oshdi, sarf 0.",
+            detail=f"Reklama yoqilganiga {rule.amount} soatdan oshdi, sarf 0.",
         )
         for launch_id, owner_id in launches
     )

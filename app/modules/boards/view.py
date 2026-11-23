@@ -236,6 +236,8 @@ class Extras:
     heat: dict[uuid.UUID, Any] = field(default_factory=dict)
     # owner id -> the kind of lead the client is now (boards.sales_kinds).
     kinds: dict[uuid.UUID, str] = field(default_factory=dict)
+    # card id -> the line that put the card in its column: why it is there.
+    whys: dict[uuid.UUID, dict[str, Any]] = field(default_factory=dict)
 
 
 def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
@@ -250,8 +252,9 @@ def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
     ]
     sales = [card for card in cards if card.board == str(Board.SALES)]
     marks = _client_marks(db, cards)
+    whys = column_whys(db, cards)
     if not billed:
-        return Extras(offered={}, bills={}, renewal=renewal, marks=marks)
+        return Extras(offered={}, bills={}, renewal=renewal, marks=marks, whys=whys)
     bills: dict[uuid.UUID, Invoice] = {}
     for bill in db.scalars(
         open_bills(now)
@@ -276,7 +279,42 @@ def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
         marks=marks,
         heat=heat,
         kinds=kinds,
+        whys=whys,
     )
+
+
+def column_whys(db: Session, cards: list[BoardCard]) -> dict[uuid.UUID, dict[str, Any]]:
+    """Why each card stands where it does: the newest line of its history
+    that put it in its column — a button, a rule of the system or of the
+    superuser's, a move by hand. One query whatever the cards."""
+    if not cards:
+        return {}
+    rows = db.scalars(
+        select(BoardCardEvent)
+        .join(BoardCard, BoardCard.id == BoardCardEvent.card_id)
+        .where(
+            BoardCardEvent.card_id.in_([card.id for card in cards]),
+            BoardCardEvent.to_column == BoardCard.column_code,
+            BoardCardEvent.created_at >= BoardCard.column_since,
+        )
+        .order_by(BoardCardEvent.created_at.desc(), BoardCardEvent.id)
+    )
+    out: dict[uuid.UUID, dict[str, Any]] = {}
+    for event in rows:
+        # Newest first: a card's first line here is the one that counts.
+        if event.card_id in out:
+            continue
+        out[event.card_id] = {
+            "kind": event.kind,
+            "label": str(EVENT_KIND_LABELS.get(EventKind(event.kind), event.kind))
+            if event.kind in EventKind.values
+            else event.kind,
+            "body": event.body,
+            # Nobody pressed anything: a rule did it.
+            "auto": event.actor_id is None,
+            "at": event.created_at,
+        }
+    return out
 
 
 _CLIENT_KINDS = (str(EventKind.DENIED), str(EventKind.CLIENT_REPLIED))
@@ -410,6 +448,7 @@ def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, A
         "opened_at": card.opened_at,
         "column_since": card.column_since,
         "closed_at": card.closed_at,
+        "why": extras.whys.get(card.id),
     }
 
 

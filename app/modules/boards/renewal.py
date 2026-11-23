@@ -21,15 +21,12 @@ from app.modules.billing.constants import (
     InvoiceStatus,
 )
 from app.modules.billing.models import Invoice, Plan, Subscription
-from app.modules.boards import reason_lists
+from app.modules.boards import reason_lists, rules
 from app.modules.boards.access import Access, works_on
 from app.modules.boards.constants import (
     ATTEMPTS_MAX,
-    RENEWAL_BILL_FROM,
     RENEWAL_DECLINE_DAYS,
-    RENEWAL_OPEN_DAYS,
     RENEWAL_PLAN_CODES,
-    RENEWAL_SILENT_COLUMNS,
     REPORT_MAX_DAYS,
     SWEEP_BATCH,
     Board,
@@ -167,6 +164,7 @@ def open_cards(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     client's earlier card is still worked (``follow_terms`` moves its date).
     The first run after the board is switched on loads the terms that have
     ended already the same way."""
+    opens = rules.get(db, "renewal.opened")
     carded = exists().where(
         BoardCard.board == BOARD,
         BoardCard.owner_id == Subscription.owner_id,
@@ -185,7 +183,7 @@ def open_cards(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             .where(
                 Subscription.status.in_(_LIVE),
                 Plan.code.in_(RENEWAL_PLAN_CODES),
-                Subscription.expires_at <= now + timedelta(days=RENEWAL_OPEN_DAYS),
+                Subscription.expires_at <= now + opens.delta,
                 Subscription.expires_at > now - timedelta(days=RENEWAL_DECLINE_DAYS),
                 User.crm_owner_id.is_(None),
                 User.is_staff.is_(False),
@@ -347,6 +345,7 @@ def follow_terms(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
 def mark_ended(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """The term ended and the card still stands in Tugayapti: to Tugagan. A
     card the manager moved on stays where they put it."""
+    why = rules.get(db, "renewal.ended").reason
     rows = list(
         db.scalars(
             select(BoardCard)
@@ -369,6 +368,7 @@ def mark_ended(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
             to=str(RenewalColumn.ENDED),
             kind=EventKind.TERM_ENDED,
             now=now,
+            body=why,
         )
     db.commit()
     return len(rows)
@@ -384,6 +384,11 @@ def _open_bills(now: datetime) -> Any:
 def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """The client opened a Standart or Pro bill: the card goes to «To'lov
     kutilmoqda». Once per bill, so a card the manager moved on stays."""
+    from app.modules.boards.triggers import bill_words
+
+    rule = rules.get(db, "renewal.bill_opened")
+    if not rule.enabled:
+        return 0
     bills = _open_bills(now)
     seen = exists().where(
         BoardCardEvent.card_id == BoardCard.id,
@@ -396,7 +401,7 @@ def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
             .where(
                 BoardCard.board == BOARD,
                 BoardCard.closed_at.is_(None),
-                BoardCard.column_code.in_(RENEWAL_BILL_FROM),
+                BoardCard.column_code.in_(rule.from_columns),
                 ~seen,
             )
             .order_by(bills.c.created_at)
@@ -413,9 +418,10 @@ def bills_opened(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
         move(
             db,
             card=card,
-            to=str(RenewalColumn.AWAITING),
+            to=rule.to_column,
             kind=EventKind.BILL_OPENED,
             now=now,
+            body=rule.said(bill_words(db, bill_id)),
             ref=f"bill:{bill_id}",
         )
     db.commit()
@@ -427,6 +433,10 @@ def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
     theirs can be paid any more: to «Qayta aloqa», due now, so the manager
     calls. A card the manager put there with «To'laydi» is theirs to move.
     Runs after ``mark_renewed``: who paid is in Uzaytirdi, not here."""
+    rule = rules.get(db, "renewal.bill_unpaid")
+    if not rule.enabled:
+        return 0
+    seat = rules.get(db, "renewal.bill_opened").to_column
     bills = _open_bills(now)
     by_bill = (
         select(BoardCardEvent.ref)
@@ -445,7 +455,7 @@ def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
             .where(
                 BoardCard.board == BOARD,
                 BoardCard.closed_at.is_(None),
-                BoardCard.column_code == str(RenewalColumn.AWAITING),
+                BoardCard.column_code == seat,
                 by_bill.is_not(None),
                 ~exists().where(bills.c.owner_id == BoardCard.owner_id),
             )
@@ -461,9 +471,10 @@ def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
         move(
             db,
             card=card,
-            to=str(RenewalColumn.CALLBACK),
+            to=rule.to_column,
             kind=EventKind.BILL_UNPAID,
             now=now,
+            body=rule.reason,
             ref=str(ref).replace("bill:", "unpaid:", 1),
         )
     db.commit()
@@ -473,14 +484,17 @@ def bills_unpaid(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
 def decline_silent(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int:
     """Thirty days after the term ended and nobody reached the client (the
     card is in Tugagan or Bog'lanilmadi): to Rad etdi, «javob bermadi»."""
+    rule = rules.get(db, "renewal.silent")
+    if not rule.enabled:
+        return 0
     rows = list(
         db.scalars(
             select(BoardCard)
             .where(
                 BoardCard.board == BOARD,
                 BoardCard.closed_at.is_(None),
-                BoardCard.column_code.in_(RENEWAL_SILENT_COLUMNS),
-                BoardCard.term_ends_at <= now - timedelta(days=RENEWAL_DECLINE_DAYS),
+                BoardCard.column_code.in_(rule.from_columns),
+                BoardCard.term_ends_at <= now - rule.delta,
             )
             .order_by(BoardCard.term_ends_at)
             .limit(limit)
@@ -499,6 +513,7 @@ def decline_silent(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> i
             to=str(RenewalColumn.DECLINED),
             kind=EventKind.SILENT,
             now=now,
+            body=rule.reason,
         )
     db.commit()
     return len(rows)
@@ -515,6 +530,9 @@ def sweep(db: Session, *, now: datetime) -> int:
     done += bills_opened(db, now=now)
     done += bills_unpaid(db, now=now)
     done += decline_silent(db, now=now)
+    # Last: the superuser's own rules see the cards where the rules above
+    # left them.
+    done += rules.run_custom(db, board=Board.RENEWAL, now=now)
     return done
 
 

@@ -598,6 +598,52 @@ FINAL_SEED_COLUMNS: Final = frozenset(
 )
 
 
+# -- automatic rules -----------------------------------------------------------
+
+
+class RuleKind(Choices):
+    # A rule the code runs.
+    SYSTEM = "system"
+    # The superuser's: a card stood in a column this long.
+    STAY = "stay"
+    # The superuser's: a card's own time (its deadline) passed.
+    DUE = "due"
+
+
+RULE_KIND_LABELS = {
+    RuleKind.SYSTEM: "Tizim qoidasi",
+    RuleKind.STAY: "Ustunda turgan vaqt bo'yicha",
+    RuleKind.DUE: "Karta muddati kelganda",
+}
+
+
+class RuleUnit(Choices):
+    MINUTES = "minutes"
+    HOURS = "hours"
+    DAYS = "days"
+
+
+RULE_UNIT_LABELS = {
+    RuleUnit.MINUTES: "daqiqa",
+    RuleUnit.HOURS: "soat",
+    RuleUnit.DAYS: "kun",
+}
+RULE_UNIT_MINUTES: Final = {
+    RuleUnit.MINUTES: 1,
+    RuleUnit.HOURS: 60,
+    RuleUnit.DAYS: 1440,
+}
+RULE_REASON_MAX: Final = 200
+RULE_NAME_MAX: Final = 80
+CUSTOM_RULE_PREFIX: Final = "u_"
+# The superuser's own rules a board holds at most.
+CUSTOM_RULES_MAX: Final = 20
+# A card moved by a «turgan vaqt» rule stood there at least this long: two
+# such rules cannot throw a card back and forth every minute.
+STAY_RULE_MIN_MINUTES: Final = 60
+RULE_AMOUNT_MAX: Final = 365
+
+
 class DeclineReason(Choices):
     EXPENSIVE = "expensive"
     NO_RESULT = "no_result"
@@ -835,6 +881,8 @@ class EventKind(Choices):
     BILL_TOLD = "bill_told"
     # One of the superuser's own buttons moved the card.
     BUTTON = "button"
+    # One of the superuser's own rules moved the card.
+    RULE = "rule"
 
 
 EVENT_KIND_LABELS = {
@@ -893,6 +941,7 @@ EVENT_KIND_LABELS = {
     EventKind.DUE_REMINDED: "Telegramga eslatma yuborildi",
     EventKind.BILL_TOLD: "Hisob ochgani Telegramga yuborildi",
     EventKind.BUTTON: "Tugma bosildi",
+    EventKind.RULE: "Avtomatik qoida",
 }
 
 NOTE_MAX: Final = 2000

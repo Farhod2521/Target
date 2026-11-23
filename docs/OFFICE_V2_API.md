@@ -427,6 +427,55 @@ Front uchun: `actions[].value` endi `b_…` ham bo'lishi mumkin — `POST /cards
 ko'rsatiladi (tarjima qilinmaydi). Ustunda yo'q tugma kodi: **409** `action_not_here` (avval noma'lum
 kod uchun 422 edi).
 
+### Avtomatik qoidalar (2026-11-23)
+
+Tizim o'zi qiladigan har bir ko'chirish endi alohida qoida, bazada o'z qatori bilan (`board_rules`,
+migratsiya 0080: 28 ta, hammasi kodda bo'lgan qiymatlar bilan). Superuser qoidaning ochiq qismlarini
+o'zgartiradi; qolgani kodda qoladi.
+
+`GET /boards/{board}/rules` → `{board, may_edit, max_custom, rules, kinds, units, from_choices, to_choices}`.
+Har qoida: `{id, code, kind, name, sentence, is_enabled, from_columns, to_column, default_to, amount, unit,
+amount_of, reason, editable, note, is_changed, is_custom}`. `sentence` — qoida oddiy gapda (o'zbekcha,
+ustun nomlari bilan). `editable` — `enabled`, `from`, `to`, `amount`, `reason` dan qaysilari ochiq.
+
+| Qoida | Ochiq qismlari |
+|---|---|
+| `sales.bill_opened`, `renewal.bill_opened` (mijoz hisob ochdi) | yoqish, qaysi ustunlardan, qaysi ustunga, sabab |
+| `sales.bill_unpaid`, `renewal.bill_unpaid` (hisob to'lanmadi) | yoqish, qaysi ustunga, sabab |
+| `support.due_back` (kutish vaqti keldi), `support.client_replied` (mijoz yozdi) | yoqish, qaysi ustunlardan, qaysi ustunga, sabab |
+| `support.setup_late` (60 daqiqa), `support.meta_error` (30 daqiqa), `support.idle_no_launch` (3 kun), `support.idle_no_spend` (24 soat) | yoqish, muddat |
+| `support.from_sales`, `support.survey` | yoqish |
+| `renewal.opened` (muddat tugashidan 3 kun oldin) | muddat |
+| `renewal.silent` (30 kun javobsiz → «Rad etdi») | yoqish, qaysi ustunlardan, muddat, sabab |
+| `sales.sold`, `sales.start_bought`, `sales.offer_step`, `sales.offer_ended`, `support.unanswered`, `renewal.ended` | faqat sabab matni (pul va tasdiq qoidalari) |
+| qolganlari (`sales.lead_opened`, `sales.given`, `support.reopened`, `renewal.renewed`, …) | hech narsa: sababni tizim har safar o'zi yozadi |
+
+Sabab matni (`reason`) karta tarixiga yoziladi. Avval bo'sh yoziladigan 14 ta ko'chirish endi sabab bilan
+yoziladi; hisob qoidalarida hisob raqami va summasi qo'shiladi («…: №TA-123, 490 000 UZS»).
+
+**Superuserning o'z qoidalari** (`kind`): `stay` — karta ustunda shuncha tursa (kamida 1 soat);
+`due` — kartaga qo'yilgan vaqt o'tsa (0 dan boshlab). Ikkalasi kartani tanlangan ustunga o'tkazadi,
+tarixda `rule` («Avtomatik qoida»), matni: qoida nomi va sababi. Har daqiqalik tekshiruvda, tizim
+qoidalaridan keyin ishlaydi. Bir kanbanda ko'pi bilan 20 ta.
+
+Cheklovlar (**422** `rule_invalid`): qoida faqat ko'rinadigan ochiq ustunlardan o'qiydi (navbat,
+chegirma va yakuniy ustunlardan emas) va faqat qo'lda ishlanadigan, yakuniy bo'lmagan ustunga
+o'tkazadi. Tizim qoidasining yopiq qismi yuborilsa: **422** `rule_field_fixed`. Qoida ishlatadigan
+ustunni doskadan olib bo'lmaydi: **422** `column_has_rules`.
+
+Yo'llar (yozish faqat superuser, Egasi **403**; javob har doim butun `RulesOut`):
+
+- `POST /boards/{board}/rules` `{kind, name, from_columns, to_column, amount, unit, reason}` → **201**.
+- `PATCH /boards/{board}/rules/{id}` — tizim qoidasi uchun faqat o'zgargan maydonlar
+  (`is_enabled`, `from_columns`, `to_column`, `amount`, `reason`); o'z qoidasi uchun butunligicha
+  (`kind, name, from_columns, to_column, amount, unit, reason, is_enabled`).
+- `POST /boards/{board}/rules/{id}/reset` — tizim qoidasini kod qiymatlariga qaytaradi.
+- `DELETE /boards/{board}/rules/{id}` — faqat o'z qoidasi (tizimniki o'chirilmaydi, faqat `is_enabled: false`).
+
+**Kartada «nega shu ustunda»**: `CardOut.why` (doskada ham, karta ichida ham):
+`{kind, label, body, auto, at}` — kartani hozirgi ustuniga qo'ygan oxirgi tarix qatori.
+`auto: true` — qoida ko'chirgan (odam emas). `null` — karta shu ustunda ochilgan.
+
 ### Xodimlar
 
 Ofis frontida xodimlar va rollar endi faqat **Jamoa** bo'limida (`/api/v1/office/team`, Egasi va superuser):

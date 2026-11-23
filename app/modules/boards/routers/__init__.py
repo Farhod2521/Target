@@ -24,6 +24,7 @@ from app.modules.boards import (
     phone_take,
     reason_lists,
     renewal,
+    rules,
     sales_kinds,
     selectors,
     services,
@@ -83,6 +84,9 @@ from app.modules.boards.schemas import (
     RenewalManagerIn,
     RenewalManagerOut,
     RenewalReportOut,
+    RuleAddIn,
+    RuleEditIn,
+    RulesOut,
     SalesKindsIn,
     SalesKindsOut,
     SalesReportOut,
@@ -1038,6 +1042,125 @@ def remove_button(db: Db, staff: BoardStaff, button_id: uuid.UUID) -> dict[str, 
         },
     )
     return board_buttons(db, staff)
+
+
+@router.get("/boards/{board}/rules", responses={200: {"model": RulesOut}})
+def board_rules(db: Db, staff: BoardStaff) -> dict[str, Any]:
+    """Every automatic rule of the board in plain words: the system's with
+    what may be changed of each, then the superuser's own. Read by whoever
+    opens the board's settings."""
+    selectors.ensure_board(db, board=staff.board, now=utcnow())
+    out = rules.settings_view(
+        db, board=staff.board, may_edit=bool(staff.user.is_superuser)
+    )
+    db.commit()
+    return out
+
+
+@router.post(
+    "/boards/{board}/rules",
+    status_code=status.HTTP_201_CREATED,
+    responses={201: {"model": RulesOut}},
+)
+def add_rule(db: Db, staff: BoardStaff, body: RuleAddIn) -> dict[str, Any]:
+    """A rule of the superuser's own: a card that stood in a column long
+    enough (`stay`), or whose own time passed (`due`), goes to another."""
+    _columns_keeper(staff)
+    row = rules.add_custom(
+        db,
+        board=staff.board,
+        actor_id=staff.user.id,
+        now=utcnow(),
+        kind=body.kind,
+        name=body.name,
+        from_columns=body.from_columns,
+        to_column=body.to_column,
+        amount=body.amount,
+        unit=body.unit,
+        reason=body.reason,
+    )
+    logger.info(
+        "board rule added",
+        extra={
+            "board": str(staff.board),
+            "code": row.code,
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return board_rules(db, staff)
+
+
+@router.patch("/boards/{board}/rules/{rule_id}", responses={200: {"model": RulesOut}})
+def edit_rule(
+    db: Db, staff: BoardStaff, rule_id: uuid.UUID, body: RuleEditIn
+) -> dict[str, Any]:
+    """Change a rule: of the system's, the fields its `editable` names; of
+    the superuser's own, everything (send it whole)."""
+    _columns_keeper(staff)
+    sent = body.model_dump(exclude_unset=True)
+    now = utcnow()
+    if rules.is_custom(db, board=staff.board, rule_id=rule_id):
+        rules.edit_custom(
+            db,
+            board=staff.board,
+            rule_id=rule_id,
+            actor_id=staff.user.id,
+            now=now,
+            is_enabled=bool(sent.get("is_enabled", True)),
+            kind=str(sent.get("kind", "")),
+            name=str(sent.get("name", "")),
+            from_columns=list(sent.get("from_columns") or []),
+            to_column=str(sent.get("to_column", "")),
+            amount=int(sent.get("amount") or 0),
+            unit=str(sent.get("unit", "")),
+            reason=str(sent.get("reason", "")),
+        )
+    else:
+        rules.edit_system(
+            db,
+            board=staff.board,
+            rule_id=rule_id,
+            changes={
+                key: value
+                for key, value in sent.items()
+                if key
+                in ("is_enabled", "from_columns", "to_column", "amount", "reason")
+                and value is not None
+            },
+            actor_id=staff.user.id,
+            now=now,
+        )
+    logger.info(
+        "board rule changed",
+        extra={
+            "board": str(staff.board),
+            "rule_id": str(rule_id),
+            "fields": sorted(sent),
+            "actor_id": str(staff.user.id),
+        },
+    )
+    return board_rules(db, staff)
+
+
+@router.post(
+    "/boards/{board}/rules/{rule_id}/reset", responses={200: {"model": RulesOut}}
+)
+def reset_rule(db: Db, staff: BoardStaff, rule_id: uuid.UUID) -> dict[str, Any]:
+    """A rule of the system's as the code has it («Standartga qaytarish»)."""
+    _columns_keeper(staff)
+    rules.reset_system(
+        db, board=staff.board, rule_id=rule_id, actor_id=staff.user.id, now=utcnow()
+    )
+    return board_rules(db, staff)
+
+
+@router.delete("/boards/{board}/rules/{rule_id}", responses={200: {"model": RulesOut}})
+def remove_rule(db: Db, staff: BoardStaff, rule_id: uuid.UUID) -> dict[str, Any]:
+    """One of the superuser's own rules, gone. The system's are switched
+    off, never removed."""
+    _columns_keeper(staff)
+    rules.remove_custom(db, board=staff.board, rule_id=rule_id)
+    return board_rules(db, staff)
 
 
 def _columns_keeper(staff: BoardStaff) -> None:
