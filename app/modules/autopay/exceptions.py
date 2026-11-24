@@ -63,3 +63,22 @@ class CardCodeStale(DomainError):
 
     def __init__(self) -> None:
         super().__init__("Bu to'lovni tasdiqlab bo'lmadi. To'lovni qaytadan boshlang.")
+
+
+class CardCodeTooSoon(DomainError):
+    code = "card_code_too_soon"
+    status_code = 429
+
+    def __init__(self, seconds: int) -> None:
+        self.seconds = seconds
+        super().__init__(f"Yangi kodni {seconds} soniyadan so'ng so'rash mumkin.")
+
+
+class CardCodeLimit(DomainError):
+    code = "card_code_limit"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Kod ko'p marta so'raldi. To'lovni qaytadan boshlang yoki "
+            "boshqa usulda to'lang."
+        )

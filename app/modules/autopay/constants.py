@@ -24,6 +24,11 @@ MAX_ATTEMPTS: Final = 3
 PHONE_DIGITS: Final = 12
 PHONE_PREFIX: Final = "998"
 
+# A new SMS code for a card payment is asked no sooner than this after the
+# last one, and at most CODE_SENDS times for one payment.
+CODE_RESEND_SECONDS: Final = 60
+CODE_SENDS: Final = 5
+
 # Where Multicard sends the payer back after its card page.
 CARD_DONE_PATH: Final = "/app/billing?card=bound"
 CARD_DECLINED_PATH: Final = "/app/billing?card=declined"

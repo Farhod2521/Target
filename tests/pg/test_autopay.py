@@ -52,6 +52,7 @@ class FakeMulticard:
         self.confirmed: list[dict[str, Any]] = []
         self.callbacks: list[httpx.Response] = []
         self.payments: dict[str, dict[str, Any]] = {}
+        self.dropped: list[str] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -60,7 +61,9 @@ class FakeMulticard:
         self.seen.append(f"{request.method} {path}")
         if (request.method, path) == ("POST", "/payment/card/bind"):
             self.binds.append(json.loads(request.content))
-            return _ok({"session_id": SESSION, "form_url": f"https://mc/card/{SESSION}"})
+            return _ok(
+                {"session_id": SESSION, "form_url": f"https://mc/card/{SESSION}"}
+            )
         if (request.method, path) == ("GET", f"/payment/card/bind/{SESSION}"):
             return _ok(CARD)
         if (request.method, path) == ("DELETE", f"/payment/card/{TOKEN}"):
@@ -70,6 +73,11 @@ class FakeMulticard:
             uuid = f"p{len(self.payments) + 1}"
             self.payments[uuid] = body
             return _ok({"uuid": uuid, "status": "draft", "otp_hash": self.otp_hash})
+        if request.method == "GET" and path.startswith("/payment/p"):
+            return _ok({"uuid": path.rsplit("/", 1)[1], "status": "draft"})
+        if request.method == "DELETE" and path.startswith("/payment/p"):
+            self.dropped.append(path.rsplit("/", 1)[1])
+            return _ok({"status": "revert"})
         if request.method == "PUT" and path.startswith("/payment/"):
             uuid = path.rsplit("/", 1)[1]
             sent = json.loads(request.content or b"{}")
@@ -234,9 +242,7 @@ def test_a_card_is_bound_from_multicard_s_word_not_its_callback(
     assert TOKEN.encode() not in card.token_encrypted
 
 
-def test_no_card_without_consent(
-    client: TestClient, multicard: FakeMulticard
-) -> None:
+def test_no_card_without_consent(client: TestClient, multicard: FakeMulticard) -> None:
     auth = sign_up(client)
 
     answer = client.post(
@@ -480,6 +486,137 @@ def test_a_code_confirms_only_the_bill_it_was_sent_for(
     assert crossed.status_code == 400 and crossed.json()["code"] == "card_code_stale"
     assert forged.status_code == 400 and forged.json()["code"] == "card_code_stale"
     assert multicard.confirmed == []
+
+
+def _later(monkeypatch: pytest.MonkeyPatch, seconds: int) -> None:
+    then = utcnow() + timedelta(seconds=seconds)
+    monkeypatch.setattr("app.modules.billing.routers.utcnow", lambda: then)
+
+
+def test_a_new_code_is_a_new_payment_after_a_minute(
+    client: TestClient,
+    db: Session,
+    multicard: FakeMulticard,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    _plan_running_out(db)
+    multicard.otp_hash = "abc"
+    started = _pay(client, auth).json()
+    assert started["kind"] == "code" and started["resend_in"] == 60
+    url = f"/api/v1/billing/invoice/{started['number']}"
+
+    early = client.post(
+        f"{url}/resend", json={"charge": started["charge"]}, headers=auth
+    )
+    assert early.status_code == 429
+    assert early.json()["code"] == "card_code_too_soon"
+    assert len(multicard.payments) == 1
+
+    _later(monkeypatch, 61)
+    again = client.post(
+        f"{url}/resend", json={"charge": started["charge"]}, headers=auth
+    )
+
+    assert again.status_code == 200, again.text
+    resent = again.json()
+    assert resent["kind"] == "code" and resent["resend_in"] == 60
+    assert resent["number"] == started["number"]
+    assert resent["charge"] != started["charge"]
+    assert list(multicard.payments) == ["p1", "p2"]
+    assert multicard.dropped == ["p1"]
+    assert multicard.payments["p2"]["invoice_id"] == started["number"]
+    paid = client.post(
+        f"{url}/confirm",
+        json={"charge": resent["charge"], "code": "50112"},
+        headers=auth,
+    )
+    assert paid.status_code == 200, paid.text
+    assert multicard.callbacks[-1].json()["success"] is True
+    db.expire_all()
+    assert db.scalar(select(Invoice.status)) == "paid"
+
+
+def test_codes_stop_after_five_sends(
+    client: TestClient,
+    db: Session,
+    multicard: FakeMulticard,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    _plan_running_out(db)
+    multicard.otp_hash = "abc"
+    started = _pay(client, auth).json()
+    url = f"/api/v1/billing/invoice/{started['number']}/resend"
+    charge = started["charge"]
+    for step in range(1, 5):
+        _later(monkeypatch, 61 * step)
+        answer = client.post(url, json={"charge": charge}, headers=auth)
+        assert answer.status_code == 200, answer.text
+        charge = answer.json()["charge"]
+
+    _later(monkeypatch, 61 * 5)
+    over = client.post(url, json={"charge": charge}, headers=auth)
+
+    assert over.status_code == 400 and over.json()["code"] == "card_code_limit"
+    assert len(multicard.payments) == 5
+
+
+def test_a_new_code_is_asked_only_for_its_own_bill(
+    client: TestClient,
+    db: Session,
+    multicard: FakeMulticard,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    _plan_running_out(db)
+    multicard.otp_hash = "abc"
+    started = _pay(client, auth).json()
+    _later(monkeypatch, 61)
+
+    forged = client.post(
+        f"/api/v1/billing/invoice/{started['number']}/resend",
+        json={"charge": encrypt("1234567890:p1").decode()},
+        headers=auth,
+    )
+    stranger = client.post(
+        f"/api/v1/billing/invoice/{started['number']}/resend",
+        json={"charge": started["charge"]},
+        headers=sign_up(client, email="stranger@example.uz"),
+    )
+
+    assert forged.status_code == 400 and forged.json()["code"] == "card_code_stale"
+    assert stranger.status_code == 404
+    assert len(multicard.payments) == 1
+
+
+def test_a_card_that_stops_asking_for_a_code_is_taken_on_resend(
+    client: TestClient,
+    db: Session,
+    multicard: FakeMulticard,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    _plan_running_out(db)
+    multicard.otp_hash = "abc"
+    started = _pay(client, auth).json()
+    multicard.otp_hash = None
+    _later(monkeypatch, 61)
+
+    answer = client.post(
+        f"/api/v1/billing/invoice/{started['number']}/resend",
+        json={"charge": started["charge"]},
+        headers=auth,
+    )
+
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["kind"] == "wait" and answer.json()["charge"] == ""
+    db.expire_all()
+    assert db.scalar(select(Invoice.status)) == "paid"
 
 
 def test_a_refused_card_says_why_and_no_card_is_not_found(

@@ -649,6 +649,11 @@ class CheckoutOut(BaseModel):
         description="With `kind: code`: send it back with the SMS code to "
         "`POST /billing/invoice/{number}/confirm`.",
     )
+    resend_in: int = Field(
+        default=0,
+        description="With `kind: code`: seconds before a new code may be asked "
+        "at `POST /billing/invoice/{number}/resend`.",
+    )
 
 
 class CardCodeIn(BaseModel):
@@ -656,10 +661,28 @@ class CardCodeIn(BaseModel):
     code: str = Field(min_length=1, max_length=12)
 
 
+class CardResendIn(BaseModel):
+    charge: str = Field(min_length=1, max_length=1024)
+
+
 def _wait_url(number: str, **query: str) -> str:
     query = {k: v for k, v in query.items() if v}
     path = f"/app/billing/invoice/{number}"
     return f"{path}?{urlencode(query)}" if query else path
+
+
+def _card_answer(
+    number: str, paid: card_services.CardPayment, wait_url: str
+) -> CheckoutOut:
+    if paid.needs_code:
+        return CheckoutOut(
+            number=number,
+            kind="code",
+            wait_url=wait_url,
+            charge=paid.charge,
+            resend_in=paid.resend_in,
+        )
+    return CheckoutOut(number=number, kind="wait", wait_url=wait_url)
 
 
 def _start(
@@ -687,11 +710,7 @@ def _start(
             extra={"invoice": invoice.number, "needs_code": paid.needs_code},
         )
         via = _wait_url(invoice.number, via=CARD_PROVIDER, **back)
-        if paid.needs_code:
-            return CheckoutOut(
-                number=invoice.number, kind="code", wait_url=via, charge=paid.charge
-            )
-        return CheckoutOut(number=invoice.number, kind="wait", wait_url=via)
+        return _card_answer(invoice.number, paid, via)
     if not provider:
         db.commit()
         raise HTTPException(
@@ -982,6 +1001,33 @@ def confirm_card_payment(
         db, user=user, invoice=invoice, charge=body.charge, code=body.code, now=utcnow()
     )
     return {"ok": True}
+
+
+@router.post("/invoice/{number}/resend", response_model=CheckoutOut)
+def resend_card_code(
+    number: str, body: CardResendIn, db: Db, user: CurrentUser
+) -> CheckoutOut:
+    """A new SMS code for a bill being paid from the saved card.
+
+    Answers as the checkout did: `kind: code` with a new `charge` (use it
+    from now on; the old one no longer takes a code) and `resend_in`, or
+    `kind: wait` when the card was taken with no code. `card_code_too_soon`
+    (429) - wait the seconds it names; `card_code_limit` - start the payment
+    again or pay another way.
+    """
+    invoice = selectors.invoice_for(db, owner=user, number=number)
+    if invoice is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    paid = card_services.resend_card_code(
+        db, user=user, invoice=invoice, charge=body.charge, now=utcnow()
+    )
+    logger.info(
+        "card code sent again",
+        extra={"invoice": invoice.number, "needs_code": paid.needs_code},
+    )
+    return _card_answer(
+        invoice.number, paid, _wait_url(invoice.number, via=CARD_PROVIDER)
+    )
 
 
 @webhooks.post("/webhooks/pay/{provider}", include_in_schema=False)

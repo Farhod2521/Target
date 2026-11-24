@@ -172,6 +172,20 @@ kartadan yechiladi (`provider` o'qilmaydi). Javob `kind`:
 yo'qmi — Multicard'dagi do'kon sozlamasiga bog'liq (SMS kodsiz yechish
 yoqilgan bo'lsa, so'ralmaydi).
 
+`kind: code` javobida `resend_in` (soniya, hozir 60) ham keladi: shuncha
+vaqtdan keyin «Kodni qayta yuborish» tugmasi ochiladi —
+`POST /api/v1/billing/invoice/{number}/resend`:
+
+```json
+{ "charge": "<oxirgi charge>" }
+```
+
+Multicard'da kodni qayta yuborish yo'q, shuning uchun eski to'lov bekor
+qilinadi va shu hisob uchun yangi to'lov ochiladi — Multicard yangi kod
+yuboradi. Javob checkout'niki bilan bir xil: `kind: code` + yangi `charge`
+(endi faqat shu ishlaydi) + `resend_in`, yoki `kind: wait` (karta kodsiz
+yechildi). Bitta to'lov uchun ko'pi bilan 5 ta kod.
+
 ### Xatolar
 
 | Status | `code` | Holat |
@@ -184,6 +198,8 @@ yoqilgan bo'lsa, so'ralmaydi).
 | 400 | `card_declined` | Karta rad etdi; `detail` da sababi |
 | 400 | `card_code_wrong` | SMS kod noto'g'ri, qayta so'rang |
 | 400 | `card_code_stale` | Bu to'lovni tasdiqlab bo'lmaydi, to'lovni qayta boshlang |
+| 429 | `card_code_too_soon` | Yangi kod hali erta; `detail` da necha soniya |
+| 400 | `card_code_limit` | Kod 5 marta so'raldi; to'lovni qayta boshlang yoki boshqa usulda to'lang |
 
 Hamma xatoda `detail` — tayyor o'zbekcha matn.
 

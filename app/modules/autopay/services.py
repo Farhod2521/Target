@@ -27,6 +27,8 @@ from app.modules.autopay.constants import (
     CARD_DONE_PATH,
     CHARGE_ERROR_MAX,
     CHARGE_ERRORS,
+    CODE_RESEND_SECONDS,
+    CODE_SENDS,
     MAX_ATTEMPTS,
     PHONE_DIGITS,
     PHONE_PREFIX,
@@ -36,7 +38,9 @@ from app.modules.autopay.constants import (
 )
 from app.modules.autopay.exceptions import (
     AutopayUnavailable,
+    CardCodeLimit,
     CardCodeStale,
+    CardCodeTooSoon,
     CardCodeWrong,
     CardDeclined,
     CardNotFound,
@@ -399,10 +403,12 @@ class CardPayment:
     """How far a bill paid from the saved card got.
 
     ``charge`` is set when Multicard texted the card's owner a code: it is
-    handed back with that code to :func:`confirm_card_payment`.
+    handed back with that code to :func:`confirm_card_payment`, or to
+    :func:`resend_card_code` for a new code after ``resend_in`` seconds.
     """
 
     charge: str = ""
+    resend_in: int = 0
 
     @property
     def needs_code(self) -> bool:
@@ -410,7 +416,7 @@ class CardPayment:
 
 
 def pay_from_card(
-    db: Session, *, user: User, invoice: Invoice, now: datetime
+    db: Session, *, user: User, invoice: Invoice, now: datetime, sends: int = 1
 ) -> CardPayment:
     """Take a bill's amount from its owner's saved card.
 
@@ -444,7 +450,10 @@ def pay_from_card(
         extra={"owner": str(user.id), "invoice": invoice.number},
     )
     if charge.outcome == NEEDS_CODE:
-        return CardPayment(charge=encrypt(f"{invoice.number}:{charge.uuid}").decode())
+        return CardPayment(
+            charge=_charge_token(invoice.number, charge.uuid, now=now, sends=sends),
+            resend_in=CODE_RESEND_SECONDS,
+        )
     if charge.outcome == DECLINED:
         raise CardDeclined(_refusal(charge))
     return CardPayment()
@@ -456,12 +465,7 @@ def confirm_card_payment(
     """Debit a card payment with the code Multicard texted the card's owner."""
     if invoice.status not in PAYABLE_INVOICE_STATUSES or invoice.expires_at <= now:
         raise InvoiceNotPayable
-    try:
-        number, _, uuid = decrypt(charge.encode()).partition(":")
-    except DecryptionFailed as exc:
-        raise CardCodeStale from exc
-    if number != invoice.number or not uuid:
-        raise CardCodeStale
+    uuid, _, _ = _read_charge(charge, invoice)
     digits = "".join(ch for ch in code if ch.isdigit())
     if not digits:
         raise CardCodeWrong
@@ -478,6 +482,53 @@ def confirm_card_payment(
     if result.code == WRONG_CODE:
         raise CardCodeWrong
     raise CardDeclined(_refusal(result))
+
+
+def resend_card_code(
+    db: Session, *, user: User, invoice: Invoice, charge: str, now: datetime
+) -> CardPayment:
+    """A new SMS code for a bill waiting for one.
+
+    Multicard has no way to send a payment's code again, so the waiting
+    payment is dropped and a new one is made for the same bill: Multicard
+    texts its own code. A card that no longer asks for a code is simply
+    charged, and the answer then carries no ``charge``.
+    """
+    if invoice.status not in PAYABLE_INVOICE_STATUSES or invoice.expires_at <= now:
+        raise InvoiceNotPayable
+    uuid, issued, sends = _read_charge(charge, invoice)
+    left = CODE_RESEND_SECONDS - int(now.timestamp() - issued)
+    if left > 0:
+        raise CardCodeTooSoon(left)
+    if sends >= CODE_SENDS:
+        raise CardCodeLimit
+    try:
+        # A payment waiting for its code has moved no money; dropping it only
+        # keeps the old code from being used. Refused or unanswered, it stays
+        # a draft Multicard will not debit without that code.
+        cards().refund(external_id=uuid)
+    except PaymentError as exc:
+        logger.info("waiting card payment %s not dropped: %s", uuid, exc)
+    return pay_from_card(db, user=user, invoice=invoice, now=now, sends=sends + 1)
+
+
+def _charge_token(number: str, uuid: str, *, now: datetime, sends: int) -> str:
+    return encrypt(f"{number}:{uuid}:{int(now.timestamp())}:{sends}").decode()
+
+
+def _read_charge(charge: str, invoice: Invoice) -> tuple[str, int, int]:
+    """The payment's uuid, when its code was sent and how many were sent."""
+    try:
+        parts = decrypt(charge.encode()).split(":")
+    except DecryptionFailed as exc:
+        raise CardCodeStale from exc
+    number, uuid = [*parts, "", ""][:2]
+    if number != invoice.number or not uuid:
+        raise CardCodeStale
+    # A token made before resending existed carries neither.
+    issued = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    sends = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 1
+    return uuid, issued, sends
 
 
 def _refusal(charge: Charge) -> str:
@@ -498,6 +549,7 @@ __all__ = [
     "pay_from_card",
     "phone_of",
     "remove_card",
+    "resend_card_code",
     "return_paths",
     "set_autopay",
     "start_binding",
