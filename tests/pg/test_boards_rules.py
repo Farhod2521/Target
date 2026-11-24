@@ -211,14 +211,15 @@ def test_a_bill_rule_reads_the_superusers_columns_and_writes_its_reason(
         == "Mijoz ochgan hisobni to'lamadi, qo'ng'iroq qilish kerak."
     )
 
-    # A column a rule works with stays on the board.
+    # Before the column is taken off, the settings name the rules that use it.
     client.post(
         f"{URL}/cards/{card.id}/move",
         json={"column": "contacted", "reason": "x"},
         headers=boss,
     )
-    held = client.delete(f"{URL}/boards/sales/columns/{demo}", headers=boss)
-    assert held.status_code == 422 and held.json()["code"] == "column_has_rules"
+    asked = client.get(f"{URL}/boards/sales/columns/{demo}/removal", headers=boss)
+    assert asked.status_code == 200, asked.text
+    assert set(asked.json()["rules"]) == {"Mijoz hisob ochdi", "Hisob to'lanmadi"}
 
     # «Standartga qaytarish» gives the rule back as the code has it.
     for rule_id in (one.id, unpaid.id):

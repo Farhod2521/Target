@@ -136,7 +136,16 @@ class ColumnHasCards(DomainError):
 
     def __init__(self, count: int) -> None:
         super().__init__(
-            f"Ustunda {count} ta karta bor. Avval ularni boshqa ustunga ko'chiring."
+            f"Ustunda {count} ta karta bor. Ular qaysi ustunga ko'chishini tanlang."
+        )
+
+
+class MoveTargetInvalid(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Kartalarni faqat qo'lda ishlanadigan ochiq ustunga ko'chirish mumkin."
         )
 
 

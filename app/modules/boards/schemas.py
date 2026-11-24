@@ -1340,3 +1340,20 @@ class ColumnsReportOut(BaseModel):
     rows: list[ColumnReportRowOut] = Field(
         description="Every column the reader sees, in the board's order."
     )
+
+
+class ColumnRemovalOut(BaseModel):
+    code: str
+    name: str
+    cards: int = Field(description="Cards standing in the column now.")
+    targets: list[ButtonTargetOut] = Field(
+        description="Columns its cards may be moved to (`move_to`)."
+    )
+    buttons: list[str] = Field(
+        description="Buttons that send cards to it: the superuser's own go with "
+        "the column, the code's go back to their own column."
+    )
+    rules: list[str] = Field(
+        description="Rules that use it: the system's go back to their own "
+        "columns, the superuser's own are switched off."
+    )

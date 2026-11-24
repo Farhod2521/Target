@@ -69,6 +69,7 @@ from app.modules.boards.schemas import (
     CardDetailOut,
     ClientsFoundOut,
     ColumnAddIn,
+    ColumnRemovalOut,
     ColumnsIn,
     ColumnsOut,
     ColumnsReportOut,
@@ -1361,18 +1362,59 @@ def add_column(db: Db, staff: BoardStaff, body: ColumnAddIn) -> dict[str, Any]:
     return columns(db, staff)
 
 
-@router.delete("/boards/{board}/columns/{code}", responses={200: {"model": ColumnsOut}})
-@_journaled(SettingArea.COLUMN)
-def remove_column(db: Db, staff: BoardStaff, code: str) -> dict[str, Any]:
-    """Take one of the superuser's own columns off the board. Refused
-    while a card stands in it, and for the columns the board came with."""
+@router.get(
+    "/boards/{board}/columns/{code}/removal",
+    responses={200: {"model": ColumnRemovalOut}},
+)
+def column_removal(db: Db, staff: BoardStaff, code: str) -> dict[str, Any]:
+    """What taking this column off the board touches, to ask before it:
+    the cards standing in it and the columns they may go to, the buttons
+    that send cards to it and the rules that use it. For the superuser."""
     _columns_keeper(staff)
-    selectors.remove_column(
-        db, board=staff.board, code=code, actor_id=staff.user.id, now=utcnow()
+    return selectors.removal_view(db, board=staff.board, code=code)
+
+
+@router.delete("/boards/{board}/columns/{code}", responses={200: {"model": ColumnsOut}})
+@_journaled(SettingArea.RULE)
+@_journaled(SettingArea.BUTTON)
+@_journaled(SettingArea.COLUMN)
+def remove_column(
+    db: Db,
+    staff: BoardStaff,
+    code: str,
+    move_to: Annotated[
+        str,
+        Query(
+            max_length=24,
+            description="Where the column's cards go; needed while it has any "
+            "(one of `targets` of `GET …/removal`).",
+        ),
+    ] = "",
+) -> dict[str, Any]:
+    """Take one of the superuser's own columns off the board. Its cards go
+    to `move_to` first, each with a line in its history; without it a column
+    with cards is refused (422 `column_has_cards`). Buttons and rules that
+    used the column are let go of it: a button of the superuser's own that
+    sent cards there is removed, a rule of their own is switched off, and
+    the system's go back to their own columns. Refused for the columns the
+    board came with."""
+    _columns_keeper(staff)
+    moved = selectors.remove_column(
+        db,
+        board=staff.board,
+        code=code,
+        actor=staff.user,
+        now=utcnow(),
+        move_to=move_to,
     )
     logger.info(
         "board column removed",
-        extra={"board": str(staff.board), "code": code, "actor_id": str(staff.user.id)},
+        extra={
+            "board": str(staff.board),
+            "code": code,
+            "moved": moved,
+            "actor_id": str(staff.user.id),
+        },
     )
     return columns(db, staff)
 

@@ -4,6 +4,7 @@ superuser's changes (names, order, their own columns)."""
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -15,6 +16,7 @@ from app.modules.boards.constants import (
     COLUMNS_MAX,
     CUSTOM_COLUMN_PREFIX,
     LEAD_ONLY_COLUMNS,
+    OFFER_COLUMNS,
     QUEUE_COLUMNS,
     SEED_COLUMNS,
     START_TALKED_COLUMNS,
@@ -243,18 +245,8 @@ def _custom(rows: list[BoardColumn], code: str) -> BoardColumn:
     return found
 
 
-def remove_column(
-    db: Session, *, board: Board, code: str, actor_id: uuid.UUID, now: datetime
-) -> None:
-    """One of the superuser's own columns off the board, once no card
-    stands in it. Hidden, not deleted."""
-    from app.modules.boards.exceptions import ColumnHasCards
-
-    rows = _locked_rows(db, board)
-    found = _custom(rows, code)
-    if not found.is_visible:
-        return
-    cards = int(
+def _cards_in(db: Session, *, board: Board, code: str) -> int:
+    return int(
         db.scalar(
             select(func.count())
             .select_from(BoardCard)
@@ -262,25 +254,170 @@ def remove_column(
         )
         or 0
     )
-    if cards:
-        raise ColumnHasCards(cards)
-    from app.modules.boards import buttons
-    from app.modules.boards.exceptions import ColumnHasButtons
 
-    pointing = buttons.pointing_at(db, board=board, column_code=code)
-    if pointing:
-        raise ColumnHasButtons(pointing)
-    from app.modules.boards import rules
-    from app.modules.boards.exceptions import ColumnHasRules
 
-    ruled = rules.pointing_at(db, board=board, column_code=code)
-    if ruled:
-        raise ColumnHasRules(ruled)
+def _move_targets(db: Session, *, board: Board, code: str) -> list[BoardColumn]:
+    """Where a removed column's cards may go: a visible column a person
+    works, that does not close a card, is not the queue and is not a
+    discount column (its clock owns the cards there)."""
+    return [
+        row
+        for row in db.scalars(
+            select(BoardColumn)
+            .where(BoardColumn.board == str(board), BoardColumn.is_visible.is_(True))
+            .order_by(BoardColumn.position, BoardColumn.code)
+        )
+        if row.code != code
+        and not row.is_final
+        and row.kind == str(ColumnKind.MANUAL)
+        and (board, row.code) not in QUEUE_COLUMNS
+        and not (board == Board.SALES and row.code in OFFER_COLUMNS)
+    ]
+
+
+def _attached(db: Session, *, board: Board, code: str) -> tuple[list[Any], list[Any]]:
+    """The buttons that send cards to the column and the rules that use it."""
+    from app.modules.boards.models import BoardButton, BoardRule
+
+    sending = list(
+        db.scalars(
+            select(BoardButton).where(
+                BoardButton.board == str(board), BoardButton.to_column == code
+            )
+        )
+    )
+    using = [
+        rule
+        for rule in db.scalars(select(BoardRule).where(BoardRule.board == str(board)))
+        if rule.to_column == code or code in (rule.from_columns or [])
+    ]
+    return sending, using
+
+
+def removal_view(db: Session, *, board: Board, code: str) -> dict[str, Any]:
+    """What taking a column off the board touches, for the question asked
+    before it: the cards standing in it and where they may go, the buttons
+    that send cards to it and the rules that use it."""
+    from app.modules.boards import buttons, rules
+    from app.modules.boards.constants import CardAction
+
+    rows = list(db.scalars(select(BoardColumn).where(BoardColumn.board == str(board))))
+    found = _custom(rows, code)
+    names = {row.code: row.name for row in rows}
+    sending, using = _attached(db, board=board, code=code)
+
+    def label(button: Any) -> str:
+        own = button.label or (
+            buttons.default_label(board, CardAction(button.action))
+            if button.action in CardAction.values
+            else button.action
+        )
+        return f"«{names.get(button.column_code, button.column_code)}»: {own}"
+
+    def rule_name(rule: Any) -> str:
+        spec = rules.SPEC_BY_CODE.get(rule.code)
+        return spec.name if spec is not None else rule.name
+
+    return {
+        "code": found.code,
+        "name": found.name,
+        "cards": _cards_in(db, board=board, code=code),
+        "targets": [
+            {"code": row.code, "name": row.name}
+            for row in _move_targets(db, board=board, code=code)
+        ],
+        "buttons": [label(button) for button in sending],
+        "rules": [rule_name(rule) for rule in using],
+    }
+
+
+def _detach(db: Session, *, board: Board, code: str, now: datetime) -> None:
+    """Nothing points at a column that left the board. A button of the
+    superuser's own that sent cards there goes with it, and a button of the
+    code goes back to its own column. A rule of the code's reads and sends
+    as the code has it again; one of the superuser's own that needs the
+    column is switched off, and one that only also read from it reads the
+    rest."""
+    from app.modules.boards import buttons, rules
+
+    sending, using = _attached(db, board=board, code=code)
+    for button in sending:
+        if button.action == buttons.GO_ACTION:
+            db.delete(button)
+        else:
+            button.to_column = ""
+            button.updated_at = now
+    for rule in using:
+        spec = rules.SPEC_BY_CODE.get(rule.code)
+        rest = [item for item in (rule.from_columns or []) if item != code]
+        if spec is not None:
+            if rule.to_column == code:
+                rule.to_column = spec.to_column
+            rule.from_columns = rest or list(spec.from_columns)
+        elif rule.to_column == code or not rest:
+            rule.is_enabled = False
+        else:
+            rule.from_columns = rest
+        rule.updated_at = now
+
+
+def remove_column(
+    db: Session,
+    *,
+    board: Board,
+    code: str,
+    actor: Any,
+    now: datetime,
+    move_to: str = "",
+) -> int:
+    """One of the superuser's own columns off the board. Hidden, not
+    deleted: the cards' history names it, and it may be put back. The cards
+    standing in it go to ``move_to`` first (asked for while there are any),
+    each with a line saying why; the buttons and rules that used the column
+    are let go of it (``_detach``). How many cards moved."""
+    from app.modules.boards.constants import EventKind
+    from app.modules.boards.exceptions import ColumnHasCards, MoveTargetInvalid
+    from app.modules.boards.services import move
+
+    rows = _locked_rows(db, board)
+    found = _custom(rows, code)
+    if not found.is_visible:
+        return 0
+    moved = 0
+    if _cards_in(db, board=board, code=code):
+        if not move_to:
+            raise ColumnHasCards(_cards_in(db, board=board, code=code))
+        if move_to not in {
+            row.code for row in _move_targets(db, board=board, code=code)
+        }:
+            raise MoveTargetInvalid
+        cards = list(
+            db.scalars(
+                select(BoardCard)
+                .where(BoardCard.board == str(board), BoardCard.column_code == code)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        for card in cards:
+            move(
+                db,
+                card=card,
+                to=move_to,
+                kind=EventKind.MOVED,
+                now=now,
+                actor=actor,
+                body=f"«{found.name}» ustuni doskadan olib tashlandi.",
+            )
+        moved = len(cards)
+    _detach(db, board=board, code=code, now=now)
     found.is_visible = False
-    found.updated_by_id = actor_id
+    found.is_talked = False
+    found.updated_by_id = actor.id
     found.updated_at = now
     _renumber([row for row in rows if row.is_visible], rows)
     db.commit()
+    return moved
 
 
 def restore_column(

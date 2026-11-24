@@ -239,9 +239,11 @@ def test_a_button_of_the_code_is_added_moved_and_taken_off(
     )
     assert missed.column == "no_contact" and missed.attempts == 1
 
-    # A column a button sends cards to stays on the board.
-    held = client.delete(f"{URL}/boards/sales/columns/{demo}", headers=boss)
-    assert held.status_code == 422 and held.json()["code"] == "column_has_buttons"
+    # Before the column is taken off, the settings say which buttons send
+    # cards to it.
+    asked = client.get(f"{URL}/boards/sales/columns/{demo}/removal", headers=boss)
+    assert asked.status_code == 200, asked.text
+    assert len(asked.json()["buttons"]) >= 1
 
     # «Standartga qaytarish»: the column as the code gives it.
     reset = ButtonsOut.model_validate(
