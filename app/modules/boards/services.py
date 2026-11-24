@@ -859,15 +859,23 @@ def assign(
 ) -> BoardCard:
     """The board's lead gives a card to somebody on that board, or takes it
     back when ``to_id`` is empty: a lead to Ishlanmagan, a ticket to Yangi.
-    Support's lead is the superuser or the Owner."""
+    Support's lead is the superuser or the Owner. A closed card is given
+    and taken back too: it stays in the column it closed in, and what the
+    reports count by the card's person (a sale, a renewal) goes with it."""
     card = card_for(db, card_id=card_id, user=user, access=access, lock=True)
     board = Board(card.board)
     if not access.leads_board(board):
         raise CardNotFound
-    if board != Board.SUPPORT and card.closed_at is not None:
-        raise CardClosed
+    # A closed lead or renewal card (sold, renewed, closed) stays where it
+    # closed: only whose it is changes.
+    closed = board != Board.SUPPORT and card.closed_at is not None
     if to_id is None:
         if card.manager_id is None:
+            return card
+        if closed:
+            card.manager_id = None
+            record(db, card=card, kind=EventKind.RETURNED, now=now, actor=user)
+            db.commit()
             return card
         card.manager_id = None
         card.due_at = None
@@ -892,12 +900,12 @@ def assign(
         return card
     card.manager_id = manager.id
     to = card.column_code
-    if board == Board.SALES and card.column_code == SalesColumn.UNWORKED:
+    if not closed and board == Board.SALES and card.column_code == SalesColumn.UNWORKED:
         from app.modules.boards.sales_kinds import kind_of_client
 
         to = str(SalesColumn.NEW_LEAD)
         card.taken_as = kind_of_client(db, owner_id=card.owner_id, now=now)
-    if to == card.column_code and board == Board.RENEWAL:
+    if closed or (to == card.column_code and board == Board.RENEWAL):
         # The card stays in its column; only its person changes.
         record(
             db,

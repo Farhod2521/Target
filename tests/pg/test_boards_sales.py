@@ -463,3 +463,53 @@ def test_the_sweep_is_on_the_beat_every_minute() -> None:
     entries = {e["task"]: e for e in beat_schedule().values()}
     entry = entries["app.modules.boards.tasks.sweep_sales_board_task"]
     assert str(entry["schedule"]._orig_minute) == "*"
+
+
+def test_a_closed_card_is_given_and_taken_back_where_it_stands(
+    client: TestClient, db: Session
+) -> None:
+    """Sold or closed, a card still changes hands: the column it closed in
+    stays, only its person changes."""
+    _live(db)
+    ali = _staff(db, "ali@office.test", Role.SALES)
+    _staff(db, "vali@office.test", Role.SALES)
+    boss = _staff(db, "boss@office.test", superuser=True)
+    vali = db.scalar(select(User).where(User.email == "vali@office.test"))
+    assert vali is not None
+    lost = _client(db, "lost@shop.test")
+    won = _client(db, "won@shop.test")
+    _sweep(db)
+    cards = {}
+    for _ in range(2):
+        card = _detail(client.post(f"{URL}/sales/take", headers=ali))
+        cards[card.client.email] = card
+    closed = client.post(
+        f"{URL}/cards/{cards[lost.email].id}/actions",
+        json={"action": "close", "reason": "expensive"},
+        headers=ali,
+    )
+    assert closed.status_code == 200, closed.text
+    _plan(db)
+    _paid(db, won)
+    _sweep(db)
+
+    for email, column in ((lost.email, "closed"), (won.email, "sold")):
+        path = f"{URL}/cards/{cards[email].id}/assign"
+        given = client.post(path, json={"staff_id": str(vali.id)}, headers=boss)
+        assert given.status_code == 200, given.text
+        seen = _detail(given)
+        assert seen.column == column and seen.manager is not None
+        assert seen.manager.id == str(vali.id)
+        assert seen.history[0].kind == "assigned"
+        back = _detail(client.post(path, json={"staff_id": None}, headers=boss))
+        assert back.column == column and back.manager is None
+        assert back.history[0].kind == "returned"
+    # A manager still does not give cards out.
+    assert (
+        client.post(
+            f"{URL}/cards/{cards[lost.email].id}/assign",
+            json={"staff_id": str(vali.id)},
+            headers=ali,
+        ).status_code
+        == 404
+    )
