@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, false, true
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, false, text, true
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,6 +35,11 @@ class BoardRule(Base):
     unit: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     # Why the card moved, as its history keeps it.
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # A rule of the superuser's own: what else must hold of the card
+    # (``attempts_min``, ``plans``, ``bill``), and what it does besides or
+    # instead of moving it (``due``, ``notify``, ``assign``).
+    conditions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    actions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)

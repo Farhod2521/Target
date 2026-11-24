@@ -81,6 +81,20 @@ class ColumnOut(BaseModel):
         description="Added by the superuser. No rule and no button moves cards "
         "here: only `POST /cards/{id}/move`. Only these may be taken off.",
     )
+    is_talked: bool = Field(
+        False,
+        description="Sales: a card standing here was talked to, so a Start "
+        "payment starts its discount from here.",
+    )
+    may_talk: bool = Field(
+        False,
+        description="The superuser may set `is_talked` here "
+        "(`PUT /boards/sales/columns/{code}/talked`).",
+    )
+
+
+class ColumnTalkedIn(BaseModel):
+    talked: bool
 
 
 class ColumnsOut(BaseModel):
@@ -733,6 +747,25 @@ class RuleOut(BaseModel):
     note: str = Field(description="Why the rest is fixed, or what is wrong.")
     is_changed: bool = Field(description="Differs from the code's own.")
     is_custom: bool
+    # The superuser's own rules: what else must hold, and what else is done.
+    attempts_min: int = Field(
+        0, description="Only cards with at least this many calls that did not reach."
+    )
+    plans: list[str] = Field(
+        default_factory=list,
+        description="Only clients on one of these plans (`none`: no live plan).",
+    )
+    bill: str = Field("", description="`open`, `expired`, or empty: not looked at.")
+    due_amount: int | None = Field(
+        None, description="Sets the card's time this far ahead; null: left as it is."
+    )
+    due_unit: str = ""
+    notify_manager: bool = Field(False, description="Telegram to the card's person.")
+    notify_lead: bool = Field(
+        False, description="Telegram to the board's lead and the Owner."
+    )
+    notify_text: str = ""
+    assign_to: str = Field("", description="Gives the card to this member of staff.")
 
 
 class RuleChoiceOut(BaseModel):
@@ -747,6 +780,16 @@ class RulesOut(BaseModel):
     rules: list[RuleOut] = Field(description="The system's, then the superuser's own.")
     kinds: list[RuleChoiceOut] = Field(description="The kinds a new rule may be.")
     units: list[RuleChoiceOut]
+    plans: list[RuleChoiceOut] = Field(
+        default_factory=list, description="The plans a rule may ask for."
+    )
+    bills: list[RuleChoiceOut] = Field(default_factory=list)
+    staff: list[RuleChoiceOut] = Field(
+        default_factory=list, description="Who a rule may give a card to."
+    )
+    counts_attempts: bool = Field(
+        False, description="Whether `attempts_min` may be set on this board."
+    )
     from_choices: list[ButtonTargetOut] = Field(
         description="Columns a rule may read cards from."
     )
@@ -767,16 +810,58 @@ class RuleEditIn(BaseModel):
     name: str | None = Field(None, max_length=80)
     unit: str | None = Field(None, max_length=16)
     kind: str | None = Field(None, max_length=16)
+    attempts_min: int = Field(0, ge=0, le=50)
+    plans: list[str] = Field(default_factory=list, max_length=20)
+    bill: str = Field("", max_length=16)
+    due_amount: int | None = Field(None, ge=0, le=365)
+    due_unit: str = Field("", max_length=16)
+    notify_manager: bool = False
+    notify_lead: bool = False
+    notify_text: str = Field("", max_length=300)
+    assign_to: str = Field("", max_length=36)
 
 
 class RuleAddIn(BaseModel):
-    kind: str = Field(max_length=16, description="`stay` or `due`.")
+    kind: str = Field(max_length=16, description="`stay`, `due` or `wrote`.")
+    to_column: str = Field(
+        "",
+        max_length=24,
+        description="Empty: the card stays; the rule then does something else.",
+    )
     name: str = Field(min_length=1, max_length=80)
     from_columns: list[str] = Field(min_length=1, max_length=30)
-    to_column: str = Field(max_length=24)
     amount: int = Field(ge=0, le=600_000)
     unit: str = Field(max_length=16, description="`minutes`, `hours`, `days`.")
     reason: str = Field("", max_length=200)
+    attempts_min: int = Field(0, ge=0, le=50)
+    plans: list[str] = Field(default_factory=list, max_length=20)
+    bill: str = Field("", max_length=16)
+    due_amount: int | None = Field(None, ge=0, le=365)
+    due_unit: str = Field("", max_length=16)
+    notify_manager: bool = False
+    notify_lead: bool = False
+    notify_text: str = Field("", max_length=300)
+    assign_to: str = Field("", max_length=36)
+
+
+class RulePreviewIn(RuleAddIn):
+    rule_id: str = Field(
+        "", max_length=36, description="The rule being edited, if it is kept already."
+    )
+
+
+class RulePreviewCardOut(BaseModel):
+    id: str
+    name: str
+    column: str
+    column_name: str
+    column_since: datetime
+    due_at: datetime | None
+
+
+class RulePreviewOut(BaseModel):
+    count: int = Field(description="Cards the rule would act on this minute.")
+    cards: list[RulePreviewCardOut] = Field(description="The first of them.")
 
 
 class ButtonOut(BaseModel):
@@ -1207,4 +1292,48 @@ class SalesReportOut(BaseModel):
     campaigns: list[SalesCampaignOut] = Field(
         description="The lead's view only: the period's leads by utm_source and "
         "utm_campaign, most first (at most 15); leads with no marks left out."
+    )
+
+
+class SettingsEventOut(BaseModel):
+    id: str
+    area: str = Field(description="`column`, `reason`, `button`, `rule`.")
+    area_label: str
+    action: str = Field(description="`add`, `edit`, `remove`, `order`.")
+    action_label: str
+    name: str = Field(description="What was changed, as the settings name it.")
+    body: str = Field(description="What changed of it: «Nomi: «A» → «B»».")
+    actor: str
+    at: datetime
+
+
+class SettingsHistoryOut(BaseModel):
+    rows: list[SettingsEventOut]
+    next_before: datetime | None = Field(description="Pass as `before` for more.")
+    areas: list[RuleChoiceOut]
+
+
+class ColumnReportRowOut(BaseModel):
+    code: str
+    name: str
+    is_custom: bool
+    is_final: bool
+    now: int = Field(description="Cards standing in the column this minute.")
+    entered: int = Field(description="Cards that came into it in the period.")
+    left: int = Field(description="Stays that ended in the period.")
+    stay_hours: float | None = Field(
+        description="How long a card stood here before leaving, on average; "
+        "null: nothing left the column in the period."
+    )
+
+
+class ColumnsReportOut(BaseModel):
+    board: str
+    date_from: date
+    date_to: date
+    everybody: bool = Field(
+        description="False: only the reader's own cards are counted."
+    )
+    rows: list[ColumnReportRowOut] = Field(
+        description="Every column the reader sees, in the board's order."
     )

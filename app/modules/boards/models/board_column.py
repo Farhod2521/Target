@@ -33,5 +33,8 @@ class BoardColumn(Base):
     is_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Added in the office by the superuser, not one the rules were written for.
     is_custom: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    # Sales: a card standing here was talked to, so a Start payment starts
+    # its discount from here (Bog'lanildi and the discount columns always).
+    is_talked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     updated_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)

@@ -217,3 +217,73 @@ def test_the_columns_the_board_came_with_are_not_taken_off(
     assert seeded.status_code == 422 and seeded.json()["code"] == "column_not_custom"
     unknown = client.delete(f"{path}/nothing", headers=boss)
     assert unknown.status_code == 422 and unknown.json()["code"] == "no_such_column"
+
+
+def test_a_column_marked_talked_starts_the_discount_on_a_start_payment(
+    client: TestClient, db: Session
+) -> None:
+    """The superuser marks a Sales column as talked to: a client who buys
+    Start while their card stands there gets the discount at once."""
+    from sqlalchemy import update
+
+    from app.modules.accounts.models import User
+    from app.modules.backoffice.constants import Role
+    from app.modules.boards.models import BoardCard
+    from tests.pg.test_boards_offer import _buys_start, _column
+    from tests.pg.test_boards_sales import _client, _detail, _live, _sweep
+
+    _live(db)
+    boss = _staff(db, "boss@office.test", superuser=True)
+    owner = _staff(db, "owner@office.test", Role.OWNER)
+    ali = _staff(db, "ali@office.test", Role.SALES)
+    path = f"{URL}/boards/sales/columns"
+    added = _out(client.post(path, headers=boss, json={"name": "O'ylab ko'radi"}))
+    own = next(column for column in added.columns if column.is_custom)
+    assert own.may_talk and not own.is_talked
+    by_code = {column.code: column for column in added.columns}
+    # The code's own: always talked, not the superuser's to change.
+    assert by_code["contacted"].is_talked and not by_code["contacted"].may_talk
+    assert by_code["callback"].may_talk and not by_code["unworked"].may_talk
+
+    for email in ("thinks@shop.test", "calls@shop.test"):
+        _client(db, email)
+    _sweep(db)
+    cards = [_detail(client.post(f"{URL}/sales/take", headers=ali)) for _ in range(2)]
+    db.execute(
+        update(BoardCard)
+        .where(BoardCard.id == cards[0].id)
+        .values(column_code=own.code)
+    )
+    db.execute(
+        update(BoardCard)
+        .where(BoardCard.id == cards[1].id)
+        .values(column_code="callback")
+    )
+    db.commit()
+
+    # Only the superuser sets the mark, and only where it may be set.
+    body = {"talked": True}
+    assert (
+        client.put(f"{path}/{own.code}/talked", headers=owner, json=body).status_code
+        == 403
+    )
+    assert (
+        client.put(f"{path}/contacted/talked", headers=boss, json=body).status_code
+        == 422
+    )
+    assert (
+        client.put(
+            f"{URL}/boards/support/columns/waiting/talked", headers=boss, json=body
+        ).status_code
+        == 422
+    )
+    marked = _out(client.put(f"{path}/{own.code}/talked", headers=boss, json=body))
+    assert next(c for c in marked.columns if c.code == own.code).is_talked
+
+    for card in cards:
+        person = db.scalar(select(User).where(User.id == card.client.id))
+        assert person is not None
+        _buys_start(db, person)
+    _sweep(db)
+    assert _column(db, cards[0].id) == "discount_20"
+    assert _column(db, cards[1].id) == "callback"

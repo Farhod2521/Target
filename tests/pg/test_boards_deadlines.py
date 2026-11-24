@@ -398,6 +398,8 @@ def test_a_ticket_is_opened_by_hand(client: TestClient, db: Session) -> None:
         "staff": False,
         "telephony": False,
         "renewal_manager": False,
+        # Support does not see Sales: no client card by way of a Sales card.
+        "sales_client_card": False,
     }
     assert (
         client.post(

@@ -166,6 +166,16 @@ class TooManyRules(DomainError):
         super().__init__(f"Bir kanbanda ko'pi bilan {limit} ta o'z qoidangiz bo'ladi.")
 
 
+class ColumnMarkFixed(DomainError):
+    status_code = 422
+
+    def __init__(self) -> None:
+        super().__init__(
+            "«Gaplashilgan» belgisi faqat Sotuvning qo'lda ishlanadigan ochiq "
+            "ustunlariga qo'yiladi. «Bog'lanildi» va chegirma ustunlarida u doim bor."
+        )
+
+
 class ColumnHasRules(DomainError):
     status_code = 422
 

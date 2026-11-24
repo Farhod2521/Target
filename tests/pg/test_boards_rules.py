@@ -346,8 +346,7 @@ def test_a_rule_of_the_superusers_own_moves_a_card_that_stood_too_long(
     own = RulesOut.model_validate(made.json()).rules[-1]
     assert own.is_custom and own.kind == "stay" and own.code.startswith("u_")
     assert own.sentence == (
-        "Karta ustunda turgan bo'lsa (3 kun) — «Bog'lanilmadi» ustunidan "
-        "→ karta «Sovuq»ga o'tadi."
+        "Karta «Bog'lanilmadi» ustunida 3 kun tursa → karta «Sovuq»ga o'tadi."
     )
 
     # Not yet three days there: the card stays.

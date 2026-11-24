@@ -15,7 +15,9 @@ from app.modules.boards.constants import (
     COLUMNS_MAX,
     CUSTOM_COLUMN_PREFIX,
     LEAD_ONLY_COLUMNS,
+    QUEUE_COLUMNS,
     SEED_COLUMNS,
+    START_TALKED_COLUMNS,
     Board,
     ColumnKind,
 )
@@ -30,6 +32,7 @@ class ColumnView:
     kind: str
     is_final: bool
     is_custom: bool = False
+    is_talked: bool = False
 
 
 def _view(row: BoardColumn) -> ColumnView:
@@ -40,6 +43,7 @@ def _view(row: BoardColumn) -> ColumnView:
         kind=row.kind,
         is_final=row.is_final,
         is_custom=row.is_custom,
+        is_talked=row.is_talked,
     )
 
 
@@ -76,6 +80,7 @@ def ensure_board(db: Session, *, board: Board, now: datetime) -> None:
                 kind=str(seed.kind),
                 is_final=seed.is_final,
                 is_visible=seed.is_visible,
+                is_talked=(board == Board.SALES and seed.code in START_TALKED_COLUMNS),
                 created_at=now,
                 updated_at=now,
             )
@@ -335,4 +340,74 @@ def rename_and_order(
         if not row.is_visible:
             position += 1
             row.position = position
+    db.commit()
+
+
+def talk_fixed(board: Board, code: str) -> bool:
+    """Columns whose «gaplashilgan» mark is the code's: Bog'lanildi and the
+    discount columns."""
+    return board == Board.SALES and code in START_TALKED_COLUMNS
+
+
+def may_mark_talked(board: Board, row: BoardColumn) -> bool:
+    """A Sales column the superuser may mark as talked to: one a person
+    works, that does not close a card and is not the queue."""
+    return (
+        board == Board.SALES
+        and row.is_visible
+        and not row.is_final
+        and row.kind == str(ColumnKind.MANUAL)
+        and (board, row.code) not in QUEUE_COLUMNS
+        and not talk_fixed(board, row.code)
+    )
+
+
+def markable_columns(db: Session, *, board: Board) -> frozenset[str]:
+    if board != Board.SALES:
+        return frozenset()
+    return frozenset(
+        row.code
+        for row in db.scalars(
+            select(BoardColumn).where(BoardColumn.board == str(board))
+        )
+        if may_mark_talked(board, row)
+    )
+
+
+def talked_columns(db: Session) -> frozenset[str]:
+    """The Sales columns where a card counts as talked to."""
+    return frozenset(
+        db.scalars(
+            select(BoardColumn.code).where(
+                BoardColumn.board == str(Board.SALES),
+                BoardColumn.is_talked.is_(True),
+                BoardColumn.is_visible.is_(True),
+            )
+        )
+    ) | frozenset(START_TALKED_COLUMNS)
+
+
+def mark_talked(
+    db: Session,
+    *,
+    board: Board,
+    code: str,
+    talked: bool,
+    actor_id: uuid.UUID,
+    now: datetime,
+) -> None:
+    from app.modules.boards.exceptions import ColumnMarkFixed, NoSuchColumn
+
+    row = db.scalar(
+        select(BoardColumn).where(
+            BoardColumn.board == str(board), BoardColumn.code == code
+        )
+    )
+    if row is None or not row.is_visible:
+        raise NoSuchColumn
+    if not may_mark_talked(board, row):
+        raise ColumnMarkFixed
+    row.is_talked = talked
+    row.updated_by_id = actor_id
+    row.updated_at = now
     db.commit()

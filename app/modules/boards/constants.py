@@ -505,6 +505,11 @@ CUSTOM_BUTTON_PREFIX: Final = "b_"
 BUTTON_LABEL_MAX: Final = 40
 BUTTONS_PER_COLUMN_MAX: Final = 10
 BUTTON_DUE_CHOICES: Final = ("", "optional", "required")
+BUTTON_DUE_LABELS: Final = {
+    "": "so'ralmaydi",
+    "optional": "ixtiyoriy",
+    "required": "shart",
+}
 
 # The buttons of the code each board's columns may show, in the order the
 # settings offer them.
@@ -608,12 +613,42 @@ class RuleKind(Choices):
     STAY = "stay"
     # The superuser's: a card's own time (its deadline) passed.
     DUE = "due"
+    # The superuser's: the client wrote to Yordam since the card came here.
+    WROTE = "wrote"
 
 
 RULE_KIND_LABELS = {
     RuleKind.SYSTEM: "Tizim qoidasi",
     RuleKind.STAY: "Ustunda turgan vaqt bo'yicha",
     RuleKind.DUE: "Karta muddati kelganda",
+    RuleKind.WROTE: "Mijoz Yordam chatiga yozganda",
+}
+# The kinds the superuser writes rules of.
+OWN_RULE_KINDS: Final = (RuleKind.STAY, RuleKind.DUE, RuleKind.WROTE)
+
+
+class RuleBill(Choices):
+    # The client has a plan bill open that may still be paid.
+    OPEN = "open"
+    # A plan bill of theirs ran out unpaid, and none is open now.
+    EXPIRED = "expired"
+
+
+RULE_BILL_LABELS = {
+    RuleBill.OPEN: "ochiq to'lov hisobi bor",
+    RuleBill.EXPIRED: "hisob to'lanmay muddati o'tgan",
+}
+# A rule's «tarif» condition for a client with no live plan.
+RULE_NO_PLAN: Final = "none"
+RULE_NO_PLAN_LABEL: Final = "Tarifsiz"
+RULE_TEXT_MAX: Final = 300
+RULE_ATTEMPTS_MAX: Final = 50
+# Boards whose cards count calls that did not reach the client.
+ATTEMPT_BOARDS: Final = frozenset({Board.SALES, Board.RENEWAL})
+BOARD_PATHS: Final = {
+    Board.SALES: "/ofis/kanban/sotuv/",
+    Board.SUPPORT: "/ofis/kanban/support/",
+    Board.RENEWAL: "/ofis/kanban/uzaytirish/",
 }
 
 
@@ -993,3 +1028,35 @@ WORK_HOURS: Final = (9, 21)
 # «Bog'lanilmadi» is counted up to this; the column is a small integer.
 ATTEMPTS_MAX: Final = 999
 CLIENT_SEARCH_ROWS: Final = 20
+
+
+class SettingArea(Choices):
+    """What of a board's settings a change touched."""
+
+    COLUMN = "column"
+    REASON = "reason"
+    BUTTON = "button"
+    RULE = "rule"
+
+
+SETTING_AREA_LABELS = {
+    SettingArea.COLUMN: "Ustun",
+    SettingArea.REASON: "Sabab",
+    SettingArea.BUTTON: "Tugma",
+    SettingArea.RULE: "Qoida",
+}
+
+
+class SettingAction(Choices):
+    ADD = "add"
+    EDIT = "edit"
+    REMOVE = "remove"
+    ORDER = "order"
+
+
+SETTING_ACTION_LABELS = {
+    SettingAction.ADD: "qo'shildi",
+    SettingAction.EDIT: "o'zgartirildi",
+    SettingAction.REMOVE: "olib tashlandi",
+    SettingAction.ORDER: "tartibi o'zgardi",
+}

@@ -12,34 +12,45 @@ Besides those the superuser writes rules of their own, of two kinds: a card
 that stood in a column long enough goes to another, and a card whose own
 time passed goes to another. ``run_custom`` moves those."""
 
+import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
 from app.modules.boards.constants import (
+    ATTEMPT_BOARDS,
     BILL_FROM_COLUMNS,
+    BOARD_PATHS,
     CONFIRM_HOURS,
     CUSTOM_RULE_PREFIX,
     CUSTOM_RULES_MAX,
+    FULL_ROLES,
     IDLE_NO_LAUNCH_DAYS,
+    LEAD_ROLES,
     META_ERROR_WAIT_MINUTES,
     NO_SPEND_HOURS,
     OFFER_COLUMNS,
+    OWN_RULE_KINDS,
     QUEUE_COLUMNS,
     RENEWAL_BILL_FROM,
     RENEWAL_DECLINE_DAYS,
     RENEWAL_OPEN_DAYS,
     RENEWAL_SILENT_COLUMNS,
     RULE_AMOUNT_MAX,
+    RULE_ATTEMPTS_MAX,
+    RULE_BILL_LABELS,
     RULE_KIND_LABELS,
     RULE_NAME_MAX,
+    RULE_NO_PLAN,
+    RULE_NO_PLAN_LABEL,
     RULE_REASON_MAX,
+    RULE_TEXT_MAX,
     RULE_UNIT_LABELS,
     RULE_UNIT_MINUTES,
     SETUP_GRACE_MINUTES,
@@ -49,6 +60,7 @@ from app.modules.boards.constants import (
     ColumnKind,
     EventKind,
     RenewalColumn,
+    RuleBill,
     RuleKind,
     RuleUnit,
     SalesColumn,
@@ -60,7 +72,16 @@ from app.modules.boards.exceptions import (
     RuleInvalid,
     TooManyRules,
 )
-from app.modules.boards.models import BoardCard, BoardColumn, BoardRule
+from app.modules.boards.models import (
+    BoardCard,
+    BoardCardEvent,
+    BoardColumn,
+    BoardRule,
+)
+
+logger = logging.getLogger(__name__)
+# The cards a rule's trial names.
+PREVIEW_CARDS = 10
 
 ENABLED, FROM, TO, AMOUNT, REASON = "enabled", "from", "to", "amount", "reason"
 
@@ -499,7 +520,7 @@ def _custom(db: Session, *, board: Board) -> list[BoardRule]:
             select(BoardRule)
             .where(
                 BoardRule.board == str(board),
-                BoardRule.kind.in_([str(RuleKind.STAY), str(RuleKind.DUE)]),
+                BoardRule.kind.in_([str(kind) for kind in OWN_RULE_KINDS]),
             )
             .order_by(BoardRule.position, BoardRule.created_at, BoardRule.code)
         )
@@ -523,36 +544,286 @@ def _target_ok(db: Session, *, board: Board, code: str) -> bool:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class Own:
+    """One of the superuser's rules as a run reads it: when it fires, what
+    else must hold of the card, and what it does."""
+
+    code: str
+    kind: str
+    name: str
+    from_columns: tuple[str, ...]
+    to_column: str
+    amount: int
+    unit: str
+    reason: str
+    attempts_min: int = 0
+    plans: tuple[str, ...] = ()
+    bill: str = ""
+    # None: the card's time is left as it is.
+    due_minutes: int | None = None
+    notify_manager: bool = False
+    notify_lead: bool = False
+    notify_text: str = ""
+    assign_to: str = ""
+
+    @property
+    def wait(self) -> timedelta:
+        return timedelta(
+            minutes=self.amount * RULE_UNIT_MINUTES[RuleUnit(self.unit or "hours")]
+        )
+
+    @property
+    def notifies(self) -> bool:
+        return self.notify_manager or self.notify_lead
+
+
+def _own_of(values: dict[str, Any], *, code: str = "") -> Own:
+    conditions = dict(values.get("conditions") or {})
+    actions = dict(values.get("actions") or {})
+    due = actions.get("due")
+    notify = dict(actions.get("notify") or {})
+    return Own(
+        code=code,
+        kind=str(values["kind"]),
+        name=str(values.get("name") or ""),
+        from_columns=tuple(values.get("from_columns") or ()),
+        to_column=str(values.get("to_column") or ""),
+        amount=int(values.get("amount") or 0),
+        unit=str(values.get("unit") or ""),
+        reason=str(values.get("reason") or ""),
+        attempts_min=int(conditions.get("attempts_min") or 0),
+        plans=tuple(conditions.get("plans") or ()),
+        bill=str(conditions.get("bill") or ""),
+        due_minutes=(
+            int(due["amount"]) * RULE_UNIT_MINUTES[RuleUnit(due["unit"])]
+            if isinstance(due, dict)
+            else None
+        ),
+        notify_manager=bool(notify.get("manager")),
+        notify_lead=bool(notify.get("lead")),
+        notify_text=str(notify.get("text") or ""),
+        assign_to=str(actions.get("assign") or ""),
+    )
+
+
+def _own_of_row(row: BoardRule) -> Own:
+    return _own_of(
+        {
+            "kind": row.kind,
+            "name": row.name,
+            "from_columns": row.from_columns,
+            "to_column": row.to_column,
+            "amount": row.amount,
+            "unit": row.unit,
+            "reason": row.reason,
+            "conditions": row.conditions,
+            "actions": row.actions,
+        },
+        code=row.code,
+    )
+
+
+_STAMP = "YYYYMMDDHH24MISSUS"
+
+
+def _fired_ref(rule: Own) -> Any:
+    """What one firing of the rule on a card is named by, in SQL: the rule
+    and the moment it read (the card's coming to the column, or its time).
+    A rule that leaves the card where it stands fires once for that moment."""
+    read = (
+        BoardCard.due_at if rule.kind == str(RuleKind.DUE) else BoardCard.column_since
+    )
+    return func.concat(
+        f"rule:{rule.code}:", func.to_char(func.timezone("UTC", read), _STAMP)
+    )
+
+
+def fired_ref(rule: Own, card: BoardCard) -> str:
+    read = card.due_at if rule.kind == str(RuleKind.DUE) else card.column_since
+    at = (read or card.column_since).astimezone(UTC)
+    return f"rule:{rule.code}:{at.strftime('%Y%m%d%H%M%S%f')}"
+
+
+def _matching(*, board: Board, rule: Own, now: datetime) -> list[Any]:
+    """The cards the rule would act on now, as conditions on ``BoardCard``."""
+    from app.modules.billing.constants import (
+        LIVE_SUBSCRIPTION_STATUSES,
+        InvoiceKind,
+        InvoiceStatus,
+    )
+    from app.modules.billing.models import Invoice, Plan, Subscription
+    from app.modules.boards.view import open_bills
+
+    where: list[Any] = [
+        BoardCard.board == str(board),
+        BoardCard.column_code.in_(rule.from_columns),
+    ]
+    if rule.to_column:
+        where.append(BoardCard.column_code != rule.to_column)
+    if board != Board.SUPPORT:
+        where.append(BoardCard.closed_at.is_(None))
+    if rule.kind == str(RuleKind.STAY):
+        where.append(BoardCard.column_since <= now - rule.wait)
+    elif rule.kind == str(RuleKind.DUE):
+        where.append(BoardCard.due_at <= now - rule.wait)
+    else:
+        from app.modules.supportchat.models import SupportMessage
+
+        where.append(
+            exists().where(
+                SupportMessage.owner_id == BoardCard.owner_id,
+                SupportMessage.sender_id == BoardCard.owner_id,
+                SupportMessage.deleted_at.is_(None),
+                SupportMessage.created_at > BoardCard.column_since,
+            )
+        )
+    if rule.attempts_min:
+        where.append(BoardCard.attempts >= rule.attempts_min)
+    if rule.plans:
+        live = (
+            select(Plan.code)
+            .join(Subscription, Subscription.plan_id == Plan.id)
+            .where(
+                Subscription.owner_id == BoardCard.owner_id,
+                Subscription.status.in_([str(s) for s in LIVE_SUBSCRIPTION_STATUSES]),
+                Subscription.expires_at > now,
+            )
+            .order_by(Subscription.started_at.desc())
+            .limit(1)
+            .correlate(BoardCard)
+            .scalar_subquery()
+        )
+        where.append(func.coalesce(live, RULE_NO_PLAN).in_(rule.plans))
+    if rule.bill:
+        bills = open_bills(now).subquery()
+        has_open = exists().where(bills.c.owner_id == BoardCard.owner_id)
+        if rule.bill == str(RuleBill.OPEN):
+            where.append(has_open)
+        else:
+            ran_out = exists().where(
+                Invoice.owner_id == BoardCard.owner_id,
+                Invoice.kind == str(InvoiceKind.PLAN),
+                or_(
+                    Invoice.status == str(InvoiceStatus.EXPIRED),
+                    and_(
+                        Invoice.status == str(InvoiceStatus.PENDING),
+                        Invoice.expires_at <= now,
+                    ),
+                ),
+                Invoice.created_at >= BoardCard.opened_at,
+            )
+            where.extend([ran_out, ~has_open])
+    if rule.code:
+        where.append(
+            ~exists().where(
+                BoardCardEvent.card_id == BoardCard.id,
+                BoardCardEvent.ref == _fired_ref(rule),
+            )
+        )
+    return where
+
+
+def _leads(db: Session, *, board: Board) -> set[uuid.UUID]:
+    """Who hears a rule's word «rahbarga»: the board's lead and the Owner."""
+    from app.modules.accounts.models import User
+    from app.modules.backoffice.permissions import roles_of
+
+    wanted = {str(role) for role in (*LEAD_ROLES[board], *FULL_ROLES)}
+    return {
+        person.id
+        for person in db.scalars(
+            select(User).where(
+                User.is_staff.is_(True),
+                User.is_active.is_(True),
+                User.is_superuser.is_(False),
+            )
+        )
+        if roles_of(db, person) & wanted
+    }
+
+
+def _word(db: Session, *, board: Board, rule: Own, card: BoardCard) -> str:
+    """What the rule tells on Telegram about one card."""
+    from app.modules.notifications.services.compose import escaped
+
+    owner = card.owner
+    column = db.scalar(
+        select(BoardColumn.name).where(
+            BoardColumn.board == str(board), BoardColumn.code == card.column_code
+        )
+    )
+    lines = [
+        f"🤖 <b>{escaped(rule.name)}</b>",
+        escaped(owner.full_name or owner.email)
+        + (f" · {escaped(owner.phone)}" if owner.phone else ""),
+        f"Ustun: {escaped(column or card.column_code)}",
+    ]
+    said = rule.notify_text or rule.reason
+    if said:
+        lines.append(escaped(said))
+    return "\n".join(lines)
+
+
+def _tell(outbox: list[tuple[str, str, str]], *, client: Any) -> int:
+    """The words the run gathered, sent after its changes were kept. A
+    message Telegram refuses is logged and the rest go on."""
+    if not outbox:
+        return 0
+    from telegramkit import Button, TelegramError
+
+    from app.modules.notifications.bot import staff_bot, staff_bot_configured
+
+    def send(bot: Any) -> int:
+        sent = 0
+        for chat_id, text, url in outbox:
+            try:
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    buttons=(Button(text="Kartani ochish", url=url),),
+                )
+                sent += 1
+            except TelegramError:
+                logger.warning("board rule notice not delivered")
+        return sent
+
+    if client is not None:
+        return send(client)
+    if not staff_bot_configured():
+        return 0
+    with staff_bot() as bot:
+        return send(bot)
+
+
 def run_custom(
-    db: Session, *, board: Board, now: datetime, limit: int = SWEEP_BATCH
+    db: Session,
+    *,
+    board: Board,
+    now: datetime,
+    limit: int = SWEEP_BATCH,
+    client: Any = None,
 ) -> int:
     """The superuser's own rules of the board, in their order. A card a
-    rule moved is not looked at again in the same run. A rule whose column
-    was taken off the board since does nothing."""
-    from app.modules.boards.services import move
+    rule acted on is not looked at again in the same run. A rule whose
+    column was taken off the board since does nothing. What a rule tells on
+    Telegram is sent after its changes are kept (``client``: the staff bot
+    of a test; the configured one otherwise)."""
+    from app.common.config import settings
+    from app.modules.accounts.models import User
+    from app.modules.boards.access import works_on
+    from app.modules.boards.services import move, record
 
-    moved: set[uuid.UUID] = set()
+    done: set[uuid.UUID] = set()
     for row in _custom(db, board=board):
         if not row.is_enabled or not row.from_columns:
             continue
-        if not _target_ok(db, board=board, code=row.to_column):
+        rule = _own_of_row(row)
+        if rule.to_column and not _target_ok(db, board=board, code=rule.to_column):
             continue
-        wait = timedelta(
-            minutes=row.amount * RULE_UNIT_MINUTES[RuleUnit(row.unit or "hours")]
-        )
-        query = select(BoardCard).where(
-            BoardCard.board == str(board),
-            BoardCard.column_code.in_(row.from_columns),
-            BoardCard.column_code != row.to_column,
-        )
-        if board != Board.SUPPORT:
-            query = query.where(BoardCard.closed_at.is_(None))
-        if row.kind == str(RuleKind.STAY):
-            query = query.where(BoardCard.column_since <= now - wait)
-        else:
-            query = query.where(BoardCard.due_at <= now - wait)
-        if moved:
-            query = query.where(BoardCard.id.not_in(moved))
+        query = select(BoardCard).where(*_matching(board=board, rule=rule, now=now))
+        if done:
+            query = query.where(BoardCard.id.not_in(done))
         cards = list(
             db.scalars(
                 query.order_by(BoardCard.column_since)
@@ -561,20 +832,106 @@ def run_custom(
                 .execution_options(populate_existing=True)
             )
         )
+        if not cards:
+            continue
+        given: User | None = None
+        if rule.assign_to:
+            found = db.get(User, uuid.UUID(rule.assign_to))
+            # Somebody who left the board since is not given cards.
+            given = found if found is not None and works_on(db, found, board) else None
+        leads = _leads(db, board=board) if rule.notify_lead else set()
+        outbox: list[tuple[str, str, str]] = []
         for card in cards:
-            if row.kind == str(RuleKind.DUE):
+            ref = fired_ref(rule, card)
+            said = f"{rule.name}. {rule.reason}" if rule.reason else rule.name
+            if given is not None and card.manager_id != given.id:
+                card.manager_id = given.id
+                said = f"{said} Xodim: {given.full_name or given.email}."
+            if rule.due_minutes is not None:
+                card.due_at = now + timedelta(minutes=rule.due_minutes)
+            elif rule.kind == str(RuleKind.DUE) and rule.to_column:
                 card.due_at = None
-            move(
-                db,
-                card=card,
-                to=row.to_column,
-                kind=EventKind.RULE,
-                now=now,
-                body=f"{row.name}. {row.reason}" if row.reason else row.name,
-            )
-            moved.add(card.id)
+            if rule.notifies:
+                # Read before the move: the word names the column it found.
+                text = _word(db, board=board, rule=rule, card=card)
+                hear = set(leads)
+                if rule.notify_manager and card.manager_id:
+                    hear.add(card.manager_id)
+                url = f"{settings.site_url}{BOARD_PATHS[board]}?karta={card.id}"
+                outbox.extend((chat, text, url) for chat in _chats(db, hear).values())
+            if rule.to_column:
+                move(
+                    db,
+                    card=card,
+                    to=rule.to_column,
+                    kind=EventKind.RULE,
+                    now=now,
+                    body=said,
+                    ref=ref,
+                )
+            else:
+                record(db, card=card, kind=EventKind.RULE, now=now, body=said, ref=ref)
+            done.add(card.id)
         db.commit()
-    return len(moved)
+        _tell(outbox, client=client)
+    return len(done)
+
+
+def _chats(db: Session, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    from app.modules.notifications.models import StaffChat
+
+    if not user_ids:
+        return {}
+    return {
+        owner: chat
+        for owner, chat in db.execute(
+            select(StaffChat.owner_id, StaffChat.chat_id).where(
+                StaffChat.owner_id.in_(user_ids), StaffChat.is_active.is_(True)
+            )
+        )
+    }
+
+
+def preview(
+    db: Session, *, board: Board, now: datetime, code: str = "", **fields: Any
+) -> dict[str, Any]:
+    """Which cards a rule written so would act on this minute: how many, and
+    the first few. ``code``: the rule being edited, so the cards it already
+    acted on are left out as a run leaves them out."""
+    from app.modules.accounts.models import User
+
+    rule = _own_of(_custom_fields(db, board=board, **fields), code=code)
+    where = _matching(board=board, rule=rule, now=now)
+    total = int(
+        db.scalar(select(func.count()).select_from(BoardCard).where(*where)) or 0
+    )
+    names = {
+        column.code: column.name
+        for column in db.scalars(
+            select(BoardColumn).where(BoardColumn.board == str(board))
+        )
+    }
+    rows = db.execute(
+        select(BoardCard, User)
+        .join(User, User.id == BoardCard.owner_id)
+        .where(*where)
+        .order_by(BoardCard.column_since)
+        .limit(PREVIEW_CARDS)
+    )
+    return {
+        "count": total,
+        "cards": [
+            {
+                "id": str(card.id),
+                "name": person.full_name or person.email,
+                "column": card.column_code,
+                "column_name": names.get(card.column_code, card.column_code),
+                "column_since": card.column_since,
+                "due_at": card.due_at,
+            }
+            for card, person in rows
+        ],
+    }
 
 
 def pointing_at(db: Session, *, board: Board, column_code: str) -> int:
@@ -736,6 +1093,18 @@ def reset_system(
     db.commit()
 
 
+def _plan_names(db: Session) -> dict[str, str]:
+    from app.modules.billing.models import Plan
+
+    return {
+        code: name or code
+        for code, name in db.execute(
+            select(Plan.code, Plan.name).order_by(Plan.sort_order, Plan.code)
+        )
+        if code
+    }
+
+
 def _custom_fields(
     db: Session,
     *,
@@ -747,15 +1116,32 @@ def _custom_fields(
     amount: int,
     unit: str,
     reason: str,
+    attempts_min: int = 0,
+    plans: list[str] | None = None,
+    bill: str = "",
+    due_amount: int | None = None,
+    due_unit: str = "",
+    notify_manager: bool = False,
+    notify_lead: bool = False,
+    notify_text: str = "",
+    assign_to: str = "",
 ) -> dict[str, Any]:
-    if kind not in (str(RuleKind.STAY), str(RuleKind.DUE)):
+    """A rule of the superuser's own, checked: when it fires, what else
+    must hold of the card, what it does. It does at least one thing."""
+    from app.modules.accounts.models import User
+    from app.modules.boards.access import works_on
+
+    if kind not in [str(item) for item in OWN_RULE_KINDS]:
         raise RuleInvalid("Qoida turi noto'g'ri.")
+    waits = kind != str(RuleKind.WROTE)
+    if not waits:
+        amount, unit = 0, str(RuleUnit.MINUTES)
     if unit not in RuleUnit.values:
         raise RuleInvalid("Muddat birligi noto'g'ri.")
     cleaned = " ".join(name.split())[:RULE_NAME_MAX]
     if not cleaned:
         raise RuleInvalid("Qoida nomini yozing.")
-    to = _checked_to(db, board=board, code=to_column)
+    to = _checked_to(db, board=board, code=to_column) if to_column else ""
     origin = _checked_from(
         _open_columns(db, board=board), board=board, codes=from_columns, to=to
     )
@@ -766,6 +1152,51 @@ def _custom_fields(
         _checked_amount(amount)
     elif amount < 0 or amount > RULE_AMOUNT_MAX:
         raise RuleInvalid("Muddat noto'g'ri.")
+
+    conditions: dict[str, Any] = {}
+    if attempts_min:
+        if board not in ATTEMPT_BOARDS:
+            raise RuleInvalid("Bu kanbanda bog'lanish urinishlari sanalmaydi.")
+        if attempts_min < 1 or attempts_min > RULE_ATTEMPTS_MAX:
+            raise RuleInvalid("Urinishlar soni noto'g'ri.")
+        conditions["attempts_min"] = attempts_min
+    picked = sorted(set(plans or []))
+    if picked:
+        known = {*_plan_names(db), RULE_NO_PLAN}
+        if any(code not in known for code in picked):
+            raise RuleInvalid("Tarif topilmadi.")
+        conditions["plans"] = picked
+    if bill:
+        if bill not in RuleBill.values:
+            raise RuleInvalid("To'lov sharti noto'g'ri.")
+        conditions["bill"] = bill
+
+    actions: dict[str, Any] = {}
+    if due_amount is not None:
+        if due_unit not in RuleUnit.values:
+            raise RuleInvalid("Muddat birligi noto'g'ri.")
+        if due_amount < 0 or due_amount > RULE_AMOUNT_MAX:
+            raise RuleInvalid("Muddat noto'g'ri.")
+        actions["due"] = {"amount": due_amount, "unit": due_unit}
+    if notify_manager or notify_lead:
+        actions["notify"] = {
+            "manager": bool(notify_manager),
+            "lead": bool(notify_lead),
+            "text": " ".join(notify_text.split())[:RULE_TEXT_MAX],
+        }
+    if assign_to:
+        try:
+            member = db.get(User, uuid.UUID(assign_to))
+        except ValueError:
+            member = None
+        if member is None or not works_on(db, member, board):
+            raise RuleInvalid("Bu xodim shu kanbanda ishlamaydi.")
+        actions["assign"] = str(member.id)
+    if not to and not actions:
+        raise RuleInvalid(
+            "Qoida nima qilishini tanlang: ustunga o'tkazish, vaqt qo'yish, "
+            "xabar yuborish yoki xodimga berish."
+        )
     return {
         "kind": kind,
         "name": cleaned,
@@ -774,6 +1205,8 @@ def _custom_fields(
         "amount": amount,
         "unit": unit,
         "reason": _checked_reason(reason),
+        "conditions": conditions,
+        "actions": actions,
     }
 
 
@@ -828,6 +1261,10 @@ def is_custom(db: Session, *, board: Board, rule_id: uuid.UUID) -> bool:
     return _row(db, board=board, rule_id=rule_id).code not in SPEC_BY_CODE
 
 
+def code_of(db: Session, *, board: Board, rule_id: uuid.UUID) -> str:
+    return _row(db, board=board, rule_id=rule_id).code
+
+
 def remove_custom(db: Session, *, board: Board, rule_id: uuid.UUID) -> None:
     """One of the superuser's own rules, gone. The code's rules are
     switched off, never removed."""
@@ -868,6 +1305,72 @@ def _sentence(
         origin = " — " + ", ".join(name(code) for code in from_columns) + " ustunidan"
     what = then or (f"karta {name(to_column)}ga o'tadi" if to_column else "")
     return f"{head}{origin} → {what}."
+
+
+def _workers(db: Session, *, board: Board) -> list[dict[str, str]]:
+    from app.modules.boards.view import board_staff
+
+    return board_staff(db, board=board)
+
+
+def _own_sentence(
+    rule: Own, *, names: dict[str, str], plans: dict[str, str], people: dict[str, str]
+) -> str:
+    """One of the superuser's rules in a line of plain words."""
+
+    def column(code: str) -> str:
+        return f"«{names.get(code, code)}»"
+
+    def span(amount: int, unit: str) -> str:
+        return f"{amount} {RULE_UNIT_LABELS[RuleUnit(unit)]}"
+
+    origin = ", ".join(column(code) for code in rule.from_columns)
+    if rule.kind == str(RuleKind.STAY):
+        head = f"Karta {origin} ustunida {span(rule.amount, rule.unit)} tursa"
+    elif rule.kind == str(RuleKind.DUE):
+        late = f" va {span(rule.amount, rule.unit)} o'tsa" if rule.amount else ""
+        head = f"{origin} ustunidagi kartaga qo'yilgan vaqt kelsa{late}"
+    else:
+        head = f"{origin} ustunidagi kartaning mijozi Yordam chatiga yozsa"
+    also: list[str] = []
+    if rule.attempts_min:
+        also.append(f"{rule.attempts_min} marta bog'lanib bo'lmagan")
+    if rule.plans:
+        also.append("tarifi " + ", ".join(plans.get(code, code) for code in rule.plans))
+    if rule.bill:
+        also.append(str(RULE_BILL_LABELS[RuleBill(rule.bill)]))
+    if also:
+        head = f"{head} (sharti: {'; '.join(also)})"
+    does: list[str] = []
+    if rule.to_column:
+        does.append(f"{column(rule.to_column)}ga o'tadi")
+    if rule.assign_to:
+        does.append(f"{people.get(rule.assign_to, 'xodim')}ga beriladi")
+    if rule.due_minutes is not None:
+        does.append(
+            "muddati «hozir» bo'ladi"
+            if rule.due_minutes == 0
+            else f"muddati {_minutes_words(rule.due_minutes)}dan keyinga qo'yiladi"
+        )
+    if rule.notifies:
+        who = " va ".join(
+            word
+            for word, on in (
+                ("xodimiga", rule.notify_manager),
+                ("rahbarga", rule.notify_lead),
+            )
+            if on
+        )
+        does.append(f"{who} Telegram xabar boradi")
+    return f"{head} → karta {', '.join(does)}."
+
+
+def _minutes_words(minutes: int) -> str:
+    for unit in (RuleUnit.DAYS, RuleUnit.HOURS):
+        size = RULE_UNIT_MINUTES[unit]
+        if minutes % size == 0:
+            return f"{minutes // size} {RULE_UNIT_LABELS[unit]}"
+    return f"{minutes} {RULE_UNIT_LABELS[RuleUnit.MINUTES]}"
 
 
 def settings_view(db: Session, *, board: Board, may_edit: bool) -> dict[str, Any]:
@@ -929,40 +1432,50 @@ def settings_view(db: Session, *, board: Board, may_edit: bool) -> dict[str, Any
                 "is_custom": False,
             }
         )
-    custom = [
-        {
-            "id": str(row.id),
-            "code": row.code,
-            "kind": row.kind,
-            "name": row.name,
-            "sentence": _sentence(
-                when="Karta ustunda turgan bo'lsa"
-                if row.kind == str(RuleKind.STAY)
-                else "Kartaga qo'yilgan vaqt o'tgan bo'lsa",
-                then="",
-                names=names,
-                from_columns=tuple(row.from_columns or ()),
-                to_column=row.to_column,
-                wait=_amount_words(row.amount, row.unit),
-                amount_of="" if row.kind == str(RuleKind.STAY) else "o'tgach",
-            ),
-            "is_enabled": row.is_enabled,
-            "from_columns": list(row.from_columns or []),
-            "to_column": row.to_column,
-            "default_to": "",
-            "amount": row.amount,
-            "unit": row.unit,
-            "amount_of": "",
-            "reason": row.reason,
-            "editable": [ENABLED, FROM, TO, AMOUNT, REASON],
-            "note": ""
-            if row.to_column in {c.code for c in shown}
-            else "Ustuni doskadan olib tashlangan: qoida ishlamaydi.",
-            "is_changed": False,
-            "is_custom": True,
-        }
-        for row in _custom(db, board=board)
-    ]
+    plan_names = {**_plan_names(db), RULE_NO_PLAN: RULE_NO_PLAN_LABEL}
+    people = {item["id"]: item["name"] for item in _workers(db, board=board)}
+    shown_codes = {column.code for column in shown}
+    custom = []
+    for row in _custom(db, board=board):
+        own = _own_of_row(row)
+        due = dict((row.actions or {}).get("due") or {})
+        note = ""
+        if own.to_column and own.to_column not in shown_codes:
+            note = "Ustuni doskadan olib tashlangan: qoida ishlamaydi."
+        elif own.assign_to and own.assign_to not in people:
+            note = "Xodim endi bu kanbanda ishlamaydi: karta hech kimga berilmaydi."
+        custom.append(
+            {
+                "id": str(row.id),
+                "code": row.code,
+                "kind": row.kind,
+                "name": row.name,
+                "sentence": _own_sentence(
+                    own, names=names, plans=plan_names, people=people
+                ),
+                "is_enabled": row.is_enabled,
+                "from_columns": list(own.from_columns),
+                "to_column": own.to_column,
+                "default_to": "",
+                "amount": row.amount,
+                "unit": row.unit,
+                "amount_of": "",
+                "reason": row.reason,
+                "editable": [ENABLED, FROM, TO, AMOUNT, REASON],
+                "note": note,
+                "is_changed": False,
+                "is_custom": True,
+                "attempts_min": own.attempts_min,
+                "plans": list(own.plans),
+                "bill": own.bill,
+                "due_amount": due.get("amount") if due else None,
+                "due_unit": str(due.get("unit") or "") if due else "",
+                "notify_manager": own.notify_manager,
+                "notify_lead": own.notify_lead,
+                "notify_text": own.notify_text,
+                "assign_to": own.assign_to,
+            }
+        )
     return {
         "board": str(board),
         "may_edit": may_edit,
@@ -970,8 +1483,20 @@ def settings_view(db: Session, *, board: Board, may_edit: bool) -> dict[str, Any
         "rules": system + custom,
         "kinds": [
             {"value": str(kind), "label": str(RULE_KIND_LABELS[kind])}
-            for kind in (RuleKind.STAY, RuleKind.DUE)
+            for kind in OWN_RULE_KINDS
         ],
+        "plans": [
+            {"value": code, "label": label} for code, label in plan_names.items()
+        ],
+        "bills": [
+            {"value": str(item), "label": str(RULE_BILL_LABELS[item])}
+            for item in RuleBill
+        ],
+        "staff": [
+            {"value": item["id"], "label": item["name"]}
+            for item in _workers(db, board=board)
+        ],
+        "counts_attempts": board in ATTEMPT_BOARDS,
         "units": [
             {"value": str(unit), "label": str(RULE_UNIT_LABELS[unit])}
             for unit in RuleUnit

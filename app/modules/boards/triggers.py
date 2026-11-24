@@ -43,7 +43,6 @@ from app.modules.boards.constants import (
     OFFER_HOURS,
     OFFER_STEPS,
     SALES_NOTES_CARRIED,
-    START_TALKED_COLUMNS,
     SURVEY_LOOKBACK_HOURS,
     SWEEP_BATCH,
     Board,
@@ -58,7 +57,7 @@ from app.modules.boards.offer import (
     column_at,
     start_paid_at,
 )
-from app.modules.boards.selectors import ensure_board, live_since
+from app.modules.boards.selectors import ensure_board, live_since, talked_columns
 from app.modules.boards.services import move, record
 from app.modules.boards.tickets import raise_ticket
 from app.modules.integrations.selectors.demo import is_demo_owner
@@ -386,6 +385,9 @@ def start_bought(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
         )
     )
     moved = 0
+    # Where a card counts as talked to: the code's columns and the ones the
+    # superuser marked.
+    talked = talked_columns(db) if rows else frozenset()
     for owner_id, paid_at, bill_id in rows:
         to = column_at(paid_at, now)
         if to is None:
@@ -436,7 +438,7 @@ def start_bought(db: Session, *, now: datetime, limit: int = SWEEP_BATCH) -> int
             card.manager_id = None
             card.due_at = None
             to = str(SalesColumn.UNWORKED)
-        elif card.column_code not in START_TALKED_COLUMNS:
+        elif card.column_code not in talked:
             # Not talked to yet: the card waits where it is for the talk.
             record(db, card=card, kind=EventKind.START_BOUGHT, now=now, ref=ref)
             moved += 1

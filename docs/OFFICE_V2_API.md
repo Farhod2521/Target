@@ -476,6 +476,35 @@ Yo'llar (yozish faqat superuser, Egasi **403**; javob har doim butun `RulesOut`)
 `{kind, label, body, auto, at}` — kartani hozirgi ustuniga qo'ygan oxirgi tarix qatori.
 `auto: true` — qoida ko'chirgan (odam emas). `null` — karta shu ustunda ochilgan.
 
+### Qoidalar: shartlar, amallar, sinov; ustun belgisi; tarix; ustunlar hisoboti (2026-11-24)
+
+Migratsiya `0081`. Hammasini faqat superuser o'zgartiradi (Owner 403, boshqalar 404).
+
+**O'z qoidangiz (`POST` / `PATCH /boards/{board}/rules`)** endi ko'chirishdan boshqa ish ham qiladi. Yangi maydonlar (hammasi ixtiyoriy):
+
+| Maydon | Ma'nosi |
+|---|---|
+| `kind` | `stay`, `due`, yangi `wrote`: karta ustunga kelganidan beri mijoz Yordam chatiga yozgan |
+| `to_column` | bo'sh bo'lishi mumkin: karta joyida qoladi, qoida boshqa amal qiladi |
+| `attempts_min` | kartada kamida shuncha «bog'lanib bo'lmadi» (faqat Sotuv va Uzaytirish; `counts_attempts`) |
+| `plans` | mijozning tarifi shulardan biri (`plans` ro'yxatidan; `none` — tarifsiz) |
+| `bill` | `open` — ochiq to'lov hisobi bor; `expired` — hisob to'lanmay muddati o'tgan |
+| `due_amount` + `due_unit` | kartaga vaqt qo'yadi (hozirdan shuncha keyin; `0` — hozir); `null` — tegmaydi |
+| `notify_manager`, `notify_lead`, `notify_text` | xodimlar boti orqali Telegram: karta xodimiga, rahbarga (kanban rahbari va Owner) |
+| `assign_to` | kartani shu xodimga beradi (`staff` ro'yxatidan) |
+
+Kamida bitta amal bo'lishi shart (`to_column`, vaqt, xabar yoki xodim), aks holda 422 `rule_invalid`. Karta joyida qoladigan qoida bitta turish (yoki bitta muddat) uchun bir marta ishlaydi. `GET /boards/{board}/rules` javobida `plans`, `bills`, `staff`, `counts_attempts` tanlovlari va har qoidada shu maydonlar keladi.
+
+**Sinab ko'rish:** `POST /boards/{board}/rules/preview` — tanasi qoidaning o'zi (+ `rule_id`, tahrirlanayotgan bo'lsa). Javob `{count, cards[]}`: hozir nechta kartaga tegadi va birinchi 10 tasi. Hech narsa o'zgarmaydi.
+
+**«Gaplashilgan» ustun (Sotuv):** `PUT /boards/sales/columns/{code}/talked` `{talked}`. Shunday ustunda turgan kartaning mijozi Start olsa, chegirma darhol boshlanadi. `columns[].is_talked`, `columns[].may_talk` (qaysi ustunga qo'yish mumkin). «Bog'lanildi» va chegirma ustunlarida doim bor, o'zgarmaydi (422).
+
+**Sozlamalar tarixi:** `GET /boards/{board}/settings/history?area=&before=` — ustun, sabab, tugma, qoida qo'shilgani, o'zgargani, olib tashlangani: `rows[] {area, area_label, action, action_label, name, body, actor, at}`, `next_before`, `areas`. Superuser va Owner o'qiydi.
+
+**Ustunlar hisoboti:** `GET /boards/{board}/columns/report?date_from&date_to` — o'qiyotgan odam ko'radigan har ustun (o'zingiz qo'shganlar ham): `now` (hozir turgan kartalar), `entered` (davrda kelgan), `left` va `stay_hours` (davrda chiqqan kartalar o'rtacha qancha turgani). Menejer o'z kartalarini, rahbar, Owner va superuser hammasini ko'radi (`everybody`).
+
+**Sotuv menejeri va mijoz kartasi:** `me.can.sales_client_card` — Sotuv kartasidan mijozning to'liq kartasi ochiladi. `GET /api/v1/office/customers/{id}`, `…/ads…`, `…/activity` Sotuv menejeriga faqat o'z kartasidagi mijoz uchun (rahbarga jamoaniki) ochiq, javobda `reader: "sales"`; ro'yxat (`GET /customers`), qolgan tablar va barcha o'zgartirishlar yopiq (404).
+
 ### Xodimlar
 
 Ofis frontida xodimlar va rollar endi faqat **Jamoa** bo'limida (`/api/v1/office/team`, Egasi va superuser):

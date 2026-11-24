@@ -1,9 +1,11 @@
 """The office boards, version 2: ``/api/v2/office/...``. Version 1's sales
 board is not read or changed here."""
 
+import functools
 import logging
 import uuid
-from datetime import date, timedelta
+from collections.abc import Callable
+from datetime import date, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -18,6 +20,7 @@ from app.modules.backoffice.services import seen
 from app.modules.boards import (
     buttons,
     client,
+    columns_report,
     developer,  # noqa: F401 - closes a ticket when its fault is settled
     help_options,
     kinds,
@@ -28,6 +31,7 @@ from app.modules.boards import (
     sales_kinds,
     selectors,
     services,
+    settings_log,
     support_report,
     view,
 )
@@ -48,6 +52,7 @@ from app.modules.boards.constants import (
     COLUMNS_MAX,
     REPORT_DEFAULT_DAYS,
     Board,
+    SettingArea,
     is_default_column_name,
 )
 from app.modules.boards.models import ContactReason
@@ -66,6 +71,8 @@ from app.modules.boards.schemas import (
     ColumnAddIn,
     ColumnsIn,
     ColumnsOut,
+    ColumnsReportOut,
+    ColumnTalkedIn,
     ContactReasonIn,
     ContactReasonOut,
     ContactReasonsOut,
@@ -86,10 +93,13 @@ from app.modules.boards.schemas import (
     RenewalReportOut,
     RuleAddIn,
     RuleEditIn,
+    RulePreviewIn,
+    RulePreviewOut,
     RulesOut,
     SalesKindsIn,
     SalesKindsOut,
     SalesReportOut,
+    SettingsHistoryOut,
     StaffAddIn,
     StaffListOut,
     StaffPeopleOut,
@@ -107,6 +117,38 @@ from app.modules.boards.schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/office", tags=["office boards v2"])
+
+
+def _journaled(area: SettingArea) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """A settings write whose change is kept in the board's journal: the
+    settings are read before and after it, and what differs is written with
+    who did it (``settings_log``). A refused write changes nothing and
+    keeps nothing."""
+
+    def wrap(endpoint: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(endpoint)
+        def inner(*args: Any, **kwargs: Any) -> Any:
+            db = kwargs["db"]
+            staff = kwargs.get("staff")
+            board = staff.board if staff is not None else Board.SUPPORT
+            actor = staff.user if staff is not None else kwargs["user"]
+            before = settings_log.snap(db, board=board, area=area)
+            out = endpoint(*args, **kwargs)
+            settings_log.keep(
+                db,
+                board=board,
+                area=area,
+                before=before,
+                actor_id=actor.id,
+                now=utcnow(),
+            )
+            return out
+
+        return inner
+
+    return wrap
+
+
 # The client's side: the one question Support asks them.
 client_router = APIRouter(prefix="/support-ticket", tags=["support ticket"])
 
@@ -195,6 +237,7 @@ def columns(db: Db, staff: BoardStaff) -> dict[str, Any]:
     selectors.ensure_board(db, board=staff.board, now=utcnow())
     db.commit()
     board_code = str(staff.board)
+    markable = selectors.markable_columns(db, board=staff.board)
 
     def out(column: selectors.ColumnView) -> dict[str, Any]:
         return {
@@ -207,6 +250,8 @@ def columns(db: Db, staff: BoardStaff) -> dict[str, Any]:
                 board=board_code, code=column.code, name=column.name
             ),
             "is_custom": column.is_custom,
+            "is_talked": column.is_talked,
+            "may_talk": column.code in markable,
         }
 
     return {
@@ -420,6 +465,7 @@ def reason_lists_view(db: Db, staff: BoardStaff) -> dict[str, Any]:
     status_code=status.HTTP_201_CREATED,
     responses={201: {"model": ReasonRowOut}},
 )
+@_journaled(SettingArea.REASON)
 def add_reason(
     db: Db, staff: BoardStaff, purpose: str, body: ReasonAddIn
 ) -> dict[str, Any]:
@@ -450,6 +496,7 @@ def add_reason(
     "/boards/{board}/reason-lists/{purpose}/{reason_id}",
     responses={200: {"model": ReasonRowOut}},
 )
+@_journaled(SettingArea.REASON)
 def edit_reason(
     db: Db, staff: BoardStaff, purpose: str, reason_id: uuid.UUID, body: ReasonEditIn
 ) -> dict[str, Any]:
@@ -474,6 +521,7 @@ def edit_reason(
     "/boards/{board}/reason-lists/{purpose}/{reason_id}/archive",
     responses={200: {"model": ReasonRowOut}},
 )
+@_journaled(SettingArea.REASON)
 def archive_reason(
     db: Db, staff: BoardStaff, purpose: str, reason_id: uuid.UUID
 ) -> dict[str, Any]:
@@ -495,6 +543,7 @@ def archive_reason(
     "/boards/{board}/reason-lists/{purpose}/{reason_id}/restore",
     responses={200: {"model": ReasonRowOut}},
 )
+@_journaled(SettingArea.REASON)
 def restore_reason(
     db: Db, staff: BoardStaff, purpose: str, reason_id: uuid.UUID
 ) -> dict[str, Any]:
@@ -587,6 +636,7 @@ def contact_reasons(db: Db, user: Staff) -> dict[str, Any]:
     status_code=status.HTTP_201_CREATED,
     responses={201: {"model": ContactReasonOut}},
 )
+@_journaled(SettingArea.REASON)
 def add_contact_reason(body: ContactReasonIn, db: Db, user: Staff) -> dict[str, Any]:
     _contact_keeper(db, user)
     position = (
@@ -608,6 +658,7 @@ def add_contact_reason(body: ContactReasonIn, db: Db, user: Staff) -> dict[str, 
     "/boards/support/contact-reasons/{reason_id}",
     responses={200: {"model": ContactReasonOut}},
 )
+@_journaled(SettingArea.REASON)
 def edit_contact_reason(
     reason_id: uuid.UUID, body: ContactReasonIn, db: Db, user: Staff
 ) -> dict[str, Any]:
@@ -624,6 +675,7 @@ def edit_contact_reason(
     "/boards/support/contact-reasons/{reason_id}/archive",
     responses={200: {"model": ContactReasonOut}},
 )
+@_journaled(SettingArea.REASON)
 def archive_contact_reason(reason_id: uuid.UUID, db: Db, user: Staff) -> dict[str, Any]:
     """Off the list to pick from; tickets that have it keep it."""
     _contact_keeper(db, user)
@@ -637,6 +689,7 @@ def archive_contact_reason(reason_id: uuid.UUID, db: Db, user: Staff) -> dict[st
     "/boards/support/contact-reasons/{reason_id}/restore",
     responses={200: {"model": ContactReasonOut}},
 )
+@_journaled(SettingArea.REASON)
 def restore_contact_reason(reason_id: uuid.UUID, db: Db, user: Staff) -> dict[str, Any]:
     _contact_keeper(db, user)
     row = _contact_row(db, reason_id)
@@ -960,6 +1013,7 @@ def board_buttons(db: Db, staff: BoardStaff) -> dict[str, Any]:
     status_code=status.HTTP_201_CREATED,
     responses={201: {"model": ButtonsOut}},
 )
+@_journaled(SettingArea.BUTTON)
 def add_button(db: Db, staff: BoardStaff, body: ButtonAddIn) -> dict[str, Any]:
     """One more button on a column: one of the code's it lacks, or one of
     the superuser's own (`go`) with its words and its column."""
@@ -989,6 +1043,7 @@ def add_button(db: Db, staff: BoardStaff, body: ButtonAddIn) -> dict[str, Any]:
 
 
 @router.post("/boards/{board}/buttons/reset", responses={200: {"model": ButtonsOut}})
+@_journaled(SettingArea.BUTTON)
 def reset_buttons(db: Db, staff: BoardStaff, body: ButtonResetIn) -> dict[str, Any]:
     """The column's buttons as the code gives them («Standartga qaytarish»)."""
     _columns_keeper(staff)
@@ -1007,6 +1062,7 @@ def reset_buttons(db: Db, staff: BoardStaff, body: ButtonResetIn) -> dict[str, A
 @router.put(
     "/boards/{board}/buttons/{button_id}", responses={200: {"model": ButtonsOut}}
 )
+@_journaled(SettingArea.BUTTON)
 def edit_button(
     db: Db, staff: BoardStaff, button_id: uuid.UUID, body: ButtonEditIn
 ) -> dict[str, Any]:
@@ -1030,6 +1086,7 @@ def edit_button(
 @router.delete(
     "/boards/{board}/buttons/{button_id}", responses={200: {"model": ButtonsOut}}
 )
+@_journaled(SettingArea.BUTTON)
 def remove_button(db: Db, staff: BoardStaff, button_id: uuid.UUID) -> dict[str, Any]:
     """The button off its column."""
     _columns_keeper(staff)
@@ -1063,6 +1120,7 @@ def board_rules(db: Db, staff: BoardStaff) -> dict[str, Any]:
     status_code=status.HTTP_201_CREATED,
     responses={201: {"model": RulesOut}},
 )
+@_journaled(SettingArea.RULE)
 def add_rule(db: Db, staff: BoardStaff, body: RuleAddIn) -> dict[str, Any]:
     """A rule of the superuser's own: a card that stood in a column long
     enough (`stay`), or whose own time passed (`due`), goes to another."""
@@ -1079,6 +1137,7 @@ def add_rule(db: Db, staff: BoardStaff, body: RuleAddIn) -> dict[str, Any]:
         amount=body.amount,
         unit=body.unit,
         reason=body.reason,
+        **_rule_extras(body.model_dump()),
     )
     logger.info(
         "board rule added",
@@ -1091,7 +1150,55 @@ def add_rule(db: Db, staff: BoardStaff, body: RuleAddIn) -> dict[str, Any]:
     return board_rules(db, staff)
 
 
+_RULE_EXTRAS = (
+    "attempts_min",
+    "plans",
+    "bill",
+    "due_amount",
+    "due_unit",
+    "notify_manager",
+    "notify_lead",
+    "notify_text",
+    "assign_to",
+)
+
+
+def _rule_extras(sent: dict[str, Any]) -> dict[str, Any]:
+    """A rule's conditions and what it does besides moving, as sent."""
+    return {key: sent[key] for key in _RULE_EXTRAS}
+
+
+@router.post(
+    "/boards/{board}/rules/preview", responses={200: {"model": RulePreviewOut}}
+)
+def preview_rule(db: Db, staff: BoardStaff, body: RulePreviewIn) -> dict[str, Any]:
+    """Try a rule before keeping it: how many cards it would act on this
+    minute, and the first of them. Nothing is changed. For the superuser."""
+    _columns_keeper(staff)
+    code = ""
+    if body.rule_id:
+        try:
+            code = rules.code_of(db, board=staff.board, rule_id=uuid.UUID(body.rule_id))
+        except ValueError as error:
+            raise HTTPException(status.HTTP_404_NOT_FOUND) from error
+    return rules.preview(
+        db,
+        board=staff.board,
+        now=utcnow(),
+        code=code,
+        kind=body.kind,
+        name=body.name,
+        from_columns=body.from_columns,
+        to_column=body.to_column,
+        amount=body.amount,
+        unit=body.unit,
+        reason=body.reason,
+        **_rule_extras(body.model_dump()),
+    )
+
+
 @router.patch("/boards/{board}/rules/{rule_id}", responses={200: {"model": RulesOut}})
+@_journaled(SettingArea.RULE)
 def edit_rule(
     db: Db, staff: BoardStaff, rule_id: uuid.UUID, body: RuleEditIn
 ) -> dict[str, Any]:
@@ -1115,6 +1222,7 @@ def edit_rule(
             amount=int(sent.get("amount") or 0),
             unit=str(sent.get("unit", "")),
             reason=str(sent.get("reason", "")),
+            **_rule_extras(body.model_dump()),
         )
     else:
         rules.edit_system(
@@ -1146,6 +1254,7 @@ def edit_rule(
 @router.post(
     "/boards/{board}/rules/{rule_id}/reset", responses={200: {"model": RulesOut}}
 )
+@_journaled(SettingArea.RULE)
 def reset_rule(db: Db, staff: BoardStaff, rule_id: uuid.UUID) -> dict[str, Any]:
     """A rule of the system's as the code has it («Standartga qaytarish»)."""
     _columns_keeper(staff)
@@ -1156,12 +1265,63 @@ def reset_rule(db: Db, staff: BoardStaff, rule_id: uuid.UUID) -> dict[str, Any]:
 
 
 @router.delete("/boards/{board}/rules/{rule_id}", responses={200: {"model": RulesOut}})
+@_journaled(SettingArea.RULE)
 def remove_rule(db: Db, staff: BoardStaff, rule_id: uuid.UUID) -> dict[str, Any]:
     """One of the superuser's own rules, gone. The system's are switched
     off, never removed."""
     _columns_keeper(staff)
     rules.remove_custom(db, board=staff.board, rule_id=rule_id)
     return board_rules(db, staff)
+
+
+@router.get(
+    "/boards/{board}/columns/report", responses={200: {"model": ColumnsReportOut}}
+)
+def columns_report_view(
+    db: Db,
+    staff: BoardStaff,
+    date_from: Annotated[
+        date | None, Query(description="The first office day; 30 days back if empty.")
+    ] = None,
+    date_to: Annotated[
+        date | None, Query(description="The last office day; today if empty.")
+    ] = None,
+) -> dict[str, Any]:
+    """The board column by column over a period: cards standing in each
+    now, cards that came into it, and how long a card stood there before
+    leaving. Columns the superuser added are on it like the rest. A manager
+    reads their own cards; the lead, the Owner and the superuser everybody's."""
+    end = date_to or localtime(utcnow()).date()
+    start = date_from or end - timedelta(days=REPORT_DEFAULT_DAYS - 1)
+    return columns_report.report(
+        db,
+        board=staff.board,
+        user=staff.user,
+        access=staff.access,
+        start=start,
+        end=end,
+    )
+
+
+@router.get(
+    "/boards/{board}/settings/history", responses={200: {"model": SettingsHistoryOut}}
+)
+def settings_history(
+    db: Db,
+    staff: BoardStaff,
+    area: Annotated[
+        str, Query(max_length=16, description="One of `areas`; empty: all.")
+    ] = "",
+    before: Annotated[
+        datetime | None, Query(description="`next_before` of the last page.")
+    ] = None,
+) -> dict[str, Any]:
+    """Who changed the board's settings and what: every column, reason,
+    button and rule added, changed or taken off, newest first. For the
+    superuser and the Owner."""
+    if not staff.access.full:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return settings_log.history(db, board=staff.board, area=area, before=before)
 
 
 def _columns_keeper(staff: BoardStaff) -> None:
@@ -1178,6 +1338,7 @@ def _columns_keeper(staff: BoardStaff) -> None:
     status_code=status.HTTP_201_CREATED,
     responses={201: {"model": ColumnsOut}},
 )
+@_journaled(SettingArea.COLUMN)
 def add_column(db: Db, staff: BoardStaff, body: ColumnAddIn) -> dict[str, Any]:
     """A new column of the superuser's own. Cards reach it and leave it
     only by `POST /cards/{id}/move`; no rule and no button knows it, and it
@@ -1201,6 +1362,7 @@ def add_column(db: Db, staff: BoardStaff, body: ColumnAddIn) -> dict[str, Any]:
 
 
 @router.delete("/boards/{board}/columns/{code}", responses={200: {"model": ColumnsOut}})
+@_journaled(SettingArea.COLUMN)
 def remove_column(db: Db, staff: BoardStaff, code: str) -> dict[str, Any]:
     """Take one of the superuser's own columns off the board. Refused
     while a card stands in it, and for the columns the board came with."""
@@ -1218,6 +1380,7 @@ def remove_column(db: Db, staff: BoardStaff, code: str) -> dict[str, Any]:
 @router.post(
     "/boards/{board}/columns/{code}/restore", responses={200: {"model": ColumnsOut}}
 )
+@_journaled(SettingArea.COLUMN)
 def restore_column(db: Db, staff: BoardStaff, code: str) -> dict[str, Any]:
     """Put a removed column back, before the final columns."""
     _columns_keeper(staff)
@@ -1227,7 +1390,31 @@ def restore_column(db: Db, staff: BoardStaff, code: str) -> dict[str, Any]:
     return columns(db, staff)
 
 
+@router.put(
+    "/boards/{board}/columns/{code}/talked", responses={200: {"model": ColumnsOut}}
+)
+@_journaled(SettingArea.COLUMN)
+def mark_column_talked(
+    db: Db, staff: BoardStaff, code: str, body: ColumnTalkedIn
+) -> dict[str, Any]:
+    """Sales: whether a card standing in this column counts as talked to.
+    A client who buys Start while their card stands in such a column gets
+    the discount at once; elsewhere the card waits for «Gaplashildi». For
+    the superuser; `may_talk` names the columns it may be set on."""
+    _columns_keeper(staff)
+    selectors.mark_talked(
+        db,
+        board=staff.board,
+        code=code,
+        talked=body.talked,
+        actor_id=staff.user.id,
+        now=utcnow(),
+    )
+    return columns(db, staff)
+
+
 @router.patch("/boards/{board}/columns", responses={200: {"model": ColumnsOut}})
+@_journaled(SettingArea.COLUMN)
 def edit_columns(db: Db, staff: BoardStaff, body: ColumnsIn) -> dict[str, Any]:
     """Rename and reorder the board's columns. For the superuser. Send
     every visible column, in the order wanted."""
