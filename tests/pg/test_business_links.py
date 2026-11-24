@@ -5,7 +5,7 @@ removed pair do to it, and the business written beside the pair on rows."""
 from datetime import timedelta
 
 from metaads import PROVIDER
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.common.crypto import fingerprint
@@ -288,6 +288,10 @@ def test_every_owner_is_linked_in_one_run_and_a_rollback_leaves_nothing(
     worlds = [World(db, "bir@example.com"), World(db, "ikki@example.com")]
     for n, world in enumerate(worlds):
         world.pair(world.page(f"p{n}"), world.account(f"act_{n}"))
+    db.commit()
+    # The commit linked them already; the script is for the rows that were
+    # there before, so put the database back to that day.
+    db.execute(delete(BusinessLink))
     db.commit()
 
     done = link_everyone(db)

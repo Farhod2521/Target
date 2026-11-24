@@ -21,6 +21,7 @@ level with them. It may be run any number of times.
 name one, and only where it is still empty.
 """
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,12 +29,15 @@ from typing import Any
 
 from metaads import PROVIDER
 from sqlalchemy import ColumnElement, Table, and_, exists, func, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
 from app.modules.businesses.constants import LinkKind
 from app.modules.businesses.models import Business, BusinessLink
 from app.modules.integrations.models import AdAccount, PageAccount, PagePair
+
+logger = logging.getLogger(__name__)
 
 # What a second pair's business starts with: the page's profile as it reads
 # on the day the pair is found.
@@ -342,3 +346,23 @@ def business_of_pair(
         if account_id == ad_account_id:
             return business_id
     return links[0][0] if len(links) == 1 else None
+
+
+def settle(db: Session, *, owner_id: uuid.UUID) -> Synced | None:
+    """Links level with the pairs, and the business on the rows a new link
+    now reaches, for an owner whose pairs or profile just changed.
+
+    Runs inside the caller's transaction, behind a savepoint: whatever goes
+    wrong here is logged and undone, and the caller's own writes commit as
+    if this had not been asked for. The next change, or the backfill, does
+    the work again.
+    """
+    try:
+        with db.begin_nested():
+            done = sync_links(db, owner_id=owner_id)
+            if done.changed:
+                fill_rows(db, owner_id=owner_id)
+            return done
+    except SQLAlchemyError:
+        logger.exception("business links not settled", extra={"owner": str(owner_id)})
+        return None
