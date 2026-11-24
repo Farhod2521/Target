@@ -15,6 +15,7 @@ from core.advice import (
     BUILD_A_NEW_ONE,
     CHAT_ON_FACEBOOK,
     INSTAGRAM_IS_CONNECTED,
+    LEAD_FORM_ON_BOTH,
     NO_INSTAGRAM,
     NOTHING_MATCHES,
     PROVIDER_EXPANDS,
@@ -75,15 +76,29 @@ def test_an_instagram_chat_keeps_instagram_only() -> None:
     assert advice.value == "instagram"
 
 
+def test_a_lead_form_goes_to_facebook_and_instagram_together() -> None:
+    """On Instagram alone most form campaigns were never shown at all."""
+    advice = placement_advice(has_instagram=True, lead_form=True)
+
+    assert (advice.value, advice.reason) == ("standard", LEAD_FORM_ON_BOTH)
+
+
+def test_a_lead_form_without_instagram_stays_on_facebook() -> None:
+    advice = placement_advice(has_instagram=False, lead_form=True)
+
+    assert (advice.value, advice.reason) == ("facebook", NO_INSTAGRAM)
+
+
 def test_the_advice_never_leaves_it_to_the_provider() -> None:
     """``automatic`` lets Meta pick Threads, Messenger and Audience Network."""
     values = {
-        placement_advice(has_instagram=has, chat=chat).value
+        placement_advice(has_instagram=has, chat=chat, lead_form=form).value
         for has in (True, False)
         for chat in ("", "messenger", "instagram")
+        for form in (True, False)
     }
 
-    assert values <= {"instagram", "facebook"}
+    assert values <= {"instagram", "facebook", "standard"}
 
 
 # --- Which form ----------------------------------------------------------
