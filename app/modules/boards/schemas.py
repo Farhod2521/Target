@@ -43,6 +43,12 @@ class CanOut(BaseModel):
         False,
         description="May open the client's office card; hide its link otherwise.",
     )
+    sales_client_card: bool = Field(
+        False,
+        description="On a Sales card they may open, the client's whole office "
+        "card opens to read (`GET /office/customers/{id}` answers `reader: "
+        "sales`). The clients list stays closed to Sales.",
+    )
     renewal_manager: bool = Field(
         False, description="Picks the renewal board's default manager."
     )

@@ -183,6 +183,7 @@ def me(db: Db, user: Staff) -> dict[str, Any]:
             "telephony": access.full,
             "client_card": bool(user.is_superuser)
             or any(str(role) in access.roles for role in ADMIN_ROLES),
+            "sales_client_card": access.sees(Board.SALES),
             "renewal_manager": access.full,
         },
     }

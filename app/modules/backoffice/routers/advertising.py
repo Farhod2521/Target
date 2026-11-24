@@ -31,9 +31,8 @@ from app.modules.ads.selectors.launch_settings import (
     FormSetup,
     LaunchSettings,
 )
-from app.modules.backoffice.constants import ADMIN_ROLES
 from app.modules.backoffice.exceptions import CampaignNotMirrored
-from app.modules.backoffice.permissions import staff_required
+from app.modules.backoffice.permissions import customer_reader
 from app.modules.backoffice.routers._out import amounts, choices
 from app.modules.backoffice.schemas import AdFrameOut, CustomerAdOut, CustomerAdsOut
 from app.modules.backoffice.selectors.ad_reading import (
@@ -60,7 +59,8 @@ from app.modules.backoffice.services.ads_refresh import refresh_stale
 from app.modules.metrics.selectors.panel import FigureSums
 
 router = APIRouter(prefix="/customers/{customer_id}/ads")
-Admin = Annotated[User, Depends(staff_required(*ADMIN_ROLES))]
+# One client's card to read: the office, and Sales for a client of their own.
+Reader = Annotated[User, Depends(customer_reader)]
 
 PERIOD_Q = Query(DEFAULT_PERIOD, description="A value from `periods`.")
 SINCE_Q = Query(None, description="`range`: the first day, YYYY-MM-DD.")
@@ -404,7 +404,7 @@ def campaign_out(found: AdReading) -> dict[str, Any] | None:
 def customer_ads(
     customer_id: uuid.UUID,
     db: Db,
-    user: Admin,
+    user: Reader,
     period: str = PERIOD_Q,
     since: date | None = SINCE_Q,
     until: date | None = UNTIL_Q,
@@ -461,7 +461,7 @@ def customer_ad(
     customer_id: uuid.UUID,
     launch_id: uuid.UUID,
     db: Db,
-    user: Admin,
+    user: Reader,
     period: str = PERIOD_Q,
     since: date | None = SINCE_Q,
     until: date | None = UNTIL_Q,
@@ -513,7 +513,7 @@ def customer_ad(
 
 @router.get("/{launch_id}/campaign", response_model=CampaignDetail)
 def customer_campaign(
-    customer_id: uuid.UUID, launch_id: uuid.UUID, db: Db, user: Admin
+    customer_id: uuid.UUID, launch_id: uuid.UUID, db: Db, user: Reader
 ) -> dict[str, Any]:
     """The campaign this launch built, in the shape its owner reads it.
 
@@ -539,7 +539,7 @@ def customer_ad_preview(
     launch_id: uuid.UUID,
     ad_id: str,
     db: Db,
-    user: Admin,
+    user: Reader,
     tries: int = Query(0, ge=0, description="`tries` from the last answer."),
 ) -> dict[str, Any]:
     """Meta's own frame of one advert this launch put on the provider.

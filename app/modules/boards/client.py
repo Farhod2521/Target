@@ -2,9 +2,11 @@
 renewal manager needs before the call. The whole office card (money back,
 days, pages, blocks) stays with Support, Finance and the Owner."""
 
+import uuid
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
@@ -91,3 +93,24 @@ def brief(db: Session, *, owner: User, now: datetime) -> dict[str, Any]:
             for invoice in card.invoices[:RECENT_BILLS]
         ],
     }
+
+
+def sells_to(db: Session, *, user: User, client_id: uuid.UUID) -> bool:
+    """Whether this client has a Sales card the reader may open on the
+    board: what lets somebody of Sales read the client's whole card."""
+    from app.modules.boards.access import access_for
+    from app.modules.boards.constants import Board
+    from app.modules.boards.models import BoardCard
+    from app.modules.boards.services import may_see
+
+    access = access_for(db, user)
+    if not access.sees(Board.SALES):
+        return False
+    return any(
+        may_see(card, user=user, access=access)
+        for card in db.scalars(
+            select(BoardCard).where(
+                BoardCard.board == str(Board.SALES), BoardCard.owner_id == client_id
+            )
+        )
+    )

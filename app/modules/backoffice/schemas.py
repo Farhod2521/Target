@@ -450,6 +450,12 @@ class CardSalesOut(BaseModel):
 
 
 class CustomerCardOut(BaseModel):
+    reader: str = Field(
+        "office",
+        description="`office`: Support, Finance, the Owner. `sales`: somebody "
+        "of Sales reading a client of their own: nothing here is changed by "
+        "them, and only the card, its adverts and its activity open.",
+    )
     profile: ProfileOut
     businesses: list[BusinessOut]
     subscription: SubscriptionOut | None

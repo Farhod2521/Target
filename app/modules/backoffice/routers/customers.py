@@ -16,7 +16,11 @@ from app.common.timezone import localtime
 from app.modules.accounts.constants import Role
 from app.modules.accounts.models import AccountBlock, SocialIdentity, User
 from app.modules.backoffice.constants import ADMIN_ROLES
-from app.modules.backoffice.permissions import staff_required
+from app.modules.backoffice.permissions import (
+    customer_reader,
+    reads_whole_office,
+    staff_required,
+)
 from app.modules.backoffice.routers._out import amounts, choices, person_out, trace_out
 from app.modules.backoffice.schemas import CustomerCardOut, CustomersOut
 from app.modules.backoffice.selectors import traces
@@ -61,6 +65,8 @@ from app.modules.sales.selectors.holds import SalesRecord, sales_record
 
 router = APIRouter(prefix="/customers")
 Admin = Annotated[User, Depends(staff_required(*ADMIN_ROLES))]
+# One client's card to read: the office, and Sales for a client of their own.
+Reader = Annotated[User, Depends(customer_reader)]
 RECENT_SALES_LINES = 10
 
 TERM_LABELS = {
@@ -411,8 +417,12 @@ def _sales_out(record: SalesRecord) -> dict[str, Any]:
 
 
 @router.get("/{customer_id}", responses={200: {"model": CustomerCardOut}})
-def customer(customer_id: uuid.UUID, db: Db, user: Admin) -> dict[str, Any]:
-    """One account, whole. Opening it is written to the journal."""
+def customer(customer_id: uuid.UUID, db: Db, user: Reader) -> dict[str, Any]:
+    """One account, whole. Opening it is written to the journal.
+
+    Support, Finance and the Owner open any account. Somebody of Sales opens
+    only a client whose Sales card is theirs on the board, to read:
+    `reader` is `sales` for them and the card's changes stay closed."""
     owner = person(db, customer_id=customer_id)
     if owner is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
@@ -426,6 +436,7 @@ def customer(customer_id: uuid.UUID, db: Db, user: Admin) -> dict[str, Any]:
     )
     access = card.referral_access
     return {
+        "reader": "office" if reads_whole_office(db, user) else "sales",
         "profile": {
             **(person_out(owner) or {}),
             "phone": owner.phone,

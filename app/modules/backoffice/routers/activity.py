@@ -9,8 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import Db
 from app.modules.accounts.models import User
-from app.modules.backoffice.constants import ADMIN_ROLES
-from app.modules.backoffice.permissions import staff_required
+from app.modules.backoffice.permissions import customer_reader
 from app.modules.backoffice.routers._out import choices
 from app.modules.backoffice.schemas import ActivityOut
 from app.modules.backoffice.selectors.activity import (
@@ -22,7 +21,8 @@ from app.modules.backoffice.selectors.activity import (
 from app.modules.backoffice.selectors.card import person
 
 router = APIRouter(prefix="/customers/{customer_id}")
-Admin = Annotated[User, Depends(staff_required(*ADMIN_ROLES))]
+# One client's card to read: the office, and Sales for a client of their own.
+Reader = Annotated[User, Depends(customer_reader)]
 
 GROUP_LABELS = {
     "akkaunt": "Akkaunt",
@@ -48,7 +48,7 @@ WHO_LABELS = {
 def customer_activity(
     customer_id: uuid.UUID,
     db: Db,
-    actor: Admin,
+    actor: Reader,
     group: str = Query("", description="One of `groups`; empty is all."),
     who: str = Query("", description="One of `who`; empty is anyone."),
     before: datetime | None = Query(
