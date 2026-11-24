@@ -11,7 +11,11 @@ from sqlalchemy.orm import Session, aliased
 
 from app.modules.accounts.models import User
 from app.modules.boards.access import Access
-from app.modules.boards.constants import REPORT_MAX_DAYS, Board
+from app.modules.boards.constants import (
+    REPORT_MAX_DAYS,
+    Board,
+    is_default_column_name,
+)
 from app.modules.boards.exceptions import ReportPeriodInvalid
 from app.modules.boards.models import BoardCard, BoardCardEvent
 from app.modules.boards.sales_report import day_bounds
@@ -90,6 +94,9 @@ def report(
                 "code": column.code,
                 "name": column.name,
                 "is_custom": column.is_custom,
+                "is_default_name": is_default_column_name(
+                    board=str(board), code=column.code, name=column.name
+                ),
                 "is_final": column.is_final,
                 "now": standing.get(column.code, 0),
                 "entered": entered.get(column.code, 0),

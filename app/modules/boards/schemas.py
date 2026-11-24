@@ -1317,6 +1317,9 @@ class ColumnReportRowOut(BaseModel):
     code: str
     name: str
     is_custom: bool
+    is_default_name: bool = Field(
+        True, description="The seeded name: another language names it by `code`."
+    )
     is_final: bool
     now: int = Field(description="Cards standing in the column this minute.")
     entered: int = Field(description="Cards that came into it in the period.")
