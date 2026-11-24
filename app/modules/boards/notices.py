@@ -50,7 +50,7 @@ from app.modules.boards.constants import (
     EventKind,
     SalesColumn,
 )
-from app.modules.boards.models import BoardCard, BoardCardEvent
+from app.modules.boards.models import BoardCard, BoardCardEvent, BoardColumn
 from app.modules.boards.services import record
 
 logger = logging.getLogger(__name__)
@@ -217,6 +217,13 @@ def _who(card: BoardCard) -> str:
     return f"<b>{name}</b>{phone}"
 
 
+def _code_label(code: str) -> str:
+    """A column's name as the code has it; none for one the code lacks."""
+    if code not in SalesColumn.values:
+        return ""
+    return str(SALES_COLUMN_LABELS[SalesColumn(code)])
+
+
 def remind_due(
     db: Session, *, client: BotClient, now: datetime, limit: int = SWEEP_BATCH
 ) -> int:
@@ -244,12 +251,26 @@ def remind_due(
         )
     )
     chats = _chats(db, {card.manager_id for card in cards if card.manager_id})
+    # The column as the board names it now: the superuser renames columns
+    # and adds their own.
+    names: dict[str, str] = (
+        {
+            code: name
+            for code, name in db.execute(
+                select(BoardColumn.code, BoardColumn.name).where(
+                    BoardColumn.board == str(Board.SALES)
+                )
+            )
+        }
+        if cards
+        else {}
+    )
     sent = 0
     for card in cards:
         chat = chats.get(card.manager_id) if card.manager_id else None
         if chat is None or card.due_at is None:
             continue
-        column = SALES_COLUMN_LABELS.get(SalesColumn(card.column_code), "")
+        column = names.get(card.column_code) or _code_label(card.column_code)
         at = localtime(card.due_at).strftime("%H:%M")
         text = f"⏰ Qo'ng'iroq vaqti keldi ({at})\n{_who(card)}\nUstun: {column}"
         if not _send(client, chat_id=chat, text=text, url=card_url(card)):

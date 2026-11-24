@@ -257,6 +257,13 @@ def test_telegram_tells_a_due_time_a_bill_and_new_leads_once(
     _client(db, "late@shop.test")
     _sweep(db)
     noon = now.replace(hour=7, minute=0)  # 12:00 in Tashkent
+    # The lead came just before that noon, whatever the hour the test runs at.
+    db.execute(
+        update(BoardCard)
+        .where(BoardCard.manager_id.is_(None))
+        .values(created_at=noon - timedelta(minutes=1))
+    )
+    db.commit()
     assert notices.tell_queue(db, client=bot, now=noon) == 1  # type: ignore[arg-type]
     assert notices.tell_queue(db, client=bot, now=noon) == 0  # type: ignore[arg-type]
     night = now.replace(hour=20)  # 01:00 in Tashkent
@@ -416,3 +423,39 @@ def test_a_card_left_in_a_discount_column_is_not_in_the_queue(
     view = client.get(f"{URL}/boards/sales", headers=ali).json()
     assert view["take"]["queue"] == 0
     assert client.post(f"{URL}/sales/take", headers=ali).status_code == 409
+
+
+def test_a_due_time_in_a_column_of_the_offices_own_is_told_by_its_name(
+    client: TestClient, db: Session
+) -> None:
+    """A card in a column the superuser added: the reminder names it and the
+    sweep does not stop on it."""
+    from app.modules.boards.models import BoardColumn
+
+    _live(db)
+    ali = _staff(db, "ali@office.test", Role.SALES)
+    root = _staff(db, "root@office.test", Role.OWNER, superuser=True)
+    _chat(db, "ali@office.test", "500")
+    _client(db, "shop@shop.test")
+    _sweep(db)
+    card = _detail(client.post(f"{URL}/sales/take", headers=ali))
+    added = client.post(
+        f"{URL}/boards/sales/columns", headers=root, json={"name": "O'ylab ko'radi"}
+    )
+    assert added.status_code == 201, added.text
+    code = db.scalar(
+        select(BoardColumn.code).where(
+            BoardColumn.board == "sales", BoardColumn.is_custom.is_(True)
+        )
+    )
+    now = utcnow()
+    db.execute(
+        update(BoardCard)
+        .where(BoardCard.id == card.id)
+        .values(column_code=code, due_at=now - timedelta(minutes=2))
+    )
+    db.commit()
+    bot = _Bot()
+
+    assert notices.remind_due(db, client=bot, now=now) == 1  # type: ignore[arg-type]
+    assert "O'ylab ko'radi" in bot.sent[0][1]
