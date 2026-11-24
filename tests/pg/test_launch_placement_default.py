@@ -1,4 +1,5 @@
-"""A new launch shows on Instagram alone when the page has it, else on Facebook."""
+"""A new launch shows on Instagram alone when the page has it, else on Facebook;
+a lead form on a page with Instagram shows on both."""
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -11,7 +12,9 @@ from app.modules.ads.services.targeting import apply_placement
 from tests.pg.test_launch_api import _ready
 
 
-def _launch(client: TestClient, db: Session, *, instagram: str) -> CampaignLaunch:
+def _launch(
+    client: TestClient, db: Session, *, instagram: str, goal: str = "views"
+) -> CampaignLaunch:
     auth, _user = _ready(client, db)
     launch_id = client.post("/api/v1/launch", headers=auth).json()["id"]
     launch = db.get(CampaignLaunch, launch_id)
@@ -19,7 +22,7 @@ def _launch(client: TestClient, db: Session, *, instagram: str) -> CampaignLaunc
     page = launch_page(db, launch=launch)
     assert page is not None
     page.instagram_user_id = instagram
-    launch.answers = {**(launch.answers or {}), "goal": "leads"}
+    launch.answers = {**(launch.answers or {}), "goal": goal}
     launch.draft = draft_field.empty_draft()
     db.commit()
     return launch
@@ -40,6 +43,26 @@ def test_a_page_with_instagram_starts_on_instagram_only(
     assert _placement(launch) == "instagram"
 
 
+def test_a_lead_form_starts_on_facebook_and_instagram(
+    client: TestClient, db: Session
+) -> None:
+    launch = _launch(client, db, instagram="ig_1", goal="leads")
+
+    apply_placement(db, launch=launch)
+
+    assert _placement(launch) == "standard"
+
+
+def test_a_lead_form_without_instagram_starts_on_facebook_only(
+    client: TestClient, db: Session
+) -> None:
+    launch = _launch(client, db, instagram="", goal="leads")
+
+    apply_placement(db, launch=launch)
+
+    assert _placement(launch) == "facebook"
+
+
 def test_a_page_without_instagram_starts_on_facebook_only(
     client: TestClient, db: Session
 ) -> None:
@@ -53,7 +76,7 @@ def test_a_page_without_instagram_starts_on_facebook_only(
 def test_the_owners_own_choice_is_never_replaced(
     client: TestClient, db: Session
 ) -> None:
-    launch = _launch(client, db, instagram="ig_1")
+    launch = _launch(client, db, instagram="ig_1", goal="leads")
     draft = launch.draft
     draft_field.choose(draft, DraftSection.AUDIENCE, {"placement_mode": "facebook"})
     draft_field.set_source(draft, draft_field.PLACEMENT_MODE, draft_field.BY_OWNER)

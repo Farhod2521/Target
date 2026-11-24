@@ -26,6 +26,7 @@ PROVIDER_EXPANDS: Final = "provider_expands"
 INSTAGRAM_IS_CONNECTED: Final = "instagram_is_connected"
 NO_INSTAGRAM: Final = "no_instagram"
 CHAT_ON_FACEBOOK: Final = "chat_on_facebook"
+LEAD_FORM_ON_BOTH: Final = "lead_form_on_both"
 
 SAME_QUESTIONS: Final = "same_questions"
 NOTHING_MATCHES: Final = "nothing_matches"
@@ -54,14 +55,24 @@ def audience_advice() -> Advice:
     return Advice(value="automatic", reason=PROVIDER_EXPANDS)
 
 
-def placement_advice(*, has_instagram: bool, chat: str = "") -> Advice:
+def placement_advice(
+    *, has_instagram: bool, chat: str = "", lead_form: bool = False
+) -> Advice:
     """One app: Instagram when the page has it, else Facebook. Never Threads.
 
     A chat on Messenger keeps the ad on Facebook - an Instagram-only answer
     would be handed back to the provider, Threads and all.
+
+    A lead form goes to both apps. Measured on production, 2026-10-21 to
+    2026-11-19, launches that stayed on a day or longer: 59 of 85 form
+    campaigns on Instagram alone were never shown once, against 2 of 49 left
+    to Meta and 0 of 10 on Facebook with or beside Instagram. Meta reports no
+    error for them, so the cause is not known - only the combination is.
     """
     if chat == "messenger":
         return Advice(value="facebook", reason=CHAT_ON_FACEBOOK)
+    if has_instagram and lead_form:
+        return Advice(value="standard", reason=LEAD_FORM_ON_BOTH)
     if has_instagram:
         return Advice(value="instagram", reason=INSTAGRAM_IS_CONNECTED)
     return Advice(value="facebook", reason=NO_INSTAGRAM)
@@ -122,6 +133,7 @@ __all__ = [
     "CAMPAIGN_TYPE_REASONS",
     "CHAT_ON_FACEBOOK",
     "INSTAGRAM_IS_CONNECTED",
+    "LEAD_FORM_ON_BOTH",
     "NOTHING_MATCHES",
     "NO_INSTAGRAM",
     "PROVEN_DEFAULT",

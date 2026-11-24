@@ -177,6 +177,7 @@ DRAFT_SECTION_LABELS = {
 ADVICE_REASONS: dict[str, Any] = {
     "provider_expands": "Meta reklamaga kim javob berishini o'zi o'rganib, shunday odamlarni topib boradi. Meta ham shuni tavsiya qiladi.",
     "instagram_is_connected": "Sahifangizga Instagram ulangan - reklama faqat Instagram'da ko'rsatiladi. Xohlasangiz, Facebook'ni tanlashingiz mumkin.",
+    "lead_form_on_both": "Lid formasi Facebook va Instagram'da birga ko'rsatiladi - faqat Instagram'da qo'yilgan lid reklamalarining ko'pi umuman ko'rsatilmagan. Xohlasangiz, o'zgartirishingiz mumkin.",
     "no_instagram": "Instagram ulanmagan - reklama Facebook'da ko'rsatiladi. Instagram'da yoqmoqchi bo'lsangiz, Instagram'ni ulang yoki supportga yozing.",
     "chat_on_facebook": "Suhbat Messenger'da bo'ladi - reklama faqat Facebook'da ko'rsatiladi.",
     "same_questions": "Bu formada aynan shu savollar bor — yangisini yasashning hojati yo'q. Meta formani o'chirishga ruxsat bermaydi.",

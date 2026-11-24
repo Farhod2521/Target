@@ -39,7 +39,8 @@ def audience_recommendation() -> Recommendation:
 
 
 def placement_recommendation(db: Session, *, launch: CampaignLaunch) -> Recommendation:
-    """Instagram when the launch's page has it, else Facebook."""
+    """Instagram when the launch's page has it, else Facebook; a lead form
+    on a page with Instagram goes to both."""
     from app.modules.ads.selectors.goals import chosen_channel, goal_preset
     from app.modules.ads.selectors.launch_page import launch_page
 
@@ -48,7 +49,9 @@ def placement_recommendation(db: Session, *, launch: CampaignLaunch) -> Recommen
     chat = chosen_channel(launch=launch) if preset and preset.opens_chat else ""
     return _rendered(
         placement_advice(
-            has_instagram=page is not None and page.has_instagram, chat=chat
+            has_instagram=page is not None and page.has_instagram,
+            chat=chat,
+            lead_form=bool(preset and preset.needs_lead_form),
         )
     )
 
