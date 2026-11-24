@@ -24,6 +24,8 @@ class CampaignLaunch(Base):
     provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True, default="")
     ad_account_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("ad_accounts.id", ondelete="RESTRICT"), nullable=False, index=True)
     page_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("page_accounts.id", ondelete="RESTRICT"), nullable=True, index=True)
+    # The business this row belongs to, beside the page and account it names.
+    business_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("businesses.id", ondelete="SET NULL"), nullable=True, index=True)
     answers: Mapped[Any] = mapped_column(Json, nullable=False, default=dict)
     draft: Mapped[Any] = mapped_column(Json, nullable=False, default=dict)
     preset_key: Mapped[str] = mapped_column(String(64), nullable=False, default="")

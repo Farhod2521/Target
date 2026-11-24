@@ -7,6 +7,13 @@ class SpecialAdCategory(Choices):
     CREDIT = "credit"
 
 
+class LinkKind(Choices):
+    """What of a network a business is tied to."""
+
+    META_PAIR = "meta_pair"
+    AD_ACCOUNT = "ad_account"
+
+
 SPECIAL_AD_CATEGORY_LABELS = {
     SpecialAdCategory.HOUSING: "Ko'chmas mulk",
     SpecialAdCategory.EMPLOYMENT: "Ish o'rni",

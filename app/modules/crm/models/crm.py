@@ -22,6 +22,9 @@ class _Pair:
     # copied from the Django project that no pair could take.
     page_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("page_accounts.id", ondelete="RESTRICT"), nullable=True)
     ad_account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("ad_accounts.id", ondelete="RESTRICT"), nullable=True)
+    # The business the pair belongs to, written beside the pair; null until
+    # the pair has one.
+    business_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("businesses.id", ondelete="SET NULL"), nullable=True, index=True)
 
 
 class CrmStage(_Tenant, _Pair, Base):

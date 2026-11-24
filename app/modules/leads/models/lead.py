@@ -32,6 +32,8 @@ class Lead(Base):
     city: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True, default="")
     form_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("lead_forms.id", ondelete="RESTRICT"), nullable=True, index=True)
+    # The business the lead came to; its page is read through the form.
+    business_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("businesses.id", ondelete="SET NULL"), nullable=True, index=True)
     campaign_external_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     adset_external_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     ad_external_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")

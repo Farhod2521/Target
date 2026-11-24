@@ -22,6 +22,8 @@ class ChatSession(Base):
     title: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     page_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("page_accounts.id", ondelete="SET NULL"), nullable=True, index=True)
     ad_account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("ad_accounts.id", ondelete="SET NULL"), nullable=True, index=True)
+    # The business this row belongs to, beside the page and account it names.
+    business_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("businesses.id", ondelete="SET NULL"), nullable=True, index=True)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # -- django extras --
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
