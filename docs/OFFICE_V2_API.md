@@ -505,6 +505,13 @@ Kamida bitta amal bo'lishi shart (`to_column`, vaqt, xabar yoki xodim), aks hold
 
 **Sotuv menejeri va mijoz kartasi:** `me.can.sales_client_card` — Sotuv kartasidan mijozning to'liq kartasi ochiladi. `GET /api/v1/office/customers/{id}`, `…/ads…`, `…/activity` Sotuv menejeriga faqat o'z kartasidagi mijoz uchun (rahbarga jamoaniki) ochiq, javobda `reader: "sales"`; ro'yxat (`GET /customers`), qolgan tablar va barcha o'zgartirishlar yopiq (404).
 
+### Ustunni kartalari bilan olib tashlash (2026-11-24)
+
+- `GET /boards/{board}/columns/{code}/removal` — olib tashlashdan oldin so'raladi: `cards` (ustunda turgan kartalar soni), `targets[]` (kartalar ko'chishi mumkin bo'lgan ustunlar: ko'rinadigan, qo'lda ishlanadigan, yakuniy, navbat va chegirma ustuni emas), `buttons[]` (shu ustunga karta o'tkazadigan tugmalar), `rules[]` (shu ustun bilan ishlaydigan qoidalar). Superuser.
+- `DELETE /boards/{board}/columns/{code}?move_to=<code>` — ustunda karta bo'lsa `move_to` shart (aks holda 422 `column_has_cards`; noto'g'ri ustun — 422 `move_target_invalid`). Kartalar avval o'sha ustunga ko'chadi, har birining tarixiga «ustun doskadan olib tashlandi» yoziladi.
+- Ustunga bog'liq narsalar endi rad etmaydi, o'zi uziladi: superuserning o'z tugmasi (`go`) ustun bilan birga o'chadi, standart tugma o'z ustuniga qaytadi; superuserning o'z qoidasi o'chirib qo'yiladi (boshqa ustunlardan ham o'qiydigan bo'lsa, faqat shu ustun ro'yxatdan chiqadi), tizim qoidasi standart ustunlariga qaytadi. Hammasi sozlamalar tarixiga yoziladi. `column_has_buttons` va `column_has_rules` rad javoblari endi qaytmaydi.
+- Standart ustunlar avvalgidek olib tashlanmaydi (422 `column_not_custom`).
+
 ### Xodimlar
 
 Ofis frontida xodimlar va rollar endi faqat **Jamoa** bo'limida (`/api/v1/office/team`, Egasi va superuser):
