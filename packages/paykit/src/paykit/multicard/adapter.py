@@ -25,6 +25,7 @@ payment callback carried.
 import hashlib
 import hmac
 import json
+import logging
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import Any, Final
@@ -80,6 +81,8 @@ from paykit.refs import (
     MinorUnits,
     ProviderName,
 )
+
+logger = logging.getLogger(__name__)
 
 PROVIDER: Final = ProviderName("multicard")
 
@@ -242,9 +245,30 @@ class MulticardAdapter:
         uuid = str(created.get("uuid") or "")
         if not uuid:
             raise ProviderUnavailable("multicard created a payment without a uuid")
-        if created.get("otp_hash"):
-            return Charge(outcome=NEEDS_CODE, uuid=uuid, status=DRAFT_STATUS)
-        return self._confirm(uuid, None)
+        # Always tried with an empty body first, otp_hash or not: Multicard
+        # (support, 2026-11-24) answers an otp_hash even for a shop allowed
+        # to debit without a code, and an empty confirmation then debits.
+        taken = self._confirm(uuid, None)
+        if taken.outcome != DECLINED or not created.get("otp_hash"):
+            return taken
+        # Refused, and Multicard asked for a confirmation: the payer confirms
+        # it - on Multicard's page when it gave one (an SMS code or 3-D
+        # Secure, as the card needs; docs: «SMS-код (или 3DS)»), else by code.
+        logger.warning(
+            "multicard wants %s confirmed: %s %s",
+            uuid,
+            taken.code,
+            taken.details,
+            extra={"uuid": uuid, "code": taken.code, "details": taken.details},
+        )
+        return Charge(
+            outcome=NEEDS_CODE,
+            uuid=uuid,
+            status=DRAFT_STATUS,
+            code=taken.code,
+            details=taken.details,
+            checkout_url=str(created.get("checkout_url") or ""),
+        )
 
     def confirm_charge(self, *, uuid: str, code: str) -> Charge:
         """Debit a payment that waited for the code Multicard texted the payer.

@@ -674,6 +674,12 @@ def _wait_url(number: str, **query: str) -> str:
 def _card_answer(
     number: str, paid: card_services.CardPayment, wait_url: str
 ) -> CheckoutOut:
+    if paid.page_url:
+        # Multicard's own page for this payment asks the card for an SMS code
+        # or its bank's 3-D Secure, whichever the card needs.
+        return CheckoutOut(
+            number=number, kind="redirect", url=paid.page_url, wait_url=wait_url
+        )
     if paid.needs_code:
         return CheckoutOut(
             number=number,
@@ -707,7 +713,11 @@ def _start(
         paid = card_services.pay_from_card(db, user=user, invoice=invoice, now=now)
         logger.info(
             "card checkout started",
-            extra={"invoice": invoice.number, "needs_code": paid.needs_code},
+            extra={
+                "invoice": invoice.number,
+                "needs_code": paid.needs_code,
+                "page": bool(paid.page_url),
+            },
         )
         via = _wait_url(invoice.number, via=CARD_PROVIDER, **back)
         return _card_answer(invoice.number, paid, via)

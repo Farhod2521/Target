@@ -192,13 +192,66 @@ def test_a_charge_creates_then_confirms_with_an_empty_body() -> None:
     assert wire.body("PUT", "/payment/p1") == {}
 
 
-def test_a_shop_that_must_ask_for_a_code_is_never_confirmed() -> None:
-    wire = Wire({("POST", "/payment"): {"uuid": "p1", "otp_hash": "abc"}})
+def test_an_otp_hash_is_still_confirmed_with_an_empty_body() -> None:
+    # Multicard support, 2026-11-24: a shop allowed to debit without a code
+    # sends the empty confirmation even when otp_hash came back.
+    wire = Wire(
+        {
+            ("POST", "/payment"): {"uuid": "p1", "status": "draft", "otp_hash": "abc"},
+            ("PUT", "/payment/p1"): {"uuid": "p1", "status": "success"},
+        }
+    )
+
+    charge = _charge(_adapter(wire))
+
+    assert (charge.outcome, charge.uuid) == (CHARGED, "p1")
+    assert wire.body("PUT", "/payment/p1") == {}
+
+
+def test_a_refused_empty_confirmation_waits_for_the_payer() -> None:
+    wire = Wire(
+        {
+            ("POST", "/payment"): {"uuid": "p1", "otp_hash": "abc"},
+            ("PUT", "/payment/p1"): _refused("ERROR_OTP_REQUIRED", "Need code"),
+        }
+    )
 
     charge = _charge(_adapter(wire))
 
     assert charge.outcome == NEEDS_CODE
-    assert "PUT /payment/p1" not in wire.paths()
+    assert (charge.uuid, charge.code) == ("p1", "ERROR_OTP_REQUIRED")
+    assert charge.checkout_url == ""
+
+
+def test_a_payment_to_confirm_carries_multicards_page() -> None:
+    page = "https://checkout.multicard.uz/payment/p1"
+    wire = Wire(
+        {
+            ("POST", "/payment"): {
+                "uuid": "p1",
+                "otp_hash": "abc",
+                "checkout_url": page,
+            },
+            ("PUT", "/payment/p1"): _refused("ERROR_OTP_REQUIRED", "Need code"),
+        }
+    )
+
+    charge = _charge(_adapter(wire))
+
+    assert (charge.outcome, charge.checkout_url) == (NEEDS_CODE, page)
+
+
+def test_a_card_refusal_without_otp_hash_stays_declined() -> None:
+    wire = Wire(
+        {
+            ("POST", "/payment"): {"uuid": "p1", "otp_hash": None},
+            ("PUT", "/payment/p1"): _refused("ERROR_INSUFFICIENT_FUNDS", "No money"),
+        }
+    )
+
+    charge = _charge(_adapter(wire))
+
+    assert (charge.outcome, charge.code) == (DECLINED, "ERROR_INSUFFICIENT_FUNDS")
 
 
 def test_a_refused_payment_moves_no_money() -> None:

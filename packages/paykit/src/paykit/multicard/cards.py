@@ -9,10 +9,11 @@ Two halves, both documented by Multicard as «Привязка карт (фор�
   callback that announces a bound card is not signed, so a card is only
   ever believed when ``GET /payment/card/bind/{session_id}`` says so.
 - **Charging.** ``POST /payment`` with the token creates a payment that has
-  moved no money; ``PUT /payment/{uuid}`` with an empty body debits it. An
-  empty body is enough only when Multicard has switched on debits without a
-  code for the shop - otherwise the answer carries an ``otp_hash`` and a
-  charge with nobody at the screen cannot go on.
+  moved no money; ``PUT /payment/{uuid}`` with an empty body debits it when
+  Multicard has switched on debits without a code for the shop - even when
+  the first answer carried an ``otp_hash``. Refused, the payer confirms it
+  on Multicard's page (``checkout_url``) or with the SMS code; a charge with
+  nobody at the screen cannot go on.
 
 The debit is then announced by the same signed payment callback an invoice
 paid on Multicard's page sends, with our invoice number in ``invoice_id``,
@@ -74,6 +75,10 @@ class Charge:
     ``outcome`` is :data:`CHARGED`, :data:`DECLINED`, :data:`PENDING` (the
     debit may still land: read it again by ``uuid``) or :data:`NEEDS_CODE`
     (the shop is not allowed to debit without the payer's SMS code).
+
+    With :data:`NEEDS_CODE`, ``checkout_url`` is Multicard's page for this
+    payment, when it gave one: there Multicard asks the card for whatever
+    it needs - an SMS code or the bank's 3-D Secure page - whatever the card.
     """
 
     outcome: str
@@ -81,6 +86,7 @@ class Charge:
     status: str = ""
     code: str = ""
     details: str = ""
+    checkout_url: str = ""
 
 
 def bound_card_of(data: dict[str, Any]) -> BoundCard:

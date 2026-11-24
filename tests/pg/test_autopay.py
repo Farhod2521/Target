@@ -47,6 +47,10 @@ class FakeMulticard:
         self.seen: list[str] = []
         self.confirm: dict[str, Any] = {"status": "success"}
         self.otp_hash: str | None = None
+        self.checkout_url: str | None = None
+        # The shop may debit without a code: an empty PUT goes through even
+        # when POST /payment answered an otp_hash.
+        self.debit_without_code = False
         self.code = "50112"
         self.binds: list[dict[str, Any]] = []
         self.confirmed: list[dict[str, Any]] = []
@@ -72,7 +76,14 @@ class FakeMulticard:
             body = json.loads(request.content)
             uuid = f"p{len(self.payments) + 1}"
             self.payments[uuid] = body
-            return _ok({"uuid": uuid, "status": "draft", "otp_hash": self.otp_hash})
+            return _ok(
+                {
+                    "uuid": uuid,
+                    "status": "draft",
+                    "otp_hash": self.otp_hash,
+                    "checkout_url": self.checkout_url,
+                }
+            )
         if request.method == "GET" and path.startswith("/payment/p"):
             return _ok({"uuid": path.rsplit("/", 1)[1], "status": "draft"})
         if request.method == "DELETE" and path.startswith("/payment/p"):
@@ -82,7 +93,11 @@ class FakeMulticard:
             uuid = path.rsplit("/", 1)[1]
             sent = json.loads(request.content or b"{}")
             self.confirmed.append(sent)
-            if self.otp_hash and sent.get("otp") != self.code:
+            if (
+                self.otp_hash
+                and sent.get("otp") != self.code
+                and not (self.debit_without_code and not sent)
+            ):
                 return httpx.Response(
                     400,
                     json={"success": False, "error": {"code": "ERROR_WRONG_OTP"}},
@@ -310,7 +325,8 @@ def test_a_shop_that_needs_a_code_stops_for_the_term(
 
     assert services.charge_due(db, now=now) == 1
     assert services.charge_due(db, now=now + timedelta(hours=24)) == 0
-    assert not any(r.startswith("PUT ") for r in multicard.seen)
+    # Only the empty confirmation was tried, and refused.
+    assert multicard.confirmed == [{}]
     shown = client.get("/api/v1/billing/card", headers=auth).json()
     assert shown["last_charge"]["outcome"] == "needs_code"
 
@@ -443,7 +459,7 @@ def test_a_shop_that_asks_for_a_code_is_paid_once_the_owner_types_it(
 
     started = _pay(client, auth).json()
     assert started["kind"] == "code" and started["charge"]
-    assert multicard.confirmed == []
+    assert multicard.confirmed == [{}]
     url = f"/api/v1/billing/invoice/{started['number']}/confirm"
 
     wrong = client.post(
@@ -460,6 +476,76 @@ def test_a_shop_that_asks_for_a_code_is_paid_once_the_owner_types_it(
     assert multicard.confirmed[-1] == {"otp": "50112", "debit_available": False}
     db.expire_all()
     assert db.scalar(select(Invoice.status)) == "paid"
+
+
+def test_renewal_is_taken_with_an_otp_hash_when_the_shop_needs_no_code(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    _plan_running_out(db)
+    multicard.otp_hash = "abc"
+    multicard.debit_without_code = True
+
+    assert services.charge_due(db, now=utcnow()) == 1
+
+    assert multicard.confirmed == [{}]
+    db.expire_all()
+    assert db.scalar(select(Invoice.status)) == "paid"
+    shown = client.get("/api/v1/billing/card", headers=auth).json()
+    assert shown["last_charge"]["outcome"] == "charged"
+
+
+def test_card_pay_with_an_otp_hash_is_taken_when_the_shop_needs_no_code(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    _plan_running_out(db)
+    multicard.otp_hash = "abc"
+    multicard.debit_without_code = True
+
+    started = _pay(client, auth).json()
+
+    assert started["kind"] == "wait" and started["charge"] == ""
+    db.expire_all()
+    assert db.scalar(select(Invoice.status)) == "paid"
+
+
+def test_a_payment_to_confirm_on_multicards_page_sends_the_owner_there(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    _plan_running_out(db)
+    multicard.otp_hash = "abc"
+    multicard.checkout_url = "https://checkout.multicard.uz/payment/p1"
+
+    started = _pay(client, auth).json()
+
+    assert started["kind"] == "redirect"
+    assert started["url"] == multicard.checkout_url
+    assert started["charge"] == "" and started["wait_url"]
+    # Only the empty confirmation was tried, and refused.
+    assert multicard.confirmed == [{}]
+    db.expire_all()
+    assert db.scalar(select(Invoice.status)) == "pending"
+
+
+def test_renewal_with_a_page_to_confirm_still_waits_for_the_owner(
+    client: TestClient, db: Session, multicard: FakeMulticard
+) -> None:
+    auth = sign_up(client)
+    _bound(client, auth)
+    _plan_running_out(db)
+    multicard.otp_hash = "abc"
+    multicard.checkout_url = "https://checkout.multicard.uz/payment/p1"
+
+    assert services.charge_due(db, now=utcnow()) == 1
+    # Only the empty confirmation was tried, and refused.
+    assert multicard.confirmed == [{}]
+    shown = client.get("/api/v1/billing/card", headers=auth).json()
+    assert shown["last_charge"]["outcome"] == "needs_code"
 
 
 def test_a_code_confirms_only_the_bill_it_was_sent_for(
@@ -485,7 +571,7 @@ def test_a_code_confirms_only_the_bill_it_was_sent_for(
 
     assert crossed.status_code == 400 and crossed.json()["code"] == "card_code_stale"
     assert forged.status_code == 400 and forged.json()["code"] == "card_code_stale"
-    assert multicard.confirmed == []
+    assert multicard.confirmed == [{}]
 
 
 def _later(monkeypatch: pytest.MonkeyPatch, seconds: int) -> None:

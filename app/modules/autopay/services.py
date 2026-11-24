@@ -402,6 +402,8 @@ def _record(card: SavedCard, charge: Charge, *, now: datetime) -> None:
 class CardPayment:
     """How far a bill paid from the saved card got.
 
+    ``page_url`` is set when the payment must be confirmed on Multicard's
+    page (an SMS code or 3-D Secure, as the card needs). Otherwise
     ``charge`` is set when Multicard texted the card's owner a code: it is
     handed back with that code to :func:`confirm_card_payment`, or to
     :func:`resend_card_code` for a new code after ``resend_in`` seconds.
@@ -409,6 +411,9 @@ class CardPayment:
 
     charge: str = ""
     resend_in: int = 0
+    # Multicard's page for a payment that must be confirmed: the payer goes
+    # there instead of typing a code here, for any card.
+    page_url: str = ""
 
     @property
     def needs_code(self) -> bool:
@@ -449,6 +454,8 @@ def pay_from_card(
         charge.code,
         extra={"owner": str(user.id), "invoice": invoice.number},
     )
+    if charge.outcome == NEEDS_CODE and charge.checkout_url:
+        return CardPayment(page_url=charge.checkout_url)
     if charge.outcome == NEEDS_CODE:
         return CardPayment(
             charge=_charge_token(invoice.number, charge.uuid, now=now, sends=sends),

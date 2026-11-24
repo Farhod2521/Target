@@ -160,6 +160,7 @@ kartadan yechiladi (`provider` o'qilmaydi). Javob `kind`:
 |---|---|
 | `wait` | Pul yechildi yoki yechilmoqda. `wait_url` da hisobni kuting |
 | `code` | Multicard karta egasiga SMS kod yubordi. `charge` ni saqlang |
+| `redirect` | To'lovni Multicard sahifasida tasdiqlash kerak: `url` ni oching (karta turiga qarab SMS kod yoki bankning 3-D Secure sahifasi), keyin `wait_url` da hisobni kuting |
 | `covered` | Balans yoki promo to'liq yopdi, kartaga tegilmadi |
 
 `kind: code` bo'lsa — `POST /api/v1/billing/invoice/{number}/confirm`:
