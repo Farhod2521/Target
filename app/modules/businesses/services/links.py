@@ -349,19 +349,23 @@ def business_of_pair(
 
 
 def settle(db: Session, *, owner_id: uuid.UUID) -> Synced | None:
-    """Links level with the pairs, and the business on the rows a new link
-    now reaches, for an owner whose pairs or profile just changed.
+    """Links level with the pairs, the business on the rows a new link now
+    reaches, and a membership for each CRM manager, for an owner whose pairs,
+    profile or managers just changed.
 
     Runs inside the caller's transaction, behind a savepoint: whatever goes
     wrong here is logged and undone, and the caller's own writes commit as
     if this had not been asked for. The next change, or the backfill, does
     the work again.
     """
+    from app.modules.businesses.services.members import mirror_crm_members
+
     try:
         with db.begin_nested():
             done = sync_links(db, owner_id=owner_id)
             if done.changed:
                 fill_rows(db, owner_id=owner_id)
+            mirror_crm_members(db, owner_id=owner_id)
             return done
     except SQLAlchemyError:
         logger.exception("business links not settled", extra={"owner": str(owner_id)})

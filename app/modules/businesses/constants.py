@@ -14,6 +14,46 @@ class LinkKind(Choices):
     AD_ACCOUNT = "ad_account"
 
 
+class MemberRole(Choices):
+    """What a person does in a business. A role is a ready set of grants,
+    not a rule of its own: the grants are what is checked."""
+
+    TARGETOLOG = "targetolog"
+    SALES = "sales"
+
+
+MEMBER_ROLE_LABELS = {
+    MemberRole.TARGETOLOG: "Targetolog",
+    MemberRole.SALES: "Sotuv manageri",
+}
+
+
+class GrantArea(Choices):
+    ADS = "ads"
+    CRM = "crm"
+
+
+GRANT_AREA_LABELS = {
+    GrantArea.ADS: "Reklama",
+    GrantArea.CRM: "CRM",
+}
+
+
+class GrantLevel(Choices):
+    VIEW = "view"
+    EDIT = "edit"
+
+
+GRANT_LEVEL_LABELS = {
+    GrantLevel.VIEW: "Ko'rish",
+    GrantLevel.EDIT: "O'zgartirish",
+}
+
+# The CRM grant for leads no network brought: typed in by hand, a site form,
+# an import.
+OTHER_SOURCE = "other"
+
+
 SPECIAL_AD_CATEGORY_LABELS = {
     SpecialAdCategory.HOUSING: "Ko'chmas mulk",
     SpecialAdCategory.EMPLOYMENT: "Ish o'rni",

@@ -1,6 +1,6 @@
 """Gives every stored page and ad account pair its business.
 
-Run once after migration 0081, and again whenever wanted:
+Run once after migrations 0081 and 0082, and again whenever wanted:
 
     python -m app.modules.businesses.backfill          # report only
     python -m app.modules.businesses.backfill --apply  # write
@@ -22,6 +22,7 @@ from app.modules.businesses.services.links import (
     fill_rows,
     sync_links,
 )
+from app.modules.businesses.services.members import mirror_crm_members
 from app.modules.integrations.models import PagePair
 
 
@@ -77,6 +78,7 @@ def main(argv: list[str]) -> int:
         done = link_everyone(db)
         filled = fill_rows(db)
         report(done, filled, left_empty(db))
+        print(f"CRM menejerlari uchun xodim yozuvi: {mirror_crm_members(db)}")
         if "--apply" in argv:
             db.commit()
             print("Yozildi.")

@@ -8,9 +8,11 @@ for them, so a place added later is covered without knowing:
 - at every flush, a new row that names a pair and has no business gets the
   pair's; a lead gets its card's, or its form's page's when that page is one
   business;
-- at commit, an owner whose stored pairs or page profile changed in the
-  transaction has their links brought level (:func:`links.settle`), which
-  cannot fail the commit.
+- at every flush, a row moved to another pair (a manager moved to another
+  page) gets that pair's business;
+- at commit, an owner whose stored pairs, page profile or CRM managers
+  changed in the transaction has their links and memberships brought level
+  (:func:`links.settle`), which cannot fail the commit.
 
 A row written around the session (a bulk ``INSERT``) is not seen here;
 ``python -m app.modules.businesses.backfill --apply`` fills those.
@@ -54,6 +56,7 @@ def _models() -> dict[str, Any]:
             CampaignLaunch,
         ),
         "card": CrmCard,
+        "manager": CrmMember,
         "lead": Lead,
         "form": LeadForm,
         "pair": PagePair,
@@ -72,7 +75,7 @@ def _stamp(session: Session, _context: Any, _instances: Any) -> None:
 def _mark(session: Session, models: dict[str, Any]) -> None:
     touched: set[uuid.UUID] = set()
     for row in (*session.new, *session.dirty, *session.deleted):
-        if isinstance(row, models["pair"]):
+        if isinstance(row, (models["pair"], models["manager"])):
             touched.add(row.owner_id)
     for row in session.new:
         if isinstance(row, Business) and row.page_id is not None:
@@ -108,6 +111,16 @@ def _write(session: Session, models: dict[str, Any]) -> None:
             and row.business_id is None
             and row.page_id is not None
         ):
+            row.business_id = of(row.page_id, row.ad_account_id)
+    for row in session.dirty:
+        if not isinstance(row, models["paired"]):
+            continue
+        state = inspect(row).attrs
+        moved = (
+            state.page_id.history.has_changes()
+            or state.ad_account_id.history.has_changes()
+        )
+        if moved and not state.business_id.history.has_changes():
             row.business_id = of(row.page_id, row.ad_account_id)
     for row in new:
         if isinstance(row, models["card"]) and row.business_id is not None:
