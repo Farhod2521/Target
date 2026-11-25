@@ -652,6 +652,7 @@ class Board:
     late: int
     today: int
     cursor: str
+    tasks: int = 0
     untaken: int = 0
     ads: dict[str, str] = field(default_factory=dict)
 
@@ -694,14 +695,38 @@ def visible_cards(viewer: Viewer) -> Select[tuple[CrmCard]]:
     return select(CrmCard).where(_visible(viewer))
 
 
+def _day(now: datetime, zone: str = "") -> tuple[datetime, datetime]:
+    """The reader's today: from their last midnight to the next."""
+    start = localtime(now, zone).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start, start + timedelta(days=1)
+
+
 def _today(now: datetime, zone: str = "") -> tuple[datetime, datetime]:
     """From now to the reader's midnight: what is still to do today.
 
-    A time already passed today is late, not «today», so the two chips
-    never count one card twice.
+    A time already passed today is late, not a task for today, so the two
+    chips never count one card twice.
     """
-    start = localtime(now, zone).replace(hour=0, minute=0, second=0, microsecond=0)
-    return now, start + timedelta(days=1)
+    return now, _day(now, zone)[1]
+
+
+def _came_today(now: datetime, zone: str = "") -> ColumnElement[bool]:
+    """The card's lead came in today, by the reader's clock.
+
+    A customer who writes again puts the new enquiry on the same card, so
+    the card counts on the day they wrote again.
+    """
+    start, end = _day(now, zone)
+    return (
+        select(Lead.id)
+        .where(
+            Lead.id == CrmCard.lead_id,
+            Lead.submitted_at >= start,
+            Lead.submitted_at < end,
+        )
+        .correlate(CrmCard)
+        .exists()
+    )
 
 
 _PHONE_DRESS = str.maketrans("", "", " +-()")
@@ -734,6 +759,8 @@ def _narrowed(
     if filters.flag == Flag.LATE:
         query = query.where(CrmCard.due_at < now, CrmCard.closed_at.is_(None))
     elif filters.flag == Flag.TODAY:
+        query = query.where(_came_today(now, filters.zone))
+    elif filters.flag == Flag.TASKS:
         start, end = _today(now, filters.zone)
         query = query.where(
             CrmCard.due_at >= start, CrmCard.due_at < end, CrmCard.closed_at.is_(None)
@@ -895,22 +922,29 @@ def board(
         for card in column.cards
         if card.lead.ad_external_id
     }
-    # The two chips count under the search, advert and manager chosen, so a
+    # The chips count under the search, advert and manager chosen, so a
     # chip never promises more cards than pressing it shows.
+    unflagged = replace(filters, flag="")
     open_cards = _narrowed(
-        visible_cards(viewer),
-        filters=replace(filters, flag=""),
-        viewer=viewer,
-        now=now,
+        visible_cards(viewer), filters=unflagged, viewer=viewer, now=now
     ).where(CrmCard.closed_at.is_(None))
     start, end = _today(now, filters.zone)
     late = _count(db, open_cards.where(CrmCard.due_at < now))
-    today = _count(db, open_cards.where(CrmCard.due_at >= start, CrmCard.due_at < end))
+    tasks = _count(db, open_cards.where(CrmCard.due_at >= start, CrmCard.due_at < end))
+    # «Bugun» is every card on the board whose lead came today, closed ones
+    # (a «Sifatsiz» pressed this morning) included, as pressing it shows.
+    today = _count(
+        db,
+        _on_board(viewer=viewer, filters=unflagged, now=now).where(
+            _came_today(now, filters.zone)
+        ),
+    )
     names = ad_labels(db, owner=viewer.owner, external_ids=ad_ids)
     return Board(
         columns=columns,
         late=late,
         today=today,
+        tasks=tasks,
         untaken=_count(db, open_cards.where(_untaken(viewer))),
         cursor=cursor_of(db, viewer=viewer),
         ads={key: label.title for key, label in names.items()},

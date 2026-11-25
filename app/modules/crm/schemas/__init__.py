@@ -137,7 +137,14 @@ class BoardOut(PairsOut):
     )
     columns: list[ColumnOut] | None = None
     late: int | None = Field(None, description="Cards whose due time has passed.")
-    today: int | None = Field(None, description="Cards due today.")
+    today: int | None = Field(
+        None,
+        description="Cards whose lead came in today (the reader's day), open "
+        "or closed: the cards «Bugun» shows.",
+    )
+    tasks: int | None = Field(
+        None, description="Open cards due later today: «Bugungi vazifalar»."
+    )
     untaken: int | None = Field(
         None, description="New cards nobody holds yet: they wait for «Olish»."
     )

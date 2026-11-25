@@ -67,8 +67,8 @@ MEMBER_Q = Query("", description="Only cards of this member (user id).")
 AD_Q = Query("", description="Only cards from this advert (Meta ad id).")
 FLAG_Q = Query(
     "",
-    description="`late` (due time passed), `today` (due today) or `untaken` "
-    "(a new card nobody holds); empty for all.",
+    description="`late` (due time passed), `today` (the lead came in today), "
+    "`tasks` (due later today) or `untaken` (a new card nobody holds); empty for all.",
 )
 ZONE_Q = Query(
     "",
@@ -405,6 +405,7 @@ def board(
         "columns": [column_out(column, found.ads) for column in found.columns],
         "late": found.late,
         "today": found.today,
+        "tasks": found.tasks,
         "untaken": found.untaken,
         "cursor": found.cursor,
         "filters": asdict(filters),

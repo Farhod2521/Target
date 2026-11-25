@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from metaads import PROVIDER
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.common import tokens
@@ -1114,7 +1114,35 @@ def test_a_manager_has_no_statistics(client: TestClient, db: Session) -> None:
     assert client.get(f"{CRM}/stats", headers=signed_in).status_code == 404
 
 
-def test_today_is_what_is_still_to_do_and_ends_at_the_readers_midnight(
+def test_today_counts_the_leads_that_came_in_today(
+    client: TestClient, db: Session
+) -> None:
+    head = _auth(_owner(db))
+    board = _running(client, head)
+    cards = [card["id"] for card in board["columns"][0]["cards"]]
+    now = utcnow()
+    for card, came in zip(
+        cards, (now, now - timedelta(days=3), now - timedelta(days=4)), strict=True
+    ):
+        lead = db.scalar(select(CrmCard.lead_id).where(CrmCard.id == card))
+        db.execute(update(Lead).where(Lead.id == lead).values(submitted_at=came))
+    db.commit()
+
+    for zone in ("", "Asia/Tashkent", "Pacific/Kiritimati", "Pacific/Pago_Pago"):
+        seen = client.get(CRM, headers=head, params={"tz": zone}).json()
+        assert (seen["today"], seen["tasks"], seen["late"]) == (1, 0, 0), zone
+    pressed = client.get(CRM, headers=head, params={"f": "today"}).json()
+    assert (_total(pressed), pressed["today"]) == (1, 1)
+    assert pressed["columns"][0]["cards"][0]["id"] == cards[0]
+
+    # Marked «Sifatsiz» this morning, it still came in today.
+    assert client.post(
+        f"{CRM}/cards/{cards[0]}/move", headers=head, json={"to": _junk(board)["id"]}
+    ).is_success
+    assert client.get(CRM, headers=head).json()["today"] == 1
+
+
+def test_tasks_are_what_is_still_to_do_and_end_at_the_readers_midnight(
     client: TestClient, db: Session
 ) -> None:
     head = _auth(_owner(db))
@@ -1139,9 +1167,9 @@ def test_today_is_what_is_still_to_do_and_ends_at_the_readers_midnight(
     for zone in ("", "Pacific/Kiritimati", "Pacific/Pago_Pago", "No/Such_Zone"):
         seen = client.get(CRM, headers=head, params={"tz": zone}).json()
         assert seen["late"] == 1, zone
-        assert seen["today"] in (0, 1), zone
-    pressed = client.get(CRM, headers=head, params={"f": "today"}).json()
-    assert _total(pressed) == pressed["today"]
+        assert seen["tasks"] in (0, 1), zone
+    pressed = client.get(CRM, headers=head, params={"f": "tasks"}).json()
+    assert _total(pressed) == pressed["tasks"]
     file = client.get(
         "/api/v1/leads/export", headers=head, params={"tz": "Pacific/Kiritimati"}
     )
