@@ -178,16 +178,21 @@ class MulticardAdapter:
     def start_card_binding(
         self, *, phone: str, redirect_url: str, decline_url: str, callback_url: str
     ) -> BindSession:
-        """A Multicard page, good for 15 minutes, where the payer adds a card."""
-        data = self._client.bind_card(
-            {
-                "store_id": _store(self._store_id),
-                "phone": phone,
-                "redirect_url": redirect_url,
-                "redirect_decline_url": decline_url,
-                "callback_url": callback_url,
-            }
-        )
+        """A Multicard page, good for 15 minutes, where the payer adds a card.
+
+        ``phone`` (998 and nine digits) is required for Humo only; when given,
+        Multicard checks it against the card's SMS number (Uzcard, Humo). An
+        empty one is left out: the code goes to the card's own number.
+        """
+        payload: dict[str, Any] = {
+            "store_id": _store(self._store_id),
+            "redirect_url": redirect_url,
+            "redirect_decline_url": decline_url,
+            "callback_url": callback_url,
+        }
+        if phone:
+            payload["phone"] = phone
+        data = self._client.bind_card(payload)
         session_id = str(data.get("session_id") or "")
         form_url = str(data.get("form_url") or "")
         if not session_id or not form_url:

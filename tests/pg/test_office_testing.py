@@ -268,3 +268,29 @@ def test_a_test_card_is_bound_here_and_the_account_card_left_alone(
     assert f"DELETE /payment/card/{TOKEN}" in shop.seen
     after = client.get("/api/v1/office/testing", headers=auth).json()
     assert after["test_cards"] == []
+
+
+def test_a_test_card_page_opens_with_no_phone(
+    client: TestClient, db: Session, shop: FakeShop
+) -> None:
+    auth = sign_up(client)
+    _superuser(db)
+
+    opened = client.post("/api/v1/office/testing/cards", json={}, headers=auth)
+
+    assert opened.status_code == 200, opened.text
+    # Multicard needs a phone for Humo only; the code goes to the card's number.
+    assert "phone" not in shop.binds[-1]
+
+
+def test_a_test_card_phone_given_is_sent(
+    client: TestClient, db: Session, shop: FakeShop
+) -> None:
+    auth = sign_up(client)
+    _superuser(db)
+
+    client.post(
+        "/api/v1/office/testing/cards", json={"phone": "90 123 45 67"}, headers=auth
+    )
+
+    assert shop.binds[-1]["phone"] == "998901234567"

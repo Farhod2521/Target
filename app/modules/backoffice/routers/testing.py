@@ -48,7 +48,9 @@ class TestStartIn(BaseModel):
 
 
 class TestCardIn(BaseModel):
-    phone: str = Field("", description="The card's SMS phone; empty: the account's.")
+    phone: str = Field(
+        "", description="The card's SMS phone (Humo needs it); empty: none is sent."
+    )
 
 
 class TestCodeIn(BaseModel):

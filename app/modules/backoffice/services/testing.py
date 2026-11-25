@@ -201,12 +201,15 @@ def start_card_binding(
         adapter = cards()
     except AutopayUnavailable as exc:
         raise TestingRefused("Karta ulash bu serverda yoqilmagan.") from exc
-    try:
-        number = phone_of(phone, user=actor)
-    except PhoneRequired as exc:
-        raise TestingRefused(
-            "Telefon raqamini kiriting: 998 va 9 ta raqam (karta SMS keladigan raqam)."
-        ) from exc
+    # No phone given: none is sent (Multicard needs it for Humo only).
+    number = ""
+    if phone.strip():
+        try:
+            number = phone_of(phone, user=actor)
+        except PhoneRequired as exc:
+            raise TestingRefused(
+                "Telefon raqami 998 va 9 ta raqam bo'lsin (karta SMS keladigan raqam)."
+            ) from exc
     back = f"{settings.site_url}/ofis/test/"
     try:
         session = adapter.start_card_binding(
