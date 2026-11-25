@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
+from app.modules.accounts.models import User
 from app.modules.assistant.selectors.health import account_health
 from app.modules.assistant.selectors.plans import plans_text
 from app.modules.billing.models import Plan
@@ -80,7 +81,9 @@ def test_a_used_up_spending_limit_is_named(client: TestClient, db: Session) -> N
     assert "«Account spending limit»" in text
 
 
-def test_a_healthy_account_says_it_can_advertise(client: TestClient, db: Session) -> None:
+def test_a_healthy_account_says_it_can_advertise(
+    client: TestClient, db: Session
+) -> None:
     owner, account = _cabinet(client, db)
     account.standing = "active"
     db.commit()
@@ -155,3 +158,28 @@ def test_accounts_left_out_of_the_subscription_are_named(
         counted=counted,
     )
     assert "connected but not in the subscription: «Kiyim tavar» (USD)" in text
+
+
+def test_the_assistant_quotes_whole_so_m_at_home_and_dollars_abroad(
+    db: Session,
+) -> None:
+    plan = _plan(
+        db,
+        "biznes_z",
+        590000,
+        extra_page_price=150000,
+        price_usd_cents=4900,
+    )
+    home = User(email="home@x.uz", password="!", country="UZ")
+    abroad = User(email="abroad@x.jp", password="!", country="JP")
+    db.add_all([home, abroad])
+    db.commit()
+
+    at_home = plans_text(db, owner=home, now=utcnow())
+    away = plans_text(db, owner=abroad, now=utcnow())
+
+    # The price is whole so'm: never read as tiyin («5 900 UZS»).
+    assert "«Biznes_Z»: 590\xa0000 UZS" in at_home
+    assert f"«{plan.name}»: $49 " in away
+    # No dollar price for a page: the so'm one over the rate, approximate.
+    assert "each extra page ≈ $" in away

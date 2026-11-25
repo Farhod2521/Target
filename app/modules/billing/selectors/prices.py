@@ -12,17 +12,22 @@ from dataclasses import dataclass
 from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from typing import Final
 
-from app.common.money import to_minor
+from app.common.money import format_minor, to_minor
 from app.modules.accounts.models import User
 from app.modules.billing.models import Plan
+from app.modules.billing.selectors import display as display_module
 from app.modules.billing.selectors.display import (
     ABROAD_CURRENCY,
     HOME_CURRENCY,
     Display,
-    usd_rate,
 )
 
 HOME: Final = "UZ"
+
+
+def usd_rate() -> tuple[Decimal, str] | None:
+    """The day's rate, as the price display reads it."""
+    return display_module.usd_rate()
 
 
 def abroad(owner: User | None) -> bool:
@@ -114,3 +119,23 @@ def display_book(display: Display | None) -> PriceBook:
     ):
         return HOME_BOOK
     return PriceBook(rate=display.uzs_per_usd, rate_date=display.rate_date)
+
+
+def price_words(owner: User | None, plan: Plan, *, of: str = "plan") -> str:
+    """A plan's price as text for ``owner`` (``of``: ``plan``, ``page`` or
+    ``seat``): its dollar price abroad ("$49"), or its so'm price over the rate
+    marked approximate when no dollar one is set; so'm at home."""
+    som = {"page": plan.extra_page_price, "seat": plan.crm_seat_price}.get(
+        of, plan.price
+    )
+    cents = {
+        "page": plan.extra_page_price_usd_cents,
+        "seat": plan.crm_seat_price_usd_cents,
+    }.get(of, plan.price_usd_cents)
+    book = price_book(owner)
+    if book.rate is None:
+        return format_minor(amount_minor=som, currency=plan.currency, places=0)
+    if cents > 0:
+        return format_minor(amount_minor=cents, currency=ABROAD_CURRENCY)
+    over = int((Decimal(som) * 100 / book.rate).to_integral_value())
+    return "≈ " + format_minor(amount_minor=over, currency=ABROAD_CURRENCY)

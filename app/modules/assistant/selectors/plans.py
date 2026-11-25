@@ -11,7 +11,6 @@ from typing import Final
 
 from sqlalchemy.orm import Session
 
-from app.common.money import format_minor
 from app.modules.accounts.models import User
 
 TAGLINE_CHARS: Final = 120
@@ -20,25 +19,22 @@ TAGLINE_CHARS: Final = 120
 def plans_text(db: Session, *, owner: User | None, now: datetime) -> str:
     from app.modules.billing.selectors.display import usd_rate
     from app.modules.billing.selectors.plans import is_first_only, sellable_plans
+    from app.modules.billing.selectors.prices import price_words
 
     lines = ["## Plans this person may buy (on [[obuna]])"]
     for plan in sellable_plans(db, owner=owner):
-        price = format_minor(amount_minor=plan.price, currency=plan.currency)
+        # Abroad the dollar price, at home so'm (the price is whole so'm, not tiyin).
+        price = price_words(owner, plan)
         parts = [f"- «{plan.name}»: {price} for {plan.period_days} days"]
         if is_first_only(plan):
             parts.append("sold once, only as the first purchase")
         parts.append(f"{plan.included_pages} page(s) included")
         if plan.extra_page_price:
-            parts.append(
-                "each extra page "
-                + format_minor(
-                    amount_minor=plan.extra_page_price, currency=plan.currency
-                )
-            )
+            parts.append("each extra page " + price_words(owner, plan, of="page"))
         if plan.crm_seat_price:
             parts.append(
                 f"CRM: {plan.crm_free_seats} manager free, each more "
-                + format_minor(amount_minor=plan.crm_seat_price, currency=plan.currency)
+                + price_words(owner, plan, of="seat")
             )
         if plan.tagline:
             parts.append(plan.tagline[:TAGLINE_CHARS])

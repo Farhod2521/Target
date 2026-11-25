@@ -15,7 +15,6 @@ from telegramkit import BotClient, Button
 
 from app.common.dates import date_format
 from app.common.i18n import override
-from app.common.money import format_minor
 from app.modules.accounts.models import User
 from app.modules.ads.models import LapseHold
 from app.modules.billing.models import Subscription
@@ -307,10 +306,13 @@ def _until(db: Session, *, subscription: Subscription) -> str:
 
 
 def _price(*, subscription: Subscription) -> str:
+    """The plan's price as its owner pays it: dollars abroad, so'm at home."""
+    from app.modules.billing.selectors.prices import price_words
+
     plan = subscription.plan
     if plan.price <= 0:
         return ""
-    return format_minor(amount_minor=plan.price, currency=plan.currency, places=0)
+    return price_words(subscription.owner, plan)
 
 
 __all__ = [
