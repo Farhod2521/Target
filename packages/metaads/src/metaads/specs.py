@@ -582,6 +582,11 @@ class LeadFormSpec(MetaDTO):
     name: str
     privacy_policy_url: str
     questions: tuple[LeadQuestionSpec, ...] = ()
+    # The greeting: the first screen of the form, Meta's ``context_card``
+    # ("Intro" in Ads Manager). Meta's support says a form on a promoted
+    # Instagram post must have one to be shown on Instagram; empty sends none.
+    greeting_title: str = ""
+    greeting_body: str = ""
     thank_you_title: str = ""
     thank_you_body: str = ""
     # What the thank-you screen's button does, as Meta's ``button_type``.

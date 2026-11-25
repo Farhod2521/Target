@@ -422,3 +422,33 @@ def test_a_button_needs_a_title_to_sit_under() -> None:
 
 def test_a_dry_run_form_sends_nothing() -> None:
     create_lead_form(page_id="99", spec=FORM, page_token="p", client=exploding())
+
+
+def test_a_form_with_no_greeting_sends_no_context_card() -> None:
+    graph, seen = recording({"id": "555"})
+
+    create_lead_form(
+        page_id="99", spec=FORM, page_token="p", client=graph, dry_run=False
+    )
+
+    assert "context_card" not in parse_qs(seen[0].content.decode())
+
+
+def test_a_greeting_goes_out_as_meta_context_card() -> None:
+    """Meta's support: a form on a promoted Instagram post needs this screen
+    to be shown on Instagram."""
+    spec = FORM.model_copy(
+        update={"greeting_title": "Osh markazi", "greeting_body": "Qoldiring."}
+    )
+    graph, seen = recording({"id": "555"})
+
+    create_lead_form(
+        page_id="99", spec=spec, page_token="p", client=graph, dry_run=False
+    )
+
+    card = json.loads(parse_qs(seen[0].content.decode())["context_card"][0])
+    assert card == {
+        "title": "Osh markazi",
+        "style": "PARAGRAPH_STYLE",
+        "content": ["Qoldiring."],
+    }

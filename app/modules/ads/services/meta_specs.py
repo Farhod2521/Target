@@ -36,6 +36,7 @@ from app.modules.ads.selectors.budget_level import (
 )
 from app.modules.ads.selectors.lead_form import (
     business_page_url,
+    default_greeting,
     default_title,
     effective_ending,
     form_language,
@@ -355,10 +356,13 @@ def form_spec(
         business=business,
         labels=tuple(item.label for item in questions if item.label),
     )
+    greeting_title, greeting_body = default_greeting(business, written)
     return LeadFormSpec(
         name=naming.form_name(launch=launch, business=business, attempt=attempt),
         privacy_policy_url=privacy_url(business),
         questions=questions,
+        greeting_title=greeting_title,
+        greeting_body=greeting_body,
         thank_you_title=ending.title or default_title(business, written),
         thank_you_body=ending.body,
         **_button(ending, business=business, language=written.key),

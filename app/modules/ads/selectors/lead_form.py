@@ -19,6 +19,7 @@ from app.modules.ads.constants import (
     FORM_DEPTH,
     FORM_DEPTH_LIMITS,
     FORM_DEPTH_WANTED,
+    GREETING_TITLE_MAX,
     HIGHER_INTENT,
     LEAD_FORM_CHOICE,
     LEAD_FORM_ENDING,
@@ -104,6 +105,24 @@ def default_title(business: Business, written: Written = UZBEK_LATIN) -> str:
     if len(title) <= ENDING_TITLE_MAX:
         return title
     return soon
+
+
+# The greeting's paragraph: what the form is for, in the form's language.
+_GREETING: Final[dict[str, str]] = {
+    "uz": "Ma'lumotlaringizni qoldiring, tez orada siz bilan bog'lanamiz.",
+    "uz-cyrl": "Маълумотларингизни қолдиринг, тез орада сиз билан боғланамиз.",
+    "ru": "Оставьте свои данные, и мы скоро с вами свяжемся.",
+    "en": "Leave your details and we will be in touch soon.",
+}
+
+
+def default_greeting(
+    business: Business, written: Written = UZBEK_LATIN
+) -> tuple[str, str]:
+    """The form's first screen: the business's name over one line."""
+    body = _GREETING.get(written.key, _GREETING["uz"])
+    title = business.name.strip()[:GREETING_TITLE_MAX] or body[:GREETING_TITLE_MAX]
+    return title, body
 
 
 def form_language(

@@ -20,7 +20,11 @@ from app.modules.accounts.models import User
 from app.modules.ads.constants import CUSTOM, LEAD_FORM_NAME_MAX, QUESTION_TYPES
 from app.modules.ads.exceptions import FormNeedsBusiness, UnknownLeadForm
 from app.modules.ads.models import Ad
-from app.modules.ads.selectors.lead_form import default_title, privacy_url
+from app.modules.ads.selectors.lead_form import (
+    default_greeting,
+    default_title,
+    privacy_url,
+)
 from app.modules.ads.services.access import _decrypted
 from app.modules.ads.services.swap import form_page
 from app.modules.businesses.selectors import business_for_page
@@ -49,8 +53,11 @@ def new_form(
     called = (name.strip() or f"{business.name} — {now:%d.%m.%Y %H:%M}")[
         :LEAD_FORM_NAME_MAX
     ]
+    greeting_title, greeting_body = default_greeting(business)
     spec = LeadFormSpec(
         name=called,
+        greeting_title=greeting_title,
+        greeting_body=greeting_body,
         privacy_policy_url=privacy_url(business),
         questions=(
             *(LeadQuestionSpec(kind=QUESTION_TYPES[kind]) for kind in CONTACTS),

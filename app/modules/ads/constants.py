@@ -567,6 +567,8 @@ LEAD_FORM_QUESTIONS: Final = "lead_form_questions"
 LEAD_FORM_NAME: Final = "lead_form_name"
 LEAD_FORM_ENDING: Final = "lead_form_ending"
 ENDING_TITLE_MAX: Final = 60
+# Meta's limit on a lead form greeting's (context card's) title.
+GREETING_TITLE_MAX: Final = 60
 ENDING_BODY_MAX: Final = 300
 ENDING_BUTTON_MAX: Final = 30
 ENDING_LABELS: Final = {

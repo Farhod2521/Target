@@ -119,6 +119,7 @@ def create_lead_form(
                 "url": spec.privacy_policy_url,
                 "link_text": _PRIVACY_LINK_TEXT,
             },
+            "context_card": _greeting(spec),
             "thank_you_page": _thank_you(spec),
             "locale": spec.locale,
             # Meta's own word for the confirmation screen. Sent only when
@@ -163,6 +164,21 @@ def questions_for(specs: tuple[LeadQuestionSpec, ...]) -> list[dict[str, Any]]:
         built.append(row)
 
     return built
+
+
+def _greeting(spec: LeadFormSpec) -> dict[str, Any]:
+    """The form's first screen: a title and one paragraph, or nothing.
+
+    Meta's support, asked why lead forms on promoted Instagram Reels were
+    never shown on Instagram (2026-11-25), answered that such a form must
+    carry this screen. Not in Meta's guide; omitted when there is no title.
+    """
+    if not spec.greeting_title:
+        return {}
+    card: dict[str, Any] = {"title": spec.greeting_title, "style": "PARAGRAPH_STYLE"}
+    if spec.greeting_body:
+        card["content"] = [spec.greeting_body]
+    return card
 
 
 def _thank_you(spec: LeadFormSpec) -> dict[str, Any]:
