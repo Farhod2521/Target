@@ -7,7 +7,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
-from app.common.money import decimal_places, to_minor
+from app.common.money import decimal_places
 from app.modules.accounts.models import User
 from app.modules.billing.constants import (
     MAX_PAGES_PER_PURCHASE,
@@ -36,8 +36,13 @@ class PageOffer:
     needs_plan: bool
 
 
-def page_price_minor(*, plan: Plan) -> int:
-    return int(to_minor(amount=str(plan.extra_page_price), currency=plan.currency))
+def page_price_minor(
+    *, plan: Plan, owner: User | None = None, kept_rate: str = ""
+) -> int:
+    """An extra page's price for ``owner`` (dollars × rate abroad)."""
+    from app.modules.billing.selectors.prices import price_book
+
+    return price_book(owner, kept_rate=kept_rate).page_minor(plan)
 
 
 def prorate(*, price_minor: int, count: int, days: int, currency: str) -> int:
@@ -46,9 +51,11 @@ def prorate(*, price_minor: int, count: int, days: int, currency: str) -> int:
     return minor - minor % unit
 
 
-def plan_pages_minor(*, plan: Plan, count: int) -> int:
+def plan_pages_minor(
+    *, plan: Plan, count: int, owner: User | None = None, kept_rate: str = ""
+) -> int:
     return prorate(
-        price_minor=page_price_minor(plan=plan),
+        price_minor=page_price_minor(plan=plan, owner=owner, kept_rate=kept_rate),
         count=count,
         days=plan.period_days,
         currency=plan.currency,
@@ -61,7 +68,7 @@ def page_offer(db: Session, *, owner: User, now: datetime) -> PageOffer:
         return PageOffer(None, 0, 0, None, sellable=False, needs_plan=True)
     plan = subscription.plan
     days = days_left(subscription=subscription, now=now) or 0
-    price = page_price_minor(plan=plan)
+    price = page_price_minor(plan=plan, owner=owner)
     return PageOffer(
         plan=plan,
         price_minor=price,

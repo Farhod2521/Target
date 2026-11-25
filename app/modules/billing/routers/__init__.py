@@ -15,7 +15,6 @@ from app.common.config import settings
 from app.common.db import utcnow
 from app.common.exceptions import DomainError
 from app.common.geo import country_of
-from app.common.money import to_minor
 from app.modules.accounts.models import User
 from app.modules.autopay import services as card_services
 from app.modules.autopay.constants import PROVIDER as CARD_PROVIDER
@@ -258,11 +257,12 @@ def priced_choice(
         if sales is not None
         else {}
     )
+    book = selectors.price_book(user)
     taken = {
         plan.code: offer_minor(
             offer=sales,
             plan=plan,
-            base_minor=int(to_minor(amount=str(plan.price), currency=plan.currency)),
+            base_minor=book.plan_minor(plan),
             credit_minor=credits.get(plan.code, 0),
         )
         for plan in plans
@@ -315,10 +315,7 @@ def priced_choice(
                 owner=user,
                 code=promo,
                 # The code is taken off what the sales offer leaves, as on the bill.
-                base_minor=int(
-                    to_minor(amount=str(offer.plan.price), currency=offer.plan.currency)
-                )
-                - taken.get(asked, 0),
+                base_minor=book.plan_minor(offer.plan) - taken.get(asked, 0),
                 currency=offer.plan.currency,
                 now=now,
             )
@@ -366,13 +363,15 @@ def priced_choice(
             "carried_pages": offer.pages,
             "wallet_balance_minor": wallets.get(chosen.plan.currency, 0),
             "renewal": renewal_out(db, user=user, carried=carried, plan=chosen.plan),
-            "renews_as": renewal_plan_out(db, plan=chosen.plan),
+            "renews_as": renewal_plan_out(db, plan=chosen.plan, owner=user),
         }
     )
 
 
-def renewal_plan_out(db: Session, *, plan: Plan) -> dict[str, Any] | None:
-    shown = renews_as(selectors.next_term_plan(db, plan=plan))
+def renewal_plan_out(
+    db: Session, *, plan: Plan, owner: User | None = None
+) -> dict[str, Any] | None:
+    shown = renews_as(selectors.next_term_plan(db, plan=plan), owner=owner)
     return shown.model_dump() if shown else None
 
 
@@ -394,7 +393,7 @@ def renewal_out(
             "empty": carried.empty_pages,
             "drop_empty": carried.drop_empty,
             "carried": carried.pages_carried,
-            "price_minor": selectors.plan_pages_minor(plan=plan, count=1),
+            "price_minor": selectors.plan_pages_minor(plan=plan, count=1, owner=user),
             "lines": [
                 {
                     "id": str(line.id),
@@ -408,7 +407,7 @@ def renewal_out(
         "seats": {
             "bought": carried.seats_bought,
             "carried": carried.seats_carried,
-            "price_minor": selectors.plan_seats_minor(plan=plan, count=1),
+            "price_minor": selectors.plan_seats_minor(plan=plan, count=1, owner=user),
             "lines": [
                 {
                     "member_id": str(line.member_id),

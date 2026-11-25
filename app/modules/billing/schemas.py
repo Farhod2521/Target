@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.common.money import to_minor
+from app.modules.accounts.models import User
 from app.modules.billing.models import Plan
 from app.modules.billing.selectors.pages import PageMix
 from app.modules.billing.selectors.plans import TierLine
@@ -455,13 +455,16 @@ class InvoiceStatusOut(BaseModel):
     back_url: str = Field(description="Where to send the payer next, if anywhere.")
 
 
-def renews_as(plan: Plan | None) -> RenewsAs | None:
+def renews_as(plan: Plan | None, *, owner: User | None = None) -> RenewsAs | None:
+    """``owner``: whose price it is (the dollar one abroad, in so'm at the day's rate)."""
+    from app.modules.billing.selectors.prices import price_book
+
     if plan is None:
         return None
     return RenewsAs(
         code=plan.code,
         name=plan.name,
-        price_minor=int(to_minor(amount=str(plan.price), currency=plan.currency)),
+        price_minor=price_book(owner).plan_minor(plan),
         currency=plan.currency,
         period_days=plan.period_days,
     )

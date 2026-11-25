@@ -6,11 +6,13 @@ Schema (additive):
   ``plans.crm_seat_price_usd_cents``: what an account outside Uzbekistan is
   shown and billed (in so'm, at the day's rate); 0 for every plan, so nothing
   changes until the office sets them;
+- ``invoices.usd_rate``: so'm per dollar a bill was priced at from the
+  dollar prices; "" for every bill so far;
 - ``users.country``: the account's ISO country. Accounts with an Uzbek phone
   are set to ``UZ``; the rest are filled from their address on their next
   visit.
 
-The downgrade drops the four columns.
+The downgrade drops the five columns.
 """
 
 from collections.abc import Sequence
@@ -33,6 +35,10 @@ def upgrade() -> None:
             sa.Column(name, sa.BigInteger(), nullable=False, server_default="0"),
         )
     op.add_column(
+        "invoices",
+        sa.Column("usd_rate", sa.String(32), nullable=False, server_default=""),
+    )
+    op.add_column(
         "users",
         sa.Column("country", sa.String(2), nullable=False, server_default=""),
     )
@@ -46,5 +52,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_column("users", "country")
+    op.drop_column("invoices", "usd_rate")
     for name in PRICES:
         op.drop_column("plans", name)

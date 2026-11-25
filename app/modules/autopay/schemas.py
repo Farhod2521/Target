@@ -106,6 +106,8 @@ def card_out(
         next_charge_at=(
             expires_at - CHARGE_LEAD if card.autopay and expires_at else None
         ),
-        renews_as=renews_as(next_plan) if card.autopay and expires_at else None,
+        renews_as=renews_as(next_plan, owner=card.owner)
+        if card.autopay and expires_at
+        else None,
         last_charge=last,
     )

@@ -28,6 +28,9 @@ class Invoice(Base):
     plan_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("plans.id", ondelete="RESTRICT"), nullable=False, index=True)
     amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="")
+    # So'm per dollar when the bill was priced from the plan's dollar prices
+    # (an account abroad); "" for so'm prices. It reads the bill back in dollars.
+    usd_rate: Mapped[str] = mapped_column(String(32), nullable=False, default="", server_default="")
     period_days: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default='pending')
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)

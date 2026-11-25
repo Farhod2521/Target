@@ -6,7 +6,7 @@ from paykit import registry
 from sqlalchemy import ColumnElement, Select, exists, or_, select
 from sqlalchemy.orm import Session
 
-from app.common.money import decimal_places, to_minor
+from app.common.money import decimal_places
 from app.modules.accounts.models import User
 from app.modules.billing.constants import (
     AFTER_START_PLAN_CODE,
@@ -30,6 +30,7 @@ from app.modules.billing.selectors.pages import (
     page_remainder,
     plan_pages_minor,
 )
+from app.modules.billing.selectors.prices import price_book
 from app.modules.billing.selectors.renewal import Renewal, renewal
 from app.modules.billing.selectors.seats import plan_seats_minor, seat_remainder
 from app.modules.billing.selectors.subscription import (
@@ -333,7 +334,7 @@ def _switch(
     if current.plan.currency != plan.currency:
         return PlanSwitch(move=move, current=current)
     minor, days = credit or remainder(db, owner=owner, subscription=current, now=now)
-    if minor > int(to_minor(amount=str(plan.price), currency=plan.currency)):
+    if minor > price_book(owner).plan_minor(plan):
         return PlanSwitch(move=PlanMove.WAIT, current=current)
     return PlanSwitch(move=move, current=current, credit_minor=minor, credit_days=days)
 
@@ -392,6 +393,7 @@ def checkout_offers(
         )
         offers[plan.code] = _offer(
             plan=plan,
+            owner=owner,
             switch=switch,
             discount_minor=discounts.get(plan.code, 0),
             wallet_minor=wallets.get(plan.currency, 0),
@@ -406,6 +408,7 @@ def checkout_offers(
 def _offer(
     *,
     plan: Plan,
+    owner: User | None = None,
     switch: PlanSwitch,
     discount_minor: int,
     wallet_minor: int,
@@ -415,12 +418,12 @@ def _offer(
     seat_credit_minor: int = 0,
 ) -> Offer:
     """Priced the way ``services.invoices.price_invoice`` bills it."""
-    price = int(to_minor(amount=str(plan.price), currency=plan.currency))
+    price = price_book(owner).plan_minor(plan)
     if switch.move == PlanMove.WAIT:
         wallet_minor = pages = seats = 0
     after_code = max(0, price - discount_minor)
-    pages_minor = plan_pages_minor(plan=plan, count=pages)
-    seats_minor = plan_seats_minor(plan=plan, count=seats)
+    pages_minor = plan_pages_minor(plan=plan, count=pages, owner=owner)
+    seats_minor = plan_seats_minor(plan=plan, count=seats, owner=owner)
     gross = after_code + pages_minor + seats_minor
     credit = min(switch.credit_minor, gross)
     restart = switch.move == PlanMove.RESTART

@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.common.db import on_commit
 from app.common.exceptions import DomainError
-from app.common.money import decimal_places, to_minor
+from app.common.money import decimal_places
 from app.modules.accounts.models import User
 from app.modules.audit.constants import EventName
 from app.modules.audit.services import emit
@@ -91,6 +91,7 @@ from app.modules.billing.selectors import (
     running_subscription,
     seat_offer,
 )
+from app.modules.billing.selectors.prices import price_book
 from app.modules.billing.selectors.renewal import renewal
 from app.modules.billing.selectors.seats import (
     plan_seats_minor,
@@ -201,14 +202,17 @@ def create_invoice(db: Session, *, owner: User, plan: Plan, now: datetime) -> In
     existing = payable_invoice(db, owner=owner, plan=plan, now=now)
     if existing is not None:
         return existing
+    # Abroad, the plan's dollar price at the day's rate; the rate stays on the bill.
+    book = price_book(owner)
     return insert_invoice(
         db,
         owner=owner,
         plan=plan,
-        amount_minor=int(to_minor(amount=str(plan.price), currency=plan.currency)),
+        amount_minor=book.plan_minor(plan),
         period_days=plan.period_days,
         expires_at=now + timedelta(hours=INVOICE_TTL_HOURS),
         now=now,
+        usd_rate=book.kept_rate,
     )
 
 
@@ -295,12 +299,14 @@ def _addon_invoice(
             expires_at=now + timedelta(hours=INVOICE_TTL_HOURS),
             now=now,
             kind=kind,
+            usd_rate=price_book(owner).kept_rate,
             **{field: count, f"{field}_minor": amount},
         )
     else:
         invoice = locked
         invoice.plan_id = plan.id
         invoice.currency = plan.currency
+        invoice.usd_rate = price_book(owner).kept_rate
         setattr(invoice, field, count)
         setattr(invoice, f"{field}_minor", amount)
         invoice.amount_minor = amount
@@ -496,12 +502,17 @@ def price_invoice(
     locked.drop_page_ids = [str(pk) for pk in carried.drop_pages]
     locked.drop_member_ids = [str(pk) for pk in carried.drop_members]
     if pages == PagesChoice.KEEP:
-        minor = plan_pages_minor(plan=locked.plan, count=carried.pages_carried)
+        minor = plan_pages_minor(
+            plan=locked.plan,
+            count=carried.pages_carried,
+            owner=owner,
+            kept_rate=locked.usd_rate,
+        )
         if minor > 0:
             locked.pages = carried.pages_carried
             locked.pages_minor = minor
             locked.amount_minor += minor
-    _add_seats(invoice=locked, count=carried.seats_carried)
+    _add_seats(invoice=locked, count=carried.seats_carried, owner=owner)
     credit = _credit(db, invoice=locked, switch=switch, now=now)
     wanted = locked.amount_minor - credit if wallet == WalletChoice.USE else 0
     spent = hold_wallet(db, invoice=locked, amount_minor=wanted, now=now)
@@ -546,7 +557,7 @@ def _sales_offer(
     offer = live_offer(db, owner_id=owner.id, now=now)
     if offer is None:
         return None, 0
-    base = int(to_minor(amount=str(invoice.plan.price), currency=invoice.currency))
+    base = price_book(owner, kept_rate=invoice.usd_rate).plan_minor(invoice.plan)
     take = offer_minor(
         offer=offer, plan=invoice.plan, base_minor=base, credit_minor=credit_minor
     )
@@ -565,9 +576,11 @@ def _promo_minor(
     ).discount_minor
 
 
-def _add_seats(*, invoice: Invoice, count: int) -> None:
+def _add_seats(*, invoice: Invoice, count: int, owner: User | None = None) -> None:
     """Renew the seats somebody sits in on this bill, but the unticked ones."""
-    minor = plan_seats_minor(plan=invoice.plan, count=count)
+    minor = plan_seats_minor(
+        plan=invoice.plan, count=count, owner=owner, kept_rate=invoice.usd_rate
+    )
     if minor <= 0:
         return
     invoice.seats = count
