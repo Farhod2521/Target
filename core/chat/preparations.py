@@ -36,6 +36,7 @@ TROUBLE_WORDS: Final[dict[str, str]] = {
     ),
     "interest_retired": "Meta has retired one of the interests chosen",
     "form_privacy_missing": "the lead form chosen links to no privacy policy",
+    "form_unusable": "Meta refuses the chosen lead form on any ad (an old '-converted' form); another form is needed",
     "profile_incomplete": "the business profile is not filled in yet",
     "rate_limited": "Meta was refusing calls at the time - worth trying again",
     "temporary": "Meta did not answer at the time - worth trying again",

@@ -80,3 +80,37 @@ def test_the_newest_form_comes_first(client: TestClient, db: Session) -> None:
         "f_old",
         "f_unknown",
     ]
+
+
+def test_a_converted_form_is_never_offered(client: TestClient, db: Session) -> None:
+    """Meta refuses a ``-converted`` form on any ad (100/1892182), ACTIVE or not."""
+    from app.modules.leads.selectors.reads import collecting_form, is_converted_form
+
+    _, user = _ready(client, db)
+    page = db.scalar(select(PageAccount).where(PageAccount.owner_id == user.id))
+    assert page is not None
+    for external_id, name in (
+        ("f_plain", "Forma"),
+        ("f_conv", "NEW FORM - 28.11.2025 - AV-converted"),
+        ("f_conv_caps", "Forma-Converted "),
+        ("f_mid", "converted leads form"),
+    ):
+        db.add(
+            LeadForm(
+                owner_id=user.id,
+                provider=PROVIDER,
+                external_id=external_id,
+                page_id=page.id,
+                name=name,
+                questions_raw=[{"key": "phone", "type": "PHONE"}],
+            )
+        )
+    db.commit()
+
+    offered = usable_forms(db, owner=user, page=page, limit=None)
+
+    assert {option.external_id for option in offered.options} == {"f_plain", "f_mid"}
+    assert collecting_form(db, owner=user, page=page, external_id="f_conv") is None
+    assert is_converted_form(db, owner=user, page=page, external_id="f_conv")
+    assert is_converted_form(db, owner=user, page=page, external_id="f_conv_caps")
+    assert not is_converted_form(db, owner=user, page=page, external_id="f_plain")

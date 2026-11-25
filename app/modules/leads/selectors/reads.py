@@ -704,8 +704,17 @@ class FormChoices:
     hidden: int
 
 
+# Meta's suffix on a form it migrated from an older format. Such a form stays
+# ACTIVE but Meta refuses it on every new ad, 100/1892182 (2026-11-25; Meta
+# AI confirmed it, and none of the 137 on production was ever on an ad).
+CONVERTED_FORM_SUFFIX: Final = "-converted"
+
+
 def _collecting(*, owner: User, page: PageAccount) -> Select[tuple[LeadForm]]:
-    """The newest form first: Meta's own creation time, then when we saw it."""
+    """The newest form first: Meta's own creation time, then when we saw it.
+
+    Only forms an ad can carry: a ``-converted`` one never can.
+    """
     return (
         select(LeadForm)
         .where(
@@ -713,6 +722,7 @@ def _collecting(*, owner: User, page: PageAccount) -> Select[tuple[LeadForm]]:
             LeadForm.page_id == page.id,
             LeadForm.status == LeadFormStatus.ACTIVE,
             LeadForm.external_id != "",
+            ~func.rtrim(LeadForm.name).ilike(f"%{CONVERTED_FORM_SUFFIX}"),
         )
         .order_by(
             LeadForm.created_time.desc().nulls_last(),
@@ -773,6 +783,20 @@ def collecting_form(
     return db.scalar(
         _collecting(owner=owner, page=page).where(LeadForm.external_id == external_id)
     )
+
+
+def is_converted_form(
+    db: Session, *, owner: User, page: PageAccount, external_id: str
+) -> bool:
+    """Whether this page's form is one Meta migrated and refuses on ads."""
+    name = db.scalar(
+        select(LeadForm.name).where(
+            LeadForm.owner_id == owner.id,
+            LeadForm.page_id == page.id,
+            LeadForm.external_id == external_id,
+        )
+    )
+    return (name or "").rstrip().lower().endswith(CONVERTED_FORM_SUFFIX)
 
 
 def form_option(

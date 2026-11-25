@@ -206,6 +206,16 @@ class LeadFormPrivacyMissing(ProviderError):
     """
 
 
+class LeadFormUnusable(ProviderError):
+    """The provider will not put this lead form on an ad at all.
+
+    Meta's ``100/1892182``. Seen on forms whose name ends in ``-converted``:
+    forms Meta migrated from an older format, kept ACTIVE but refused on
+    every new creative. The fix is another form, as with a missing privacy
+    policy, so it is never a rejected payload.
+    """
+
+
 class BidStrategyRefused(ProviderError):
     """The provider will not buy this goal with the bid strategy sent.
 

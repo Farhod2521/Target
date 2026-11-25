@@ -818,6 +818,7 @@ UNCHANGED_REFUSALS: tuple[str, ...] = (
     "media_too_large",
     "media_foreign",
     "form_privacy_missing",
+    "form_unusable",
 )
 
 

@@ -23,6 +23,7 @@ from app.modules.ads.exceptions import (
     CampaignFinished,
     ChangeRefused,
     CreativeNotEditable,
+    LeadFormConverted,
     LearningInProgress,
     NothingChanged,
     UnknownLeadForm,
@@ -215,6 +216,7 @@ def _picture(db: Session, *, owner: User, asset_id: str) -> dict[str, str]:
 
 def _form(db: Session, *, owner: User, ad: Ad, lead_form_id: str) -> dict[str, str]:
     from app.modules.leads.selectors import collecting_form
+    from app.modules.leads.selectors.reads import is_converted_form
 
     if not lead_form_id:
         return {}
@@ -222,6 +224,8 @@ def _form(db: Session, *, owner: User, ad: Ad, lead_form_id: str) -> dict[str, s
     if page is None:
         raise UnknownLeadForm
     if collecting_form(db, owner=owner, page=page, external_id=lead_form_id) is None:
+        if is_converted_form(db, owner=owner, page=page, external_id=lead_form_id):
+            raise LeadFormConverted
         raise UnknownLeadForm
     return {"lead_form_id": lead_form_id}
 

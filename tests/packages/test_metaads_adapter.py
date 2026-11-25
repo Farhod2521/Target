@@ -26,6 +26,7 @@ from adskit.errors import (
     GoalNotOpen,
     InvalidRequest,
     LeadFormPrivacyMissing,
+    LeadFormUnusable,
     LocationNotRecognized,
     LocationsOverlap,
     MediaTooLarge,
@@ -964,6 +965,22 @@ def test_a_form_without_a_privacy_policy_is_its_own_failure() -> None:
 
     assert isinstance(translated, LeadFormPrivacyMissing)
     assert translated.code == "1892142"
+    assert not translated.retryable
+
+
+def test_a_form_meta_will_not_carry_is_its_own_failure() -> None:
+    """100/1892182: a "-converted" form; the fix is another form."""
+    refusal = MetaAPIError(
+        "Invalid parameter",
+        code=100,
+        subcode=1892182,
+        user_title="Form cannot be used in the Lead Generation ad",
+    )
+
+    translated = translate_error(refusal)
+
+    assert isinstance(translated, LeadFormUnusable)
+    assert translated.code == "1892182"
     assert not translated.retryable
 
 

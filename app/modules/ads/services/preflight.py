@@ -31,6 +31,7 @@ from app.modules.ads.exceptions import (
     ChatChannelUnavailable,
     ConnectionUnusable,
     InstagramProfileUnavailable,
+    LeadFormConverted,
     PageRoleMissing,
     PageTermsNotAccepted,
     PermissionsMissing,
@@ -169,7 +170,7 @@ def _makes_a_form(db: Session, launch: CampaignLaunch) -> bool:
 
 
 def _check_form(db: Session, *, launch: CampaignLaunch, page: PageAccount) -> None:
-    from app.modules.leads.selectors.reads import collecting_form
+    from app.modules.leads.selectors.reads import collecting_form, is_converted_form
 
     chosen = launch.lead_form_external_id
     if not chosen or not _makes_a_form(db, launch):
@@ -180,6 +181,8 @@ def _check_form(db: Session, *, launch: CampaignLaunch, page: PageAccount) -> No
             chosen,
             page.external_id,
         )
+        if is_converted_form(db, owner=launch.owner, page=page, external_id=chosen):
+            raise LeadFormConverted
         raise UnknownLeadForm
 
 

@@ -176,6 +176,19 @@ READY: Final[dict[LaunchErrorCode, Ready]] = {
         fix="Formani ochish",
         to="form",
     ),
+    "form_unusable": Ready(
+        title="Bu formani Meta reklamada ishlatmaydi",
+        hint="Boshqa forma tanlang",
+        cause="Tanlangan lid formasi Meta eski tizimdan ko'chirgan forma (nomi «-converted» bilan tugaydi). Meta bunday formani yangi reklamaga qo'ymaydi.",
+        steps=(
+            "«Formani ochish» tugmasini bosing.",
+            "Boshqa formani tanlang yoki yangisini yarating.",
+            "«Saqlash» ni bosing.",
+            RETRY,
+        ),
+        fix="Formani ochish",
+        to="form",
+    ),
     "media_missing": Ready(
         title="Rasm yoki video tanlanmagan",
         hint="Rasm yoki video tanlang",

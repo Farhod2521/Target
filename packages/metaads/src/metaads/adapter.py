@@ -67,6 +67,7 @@ from adskit.errors import (
     GoalNotOpen,
     InvalidRequest,
     LeadFormPrivacyMissing,
+    LeadFormUnusable,
     LocationNotRecognized,
     LocationsOverlap,
     MediaTooLarge,
@@ -343,6 +344,11 @@ _OVERLAP_SUBCODES = frozenset({1487756})
 # another text or picture.
 _PRIVACY_SUBCODES = frozenset({1892142})
 
+# "Form cannot be used in the Lead Generation ad": the form itself is
+# refused, ACTIVE or not - seen on Meta's "-converted" forms (2026-11-25).
+# The fix is another form.
+_FORM_UNUSABLE_SUBCODES = frozenset({1892182})
+
 # Meta's learning stages. Only the first means "delivery is still being
 # bought and editing throws it away"; ``LEARNING_LIMITED`` means the ad set
 # gave up on learning and is exactly the one an operator should be allowed
@@ -557,6 +563,8 @@ def _translated(exc: MetaError) -> ProviderError:
             return LeadFormPrivacyMissing(
                 str(exc), code=str(exc.subcode or ""), **words
             )
+        if exc.subcode in _FORM_UNUSABLE_SUBCODES:
+            return LeadFormUnusable(str(exc), code=str(exc.subcode or ""), **words)
         if exc.subcode in _PAGE_ACCESS_SUBCODES:
             return PageAccessDenied(str(exc), code=str(exc.code or ""), **words)
         if exc.subcode == _UNSUPPORTED_SUBCODE and _ACCOUNT_OBJECT.search(str(exc)):

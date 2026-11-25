@@ -161,6 +161,7 @@ FAILURE_CODES: Final[dict[str, str]] = {
     "AccountActionRequired": "account_action",
     "TargetingOptionRetired": "interest_retired",
     "LeadFormPrivacyMissing": "form_privacy_missing",
+    "LeadFormUnusable": "form_unusable",
     "LaunchMediaMissing": "media_missing",
     "LaunchMediaForeign": "media_foreign",
     "LaunchMediaUnsupported": "media_unsupported",

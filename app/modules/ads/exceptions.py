@@ -761,6 +761,17 @@ class UnknownLeadForm(DomainError):
         super().__init__("Bu forma endi mavjud emas. Ro'yxatni yangilang.")
 
 
+class LeadFormConverted(UnknownLeadForm):
+    """A ``-converted`` form: ACTIVE on Meta, refused on every new ad."""
+
+    def __init__(self) -> None:
+        DomainError.__init__(
+            self,
+            "Bu formani Meta reklamada ishlatmaydi (eski «-converted» forma). "
+            "Boshqa forma tanlang yoki yangisini yarating.",
+        )
+
+
 class GoalReadingsExhausted(DomainError):
     def __init__(self) -> None:
         super().__init__(

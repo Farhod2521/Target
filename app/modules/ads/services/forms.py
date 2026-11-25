@@ -38,6 +38,7 @@ from app.modules.ads.exceptions import (
     DeliveryOptionUnusable,
     DraftNotReady,
     FormVariantNotReady,
+    LeadFormConverted,
     UnknownLeadForm,
 )
 from app.modules.ads.models import CampaignLaunch
@@ -218,7 +219,7 @@ def _normalised(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _verified(db: Session, *, launch: CampaignLaunch, external_id: str) -> str:
     from app.modules.ads.services.access import launch_page_for
-    from app.modules.leads.selectors.reads import collecting_form
+    from app.modules.leads.selectors.reads import collecting_form, is_converted_form
 
     picked = external_id.strip()
     if not picked:
@@ -226,6 +227,8 @@ def _verified(db: Session, *, launch: CampaignLaunch, external_id: str) -> str:
     page = launch_page_for(db, launch=launch)
     form = collecting_form(db, owner=launch.owner, page=page, external_id=picked)
     if form is None:
+        if is_converted_form(db, owner=launch.owner, page=page, external_id=picked):
+            raise LeadFormConverted
         raise UnknownLeadForm
     return form.external_id
 
