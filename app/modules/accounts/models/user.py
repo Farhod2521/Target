@@ -24,6 +24,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(254), nullable=False, unique=True, default="")
     full_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     phone: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    # ISO code of the account's country, set once from the address it first
+    # came from (the office may change it); "" not yet known. Outside "UZ" the
+    # plans are shown and priced in dollars.
+    country: Mapped[str] = mapped_column(String(2), nullable=False, default="", server_default="")
     language: Mapped[str] = mapped_column(String(8), nullable=False, default='ru')
     # The advertising screens and the dashboard as an expert reads them.
     expert_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")

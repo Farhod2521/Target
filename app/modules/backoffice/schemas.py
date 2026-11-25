@@ -206,6 +206,7 @@ class CustomersOut(BaseModel):
 
 
 class ProfileOut(CustomerPersonOut):
+    country: str = Field(description="ISO code; `UZ` (or empty) is so'm, else dollars.")
     language: str
     is_blocked: bool
     is_staff: bool = Field(
@@ -1013,6 +1014,9 @@ class OfficePlanOut(BaseModel):
     included_google_accounts: int
     extra_page_price: int = Field(description="0 is not sold.")
     crm_seat_price: int = Field(description="0 is not sold.")
+    price_usd_cents: int = Field(description="Dollars in cents abroad; 0: none set.")
+    extra_page_price_usd_cents: int
+    crm_seat_price_usd_cents: int
     is_one_time: bool
     is_active: bool = Field(description="On sale; off, nobody buys or renews it.")
     sort_order: int

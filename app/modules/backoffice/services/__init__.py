@@ -2,6 +2,7 @@ from app.modules.backoffice.services.accounts import (
     attach_old_receipts,
     block_customer,
     delete_account,
+    set_customer_country,
     set_customer_password,
     unblock_customer,
 )
@@ -107,6 +108,7 @@ __all__ = [
     "remove_member",
     "remove_page_account",
     "seen",
+    "set_customer_country",
     "set_customer_password",
     "set_referral",
     "set_roles",

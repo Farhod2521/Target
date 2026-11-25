@@ -6,6 +6,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.common import tokens
+from app.common.exceptions import InputRefused
 from app.common.passwords import PasswordInvalid, make_password, validate_password
 from app.modules.accounts.models import BlockReason, User
 from app.modules.accounts.services import (
@@ -178,3 +179,29 @@ def delete_account(
     )
     db.commit()
     return report
+
+
+def set_customer_country(
+    db: Session, *, customer: User, actor: User, country: str, reason: str
+) -> User:
+    """The account's country: in Uzbekistan the plans are in so'm, elsewhere in
+    dollars. Bills already made keep their own prices."""
+    if not reason.strip():
+        raise ReasonRequired
+    code = country.strip().upper()
+    if len(code) != 2 or not code.isalpha():
+        raise InputRefused(
+            {"country": "Mamlakat kodini 2 harf bilan yozing, masalan UZ."}
+        )
+    before = customer.country
+    customer.country = code
+    db.flush()
+    record(
+        db,
+        customer=customer,
+        actor=actor,
+        kind=ActionKind.COUNTRY_SET,
+        reason=reason,
+        detail={"from": before, "to": code},
+    )
+    return customer

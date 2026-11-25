@@ -89,6 +89,7 @@ class ActionKind(Choices):
     ACCOUNT_BLOCKED = "account_blocked"
     ACCOUNT_UNBLOCKED = "account_unblocked"
     PASSWORD_SET = "password_set"
+    COUNTRY_SET = "country_set"
     PAYMENT_RECORDED = "payment_recorded"
     REFERRAL_CHANGED = "referral_changed"
     HOLD_RELEASED = "hold_released"
@@ -151,6 +152,7 @@ ACTION_KIND_LABELS = {
     ActionKind.ACCOUNT_BLOCKED: "Akkaunt bloklandi",
     ActionKind.ACCOUNT_UNBLOCKED: "Akkaunt blokdan chiqarildi",
     ActionKind.PASSWORD_SET: "Parol o'rnatildi",
+    ActionKind.COUNTRY_SET: "Mamlakat o'zgardi",
     ActionKind.PAYMENT_RECORDED: "To'lov qayd etildi",
     ActionKind.REFERRAL_CHANGED: "Referal o'zgardi",
     ActionKind.HOLD_RELEASED: "Hisob bo'shatildi",

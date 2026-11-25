@@ -536,3 +536,27 @@ def delete_customer(
         "rows": report.rows,
         "receipts_kept": report.receipts_kept,
     }
+
+
+class CountryIn(BaseModel):
+    country: str = Field(
+        min_length=2,
+        max_length=2,
+        description="ISO code: `UZ` is so'm, any other dollars.",
+    )
+    reason: str = Field(
+        min_length=1, max_length=500, description="Why - it goes to the journal."
+    )
+
+
+@router.post("/country", responses={200: {"model": MessageOut}})
+def set_country(
+    customer_id: uuid.UUID, body: CountryIn, db: Db, actor: Money
+) -> dict[str, Any]:
+    """The account's country: `UZ` sees and pays the so'm prices, any other
+    country the dollar ones. Owner and Finance."""
+    customer = _customer(db, customer_id, staff_too=False)
+    services.set_customer_country(
+        db, customer=customer, actor=actor, country=body.country, reason=body.reason
+    )
+    return _done(db, "Mamlakat saqlandi.")

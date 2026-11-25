@@ -29,6 +29,11 @@ class Plan(Base):
     included_google_accounts: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     extra_page_price: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     crm_seat_price: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    # Dollar prices, in cents, for accounts outside Uzbekistan; 0: none set,
+    # the so'm price is shown converted. Bills stay in so'm (cents × the day's rate).
+    price_usd_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    extra_page_price_usd_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    crm_seat_price_usd_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
     crm_free_seats: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
     is_one_time: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

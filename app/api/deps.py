@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.common import tokens
@@ -90,8 +91,28 @@ async def current_user(
     db: Session = Depends(get_db),
 ) -> User:
     user = await run_in_threadpool(signed_in, request, credentials, db)
+    if not user.country:
+        await run_in_threadpool(_place, request, user, db)
     activate(user.language)
     return user
+
+
+def _place(request: Request, user: User, db: Session) -> None:
+    """The account's country, once, from the address it first comes from.
+
+    It decides the plans' currency (so'm in Uzbekistan, dollars elsewhere)
+    and is not changed by later visits; the office may change it.
+    """
+    from app.common.geo import country_of
+
+    code = country_of(headers=request.headers, address=client_address(request))
+    if len(code) != 2:
+        return
+    db.execute(
+        update(User).where(User.id == user.id, User.country == "").values(country=code)
+    )
+    # The commit expires the row: the next read of user.country loads it.
+    db.commit()
 
 
 async def optional_user(

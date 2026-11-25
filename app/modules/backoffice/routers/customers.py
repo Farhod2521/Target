@@ -453,6 +453,7 @@ def customer(customer_id: uuid.UUID, db: Db, user: Reader) -> dict[str, Any]:
         "profile": {
             **(person_out(owner) or {}),
             "phone": owner.phone,
+            "country": owner.country,
             "language": owner.language,
             "is_blocked": not owner.is_active,
             "is_staff": owner.is_staff,

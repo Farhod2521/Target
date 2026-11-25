@@ -70,6 +70,15 @@ class PlanFormIn(BaseModel):
     included_google_accounts: int = Field(0, ge=0, le=1000)
     extra_page_price: int = Field(0, ge=0, le=MONEY, description="0 is not sold.")
     crm_seat_price: int = Field(0, ge=0, le=MONEY, description="0 is not sold.")
+    price_usd_cents: int = Field(
+        0,
+        ge=0,
+        le=MONEY,
+        description="Dollar price in cents for accounts outside Uzbekistan; 0: the "
+        "so'm price, converted.",
+    )
+    extra_page_price_usd_cents: int = Field(0, ge=0, le=MONEY, description="Cents.")
+    crm_seat_price_usd_cents: int = Field(0, ge=0, le=MONEY, description="Cents.")
     is_one_time: bool = False
     is_active: bool = True
     sort_order: int = Field(0, ge=-SMALL, le=SMALL)
@@ -128,6 +137,9 @@ def plan_out(row: PlanRow) -> dict[str, Any]:
         "included_google_accounts": plan.included_google_accounts,
         "extra_page_price": plan.extra_page_price,
         "crm_seat_price": plan.crm_seat_price,
+        "price_usd_cents": plan.price_usd_cents,
+        "extra_page_price_usd_cents": plan.extra_page_price_usd_cents,
+        "crm_seat_price_usd_cents": plan.crm_seat_price_usd_cents,
         "is_one_time": plan.is_one_time,
         "is_active": plan.is_active,
         "sort_order": plan.sort_order,
