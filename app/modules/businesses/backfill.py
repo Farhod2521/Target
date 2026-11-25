@@ -1,6 +1,6 @@
 """Gives every stored page and ad account pair its business.
 
-Run once after migrations 0081 and 0082, and again whenever wanted:
+Run once after migrations 0085 and 0086, and again whenever wanted:
 
     python -m app.modules.businesses.backfill          # report only
     python -m app.modules.businesses.backfill --apply  # write

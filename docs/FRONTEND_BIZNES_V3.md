@@ -1,6 +1,6 @@
 # Biznes: yangi API (`/api/v3/businesses`) — frontend qo'llanmasi
 
-Backend: `feat/business-structure` shoxi, migratsiyalar `0081`, `0082`. Avval backend deploy
+Backend: `feat/business-structure` shoxi, migratsiyalar `0085`, `0086`. Avval backend deploy
 qilinadi, keyin `python -m app.modules.businesses.backfill --apply` bir marta yurgiziladi.
 
 **Eski API o'zgarmagan.** `/api/v1` va `/api/v2` dagi hech bir yo'l, maydon yoki javob
