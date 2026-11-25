@@ -166,7 +166,7 @@ def take_lead(db: Session, *, manager: User, now: datetime) -> BoardCard:
     when none of theirs waits. Among them Start buyers whose discount runs
     (20% before 10%, the soonest to end first), then Start buyers whose
     discount ended while the term runs, then Start buyers whose term ended,
-    then new sign-ups; the warmest (``heat``) and then the
+    then new sign-ups; the most active (``heat`` points) and then the
     newest among equals. Two managers pressing at once get two different
     leads. None while the person has ``LEAD_TAKE_LIMIT`` leads they took and
     have not called yet."""

@@ -136,14 +136,6 @@ def test_lid_olish_stops_at_five_uncalled_and_gives_the_warmest_first(
     )
     assert board.take is not None and board.take.limit == 5
     assert board.take.queue == 7 and board.take.working == 0
-    # Ishlanmagan is the lead's column.
-    lead = _staff(db, "rahbar@office.test", Role.SALES_LEAD)
-    board = BoardViewOut.model_validate(
-        client.get(f"{URL}/boards/sales", headers=lead).json()
-    )
-    unworked = next(c for c in board.columns if c.code == "unworked")
-    hot = next(card for card in unworked.cards if card.client.email == "c0@shop.test")
-    assert hot.heat is not None and hot.heat.level == "hot" and hot.heat.bill
 
     taken = [_detail(client.post(f"{URL}/sales/take", headers=ali)) for _ in range(5)]
     assert taken[0].client.email == "c0@shop.test"

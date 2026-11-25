@@ -232,8 +232,6 @@ class Extras:
     # card id -> what put a ticket in its column, when the client did:
     # ``denied`` (their «Yo'q») or ``client_replied`` (they wrote back).
     marks: dict[uuid.UUID, str] = field(default_factory=dict)
-    # owner id -> how warm the lead is (boards.heat); open Sales cards only.
-    heat: dict[uuid.UUID, Any] = field(default_factory=dict)
     # owner id -> the kind of lead the client is now (boards.sales_kinds).
     kinds: dict[uuid.UUID, str] = field(default_factory=dict)
     # card id -> the line that put the card in its column: why it is there.
@@ -264,11 +262,6 @@ def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
         if bill.owner_id is not None:
             bills[bill.owner_id] = bill
     offered = clocks_for(db, sales) if sales else {}
-    from app.modules.boards.heat import signals_for
-
-    heat = signals_for(
-        db, [card.owner_id for card in sales if card.closed_at is None], now=now
-    )
     from app.modules.boards.sales_kinds import kinds_for
 
     kinds = kinds_for(db, [card.owner_id for card in sales], now=now)
@@ -277,7 +270,6 @@ def extras_for(db: Session, cards: list[BoardCard], *, now: datetime) -> Extras:
         bills=bills,
         renewal=renewal,
         marks=marks,
-        heat=heat,
         kinds=kinds,
         whys=whys,
     )
@@ -432,9 +424,6 @@ def card_brief(card: BoardCard, *, extras: Extras, now: datetime) -> dict[str, A
         "offer": _brief_offer(card, extras, now),
         **_lead_kind(card, extras, now),
         "has_bill": card.closed_at is None and card.owner_id in extras.bills,
-        "heat": extras.heat[card.owner_id].out()
-        if card.owner_id in extras.heat
-        else None,
         "renewal": extras.renewal.get(card.id),
         "client_denied": mark == EventKind.DENIED,
         "client_replied": mark == EventKind.CLIENT_REPLIED,

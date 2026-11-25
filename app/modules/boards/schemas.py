@@ -180,17 +180,6 @@ class CardRenewalOut(BaseModel):
     paid: RenewalMoneyOut | None = Field(description="The bill that renewed the term.")
 
 
-class CardHeatOut(BaseModel):
-    level: str = Field(description="`hot`, `warm` or `cold`.")
-    label: str = Field(description="«Issiq», «Iliq», «Sovuq».")
-    points: int = Field(description="What «Lid olish» orders the queue by.")
-    bill: bool = Field(description="A plan bill is open.")
-    facebook: bool = Field(description="Facebook is tied.")
-    page: bool = Field(description="A page is chosen.")
-    business: bool = Field(description="The business is filled in.")
-    returned: bool = Field(description="Signed in again after signing up.")
-
-
 class LeadKindOut(BaseModel):
     value: str
     label: str
@@ -244,11 +233,6 @@ class CardOut(BaseModel):
     )
     has_bill: bool = Field(
         description="Sales: the client opened a plan bill and may still pay it."
-    )
-    heat: CardHeatOut | None = Field(
-        None,
-        description="Sales, an open card: how warm the lead is, from what the "
-        "client did after signing up.",
     )
     client_denied: bool = Field(
         False, description="Support: the client said «Yo'q», it is not solved."

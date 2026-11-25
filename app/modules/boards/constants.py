@@ -996,26 +996,17 @@ class DueFilter(Choices):
     SET = "set"
 
 
-# How warm a lead is, from what they did after signing up: a bill opened
-# weighs most, then Facebook tied, then a page and a business filled in,
-# then coming back to the cabinet. Hot from this many points, warm from 1.
+# «Lid olish» gives the most active lead first, by what they did after
+# signing up: a bill opened weighs most, then Facebook tied, then a page and
+# a business filled in, then coming back to the cabinet.
 HEAT_BILL: Final = 3
 HEAT_FACEBOOK: Final = 2
 HEAT_PAGE: Final = 1
 HEAT_BUSINESS: Final = 1
 HEAT_RETURNED: Final = 1
-HEAT_HOT: Final = 3
 # Signed in again this long after signing up: they came back.
 HEAT_RETURN_MINUTES: Final = 30
 
-
-class Heat(Choices):
-    HOT = "hot"
-    WARM = "warm"
-    COLD = "cold"
-
-
-HEAT_LABELS = {Heat.HOT: "Issiq", Heat.WARM: "Iliq", Heat.COLD: "Sovuq"}
 
 # Telegram reminders to Sales: a card's time is told once when it comes, if
 # it came this recently (an old missed time is the board's red, not a ping).

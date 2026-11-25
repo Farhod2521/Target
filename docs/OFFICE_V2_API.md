@@ -694,11 +694,10 @@ bosilgan tugmalar; `sold` — birinchi to'liq tarif to'lovi (Start sotuv emas), 
 xodim qatorida va menejerning o'z ko'rinishida `sold ÷ taken`. Menejer faqat o'zini ko'radi (`scope: "own"`).
 
 ### Kartada
-`heat` (Sotuv, ochiq karta): `level` hot/warm/cold, `points`, `bill`, `facebook`, `page`, `business`, `returned`.
 `client.signup_via` (`email`/`google`/`telegram`), `signup_via_label`, `utm` (`source`, `medium`, `campaign`, …).
 
 ### «Lid olish»
-Navbat: §11 dagi tur tartibi, keyin eng issiq (`heat.points`), tenglar ichida eng yangi. «Yangi lead»da olingan,
+Navbat: §11 dagi tur tartibi, keyin eng faol (hisob ochgan 3, Facebook 2, sahifa/biznes/qaytib kirgan 1 ball; kartada ko'rsatilmaydi), tenglar ichida eng yangi. «Yangi lead»da olingan,
 hali qo'ng'iroq qilinmagan 5 ta lid bo'lsa — 409 `lead_take_limit`. `GET /boards/sales` javobida
 `take: {queue, working, limit}`. `attempts` filtri (`0`, `1-2`, `3+`) Sotuvda ham ishlaydi.
 
@@ -735,7 +734,7 @@ tugagan (Start obunasining `expires_at` i o'tgan), to'liq tarif olmagan; `new` �
 daqiqada hisoblanadi (2026-11-20 dan 4 ta).
 
 **«Lid olish» tartibi**: menejerning o'z turlari, ular qolmasa istalgan tur. Ichida: `start_live` (20% lar 10% lardan
-oldin, tezroq tugaydigani birinchi) → `start_ended` → `start_expired` → `new`; keyin `heat`, keyin eng yangi.
+oldin, tezroq tugaydigani birinchi) → `start_ended` → `start_expired` → `new`; keyin faollik bali, keyin eng yangi.
 `GET /boards/sales` → `take: {queue, own, working, limit, kinds: [{value, label, count, own}]}`. «Hamma tur» dagi
 menejerga yangi tur o'zi qo'shiladi; ayrim turlari belgilangan menejerga Owner qo'lda qo'shadi.
 
