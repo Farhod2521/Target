@@ -312,6 +312,19 @@ def attention(
                 "text": f"{', '.join(map(str, posts))}-reklama postdan nusxa sifatida chiqadi.",
             }
         )
+    if _lead_form_on_instagram_alone(found or {}):
+        out.append(
+            {
+                "id": "lead_instagram_only",
+                "icon": "users",
+                "tone": "w",
+                "title": "Faqat Instagram'da ko'rsatilmasligi mumkin",
+                "text": "Faqat Instagram'ga qo'yilgan lid reklamalarning ko'pi umuman "
+                "ko'rsatilmagan va pul sarflamagan. Facebook'ni ham qo'shing yoki "
+                "joylashuvni Meta'ga qoldiring.",
+                "action": {"label": "Joylashuv", "to": "aud", "style": "link"},
+            }
+        )
     if (state.get("reach") or {}).get("is_narrow"):
         out.append(
             {
@@ -324,6 +337,19 @@ def attention(
             }
         )
     return out
+
+
+def _lead_form_on_instagram_alone(found: dict[str, Any]) -> bool:
+    """A lead form ad placed on Instagram and nothing else.
+
+    Measured on production, USD lead launches 2026-10-21 to 2026-11-18: 78 of
+    119 on Instagram alone never had an impression (69% under $20 a day, 3 of
+    10 at $20 or more), against 6 of 67 left to Meta. Meta names no error;
+    its assistant blames the auction on one narrow placement.
+    """
+    if not found.get("lead_form"):
+        return False
+    return (found.get("audience") or {}).get("placement_mode") == "instagram"
 
 
 def _pixel_notes(check: Any) -> list[dict[str, Any]]:
