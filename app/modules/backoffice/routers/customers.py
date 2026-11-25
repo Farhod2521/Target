@@ -341,6 +341,7 @@ def invoice_out(invoice: Invoice, *, refundable: bool = False) -> dict[str, Any]
         "wallet_minor": invoice.wallet_minor,
         "credit_minor": invoice.credit_minor,
         "currency": invoice.currency,
+        "usd_rate": invoice.usd_rate,
         "period_days": invoice.period_days,
         "pages": invoice.pages,
         "seats": invoice.seats,

@@ -290,3 +290,16 @@ def test_a_bill_abroad_carries_its_rate_to_the_history(
     shown = client.get(f"/api/v1/billing/invoice/{invoice.number}", headers=auth)
 
     assert shown.json()["invoice"]["usd_rate"] == "12650.37"
+
+
+def test_the_office_reads_the_rate_and_a_bill_s_own(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.modules.billing.selectors.display.usd_rate", lambda: RATE)
+    _, support = _staff(db, Role.SUPPORT, email="support@office.test")
+
+    shown = client.get("/api/v1/office/rate", headers=support)
+
+    assert shown.status_code == 200, shown.text
+    assert shown.json() == {"uzs_per_usd": "12650.37", "rate_date": "25.11.2026"}
+    assert client.get("/api/v1/office/rate").status_code == 401

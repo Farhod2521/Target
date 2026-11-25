@@ -392,6 +392,9 @@ class CardInvoiceOut(BaseModel):
     pages: int
     seats: int
     manual_method: str = Field(description="Set when the office wrote it down.")
+    usd_rate: str = Field(
+        "", description="So'm per dollar a bill abroad was priced at; empty: so'm prices."
+    )
     recorded_by: PersonOut | None
     created_at: datetime
     paid_at: datetime | None

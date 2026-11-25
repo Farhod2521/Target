@@ -115,6 +115,19 @@ def me(db: Db, user: Staff) -> dict[str, Any]:
     }
 
 
+@router.get("/rate")
+def rate(user: Staff) -> dict[str, Any]:
+    """The Central Bank's so'm per dollar today, for «Dollarda ko'rsatish»:
+    the office's so'm amounts read in dollars (a bill abroad by its own rate)."""
+    from app.modules.billing.selectors.display import usd_rate
+
+    found = usd_rate()
+    return {
+        "uzs_per_usd": str(found[0]) if found else None,
+        "rate_date": found[1] if found else "",
+    }
+
+
 @router.get("/journal", responses={200: {"model": JournalOut}})
 def journal(
     db: Db,
