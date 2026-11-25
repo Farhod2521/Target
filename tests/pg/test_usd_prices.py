@@ -237,3 +237,56 @@ def test_the_price_book_rounds_up_and_keeps_a_bill_s_rate() -> None:
     )
     assert home.plan_som(plan) == unknown.plan_som(plan) == 590000
     assert kept.kept_rate == "12000" and home.kept_rate == ""
+
+
+# --- Stage 3: what an account abroad is shown -------------------------------
+
+
+def test_abroad_an_account_is_shown_its_dollars_wherever_it_reads_from(
+    client: TestClient, db: Session, rate: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.modules.billing.selectors.display.usd_rate", lambda: RATE)
+    _sold_plan(db, price_usd_cents=4900, extra_page_price_usd_cents=0)
+    auth = _account(db, client, "JP")
+
+    # Reading from Uzbekistan changes nothing: the account's country decides.
+    page = client.get(
+        "/api/v1/billing?plan=pro", headers=auth | {"CF-IPCountry": "UZ"}
+    ).json()
+
+    assert page["display"]["currency"] == "USD"
+    card = next(p for p in page["plans"] if p["code"] == "pro")
+    assert card["shown"]["price"] == 49.0
+    assert card["shown"]["approximate"] is False
+    assert card["price"] == 619869
+    # No dollar price for a page: the so'm one over the rate, marked approximate.
+    assert card["shown"]["extra_page_price"] == round(150000 / 12650.37, 2)
+
+
+def test_at_home_an_account_is_shown_so_m_even_from_abroad(
+    client: TestClient, db: Session, rate: None
+) -> None:
+    _sold_plan(db)
+    auth = _account(db, client, "UZ")
+
+    page = client.get(
+        "/api/v1/billing?plan=pro", headers=auth | {"CF-IPCountry": "JP"}
+    ).json()
+
+    assert page["display"]["currency"] == "UZS"
+    card = next(p for p in page["plans"] if p["code"] == "pro")
+    assert card["price"] == 590000
+
+
+def test_a_bill_abroad_carries_its_rate_to_the_history(
+    client: TestClient, db: Session, rate: None
+) -> None:
+    _sold_plan(db)
+    auth = _account(db, client, "JP")
+    client.post("/api/v1/billing/checkout", json={"plan": "pro"}, headers=auth)
+    invoice = db.scalar(select(Invoice))
+    assert invoice is not None
+
+    shown = client.get(f"/api/v1/billing/invoice/{invoice.number}", headers=auth)
+
+    assert shown.json()["invoice"]["usd_rate"] == "12650.37"

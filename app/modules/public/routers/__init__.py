@@ -90,7 +90,7 @@ def home(db: Db, reader: OptionalUser, request: Request) -> dict[str, Any]:
         cards.extend((row, True) for row in testimonials)
     monthly = [plan for plan in plans if plan.price and plan.period_days >= MONTH_DAYS]
     region = _region()
-    shown = shown_prices(request)
+    shown = shown_prices(request, reader)
     return {
         "dial_code": dial_code(region),
         "phone_example": example_national(region),

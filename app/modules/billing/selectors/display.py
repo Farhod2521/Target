@@ -83,16 +83,46 @@ def in_display(amount: int | None, display: Display) -> int | float | None:
     return float((Decimal(amount) / display.uzs_per_usd).quantize(CENT))
 
 
+def _dollars(cents: int) -> float:
+    return float((Decimal(cents) / 100).quantize(CENT))
+
+
 def plan_in_display(
     plan: Plan, *, per_page: int | None, display: Display
 ) -> dict[str, Any]:
-    """A plan's prices in the visitor's currency, ready to print."""
+    """A plan's prices in the visitor's currency, ready to print.
+
+    In dollars a plan's own dollar prices are shown as they are (what an
+    account abroad is billed, in so'm at the day's rate); a price with no
+    dollar one set is the so'm price over the rate, marked approximate.
+    """
+    if display.currency == HOME_CURRENCY or display.uzs_per_usd is None:
+        return {
+            "currency": display.currency,
+            "price": in_display(plan.price, display),
+            "extra_page_price": in_display(plan.extra_page_price, display),
+            "per_page": in_display(per_page, display),
+            "approximate": False,
+        }
+    own = plan.price_usd_cents > 0
+    page_own = plan.extra_page_price_usd_cents > 0
+    per_page_cents = (
+        plan.price_usd_cents // plan.included_pages
+        if own and per_page is not None and plan.included_pages > 1
+        else None
+    )
     return {
         "currency": display.currency,
-        "price": in_display(plan.price, display),
-        "extra_page_price": in_display(plan.extra_page_price, display),
-        "per_page": in_display(per_page, display),
-        "approximate": display.currency != HOME_CURRENCY,
+        "price": _dollars(plan.price_usd_cents)
+        if own
+        else in_display(plan.price, display),
+        "extra_page_price": _dollars(plan.extra_page_price_usd_cents)
+        if page_own
+        else in_display(plan.extra_page_price, display),
+        "per_page": _dollars(per_page_cents)
+        if per_page_cents is not None
+        else in_display(per_page, display),
+        "approximate": not own,
     }
 
 

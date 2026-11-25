@@ -22,7 +22,9 @@ class ShownPrices(BaseModel):
     price: float
     extra_page_price: float
     per_page: float | None
-    approximate: bool = Field(description="Show as `≈`: the payment is in so'm.")
+    approximate: bool = Field(
+        description="Show as `≈`: no dollar price is set, this is the so'm one over the rate."
+    )
 
 
 class PlanOut(BaseModel):
@@ -70,6 +72,11 @@ class InvoiceOut(BaseModel):
     credit_minor: int
     wallet_minor: int
     currency: str
+    usd_rate: str = Field(
+        "",
+        description="So'm per dollar the bill was priced at for an account abroad: "
+        "show its so'm as so'm / usd_rate dollars. Empty: a so'm bill.",
+    )
     period_days: int
     pages: int
     pages_minor: int

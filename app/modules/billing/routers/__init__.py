@@ -10,7 +10,7 @@ from paykit import REDIRECT, ProviderNotRegistered
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, Db, client_address
+from app.api.deps import CurrentUser, Db, OptionalUser, client_address
 from app.common.config import settings
 from app.common.db import utcnow
 from app.common.exceptions import DomainError
@@ -65,8 +65,12 @@ HISTORY_PER_PAGE = 20
 PROMO_REFUSALS = (PromoNotFound, PromoNotApplicable, PromoAlreadyUsed, PromoUsedUp)
 
 
-def shown_prices(request: Request) -> selectors.Display:
-    """The currency this visitor is shown prices in, from where they are."""
+def shown_prices(request: Request, reader: OptionalUser) -> selectors.Display:
+    """The currency this reader is shown prices in: a signed-in account's by
+    its own country (so'm at home, dollars elsewhere), a visitor's by where
+    they read from."""
+    if reader is not None:
+        return selectors.account_display(reader)
     return selectors.display_for(
         country=country_of(headers=request.headers, address=client_address(request))
     )
@@ -101,6 +105,7 @@ def plan_out(
     if plan is None:
         return None
     sheet = selectors.tier_sheet(plan=plan)
+    book = selectors.display_book(display)
     shown = (
         selectors.plan_in_display(plan, per_page=sheet.per_page, display=display)
         if display is not None
@@ -111,14 +116,14 @@ def plan_out(
         "code": plan.code,
         "name": plan.name,
         "tagline": plan.tagline,
-        "price": plan.price,
+        "price": book.plan_som(plan),
         "currency": plan.currency,
         "period_days": plan.period_days,
         "max_adsets": plan.max_adsets,
         "daily_chat_requests": plan.daily_chat_requests,
         "included_pages": plan.included_pages,
         "included_google_accounts": plan.included_google_accounts,
-        "extra_page_price": plan.extra_page_price,
+        "extra_page_price": book.page_som(plan),
         "is_one_time": plan.is_one_time,
         "features": [asdict(line) for line in sheet.lines],
         "highlights": list(sheet.highlights),
@@ -165,6 +170,7 @@ def invoice_out(invoice: Invoice, *, paid_via: str = "") -> dict[str, Any]:
         "credit_minor": invoice.credit_minor,
         "wallet_minor": invoice.wallet_minor,
         "currency": invoice.currency,
+        "usd_rate": invoice.usd_rate,
         "period_days": invoice.period_days,
         "pages": invoice.pages,
         "pages_minor": invoice.pages_minor,

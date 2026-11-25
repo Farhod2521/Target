@@ -81,9 +81,13 @@ def test_abroad_the_pages_say_dollars_and_at_home_som(
     assert plans.json()["plans"][0]["shown"]["price"] == 40.83
     paywall = client.get("/api/v1/billing/paywall", headers=auth | abroad)
     assert paywall.json()["display"]["currency"] == "USD"
+    # The account took its country from where it first came from: read from
+    # anywhere since, it is shown dollars (only the office changes that).
     assert (
-        client.get("/api/v1/billing", headers=auth).json()["display"]["currency"]
-        == "UZS"
+        client.get("/api/v1/billing", headers=auth | {"CF-IPCountry": "UZ"}).json()[
+            "display"
+        ]["currency"]
+        == "USD"
     )
 
 

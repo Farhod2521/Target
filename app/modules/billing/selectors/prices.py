@@ -15,7 +15,12 @@ from typing import Final
 from app.common.money import to_minor
 from app.modules.accounts.models import User
 from app.modules.billing.models import Plan
-from app.modules.billing.selectors.display import usd_rate
+from app.modules.billing.selectors.display import (
+    ABROAD_CURRENCY,
+    HOME_CURRENCY,
+    Display,
+    usd_rate,
+)
 
 HOME: Final = "UZ"
 
@@ -83,3 +88,29 @@ def price_book(owner: User | None, *, kept_rate: str = "") -> PriceBook:
     if found is None or found[0] <= 0:
         return HOME_BOOK
     return PriceBook(rate=found[0], rate_date=found[1])
+
+
+def account_display(owner: User) -> Display:
+    """How a signed-in account is shown prices: by its own country, not by
+    the address it reads from - so'm at home, dollars elsewhere."""
+    country = owner.country or HOME
+    book = price_book(owner)
+    if not book.in_dollars:
+        return Display(country=country, currency=HOME_CURRENCY)
+    return Display(
+        country=country,
+        currency=ABROAD_CURRENCY,
+        uzs_per_usd=book.rate,
+        rate_date=book.rate_date,
+    )
+
+
+def display_book(display: Display | None) -> PriceBook:
+    """The prices a display stands for: the dollar ones at its rate abroad."""
+    if (
+        display is None
+        or display.currency != ABROAD_CURRENCY
+        or display.uzs_per_usd is None
+    ):
+        return HOME_BOOK
+    return PriceBook(rate=display.uzs_per_usd, rate_date=display.rate_date)
