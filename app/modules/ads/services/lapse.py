@@ -1,5 +1,6 @@
-"""A subscription ran out: switch what we built off, back on after a payment,
-and delete it when nobody paid within the grace days."""
+"""A subscription ran out or was frozen: switch what we built off, and back
+on after a payment or the release. An unpaid owner's adverts are never
+deleted; a blocked account's, and a page let go at a renewal, still are."""
 
 import logging
 import uuid
@@ -47,7 +48,10 @@ STOP_REASON = (
     "Obuna muddati tugagani uchun to'xtatildi. To'lov qilinsa, o'zi qayta yoqiladi."
 )
 RESUME_REASON = "To'lov qilingani uchun qayta yoqildi."
-REMOVE_REASON = "Obuna 72 soat ichida yangilanmagani uchun o'chirildi."
+FREEZE_STOP_REASON = (
+    "Obuna muzlatilgani uchun to'xtatildi. Muzlatish tugaganda o'zi qayta yoqiladi."
+)
+FREEZE_RESUME_REASON = "Obuna muzlatishdan chiqqani uchun qayta yoqildi."
 PAGE_STOP_REASON = "Sahifa obunadan uzilgani uchun to'xtatildi."
 PAGE_REMOVE_REASON = "Sahifa uzilganiga 3 kun bo'lgani uchun o'chirildi."
 BLOCK_STOP_REASON = "Akkaunt bloklangani uchun to'xtatildi."
@@ -68,31 +72,46 @@ def _has_live(db: Session, owner: User) -> bool:
     return has_live_subscription(db, owner=owner)
 
 
+def _is_frozen(db: Session, owner: User) -> bool:
+    from app.modules.billing.selectors import is_frozen
+
+    return is_frozen(db, owner_id=owner.id)
+
+
 def _mark(db: Session, *, log: ActionLog, hold: LapseHold) -> None:
     log.request_payload = {**log.request_payload, LAPSE_MARK: str(hold.id)}
     page = hold.page_id is not None
     blocked = not page and not hold.owner.is_active
     if log.action == ActionType.PAUSE:
         log.reason = (
-            PAGE_STOP_REASON if page else BLOCK_STOP_REASON if blocked else STOP_REASON
+            PAGE_STOP_REASON
+            if page
+            else BLOCK_STOP_REASON
+            if blocked
+            else FREEZE_STOP_REASON
+            if _is_frozen(db, hold.owner)
+            else STOP_REASON
         )
     elif log.action == ActionType.RESUME:
-        log.reason = RESUME_REASON
-    else:
         log.reason = (
-            PAGE_REMOVE_REASON
-            if page
-            else BLOCK_REMOVE_REASON
-            if blocked
-            else REMOVE_REASON
+            FREEZE_RESUME_REASON if _released_freeze(db, hold=hold) else RESUME_REASON
         )
+    else:
+        # Only a page let go and a blocked account are deleted now.
+        log.reason = PAGE_REMOVE_REASON if page else BLOCK_REMOVE_REASON
     db.flush()
 
 
+def _released_freeze(db: Session, *, hold: LapseHold) -> bool:
+    """The hold a freeze opened: its stops say so."""
+    return any(stop.reason == FREEZE_STOP_REASON for stop in hold_stops(db, hold=hold))
+
+
 def lapse_deletion(*, ended: datetime, now: datetime) -> datetime:
-    """72 hours after the end, but never sooner than a day after the stop: a
-    hold opened late (a sweep that did not run, an end long past) still gives
-    the owner the last warning and a day to pay."""
+    """When an unpaid hold is cut off (``delete_after``): 72 hours after the
+    end, but never sooner than a day after the stop, so a hold opened late
+    still tells the owner of the stop before it tells them of the cut-off.
+    Nothing is deleted then: the owner is told a payment brings it back."""
     return max(ended + LAPSE_DELETE_AFTER, now + LAPSE_LAST_WARNING)
 
 
@@ -180,6 +199,47 @@ def hold_blocked_owner(db: Session, *, owner: User, now: datetime) -> LapseHold 
             "delete_after": soon.isoformat(),
             "objects": len(targets),
         },
+        occurred_at=now,
+    )
+    db.commit()
+    stop_running(db, hold=hold, targets=targets)
+    return hold
+
+
+def hold_frozen_owner(db: Session, *, owner: User, now: datetime) -> LapseHold | None:
+    """A frozen subscription: stop what we built now, back on at the release.
+
+    An unpaid owner's hold already open is the same hold. Nothing is ever
+    deleted for a freeze: ``remove_after_lapse`` leaves an active owner's be.
+    """
+    if not _is_frozen(db, owner):
+        return None
+    hold = open_hold(db, owner=owner)
+    if hold is not None:
+        stop_running(db, hold=hold)
+        return hold
+    _sync(db, targets=lapse_targets(db, owner=owner))
+    targets = lapse_targets(db, owner=owner)
+    if not targets:
+        return None
+    hold = LapseHold(
+        owner_id=owner.id,
+        ended_at=now,
+        started_at=now,
+        delete_after=now + LAPSE_DELETE_AFTER,
+    )
+    try:
+        with db.begin_nested():
+            db.add(hold)
+    except IntegrityError:
+        return None
+    emit(
+        db,
+        owner_id=owner.id,
+        name=EventName.ADS_LAPSE_HELD,
+        aggregate_type="lapse_hold",
+        aggregate_id=hold.id,
+        payload={"frozen": True, "objects": len(targets)},
         occurred_at=now,
     )
     db.commit()
@@ -419,16 +479,18 @@ def resume_after_lapse(db: Session, *, hold: LapseHold, now: datetime) -> int | 
 
 
 def remove_after_lapse(db: Session, *, hold: LapseHold, now: datetime) -> int | None:
-    """Delete what the hold kept off, once its days are over. ``None`` before
-    then, and while a delete is still in flight or asked again: a hold closed
-    over a delete Meta dropped would leave the advert neither deleted nor
-    ever switched back on."""
+    """Delete what the hold kept off, once its days are over - only for a
+    page let go and a blocked account. An unpaid or frozen owner's adverts
+    stay, stopped, until the payment or the release: ``None`` for them.
+    ``None`` too before the time, and while a delete is still in flight or
+    asked again: a hold closed over a delete Meta dropped would leave the
+    advert neither deleted nor ever switched back on."""
     from app.modules.ads import actions
 
     owner = hold.owner
     if not hold.is_open or now < hold.delete_after:
         return None
-    if hold.page_id is None and owner.is_active and _has_live(db, owner):
+    if hold.page_id is None and owner.is_active:
         return None
     if hold.page_id is not None and _page_back(db, hold=hold):
         return None

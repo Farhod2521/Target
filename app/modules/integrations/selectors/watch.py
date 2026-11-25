@@ -135,7 +135,10 @@ def watched_accounts(db: Session, *, owner: User) -> list[AdAccount]:
 
 
 def observed_accounts(db: Session, *, now: datetime) -> list[AdAccount]:
-    from app.modules.billing.selectors import subscribed_owner_ids
+    """Accounts whose lead figures are read: of an owner still served - not
+    72 hours past an unpaid end, not frozen."""
+    from app.modules.ads.constants import LAPSE_CUT_OFF
+    from app.modules.billing.selectors import recently_entitled_owner_ids
 
     return list(
         db.scalars(
@@ -144,7 +147,9 @@ def observed_accounts(db: Session, *, now: datetime) -> list[AdAccount]:
             .where(
                 observed(),
                 AdAccount.leads_seen_at >= now - timedelta(days=OBSERVE_DAYS),
-                AdAccount.owner_id.in_(subscribed_owner_ids(db)),
+                AdAccount.owner_id.in_(
+                    recently_entitled_owner_ids(since=now - LAPSE_CUT_OFF)
+                ),
                 ProviderConnection.status.in_(USABLE_CONNECTION_STATUSES),
             )
         )

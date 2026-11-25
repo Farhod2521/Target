@@ -24,6 +24,7 @@ def live_subscription(db: Session, *, owner: User) -> Subscription | None:
             Subscription.owner_id == owner.id,
             Subscription.status.in_(LIVE_SUBSCRIPTION_STATUSES),
             Subscription.expires_at > utcnow(),
+            Subscription.frozen_at.is_(None),
         )
         .order_by(Subscription.started_at.desc())
         .limit(1)
@@ -69,6 +70,7 @@ def live_subscription_for_account(
             Subscription.ad_account_id == ad_account.id,
             Subscription.status.in_(LIVE_SUBSCRIPTION_STATUSES),
             Subscription.expires_at > utcnow(),
+            Subscription.frozen_at.is_(None),
         )
         .limit(1)
     )
@@ -167,8 +169,81 @@ def subscribed_owner_ids(db: Session | None = None) -> Select[tuple[uuid.UUID]]:
 def recently_entitled_owner_ids(
     db: Session | None = None, *, since: datetime
 ) -> Select[tuple[uuid.UUID]]:
-    """The owners whose subscription runs, or ended after ``since``."""
-    return select(Subscription.owner_id).where(Subscription.expires_at > since)
+    """The owners whose subscription runs, or ended after ``since``. A frozen
+    one is out at once: it serves nothing until it is released."""
+    return select(Subscription.owner_id).where(
+        Subscription.expires_at > since,
+        Subscription.owner_id.not_in(frozen_owner_ids()),
+    )
+
+
+def cut_off_owner_ids(
+    db: Session | None = None, *, since: datetime
+) -> Select[tuple[uuid.UUID]]:
+    """The owners who once subscribed and are served no more: frozen, or with
+    nothing running nor ended after ``since``. One who never subscribed is
+    not among them."""
+    return select(Subscription.owner_id).where(
+        Subscription.owner_id.not_in(recently_entitled_owner_ids(since=since))
+    )
+
+
+def frozen_owner_ids(db: Session | None = None) -> Select[tuple[uuid.UUID]]:
+    return select(Subscription.owner_id).where(Subscription.frozen_at.is_not(None))
+
+
+def frozen_subscription(db: Session, *, owner: User) -> Subscription | None:
+    return db.scalar(
+        select(Subscription)
+        .where(
+            Subscription.owner_id == owner.id,
+            Subscription.frozen_at.is_not(None),
+        )
+        .order_by(Subscription.started_at.desc())
+        .limit(1)
+    )
+
+
+def is_frozen(db: Session, *, owner_id: uuid.UUID) -> bool:
+    return (
+        db.scalar(
+            select(Subscription.id)
+            .where(
+                Subscription.owner_id == owner_id,
+                Subscription.frozen_at.is_not(None),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def due_releases(db: Session, *, now: datetime) -> list[uuid.UUID]:
+    """The frozen subscriptions whose release time has come."""
+    return list(
+        db.scalars(
+            select(Subscription.id).where(
+                Subscription.frozen_at.is_not(None),
+                Subscription.frozen_until <= now,
+            )
+        )
+    )
+
+
+def cut_off(db: Session, *, owner_id: uuid.UUID, since: datetime) -> bool:
+    """An owner who once subscribed and is served no more: frozen, or with
+    nothing running nor ended after ``since``. One who never subscribed is
+    not cut off - nothing of theirs was ever paid for to stop."""
+    rows = db.execute(
+        select(Subscription.expires_at, Subscription.frozen_at).where(
+            Subscription.owner_id == owner_id
+        )
+    ).all()
+    if not rows:
+        return False
+    if any(frozen is not None for _, frozen in rows):
+        return True
+    return max(expires for expires, _ in rows) <= since
 
 
 def entitled_owner_ids(
@@ -177,6 +252,7 @@ def entitled_owner_ids(
     return select(Subscription.owner_id).where(
         Subscription.status.in_(LIVE_SUBSCRIPTION_STATUSES),
         Subscription.expires_at > now,
+        Subscription.frozen_at.is_(None),
     )
 
 
@@ -188,6 +264,8 @@ def lapsed_deadlines(
         .where(
             Subscription.owner_id.in_(list(owner_ids)),
             Subscription.owner_id.not_in(entitled_owner_ids(now=now)),
+            # A frozen owner's adverts are held by the freeze, not the lapse.
+            Subscription.owner_id.not_in(frozen_owner_ids()),
         )
         .group_by(Subscription.owner_id)
     )
@@ -205,6 +283,7 @@ def expiring_subscriptions(
                 Subscription.status.in_(LIVE_SUBSCRIPTION_STATUSES),
                 Subscription.expires_at >= start,
                 Subscription.expires_at < end,
+                Subscription.frozen_at.is_(None),
             )
             .order_by(Subscription.expires_at)
         )

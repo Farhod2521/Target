@@ -135,7 +135,7 @@ def test_the_subscription_running_out_is_warned_three_days_and_one_day_out(
     assert _sent(phone)[0]["buttons"][0].text == "Obunani yangilash"
 
 
-def test_a_lapse_is_told_when_it_stops_and_again_before_the_removal(
+def test_a_lapse_is_told_when_it_stops_and_again_at_the_cut_off(
     client: TestClient, db: Session, phone: FakeBot
 ) -> None:
     _auth, user = _owner(client, db, days=-1)
@@ -153,13 +153,47 @@ def test_a_lapse_is_told_when_it_stops_and_again_before_the_removal(
 
     assert deliver_lapse_notices(db, now=now) == 1
     assert deliver_lapse_notices(db, now=now) == 0
-    assert deliver_lapse_notices(db, now=now + timedelta(days=2, hours=12)) == 1
+    # The day before the old deletion says nothing any more: nothing is deleted.
+    assert deliver_lapse_notices(db, now=now + timedelta(days=2, hours=12)) == 0
+    assert deliver_lapse_notices(db, now=now + timedelta(days=3, minutes=1)) == 1
     subjects = set(
         db.scalars(
             select(TelegramNotice.subject).where(TelegramNotice.owner_id == user.id)
         )
     )
-    assert {subject.rsplit(":", 1)[-1] for subject in subjects} == {"stopped", "last"}
+    assert {subject.rsplit(":", 1)[-1] for subject in subjects} == {
+        "stopped",
+        "cut_off",
+    }
+    texts = [m["text"] for m in _sent(phone)]
+    assert not any("o'chiriladi" in text for text in texts)
+    assert "To'lov qilib obunani davom ettirishingiz mumkin" in texts[-1]
+
+
+def test_a_frozen_owner_hears_no_lapse_notice(
+    client: TestClient, db: Session, phone: FakeBot
+) -> None:
+    from app.modules.billing.models import Subscription
+
+    _auth, user = _owner(client, db, days=5)
+    _linked(db, user)
+    now = utcnow()
+    subscription = db.scalars(
+        select(Subscription).where(Subscription.owner_id == user.id)
+    ).one()
+    subscription.frozen_at = now
+    subscription.frozen_until = now + timedelta(days=3)
+    db.add(
+        LapseHold(
+            owner_id=user.id,
+            ended_at=now,
+            started_at=now,
+            delete_after=now + timedelta(days=3),
+        )
+    )
+    db.commit()
+
+    assert deliver_lapse_notices(db, now=now) == 0
 
 
 def test_a_broken_connection_is_told_without_asking_the_preferences(

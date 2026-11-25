@@ -45,7 +45,12 @@ ACCOUNT_LEVEL: Final = "account"
 
 
 def accounts_to_read(db: Session, *, now: datetime) -> list[uuid.UUID]:
-    """Google accounts with a live connection and a campaign that may take leads."""
+    """Google accounts with a live connection and a campaign that may take
+    leads, of an owner still served (not 72 hours past an unpaid end, not
+    frozen)."""
+    from app.modules.ads.constants import LAPSE_CUT_OFF
+    from app.modules.billing.selectors import cut_off_owner_ids
+
     live = select(Campaign.id).where(
         Campaign.ad_account_id == AdAccount.id,
         or_(Campaign.status == RUNNING, Campaign.updated_at >= now - LOOK_BACK),
@@ -58,6 +63,7 @@ def accounts_to_read(db: Session, *, now: datetime) -> list[uuid.UUID]:
                 AdAccount.provider == GOOGLE,
                 AdAccount.is_active.is_(True),
                 ProviderConnection.status.in_(USABLE_CONNECTION_STATUSES),
+                AdAccount.owner_id.not_in(cut_off_owner_ids(since=now - LAPSE_CUT_OFF)),
                 exists(live),
             )
         )

@@ -55,6 +55,7 @@ from app.modules.leads.constants import (
     UNIMPORTED_REPORT_HOURS,
     UNIMPORTED_REPORT_SAMPLE,
     UNIMPORTED_WINDOW_HOURS,
+    UNPAID,
     UNSIGNED_EVENT_RETENTION_DAYS,
     LeadFormStatus,
     OutcomeSource,
@@ -87,6 +88,7 @@ from app.modules.leads.selectors import (
     unerased_count,
     unerased_lead_ids,
     unimported_deliveries,
+    unpaid_deliveries,
     unread_deliveries,
 )
 from app.modules.leads.services.signals import note_verdict, withdraw_verdict
@@ -281,6 +283,16 @@ def _process(db: Session, *, event: RawLeadEvent, trace: LeadTrace) -> str:
         )
         _fail(event, code=UNPLACED, message="no cabinet holds the ad set yet")
         return UNPLACED
+    if served_no_more(db, owner_id=page.owner_id, now=utcnow()):
+        trace.note(
+            "Obuna tugaganiga 72 soatdan oshgan yoki obuna muzlatilgan - lid "
+            "Meta'dan o'qilmadi. To'lov qilinsa yoki muzlatish tugasa, o'qiladi."
+        )
+        event.status = RawEventStatus.FAILED
+        event.error_code = UNPAID
+        event.error_message = "the owner's subscription serves nothing now"
+        event.owner_id = page.owner_id
+        return UNPAID
     if page.connection.status not in USABLE_CONNECTION_STATUSES:
         trace.note(
             "Ulanish «yaroqsiz» holatida - Meta'ga umuman murojaat qilinmadi. "
@@ -851,6 +863,13 @@ def _sweep(db: Session, *, page: PageAccount, form: LeadForm, token: str) -> int
     return new
 
 
+def _cut_off_owners(*, now: datetime) -> Any:
+    from app.modules.ads.constants import LAPSE_CUT_OFF
+    from app.modules.billing.selectors import cut_off_owner_ids
+
+    return cut_off_owner_ids(since=now - LAPSE_CUT_OFF)
+
+
 def reconcile_all_pages(db: Session, *, now: datetime) -> int:
     from app.modules.integrations.selectors import owners_at_hour
     from app.modules.leads.tasks import reconcile_page_task, subscribe_page_task
@@ -866,7 +885,10 @@ def reconcile_all_pages(db: Session, *, now: datetime) -> int:
         )
         .join(ProviderConnection, ProviderConnection.id == PageAccount.connection_id)
         .join(User, User.id == PageAccount.owner_id)
-        .where(PageAccount.is_active.is_(True))
+        .where(
+            PageAccount.is_active.is_(True),
+            PageAccount.owner_id.not_in(_cut_off_owners(now=now)),
+        )
         .order_by(User.date_joined, PageAccount.created_at)
     ):
         key = (provider, external_id)
@@ -945,6 +967,34 @@ def recover_leads(db: Session, *, user: User, now: datetime) -> int:
         actor_id=str(user.id),
     )
     return queued
+
+
+def served_no_more(db: Session, *, owner_id: uuid.UUID, now: datetime) -> bool:
+    """No lead is fetched for an owner 72 hours past an unpaid end, nor for a
+    frozen one. An owner who never subscribed still gets theirs."""
+    from app.modules.ads.constants import LAPSE_CUT_OFF
+    from app.modules.billing.selectors import cut_off
+
+    return cut_off(db, owner_id=owner_id, since=now - LAPSE_CUT_OFF)
+
+
+def reread_unpaid_leads(db: Session, *, owner_id: uuid.UUID, now: datetime) -> int:
+    """The owner paid, or the freeze was released: the leads not read while
+    they were served no more, read now, as many as Meta still keeps. On
+    ``sync``, behind the bot. Committed by the caller."""
+    from app.modules.leads.tasks import import_lead_task
+
+    events = unpaid_deliveries(db, owner_id=owner_id, now=now)
+    for event in events:
+        on_commit(
+            db,
+            lambda key=str(event.id): import_lead_task.apply_async(
+                args=[key], queue="sync"
+            ),
+        )
+    if events:
+        logger.info("%s unpaid deliveries of %s read again", len(events), owner_id)
+    return len(events)
 
 
 def reread_held_leads(db: Session, *, owner_id: uuid.UUID, now: datetime) -> int:
@@ -1185,8 +1235,10 @@ __all__ = [
     "report_unimported_deliveries",
     "request_forms_refresh",
     "reread_held_leads",
+    "reread_unpaid_leads",
     "retry_deliveries",
     "retry_failed_deliveries",
+    "served_no_more",
     "store_lead",
     "subscribe_page",
     "sweep_unimported_deliveries",

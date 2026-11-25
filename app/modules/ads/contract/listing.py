@@ -359,15 +359,20 @@ def _sync(owner: User, *, synced_at: Any, progress: Any) -> dict[str, Any]:
 
 
 def access_of(db: Session, *, owner: User) -> dict[str, Any]:
-    from app.modules.billing.selectors import has_ever_subscribed, live_subscription
+    from app.modules.billing.selectors import (
+        has_ever_subscribed,
+        is_frozen,
+        live_subscription,
+    )
 
     live = live_subscription(db, owner=owner)
-    lapse = None
-    if live is None and has_ever_subscribed(db, owner=owner):
-        hold = selectors.open_hold(db, owner=owner)
-        if hold is not None:
-            lapse = hold.delete_after.date().isoformat()
-    return {"read_only": live is None, "lapse_until": lapse}
+    frozen = (
+        live is None
+        and has_ever_subscribed(db, owner=owner)
+        and is_frozen(db, owner_id=owner.id)
+    )
+    # An unpaid owner's adverts are not deleted any more: no day they go.
+    return {"read_only": live is None, "lapse_until": None, "frozen": frozen}
 
 
 def _started(

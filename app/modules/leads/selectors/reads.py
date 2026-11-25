@@ -53,6 +53,7 @@ from app.modules.leads.constants import (
     UNIMPORTED_GRACE_MINUTES,
     UNIMPORTED_REPORT_HOURS,
     UNIMPORTED_WINDOW_HOURS,
+    UNPAID,
     LeadFormStatus,
     OutcomeSource,
     OutcomeStatus,
@@ -336,6 +337,9 @@ def retryable_deliveries(db: Session, *, now: datetime) -> list[RawLeadEvent]:
                 RawLeadEvent.updated_at
                 <= now - timedelta(minutes=FAILED_RETRY_COOLDOWN_MINUTES),
                 RawLeadEvent.leadgen_external_id != "",
+                # Read when the owner pays, not by the sweep: each try would
+                # only spend an attempt on the same answer.
+                RawLeadEvent.error_code != UNPAID,
                 ~unusable,
             )
             .order_by(RawLeadEvent.created_at)
@@ -361,6 +365,27 @@ def held_deliveries(
                 RawLeadEvent.created_at >= now - timedelta(days=LEAD_RETENTION_DAYS),
                 RawLeadEvent.created_at
                 < now - timedelta(hours=FAILED_RETRY_WINDOW_HOURS),
+            )
+            .order_by(RawLeadEvent.created_at)
+        )
+    )
+
+
+def unpaid_deliveries(
+    db: Session, *, owner_id: uuid.UUID, now: datetime
+) -> list[RawLeadEvent]:
+    """The deliveries not read while the owner was served no more, that Meta
+    still keeps."""
+    return list(
+        db.scalars(
+            select(RawLeadEvent)
+            .where(
+                RawLeadEvent.owner_id == owner_id,
+                RawLeadEvent.status == RawEventStatus.FAILED,
+                RawLeadEvent.error_code == UNPAID,
+                RawLeadEvent.signature_valid.is_(True),
+                RawLeadEvent.leadgen_external_id != "",
+                RawLeadEvent.created_at >= now - timedelta(days=LEAD_RETENTION_DAYS),
             )
             .order_by(RawLeadEvent.created_at)
         )

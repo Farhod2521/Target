@@ -14,6 +14,7 @@ class Subscription(Base):
     __table_args__ = (
         Index("uniq_active_subscription_per_owner", 'owner_id', unique=True, postgresql_where=text("status IN ('trial', 'active')")),
         Index("subscriptio_status_b3f3e1_idx", 'status', 'expires_at'),
+        Index("subscriptions_frozen_until_idx", 'frozen_until', postgresql_where=text("frozen_at IS NOT NULL")),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -32,8 +33,19 @@ class Subscription(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     activated_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Set while the office holds the subscription still: it serves nothing,
+    # and on release the frozen time is added to ``expires_at``.
+    frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    frozen_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    frozen_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    frozen_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     # -- django extras --
     activated_by: Mapped["User | None"] = relationship(foreign_keys=[activated_by_id], lazy="select")  # noqa: F821
     plan: Mapped["Plan"] = relationship(foreign_keys=[plan_id], lazy="select")  # noqa: F821
     ad_account: Mapped["AdAccount | None"] = relationship(foreign_keys=[ad_account_id], lazy="select")  # noqa: F821
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id], lazy="select")  # noqa: F821
+    frozen_by: Mapped["User | None"] = relationship(foreign_keys=[frozen_by_id], lazy="select")  # noqa: F821
+
+    @property
+    def is_frozen(self) -> bool:
+        return self.frozen_at is not None

@@ -92,6 +92,9 @@ FAILED_RETRY_BATCH = 200
 FAILED_RETRY_WINDOW_HOURS = 48
 # A delivery held because the owner's connection was down: read again once it works.
 DISCONNECTED = "disconnected"
+# A delivery not read because the owner is served no more (72 hours after an
+# unpaid end, or frozen): read once they pay or the freeze is released.
+UNPAID = "unpaid"
 UNIMPORTED_GRACE_MINUTES = 20
 UNIMPORTED_WINDOW_HOURS = 6
 UNIMPORTED_BATCH = 200

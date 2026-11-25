@@ -19,3 +19,12 @@ def release_stale_holds_task() -> int:
 @celery_app.task(queue="sync", ignore_result=True)
 def refresh_country_db_task() -> bool:
     return refresh_country_db(now=utcnow())
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def release_frozen_task() -> int:
+    """Release the freezes whose time has come."""
+    from app.modules.billing.services import release_due
+
+    with task_session() as db:
+        return release_due(db, now=utcnow())

@@ -30,9 +30,9 @@ from app.modules.notifications.keys import (
     expiry_subject,
     lapse_subject,
     reconnected_subject,
+    unfrozen_subject,
 )
 from app.modules.notifications.models import TelegramChat
-from app.modules.notifications.selectors import deadline_text
 from app.modules.notifications.selectors.inbox import (
     cabinet_inbox,
     not_left,
@@ -51,15 +51,17 @@ from app.modules.notifications.services.compose import (
     trouble_message,
 )
 from app.modules.notifications.services.compose_lapse import (
-    lapse_last_warning_message,
+    lapse_cut_off_message,
     lapse_stopped_message,
+    unfrozen_message,
 )
 from core.inbox import InboxItem, by_page
 
 logger = logging.getLogger(__name__)
 
 STOPPED = "stopped"
-LAST = "last"
+# 72 hours after the end: sync and leads stop, a payment brings it back.
+CUT_OFF = "cut_off"
 # Kinds another message already carries, or that the cabinet answers live.
 SPOKEN_FOR: frozenset[str] = frozenset(
     {
@@ -119,13 +121,10 @@ def announce_lapse(
     step: str,
     now: datetime,
 ) -> bool:
-    """The adverts an ended subscription stopped, and a day before removal."""
+    """The adverts an ended subscription stopped, and the cut-off 72 hours on."""
     with override(chat.owner.language):
-        until = deadline_text(db, owner=hold.owner, moment=hold.delete_after)
         message = (
-            lapse_last_warning_message(until=until)
-            if step == LAST
-            else lapse_stopped_message(until=until)
+            lapse_cut_off_message() if step == CUT_OFF else lapse_stopped_message()
         )
         told = tell(
             db,
@@ -133,6 +132,31 @@ def announce_lapse(
             chat=chat,
             kind=NoticeKind.SUBSCRIPTION,
             subject=lapse_subject(hold_id=hold.id, step=step),
+            text=message.text,
+            buttons=_plans_button(),
+            now=now,
+        )
+    return bool(told)
+
+
+def announce_unfrozen(
+    db: Session,
+    *,
+    client: BotClient,
+    chat: TelegramChat,
+    subscription: Subscription,
+    change_id: str,
+    now: datetime,
+) -> bool:
+    """The freeze is over: the subscription runs again, its days kept."""
+    with override(chat.owner.language):
+        message = unfrozen_message(until=_until(db, subscription=subscription))
+        told = tell(
+            db,
+            client=client,
+            chat=chat,
+            kind=NoticeKind.SUBSCRIPTION,
+            subject=unfrozen_subject(change_id=change_id),
             text=message.text,
             buttons=_plans_button(),
             now=now,
@@ -290,7 +314,7 @@ def _price(*, subscription: Subscription) -> str:
 
 
 __all__ = [
-    "LAST",
+    "CUT_OFF",
     "SPOKEN_FOR",
     "STOPPED",
     "announce_action_required",
@@ -299,4 +323,5 @@ __all__ = [
     "announce_lapse",
     "announce_reconnected",
     "announce_troubles",
+    "announce_unfrozen",
 ]

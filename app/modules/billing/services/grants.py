@@ -37,6 +37,7 @@ from app.modules.billing.exceptions import (
     SetupIncomplete,
     SlotsOutOfRange,
     SubscriptionExpired,
+    SubscriptionFrozen,
     TakingDaysEndsPlan,
 )
 from app.modules.billing.models import Plan, PromoCode, PromoRedemption, Subscription
@@ -71,8 +72,12 @@ SUBSCRIPTION = "subscription"
 
 
 def require_live_subscription(db: Session, *, owner: User) -> None:
+    from app.modules.billing.selectors import is_frozen
+
     if has_live_subscription(db, owner=owner):
         return
+    if is_frozen(db, owner_id=owner.id):
+        raise SubscriptionFrozen
     if has_ever_subscribed(db, owner=owner):
         raise SubscriptionExpired
     raise PlanNotOpened

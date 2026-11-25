@@ -12,13 +12,14 @@ from sqlalchemy.orm import Session
 from app.common.routes import reverse
 from app.modules.accounts.models import User
 from app.modules.ads.models import Campaign, LapseHold
-from app.modules.ads.selectors.lapse import last_warning_due, open_hold
+from app.modules.ads.selectors.lapse import cut_off_due, open_hold
 from app.modules.audit.constants import ActionStatus, ActionType
 from app.modules.audit.models import ActionLog
 from app.modules.billing.constants import EXPIRY_REMINDER_DAYS
 from app.modules.billing.models import Subscription
 from app.modules.billing.selectors.subscription import (
     days_left,
+    frozen_subscription,
     has_ever_subscribed,
     subscription_ended_at,
 )
@@ -113,8 +114,11 @@ def _connection(db: Session, *, owner: User) -> list[InboxItem]:
 def _subscription(
     db: Session, *, owner: User, live: Subscription | None, now: datetime
 ) -> list[InboxItem]:
-    """Access ending, or ended. Two items and never both."""
+    """Access frozen, ending, or ended; just released. One at a time."""
     if live is None:
+        frozen = frozen_subscription(db, owner=owner)
+        if frozen is not None:
+            return [_frozen(db, subscription=frozen)]
         if not has_ever_subscribed(db, owner=owner):
             return [
                 InboxItem(
@@ -150,6 +154,9 @@ def _subscription(
             )
         ]
 
+    released = _released(db, owner=owner, live=live, now=now)
+    if released is not None:
+        return [released]
     left = days_left(subscription=live, now=now)
     if left is None or left > max(EXPIRY_REMINDER_DAYS):
         return []
@@ -162,7 +169,8 @@ def _subscription(
             body=(
                 "Obuna %(days)d kundan keyin tugaydi. Tugaganidan 24 soat "
                 "o'tib platformada yaratilgan reklamalar to'xtatiladi, "
-                "72 soat ichida to'lanmasa o'chiriladi."
+                "72 soatdan keyin yangi lidlar va raqamlar yig'ilmaydi. "
+                "To'lov qilsangiz, hammasi qayta ishlaydi."
             )
             % {"days": left},
             since=live.expires_at,
@@ -173,20 +181,19 @@ def _subscription(
 
 
 def _lapse(db: Session, *, hold: LapseHold, now: datetime) -> InboxItem:
-    """The ended subscription's adverts: stopped, and when they go."""
-    until = deadline_text(db, owner=hold.owner, moment=hold.delete_after)
-    if last_warning_due(hold=hold, now=now):
+    """The ended subscription's adverts: stopped, never deleted; a payment
+    brings them back. 72 hours on, sync and leads stop too."""
+    if cut_off_due(hold=hold, now=now):
         return InboxItem(
-            key=f"subscription:lapse:{hold.id}:last",
+            key=f"subscription:lapse:{hold.id}:cut_off",
             kind="subscription",
             level="urgent",
-            title="Ertaga reklamalaringiz o'chiriladi",
+            title="Obuna yangilanmadi",
             body=(
-                "Obuna yangilanmagani uchun platformada yaratilgan reklamalar "
-                "%(until)s da butunlay o'chiriladi. To'lasangiz, ular qayta "
-                "yoqiladi."
-            )
-            % {"until": until},
+                "Reklamalaringiz to'xtatilgan holda saqlanadi, yangi lidlar "
+                "va raqamlar yig'ilmaydi. To'lov qilib obunani davom "
+                "ettirishingiz mumkin - reklamalar o'zi qayta yoqiladi."
+            ),
             since=hold.started_at,
             action="Obunani yangilash",
             href=reverse("billing:plans"),
@@ -197,13 +204,64 @@ def _lapse(db: Session, *, hold: LapseHold, now: datetime) -> InboxItem:
         level="urgent",
         title="Obuna muddati tugagan",
         body=(
-            "Platformada yaratilgan reklamalaringiz to'xtatildi. %(until)s "
-            "gacha to'lasangiz, o'zi qayta yoqiladi, aks holda butunlay "
-            "o'chiriladi."
-        )
-        % {"until": until},
+            "Platformada yaratilgan reklamalaringiz to'xtatildi. To'lov qilib "
+            "obunani davom ettirishingiz mumkin - reklamalar o'zi qayta yoqiladi."
+        ),
         since=hold.started_at,
         action="Obunani yangilash",
+        href=reverse("billing:plans"),
+    )
+
+
+def _frozen(db: Session, *, subscription: Subscription) -> InboxItem:
+    """The office froze the subscription: why, and until when."""
+    until = (
+        deadline_text(db, owner=subscription.owner, moment=subscription.frozen_until)
+        if subscription.frozen_until is not None
+        else ""
+    )
+    lines = ["Obuna kunlari sarflanmaydi, reklamalar to'xtatilgan."]
+    if subscription.frozen_reason:
+        lines.insert(0, f"Sabab: {subscription.frozen_reason}.")
+    if until:
+        lines.append(f"Muzlatish {until} da tugaydi.")
+    return InboxItem(
+        key=f"subscription:frozen:{subscription.id}:{subscription.frozen_at:%Y%m%d%H%M}",
+        kind="subscription",
+        level="urgent",
+        title="Obuna muzlatilgan",
+        body=" ".join(lines),
+        since=subscription.frozen_at,
+        action="",
+        href="",
+    )
+
+
+# The release is shown this long in the cabinet after it.
+RELEASE_SHOWN_FOR = timedelta(days=3)
+
+
+def _released(
+    db: Session, *, owner: User, live: Subscription, now: datetime
+) -> InboxItem | None:
+    from app.modules.billing.services.freeze import last_release
+
+    change = last_release(db, owner=owner, since=now - RELEASE_SHOWN_FOR)
+    if change is None or change.subscription_id != live.id:
+        return None
+    until = deadline_text(db, owner=owner, moment=live.expires_at)
+    return InboxItem(
+        key=f"subscription:unfrozen:{change.id}",
+        kind="subscription",
+        level="news",
+        title="Obuna muzlatishdan chiqdi",
+        body=(
+            "Obunangiz yana ishlayapti. Muzlatilgan kunlar sarflanmadi: obuna "
+            "%(until)s gacha amal qiladi."
+        )
+        % {"until": until},
+        since=change.occurred_at,
+        action="Obunani ko'rish",
         href=reverse("billing:plans"),
     )
 

@@ -105,7 +105,10 @@ class SyncState(Camel):
 
 class Access(Camel):
     read_only: bool
-    lapse_until: str | None = Field(description="ISO day the stopped adverts go.")
+    lapse_until: str | None = Field(
+        description="Always null now: an unpaid owner's adverts are not deleted."
+    )
+    frozen: bool = Field(False, description="The office froze the subscription.")
 
 
 class Sources(Camel):

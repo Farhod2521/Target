@@ -1,6 +1,7 @@
 """An unpaid subscription, counted from the moment it ended: the adverts made
-here stop after 24 hours, are deleted after 72, and from then on nothing of
-the owner's is read from Meta. A delete Meta refused is shown to the office.
+here stop after 24 hours, and after 72 nothing of the owner's is read from
+Meta. Since 2026-11-25 the adverts are kept stopped, not deleted (see
+test_subscription_freeze). A delete Meta refused is shown to the office.
 
 Measured on production, 2026-11-19: an owner unpaid since 11-12 whose account
 Meta had blocked; nothing was stopped, the delete was refused, the hold closed

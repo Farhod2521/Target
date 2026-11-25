@@ -40,6 +40,8 @@ class HistoryKind(Choices):
     REFUNDED = "refunded"
     PAGES = "pages"
     SEATS = "seats"
+    FROZEN = "frozen"
+    UNFROZEN = "unfrozen"
 
 
 HISTORY_KIND_LABELS = {
@@ -51,6 +53,8 @@ HISTORY_KIND_LABELS = {
     HistoryKind.REFUNDED: "Pul qaytarildi",
     HistoryKind.PAGES: "Qo'shimcha sahifa",
     HistoryKind.SEATS: "CRM menejeri",
+    HistoryKind.FROZEN: "Muzlatildi",
+    HistoryKind.UNFROZEN: "Muzlatishdan chiqdi",
 }
 
 
@@ -109,6 +113,8 @@ LIVE_SUBSCRIPTION_STATUSES = (SubscriptionStatus.TRIAL, SubscriptionStatus.ACTIV
 TRIAL_DAYS = 3
 TRIAL_MAX_CAMPAIGNS: Final = 3
 MAX_GRANT_DAYS = 120
+# The furthest a freeze's release may be set from now.
+MAX_FREEZE_DAYS = 180
 MAX_SLOT_CHANGE = 20
 DEFAULT_PLAN_CODE = "start"
 # What the card renews once Start (or another first-only plan) runs out.

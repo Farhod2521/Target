@@ -34,6 +34,7 @@ from app.modules.billing.selectors import (
     chat_allowance,
     checkout_offers,
     every_plan,
+    frozen_subscription,
     invoice_history,
     latest_subscription,
     live_subscription,
@@ -292,7 +293,11 @@ def _paid(db: Session, *, owner: User) -> tuple[tuple[str, int], ...]:
 
 
 def customer_card(db: Session, *, owner: User, now: datetime) -> CustomerCard:
-    subscription = live_subscription(db, owner=owner)
+    # A frozen one is still the client's plan to the office: shown as such,
+    # with its days counted to when it froze.
+    subscription = live_subscription(db, owner=owner) or frozen_subscription(
+        db, owner=owner
+    )
     access = access_of(db, owner=owner)
     return CustomerCard(
         user=owner,
@@ -300,7 +305,9 @@ def customer_card(db: Session, *, owner: User, now: datetime) -> CustomerCard:
         subscription=subscription,
         lapsed=latest_subscription(db, owner=owner) if subscription is None else None,
         days_left=(
-            days_left(expires_at=subscription.expires_at, now=now)
+            days_left(
+                expires_at=subscription.expires_at, now=subscription.frozen_at or now
+            )
             if subscription is not None
             else None
         ),

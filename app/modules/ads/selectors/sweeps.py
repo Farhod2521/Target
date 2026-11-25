@@ -14,7 +14,7 @@ from app.common.cache import cache
 from app.common.db import utcnow
 from app.modules.accounts.models import User
 from app.modules.ads.constants import (
-    LAPSE_DELETE_AFTER,
+    LAPSE_CUT_OFF,
     MIRROR_SWEEP,
     NOT_RUNNING,
     SYNC_OUTCOME_KEY,
@@ -49,11 +49,11 @@ def _readable() -> Select[Any]:
 
 def _synced_owners(*, now: datetime) -> Select[Any]:
     """Whose accounts are read at all: a running subscription, or one ended
-    less than 72 hours ago, while its adverts are stopped and then deleted.
-    After that nothing is read until the owner pays again."""
+    less than 72 hours ago. After that, and at once for a frozen one, nothing
+    is read until the owner pays again or the freeze is released."""
     from app.modules.billing.selectors import recently_entitled_owner_ids
 
-    return recently_entitled_owner_ids(since=now - LAPSE_DELETE_AFTER)
+    return recently_entitled_owner_ids(since=now - LAPSE_CUT_OFF)
 
 
 def _frequently(*, now: datetime) -> Select[Any]:

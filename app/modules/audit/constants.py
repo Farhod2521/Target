@@ -146,6 +146,8 @@ class EventName(Choices):
     PAGES_ADDED = "subscription.pages_added"
     SEATS_ADDED = "subscription.seats_added"
     SUBSCRIPTION_SHORTENED = "subscription.shortened"
+    SUBSCRIPTION_FROZEN = "subscription.frozen"
+    SUBSCRIPTION_UNFROZEN = "subscription.unfrozen"
     SUBSCRIPTION_EXTENDED = "subscription.extended"
     SUBSCRIPTION_PLAN_CHANGED = "subscription.plan_changed"
     SUBSCRIPTION_SLOTS_CHANGED = "subscription.slots_changed"
@@ -276,6 +278,8 @@ EVENT_NAME_LABELS = {
     EventName.PAGES_ADDED: "Qo'shimcha sahifa qo'shildi",
     EventName.SEATS_ADDED: "CRM menejeri o'rni qo'shildi",
     EventName.SUBSCRIPTION_SHORTENED: "Obuna muddati qisqardi",
+    EventName.SUBSCRIPTION_FROZEN: "Obuna muzlatildi",
+    EventName.SUBSCRIPTION_UNFROZEN: "Obuna muzlatishdan chiqdi",
     EventName.SUBSCRIPTION_EXTENDED: "Muddat qo'lda uzaytirildi",
     EventName.SUBSCRIPTION_PLAN_CHANGED: "Tarif almashtirildi",
     EventName.SUBSCRIPTION_SLOTS_CHANGED: "Qo'shimcha o'rinlar o'zgardi",

@@ -107,3 +107,16 @@ def sync_all_google_leads_task() -> int:
     for account_id in found:
         sync_google_leads_task.delay(str(account_id))
     return len(found)
+
+
+@celery_app.task(queue="sync", ignore_result=True)
+def reread_unpaid_leads_task(owner_id: str) -> int:
+    """Paid, or released from a freeze: read the leads held meanwhile."""
+    import uuid
+
+    with task_session() as db:
+        count = services.reread_unpaid_leads(
+            db, owner_id=uuid.UUID(owner_id), now=utcnow()
+        )
+        db.commit()
+        return count

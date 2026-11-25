@@ -13,10 +13,10 @@ from app.modules.ads.services.access import (
     token_for,
 )
 from app.modules.ads.services.lapse import (
-    REMOVE_REASON,
     RESUME_REASON,
     STOP_REASON,
     hold_blocked_owner,
+    hold_frozen_owner,
     hold_released_page,
     open_lapse_hold,
     release_unblocked_owner,
@@ -145,7 +145,6 @@ __all__ = [
     "REFRESH_LIMIT",
     "REFUSALS",
     "REMOVAL",
-    "REMOVE_REASON",
     "RESUME_REASON",
     "SPEND_CAP",
     "STATUS",
@@ -177,6 +176,7 @@ __all__ = [
     "forms_still_known",
     "goal_lock",
     "hold_blocked_owner",
+    "hold_frozen_owner",
     "hold_released_page",
     "launch_account_and_token",
     "launch_page",

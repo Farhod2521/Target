@@ -195,7 +195,8 @@ def _evidence(
 
 
 def discover_all_lead_accounts(db: Session, *, now: datetime) -> int:
-    from app.modules.billing.selectors import subscribed_owner_ids
+    from app.modules.ads.constants import LAPSE_CUT_OFF
+    from app.modules.billing.selectors import recently_entitled_owner_ids
     from app.modules.integrations.tasks import discover_lead_accounts_task
 
     candidates = db.scalars(
@@ -204,7 +205,9 @@ def discover_all_lead_accounts(db: Session, *, now: datetime) -> int:
         .where(
             AdAccount.provider == PROVIDER,
             AdAccount.is_active.is_(False),
-            AdAccount.owner_id.in_(subscribed_owner_ids(db)),
+            AdAccount.owner_id.in_(
+                recently_entitled_owner_ids(since=now - LAPSE_CUT_OFF)
+            ),
             ProviderConnection.status.in_(USABLE_CONNECTION_STATUSES),
         )
         .distinct()

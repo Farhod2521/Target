@@ -16,6 +16,11 @@ SCHEDULE: Final = [
         f"{TASKS}.release_stale_holds_task",
         "*/10",
     ),
+    Periodic(
+        "Muzlatish vaqti kelgan obunalarni chiqarish",
+        f"{TASKS}.release_frozen_task",
+        "*/5",
+    ),
     # DB-IP publishes a new month early in it; the task skips a month it has.
     Periodic(
         "Davlatlar IP bazasini yangilash",

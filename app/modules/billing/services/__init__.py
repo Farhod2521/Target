@@ -14,6 +14,12 @@ from app.modules.billing.services.callbacks import (
     wholly_revocable,
 )
 from app.modules.billing.services.entitlement import default_plan, payer
+from app.modules.billing.services.freeze import (
+    freeze_subscription,
+    last_release,
+    release_due,
+    release_subscription,
+)
 from app.modules.billing.services.grants import (
     Redeemed,
     acknowledge_promo,
@@ -71,12 +77,14 @@ __all__ = [
     "default_plan",
     "drop_discount",
     "expire_invoices",
+    "freeze_subscription",
     "grant_days",
     "grant_pages",
     "grant_plan",
     "handle_callback",
     "hold_invoice",
     "keep_receipts",
+    "last_release",
     "payability_refusal",
     "payer",
     "price_invoice",
@@ -87,8 +95,10 @@ __all__ = [
     "refundable_invoices",
     "register_payment_providers",
     "reject_redemption",
+    "release_due",
     "release_hold",
     "release_stale_holds",
+    "release_subscription",
     "require_live_subscription",
     "require_preparation",
     "require_setup_completed",

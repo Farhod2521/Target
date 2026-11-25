@@ -73,6 +73,7 @@ TERM_LABELS = {
     "trial": "Sinovda",
     "active": "Faol",
     "lapsed": "Obunasi tugagan",
+    "frozen": "Muzlatilgan",
     "never": "Obuna olmagan",
 }
 
@@ -104,7 +105,9 @@ def trouble_out(problem: Problem | None) -> dict[str, Any] | None:
 def _term(row: CustomerRow) -> dict[str, Any]:
     live = row.subscription
     shown = live or row.ended
-    if live is not None:
+    if live is not None and live.frozen_at is not None:
+        state = "frozen"
+    elif live is not None:
         state = "trial" if live.status == SubscriptionStatus.TRIAL else "active"
     else:
         state = "lapsed" if row.ended is not None else "never"
@@ -243,6 +246,16 @@ def _subscription_out(
         "setup_completed_at": row.setup_completed_at,
         "activated_by": person_out(row.activated_by),
         "note": row.note,
+        "frozen": (
+            {
+                "since": row.frozen_at,
+                "until": row.frozen_until,
+                "reason": row.frozen_reason,
+                "by": person_out(row.frozen_by),
+            }
+            if row.frozen_at is not None
+            else None
+        ),
     }
 
 

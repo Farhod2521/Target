@@ -103,6 +103,7 @@ def me(db: Db, user: Staff) -> dict[str, Any]:
             "answer_feedback": shell.may_answer_feedback,
             "sell": shell.can_sell,
             "lead_sales": shell.leads_sales,
+            "freeze": shell.can_freeze,
         },
         "waiting": {
             "promos": shell.waiting_promos,

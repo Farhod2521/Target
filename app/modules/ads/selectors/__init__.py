@@ -87,6 +87,7 @@ from app.modules.ads.selectors.labels import (
 )
 from app.modules.ads.selectors.lapse import (
     LapseTarget,
+    cut_off_due,
     hold_stops,
     hold_writes,
     lapse_candidates,
@@ -254,6 +255,7 @@ __all__ = [
     "creative_states",
     "creatives_by_external_id",
     "current_page_scope",
+    "cut_off_due",
     "daily_total",
     "delivery_chain",
     "early_hours_on",

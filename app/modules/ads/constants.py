@@ -909,10 +909,13 @@ GOOGLE_FAILURES: dict[str, Any] = {
     "google": "Google kampaniyani qabul qilmadi. Ma'lumotlarni tekshirib, qayta urinib ko'ring.",
 }
 # An unpaid subscription, counted from the moment it ended: its adverts made
-# here stop after the first, are deleted after the second, and its accounts
-# are not read from Meta any more after the second either.
+# here stop after the first. After the second its accounts are not read from
+# Meta any more, no lead is fetched, and the owner is told a payment brings it
+# all back. Its adverts are never deleted: they wait, stopped, for the payment.
+# (A blocked account's, and a page let go at a renewal, still are.)
 LAPSE_PAUSE_AFTER: Final = timedelta(hours=24)
 LAPSE_DELETE_AFTER: Final = timedelta(hours=72)
+LAPSE_CUT_OFF: Final = LAPSE_DELETE_AFTER
 # A blocked account's adverts made here: stopped at once, deleted after this.
 BLOCK_DELETE_AFTER: Final = timedelta(hours=24)
 # The last warning goes this long before the deletion.

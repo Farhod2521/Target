@@ -16,6 +16,7 @@ from app.modules.backoffice.constants import (
     CARD_TRACES,
     FEEDBACK_ROLES,
     JOURNAL_PAGE,
+    FREEZE_ROLES,
     MONEY_ROLES,
     READ_KINDS,
     ROLE_LABELS,
@@ -73,6 +74,7 @@ class Shell:
     may_answer_feedback: bool
     can_sell: bool
     leads_sales: bool
+    can_freeze: bool
     waiting_promos: int
     waiting_asks: int
     waiting_feedback: int
@@ -126,6 +128,7 @@ def office_shell(db: Session, *, user: User, now: datetime) -> Shell:
         may_answer_feedback=may_answer_feedback,
         can_sell=can_sell,
         leads_sales=holds(SALES_LEAD_ROLES),
+        can_freeze=user.is_superuser or holds(FREEZE_ROLES),
         waiting_promos=waiting_promo_count(db) if can_give else 0,
         waiting_asks=waiting_ask_count(db) if can_give else 0,
         waiting_feedback=waiting_feedback_count(db) if may_answer_feedback else 0,

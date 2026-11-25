@@ -146,6 +146,16 @@ def subscription_out(subscription: Subscription | None) -> dict[str, Any] | None
     }
 
 
+def frozen_out(subscription: Subscription | None) -> dict[str, Any] | None:
+    if subscription is None or subscription.frozen_at is None:
+        return None
+    return {
+        "since": subscription.frozen_at,
+        "until": subscription.frozen_until,
+        "reason": subscription.frozen_reason,
+    }
+
+
 def invoice_out(invoice: Invoice, *, paid_via: str = "") -> dict[str, Any]:
     return {
         "number": invoice.number,
@@ -435,14 +445,7 @@ def subscription_status(
     live = selectors.live_subscription(db, owner=user)
     left = selectors.days_left(subscription=live, now=now)
     never = live is None and not selectors.has_ever_subscribed(db, owner=user)
-    lapse_until = ""
-    if live is None and not never:
-        from app.modules.ads.selectors import open_hold
-        from app.modules.notifications.selectors import deadline_text
-
-        hold = open_hold(db, owner=user)
-        if hold is not None:
-            lapse_until = deadline_text(db, owner=user, moment=hold.delete_after)
+    frozen = selectors.frozen_subscription(db, owner=user) if live is None else None
     return {
         "is_read_only": live is None,
         "subscription": subscription_out(live),
@@ -452,7 +455,10 @@ def subscription_status(
         "ending_soon": left is not None
         and left <= max(EXPIRY_REMINDER_DAYS)
         and seen_days != left,
-        "lapse_until": lapse_until,
+        # Kept for older clients: an unpaid owner's adverts are not deleted
+        # any more, so there is no day they go.
+        "lapse_until": "",
+        "frozen": frozen_out(frozen),
         # The band over the cabinet reads it here: this is asked on every page.
         "sales_offer": sales_offer_out(
             live_offer(db, owner_id=user.id, now=now), now=now

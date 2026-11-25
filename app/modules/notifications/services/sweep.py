@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from telegramkit import BotClient
 
 from app.modules.accounts.models import User
-from app.modules.ads.selectors.lapse import last_warning_due, open_holds
+from app.modules.ads.selectors.lapse import cut_off_due, open_holds
 from app.modules.agent.selectors.launch_watch import owners_with_launches
 from app.modules.billing.constants import EXPIRY_REMINDER_DAYS
 from app.modules.billing.selectors import expiring_subscriptions
@@ -59,7 +59,7 @@ from app.modules.notifications.services.announce import (
     announce_watches,
 )
 from app.modules.notifications.services.announce_account import (
-    LAST,
+    CUT_OFF,
     STOPPED,
     announce_action_required,
     announce_connection,
@@ -151,18 +151,24 @@ def deliver_expiry_notices(db: Session, *, now: datetime) -> int:
 
 
 def deliver_lapse_notices(db: Session, *, now: datetime) -> int:
-    """Tell the owners whose adverts an ended subscription stopped, and again a
-    day before they are removed. The journal holds one message per step."""
+    """Tell the owners whose adverts an ended subscription stopped, and again
+    72 hours on, when sync and leads stop and only a payment brings them back.
+    The journal holds one message per step. A frozen owner's hold is the
+    freeze's: they hear of its release instead."""
+    from app.modules.billing.selectors import is_frozen
+
     if not is_configured() or not sends_expiry_notices():
         return 0
 
     sent = 0
     with bot() as client:
         for hold in open_holds(db, pages=False):
+            if is_frozen(db, owner_id=hold.owner_id):
+                continue
             chat = chat_for(db, owner=hold.owner)
             if chat is None:
                 continue
-            step = LAST if last_warning_due(hold=hold, now=now) else STOPPED
+            step = CUT_OFF if cut_off_due(hold=hold, now=now) else STOPPED
             sent += announce_lapse(
                 db, client=client, chat=chat, hold=hold, step=step, now=now
             )

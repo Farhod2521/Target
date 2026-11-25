@@ -24,6 +24,7 @@ from app.modules.billing.services import apply_payment
 from app.modules.billing.services.entitlement import insert_invoice
 from app.modules.crm.models import CrmMember
 from app.modules.integrations.models import PageAccount
+from app.modules.leads import tasks as leads_tasks
 from tests.pg.test_crm_pairs import _auth
 from tests.pg.test_crm_seats import _buy_seat, _seated_world
 
@@ -34,6 +35,8 @@ def queued(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(ads_tasks.stop_page_hold_task, "delay", stops.append)
     # A paid plan bill also wakes a lapsed subscription's adverts.
     monkeypatch.setattr(ads_tasks.resume_after_payment_task, "delay", lambda _: None)
+    # A payment reads again the leads held while unpaid: not this test's business.
+    monkeypatch.setattr(leads_tasks.reread_unpaid_leads_task, "delay", lambda _: None)
     # Changes to Meta are only queued here, never sent.
     monkeypatch.setattr(ads_tasks.apply_change_task, "delay", lambda _: None)
     monkeypatch.setattr(ads_tasks.apply_delete_task, "delay", lambda _: None)

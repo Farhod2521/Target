@@ -24,10 +24,12 @@ from app.modules.billing.exceptions import NothingToExtend
 from app.modules.billing.models import Invoice, Plan, Subscription
 from app.modules.billing.selectors import latest_subscription
 from app.modules.billing.services import (
+    freeze_subscription,
     grant_days,
     grant_pages,
     grant_plan,
     record_payment,
+    release_subscription,
     revoke_days,
     revoke_pages,
 )
@@ -162,6 +164,51 @@ def take_days(
             "until": subscription.expires_at.isoformat(),
             "ended": subscription.ended_at is not None,
         },
+    )
+    return subscription
+
+
+def freeze(
+    db: Session,
+    *,
+    customer: User,
+    until: datetime,
+    actor: User,
+    reason: str,
+    now: datetime,
+) -> Subscription:
+    """Freeze the subscription until ``until``; asked again, move the release."""
+    subscription = freeze_subscription(
+        db, owner=customer, until=until, reason=reason, actor=actor, now=now
+    )
+    record(
+        db,
+        customer=customer,
+        actor=actor,
+        kind=ActionKind.SUBSCRIPTION_FROZEN,
+        reason=reason,
+        detail={
+            "since": subscription.frozen_at.isoformat()
+            if subscription.frozen_at
+            else "",
+            "until": until.isoformat(),
+        },
+    )
+    return subscription
+
+
+def unfreeze(
+    db: Session, *, customer: User, actor: User, reason: str, now: datetime
+) -> Subscription:
+    """Release the freeze now; the frozen time goes back on the plan."""
+    subscription = release_subscription(db, owner=customer, actor=actor, now=now)
+    record(
+        db,
+        customer=customer,
+        actor=actor,
+        kind=ActionKind.SUBSCRIPTION_UNFROZEN,
+        reason=reason,
+        detail={"until": subscription.expires_at.isoformat()},
     )
     return subscription
 

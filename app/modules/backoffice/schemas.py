@@ -35,6 +35,9 @@ class CanOut(BaseModel):
         "deleting."
     )
     superuser: bool = Field(description="Releasing a held bill.")
+    freeze: bool = Field(
+        False, description="Freezing a subscription (Support, the superuser)."
+    )
     engineer: bool = Field(description="The faults console.")
     answer_support: bool = Field(description="The support chat queue.")
     answer_feedback: bool = Field(description="The feedback queue.")
@@ -109,8 +112,8 @@ class PlanLineOut(BaseModel):
 
 class TermOut(BaseModel):
     state: str = Field(
-        description="`trial`, `active` (live), `lapsed` (paid once, ended) or "
-        "`never` (no subscription ever)."
+        description="`trial`, `active` (live), `frozen` (live, held by the "
+        "office), `lapsed` (paid once, ended) or `never` (no subscription ever)."
     )
     label: str
     plan: PlanLineOut | None = Field(description="Live plan, else the last one.")
@@ -231,6 +234,13 @@ class BusinessOut(BaseModel):
     website: str
 
 
+class CardFrozenOut(BaseModel):
+    since: datetime
+    until: datetime | None
+    reason: str = Field(description="Shown to the customer too.")
+    by: PersonOut | None
+
+
 class SubscriptionOut(BaseModel):
     plan: PlanLineOut | None
     status: str
@@ -243,6 +253,11 @@ class SubscriptionOut(BaseModel):
     setup_completed_at: datetime | None
     activated_by: PersonOut | None
     note: str
+    frozen: CardFrozenOut | None = Field(
+        None,
+        description="Set while frozen: until the release it serves nothing, "
+        "and `days_left` stays as it was when it froze.",
+    )
 
 
 class UsedOut(BaseModel):

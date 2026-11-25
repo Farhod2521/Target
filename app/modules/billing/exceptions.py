@@ -15,6 +15,31 @@ class SubscriptionExpired(NoEntitlement):
         )
 
 
+class SubscriptionFrozen(NoEntitlement):
+    def __init__(self) -> None:
+        super().__init__(
+            "Obuna muzlatilgan. Muzlatish tugagach hammasi o'zi qayta ishlaydi - obuna kunlaringiz saqlanadi."
+        )
+
+
+class NothingToFreeze(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu akkauntda jonli obuna yo'q - muzlatib bo'lmaydi.")
+
+
+class NotFrozen(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu obuna muzlatilmagan.")
+
+
+class FreezeUntilOutOfRange(DomainError):
+    def __init__(self, *, limit: int) -> None:
+        super().__init__(
+            "Chiqarish vaqti kelajakda va %(limit)s kun ichida bo'lishi kerak."
+            % {"limit": limit}
+        )
+
+
 class PlanNotOpened(NoEntitlement):
     def __init__(self) -> None:
         super().__init__(

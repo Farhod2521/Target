@@ -239,6 +239,12 @@ class PricedChoice(BaseModel):
     )
 
 
+class StatusFrozenOut(BaseModel):
+    since: datetime
+    until: datetime | None
+    reason: str = Field(description="The office's reason, shown to the customer.")
+
+
 class StatusOut(BaseModel):
     is_read_only: bool = Field(description="No live plan: the cabinet only reads.")
     subscription: SubscriptionOut | None
@@ -246,7 +252,14 @@ class StatusOut(BaseModel):
     may_prepare: bool
     days_left: int | None
     ending_soon: bool = Field(description="Show the renewal reminder.")
-    lapse_until: str = Field(description="When paused adverts will be deleted.")
+    lapse_until: str = Field(
+        description="Always empty now: an unpaid owner's adverts are not deleted."
+    )
+    frozen: StatusFrozenOut | None = Field(
+        None,
+        description="Set while the office has frozen the subscription: the "
+        "cabinet reads only, and its days are kept until the release.",
+    )
     sales_offer: SalesOfferOut | None = Field(
         None,
         description="The client's Sales discount now (20%, then 10%), or null. "

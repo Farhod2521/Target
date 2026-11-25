@@ -6,6 +6,7 @@ something the rest of the card also shows.
 """
 
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Any
 
@@ -23,6 +24,7 @@ from app.modules.backoffice import services
 from app.modules.backoffice.constants import (
     ADMIN_ROLES,
     BLOCK_ROLES,
+    FREEZE_ROLES,
     MONEY_ROLES,
     PASSWORD_ROLES,
     Role,
@@ -41,6 +43,7 @@ router = APIRouter(prefix="/customers/{customer_id}")
 Admin = Annotated[User, Depends(staff_required(*ADMIN_ROLES))]
 Money = Annotated[User, Depends(staff_required(*MONEY_ROLES))]
 Blocker = Annotated[User, Depends(staff_required(*BLOCK_ROLES))]
+Freezer = Annotated[User, Depends(staff_required(*FREEZE_ROLES))]
 Owner = Annotated[User, Depends(staff_required(Role.OWNER))]
 PasswordSetter = Annotated[User, Depends(staff_required(*PASSWORD_ROLES))]
 
@@ -88,6 +91,16 @@ class DaysIn(PaidIn):
         False,
         description="`take`: end the subscription if these are all the days left. "
         "Its adverts are then stopped, and deleted after the grace days.",
+    )
+
+
+class FreezeIn(ReasonIn):
+    """The reason is shown to the customer in the cabinet, with the release."""
+
+    until: datetime = Field(
+        description="When the freeze ends on its own. Asked of a frozen "
+        "subscription, it moves the release; the freeze still counts from "
+        "when it began."
     )
 
 
@@ -237,6 +250,39 @@ def give_days(
         now=utcnow(),
     )
     return _done(db, "Muddat uzaytirildi.")
+
+
+@router.post("/freeze", responses={200: {"model": MessageOut}})
+def freeze_subscription(
+    customer_id: uuid.UUID, body: FreezeIn, db: Db, actor: Freezer
+) -> dict[str, Any]:
+    """Freeze the running subscription: until the release it serves nothing
+    (adverts stopped, cabinet read only, no sync, no leads), and its days are
+    not spent. Support and the superuser."""
+    customer = _customer(db, customer_id)
+    until = body.until if body.until.tzinfo else body.until.replace(tzinfo=UTC)
+    services.freeze(
+        db,
+        customer=customer,
+        until=until,
+        actor=actor,
+        reason=body.reason,
+        now=utcnow(),
+    )
+    return _done(db, "Obuna muzlatildi.")
+
+
+@router.post("/unfreeze", responses={200: {"model": MessageOut}})
+def unfreeze_subscription(
+    customer_id: uuid.UUID, body: ReasonIn, db: Db, actor: Freezer
+) -> dict[str, Any]:
+    """Release the freeze now: the frozen time goes back on the plan, the
+    adverts switch back on, and the customer is told in the bot and cabinet."""
+    customer = _customer(db, customer_id)
+    services.unfreeze(
+        db, customer=customer, actor=actor, reason=body.reason, now=utcnow()
+    )
+    return _done(db, "Obuna muzlatishdan chiqarildi.")
 
 
 @router.post("/slots", responses={200: {"model": MessageOut}})

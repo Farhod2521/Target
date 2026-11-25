@@ -310,6 +310,38 @@ def deliver_lapse_notices_task() -> int:
 
 
 @celery_app.task(queue="webhooks", ignore_result=True)
+def announce_unfrozen_task(change_id: str) -> bool:
+    """The freeze is over: tell the owner in the bot (the cabinet shows it too)."""
+    import uuid
+
+    from app.modules.billing.models import SubscriptionChange
+    from app.modules.notifications.bot import bot, is_configured, sends_expiry_notices
+    from app.modules.notifications.selectors import chat_for
+    from app.modules.notifications.services.announce_account import (
+        announce_unfrozen,
+    )
+
+    if not is_configured() or not sends_expiry_notices():
+        return False
+    with task_session() as db:
+        change = db.get(SubscriptionChange, uuid.UUID(change_id))
+        chat = chat_for(db, owner=change.owner) if change else None
+        if change is None or chat is None:
+            return False
+        with bot() as client:
+            told = announce_unfrozen(
+                db,
+                client=client,
+                chat=chat,
+                subscription=change.subscription,
+                change_id=change_id,
+                now=utcnow(),
+            )
+        db.commit()
+        return told
+
+
+@celery_app.task(queue="webhooks", ignore_result=True)
 def deliver_daily_reports_task() -> str:
     """Every hour: hand the owners whose finished day is ready to their own
     task, so one account whose figures raise does not take the rest down."""

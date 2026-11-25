@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.common.db import utcnow
 from app.modules.accounts.models import BlockReason, User
 from app.modules.accounts.services.block_user import block_user, unblock_user
-from app.modules.ads.constants import BLOCK_DELETE_AFTER, LAPSE_DELETE_AFTER, LAPSE_MARK
+from app.modules.ads.constants import BLOCK_DELETE_AFTER, LAPSE_DELETE_AFTER
 from app.modules.ads.models import Campaign, CampaignLaunch, LapseHold
 from app.modules.ads.services import lapse
 from app.modules.ads.services.lapse import (
@@ -139,46 +139,36 @@ def test_a_resume_refused_for_its_own_reason_is_not_asked_again(
     assert len(_logs(db, "resume")) == 1
 
 
-def test_an_unpaid_hold_stays_open_until_its_delete_is_done(
+def test_an_unpaid_hold_is_never_deleted_only_kept_stopped(
     db: Session, queued: list, paid: dict[str, bool]
 ) -> None:
     paid["live"] = False
     _owner, hold = _world(db)
     _stopped(db, hold)
-    due = hold.delete_after + timedelta(minutes=1)
+    due = hold.delete_after + timedelta(days=10)
 
-    assert remove_after_lapse(db, hold=hold, now=utcnow()) is None
+    assert remove_after_lapse(db, hold=hold, now=due) is None
+    assert settle_lapse(db, hold=hold, now=due) == "held"
     assert _logs(db, "delete_campaign") == []
-
-    assert remove_after_lapse(db, hold=hold, now=due) is None
-    assert hold.is_open
-    deletes = _logs(db, "delete_campaign")
-    assert [log.status for log in deletes] == ["pending"]
-    assert deletes[0].request_payload[LAPSE_MARK] == str(hold.id)
-
-    _settle(db, "delete_campaign", "failed", "temporary")
-    assert remove_after_lapse(db, hold=hold, now=due) is None
-    assert len(_logs(db, "delete_campaign")) == 2
-
-    _settle(db, "delete_campaign", "applied")
-    assert remove_after_lapse(db, hold=hold, now=due) == 0
-    assert hold.deleted_at is not None
+    assert _logs(db, "delete_adset") == []
+    assert hold.is_open and hold.deleted_at is None
 
 
-def test_a_payment_while_a_delete_was_lost_still_gives_the_advert_back(
+def test_a_payment_long_after_the_cut_off_gives_the_advert_back(
     db: Session, queued: list, paid: dict[str, bool]
 ) -> None:
     paid["live"] = False
     _owner, hold = _world(db)
     _stopped(db, hold)
-    due = hold.delete_after + timedelta(minutes=1)
-    remove_after_lapse(db, hold=hold, now=due)
-    _settle(db, "delete_campaign", "failed", "temporary")
+    late = hold.delete_after + timedelta(days=30)
+    settle_lapse(db, hold=hold, now=late)
 
     paid["live"] = True
-    assert settle_lapse(db, hold=hold, now=due) == "later"
+    assert settle_lapse(db, hold=hold, now=late) == "later"
     assert [log.status for log in _logs(db, "resume")] == ["pending"]
-    assert hold.is_open
+    _settle(db, "resume", "applied")
+    assert settle_lapse(db, hold=hold, now=late) == "resumed"
+    assert hold.resumed_at is not None
 
 
 def test_a_blocked_accounts_adverts_stop_now_and_go_after_a_day(

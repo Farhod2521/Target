@@ -108,6 +108,10 @@ def lapse_subject(*, hold_id: Any, step: str) -> str:
     return f"lapse:{hold_id}:{step}"
 
 
+def unfrozen_subject(*, change_id: Any) -> str:
+    return f"unfrozen:{change_id}"
+
+
 def connection_subject(*, connection_id: Any, status: str, now: datetime) -> str:
     return f"{connection_id}:{status}:{now.strftime('%Y-%m-%d')}"
 

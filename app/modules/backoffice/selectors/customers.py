@@ -31,7 +31,7 @@ from app.modules.billing.constants import (
     SubscriptionStatus,
 )
 from app.modules.billing.models import Invoice, Plan, Subscription
-from app.modules.billing.selectors import entitled_owner_ids
+from app.modules.billing.selectors import entitled_owner_ids, frozen_owner_ids
 from app.modules.businesses.models import Business
 from app.modules.chat.services.quota import PUBLIC_CHAT_EMAIL
 from app.modules.integrations.models import AdAccount, PageAccount, PageInstagram
@@ -47,6 +47,7 @@ STATES = (
     ("active", "Faol"),
     ("expiring", "Tugayapti"),
     ("lapsed", "Obunasi tugagan"),
+    ("frozen", "Muzlatilgan"),
     ("never", "Obuna olmagan"),
     ("blocked", "Bloklangan"),
     ("staff", "Xodimlar"),
@@ -192,9 +193,13 @@ def _by_state(
             )
         )
     if state == "lapsed":
-        return User.id.in_(select(Subscription.owner_id)) & User.id.not_in(
-            entitled_owner_ids(now=now)
+        return (
+            User.id.in_(select(Subscription.owner_id))
+            & User.id.not_in(entitled_owner_ids(now=now))
+            & User.id.not_in(frozen_owner_ids())
         )
+    if state == "frozen":
+        return User.id.in_(frozen_owner_ids())
     if state == "never":
         return User.id.not_in(select(Subscription.owner_id))
     if state == "blocked":

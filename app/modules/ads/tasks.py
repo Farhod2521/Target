@@ -36,6 +36,7 @@ from app.modules.ads.services import (
     apply_delete,
     drop_empty_campaign,
     hold_blocked_owner,
+    hold_frozen_owner,
     note_sync_outcome,
     open_lapse_hold,
     release_unblocked_owner,
@@ -621,3 +622,15 @@ def create_google_campaign_task(launch_id: str, run: str) -> str:
 
     with task_session() as db:
         return create_google_campaign(db, launch_id=launch_id, run=run)
+
+
+@celery_app.task(queue="agent", ignore_result=True)
+def hold_frozen_owner_task(owner_id: str) -> str:
+    """A frozen subscription: stop what it launched here until the release."""
+    with task_session() as db:
+        pk = _uuid(owner_id)
+        owner = db.get(User, pk) if pk else None
+        if owner is None:
+            return "gone"
+        hold = hold_frozen_owner(db, owner=owner, now=utcnow())
+        return "held" if hold is not None else "nothing"

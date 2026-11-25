@@ -501,9 +501,12 @@ def run_plan_seats(
 
 
 def resume_lapsed(db: Session, *, owner_id: str) -> None:
+    """Paid: the stopped adverts back on, the leads not read meanwhile read."""
     from app.modules.ads.tasks import resume_after_payment_task
+    from app.modules.leads.tasks import reread_unpaid_leads_task
 
     on_commit(db, lambda: resume_after_payment_task.delay(owner_id))
+    on_commit(db, lambda: reread_unpaid_leads_task.delay(owner_id))
 
 
 def opens_subscription(*, promo: PromoCode) -> bool:

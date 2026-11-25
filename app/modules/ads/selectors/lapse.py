@@ -211,11 +211,16 @@ def stops_in_flight(stops: list[Any]) -> bool:
 
 
 def last_warning_due(*, hold: LapseHold, now: datetime) -> bool:
-    """A day before the deletion."""
+    """A day before the deletion (a blocked account's or a page let go)."""
     return (
         hold.is_open
         and hold.delete_after - LAPSE_LAST_WARNING <= now < hold.delete_after
     )
+
+
+def cut_off_due(*, hold: LapseHold, now: datetime) -> bool:
+    """An unpaid hold past its 72 hours: nothing is read for it any more."""
+    return hold.is_open and now >= hold.delete_after
 
 
 def unwritable_account_ids(db: Session, *, owner: User) -> frozenset[uuid.UUID]:
