@@ -37,14 +37,14 @@ STATUS_LABELS = {
 }
 
 
-class StartIn(BaseModel):
+class TestStartIn(BaseModel):
     method: str = Field(
         description="`card` (your saved card) or `page` (Multicard's page)."
     )
     usd: str = Field("1", description="Dollars, e.g. `1` or `0.50`.")
 
 
-class CodeIn(BaseModel):
+class TestCodeIn(BaseModel):
     code: str
 
 
@@ -98,7 +98,7 @@ def overview(db: Db, user: Superuser) -> dict[str, Any]:
 
 
 @router.post("/payments")
-def start(db: Db, user: Superuser, body: StartIn) -> dict[str, Any]:
+def start(db: Db, user: Superuser, body: TestStartIn) -> dict[str, Any]:
     row = testing.start(
         db, actor=user, method=body.method, usd_cents=_cents(body.usd), now=utcnow()
     )
@@ -107,7 +107,7 @@ def start(db: Db, user: Superuser, body: StartIn) -> dict[str, Any]:
 
 @router.post("/payments/{payment_id}/confirm")
 def confirm(
-    db: Db, user: Superuser, payment_id: uuid.UUID, body: CodeIn
+    db: Db, user: Superuser, payment_id: uuid.UUID, body: TestCodeIn
 ) -> dict[str, Any]:
     return _out(testing.confirm(db, actor=user, payment_id=payment_id, code=body.code))
 
