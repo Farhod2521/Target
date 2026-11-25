@@ -27,6 +27,7 @@ from app.modules.boards.routers import client_router as support_ticket_v2
 from app.modules.boards.routers import router as office_boards_v2
 from app.modules.broadcasts.routers import router as news
 from app.modules.businesses.routers import router as businesses
+from app.modules.businesses.routers.v3 import router as businesses_v3
 from app.modules.chat.routers import refusals
 from app.modules.chat.routers import router as chat
 from app.modules.chatgpt.routers import router as chatgpt_ads
@@ -54,6 +55,10 @@ from app.modules.surveys.routers import router as surveys
 from app.modules.telephony.routers import router as office_telephony_v2
 from app.modules.telephony.routers import webhooks as telephony_webhooks
 from app.modules.tutorials.routers import router as tutorials
+
+# The business as the unit: what a person works in, and what they may do there.
+api_v3_router = APIRouter(prefix="/api/v3")
+api_v3_router.include_router(businesses_v3)
 
 api_v2_router = APIRouter(prefix="/api/v2")
 api_v2_router.include_router(campaigns_expert)

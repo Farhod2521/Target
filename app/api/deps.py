@@ -14,7 +14,14 @@ from app.modules.accounts.models import User
 _bearer = HTTPBearer(auto_error=False)
 
 
-CRM_MEMBER_PATHS = ("/api/v1/crm", "/api/v1/auth", "/api/v1/account/language")
+# ``/api/v3/businesses`` is open to a member's login because every route of
+# it asks what that person may do in the business they name.
+CRM_MEMBER_PATHS = (
+    "/api/v1/crm",
+    "/api/v1/auth",
+    "/api/v1/account/language",
+    "/api/v3/businesses",
+)
 # Read only: a manager's login may say who it is (name, language, whose
 # board), and nothing else under /account - saving a phone there would hand
 # the owner's call-back cards to the manager.
