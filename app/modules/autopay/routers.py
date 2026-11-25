@@ -45,6 +45,7 @@ def bind(body: BindIn, db: Db, user: CurrentUser) -> BindOut:
         db,
         user=user,
         phone=body.phone,
+        card_type=body.card_type,
         consent=body.consent,
         now=utcnow(),
         autopay=body.autopay,

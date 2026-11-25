@@ -194,16 +194,19 @@ def _test_card(db: Session, *, actor: User, card_id: object) -> TestCard:
 
 
 def start_card_binding(
-    db: Session, *, actor: User, phone: str, now: datetime
+    db: Session, *, actor: User, phone: str, now: datetime, card_type: str = ""
 ) -> tuple[TestCard, str]:
     """Multicard's card page for a test card; answers the card and the page."""
     try:
         adapter = cards()
     except AutopayUnavailable as exc:
         raise TestingRefused("Karta ulash bu serverda yoqilmagan.") from exc
-    # No phone given: none is sent (Multicard needs it for Humo only).
+    # Multicard needs a phone for Humo only; any other card is bound without.
+    humo = card_type.strip().lower() == "humo"
+    if humo and not phone.strip():
+        raise TestingRefused("Humo karta uchun telefon raqamini kiriting.")
     number = ""
-    if phone.strip():
+    if phone.strip() and (humo or not card_type):
         try:
             number = phone_of(phone, user=actor)
         except PhoneRequired as exc:

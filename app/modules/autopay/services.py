@@ -65,6 +65,9 @@ from app.modules.billing.services.invoices import receipt_line
 
 logger = logging.getLogger(__name__)
 
+# The one card type Multicard asks the owner's phone for.
+HUMO = "humo"
+
 
 def autopay_on() -> bool:
     return bool(
@@ -132,12 +135,20 @@ def start_binding(
     now: datetime,
     autopay: bool = True,
     back: str = "",
+    card_type: str = "",
 ) -> Binding:
-    """A Multicard page where the owner adds the card bills are paid from."""
+    """A Multicard page where the owner adds the card bills are paid from.
+
+    Multicard needs the owner's phone for a Humo card only, and checks a
+    phone it is given against the card's SMS number (Uzcard, Humo); the code
+    goes to the card's own number. So a card the owner says is not Humo is
+    bound with no phone - a card from abroad has no 998 number to give.
+    """
     if not consent:
         raise ConsentRequired
     adapter = cards()
-    number = phone_of(phone, user=user)
+    kind = card_type.strip().lower()
+    number = "" if kind and kind != HUMO else phone_of(phone, user=user)
     done, declined = return_paths(back)
     try:
         session = adapter.start_card_binding(

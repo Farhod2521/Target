@@ -51,6 +51,9 @@ class TestCardIn(BaseModel):
     phone: str = Field(
         "", description="The card's SMS phone (Humo needs it); empty: none is sent."
     )
+    card_type: str = Field(
+        "", description="`humo` asks the phone; any other card is bound without."
+    )
 
 
 class TestCodeIn(BaseModel):
@@ -148,7 +151,7 @@ def refund(db: Db, user: Superuser, payment_id: uuid.UUID) -> dict[str, Any]:
 def bind_card(db: Db, user: Superuser, body: TestCardIn) -> dict[str, Any]:
     """Multicard's page to add a test card on; it is read back once added."""
     card, form_url = testing.start_card_binding(
-        db, actor=user, phone=body.phone, now=utcnow()
+        db, actor=user, phone=body.phone, card_type=body.card_type, now=utcnow()
     )
     return {"id": str(card.id), "form_url": form_url}
 
