@@ -95,6 +95,7 @@ class Shell:
             ("surveys", self.can_give),
             ("tutorials", self.can_give),
             ("broadcasts", self.is_superuser),
+            ("testing", self.is_superuser),
             ("sales", self.can_sell),
             ("chat", self.can_answer),
             ("refusals", True),

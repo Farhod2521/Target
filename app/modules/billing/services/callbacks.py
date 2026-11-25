@@ -70,6 +70,7 @@ from app.modules.billing.selectors import (
     transaction_by_external,
     transactions_in_window,
 )
+from app.modules.billing.services import test_payments
 from app.modules.billing.services.entitlement import (
     new_transaction_reference,
     payer,
@@ -376,6 +377,8 @@ def handle_callback(
         )
         return adapter.refuse_malformed(request=raw)
     handler = HANDLERS.get(request.command)
+    if test_payments.is_test(request.number):
+        handler = test_payments.on_callback
     outcome: Outcome
     if handler is None:
         outcome = Refused(reason=MALFORMED, detail=request.command)
