@@ -20,12 +20,14 @@ from app.modules.billing.selectors.subscription import days_left, live_subscript
 
 
 def seat_price_minor(
-    *, plan: Plan, owner: User | None = None, kept_rate: str = ""
+    *, plan: Plan, owner: User | None = None, bill_rate: str | None = None
 ) -> int:
-    """A CRM manager seat's price for ``owner`` (dollars × rate abroad)."""
-    from app.modules.billing.selectors.prices import price_book
+    """A CRM manager seat's price for ``owner`` (dollars × rate abroad); on a
+    bill (``bill_rate`` given, "" for a so'm one) on that bill's own basis."""
+    from app.modules.billing.selectors.prices import bill_book, price_book
 
-    return price_book(owner, kept_rate=kept_rate).seat_minor(plan)
+    book = bill_book(bill_rate) if bill_rate is not None else price_book(owner)
+    return book.seat_minor(plan)
 
 
 def seat_offer(db: Session, *, owner: User, now: datetime) -> PageOffer:
@@ -47,10 +49,10 @@ def seat_offer(db: Session, *, owner: User, now: datetime) -> PageOffer:
 
 
 def plan_seats_minor(
-    *, plan: Plan, count: int, owner: User | None = None, kept_rate: str = ""
+    *, plan: Plan, count: int, owner: User | None = None, bill_rate: str | None = None
 ) -> int:
     return prorate(
-        price_minor=seat_price_minor(plan=plan, owner=owner, kept_rate=kept_rate),
+        price_minor=seat_price_minor(plan=plan, owner=owner, bill_rate=bill_rate),
         count=count,
         days=plan.period_days,
         currency=plan.currency,

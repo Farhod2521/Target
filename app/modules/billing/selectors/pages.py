@@ -37,12 +37,14 @@ class PageOffer:
 
 
 def page_price_minor(
-    *, plan: Plan, owner: User | None = None, kept_rate: str = ""
+    *, plan: Plan, owner: User | None = None, bill_rate: str | None = None
 ) -> int:
-    """An extra page's price for ``owner`` (dollars × rate abroad)."""
-    from app.modules.billing.selectors.prices import price_book
+    """An extra page's price for ``owner`` (dollars × rate abroad); on a bill
+    (``bill_rate`` given, "" for a so'm one) on that bill's own basis."""
+    from app.modules.billing.selectors.prices import bill_book, price_book
 
-    return price_book(owner, kept_rate=kept_rate).page_minor(plan)
+    book = bill_book(bill_rate) if bill_rate is not None else price_book(owner)
+    return book.page_minor(plan)
 
 
 def prorate(*, price_minor: int, count: int, days: int, currency: str) -> int:
@@ -52,10 +54,10 @@ def prorate(*, price_minor: int, count: int, days: int, currency: str) -> int:
 
 
 def plan_pages_minor(
-    *, plan: Plan, count: int, owner: User | None = None, kept_rate: str = ""
+    *, plan: Plan, count: int, owner: User | None = None, bill_rate: str | None = None
 ) -> int:
     return prorate(
-        price_minor=page_price_minor(plan=plan, owner=owner, kept_rate=kept_rate),
+        price_minor=page_price_minor(plan=plan, owner=owner, bill_rate=bill_rate),
         count=count,
         days=plan.period_days,
         currency=plan.currency,

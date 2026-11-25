@@ -12,7 +12,9 @@ from app.modules.accounts.models import User
 from app.modules.backoffice.constants import ActionKind, Role
 from app.modules.backoffice.models import StaffAction
 from app.modules.billing.models import Invoice, Plan
+from app.modules.billing.selectors.pages import page_price_minor
 from app.modules.billing.selectors.prices import price_book
+from app.modules.billing.selectors.seats import seat_price_minor
 from tests.pg.conftest import sign_up
 from tests.pg.test_office_actions import _staff
 from tests.pg.test_office_plans import _plan
@@ -303,3 +305,46 @@ def test_the_office_reads_the_rate_and_a_bill_s_own(
     assert shown.status_code == 200, shown.text
     assert shown.json() == {"uzs_per_usd": "12650.37", "rate_date": "25.11.2026"}
     assert client.get("/api/v1/office/rate").status_code == 401
+
+
+# --- Review fixes: a bill keeps its own basis --------------------------------
+
+
+def test_an_unpaid_so_m_bill_is_not_offered_to_an_account_now_abroad(
+    client: TestClient, db: Session, rate: None
+) -> None:
+    _sold_plan(db)
+    auth = _account(db, client, "UZ")
+    client.post("/api/v1/billing/checkout", json={"plan": "pro"}, headers=auth)
+    user = db.scalar(select(User))
+    assert user is not None
+    user.country = "JP"
+    db.commit()
+
+    client.post("/api/v1/billing/checkout", json={"plan": "pro"}, headers=auth)
+
+    bills = db.scalars(select(Invoice).order_by(Invoice.created_at)).all()
+    assert [(b.usd_rate, b.amount_minor) for b in bills] == [
+        ("", _som_minor(590000)),
+        ("12650.37", _som_minor(619869)),
+    ]
+
+
+def test_what_is_added_to_a_bill_is_priced_on_the_bill_s_basis(rate: None) -> None:
+    plan = Plan(
+        price=590000,
+        extra_page_price=150000,
+        crm_seat_price=40000,
+        price_usd_cents=4900,
+        extra_page_price_usd_cents=1500,
+        crm_seat_price_usd_cents=400,
+        currency="UZS",
+        period_days=30,
+    )
+    abroad = User(country="JP")
+
+    on_som_bill = page_price_minor(plan=plan, owner=abroad, bill_rate="")
+    on_dollar_bill = seat_price_minor(plan=plan, owner=None, bill_rate="12000")
+
+    assert on_som_bill == _som_minor(150000)
+    assert on_dollar_bill == _som_minor(48000)

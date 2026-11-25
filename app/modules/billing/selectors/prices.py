@@ -79,6 +79,18 @@ class PriceBook:
 HOME_BOOK: Final = PriceBook()
 
 
+def bill_book(usd_rate: str) -> PriceBook:
+    """The prices a bill was made on: its dollar prices at its own rate, or
+    so'm when it kept none - whatever its owner's country or the rate since,
+    so that nothing added to a bill mixes the two."""
+    if usd_rate:
+        try:
+            return PriceBook(rate=Decimal(usd_rate))
+        except InvalidOperation:
+            pass
+    return HOME_BOOK
+
+
 def price_book(owner: User | None, *, kept_rate: str = "") -> PriceBook:
     """The prices ``owner`` pays. ``kept_rate``: a bill's own rate, so that a
     bill priced again keeps its dollars whatever the rate does since."""

@@ -91,7 +91,7 @@ from app.modules.billing.selectors import (
     running_subscription,
     seat_offer,
 )
-from app.modules.billing.selectors.prices import price_book
+from app.modules.billing.selectors.prices import bill_book, price_book
 from app.modules.billing.selectors.renewal import renewal
 from app.modules.billing.selectors.seats import (
     plan_seats_minor,
@@ -199,11 +199,16 @@ def create_invoice(db: Session, *, owner: User, plan: Plan, now: datetime) -> In
     until = plan_switch(db, owner=owner, plan=plan, now=now).until
     if until is not None:
         raise CheaperPlanWaits(until=until)
-    existing = payable_invoice(db, owner=owner, plan=plan, now=now)
-    if existing is not None:
-        return existing
     # Abroad, the plan's dollar price at the day's rate; the rate stays on the bill.
     book = price_book(owner)
+    existing = payable_invoice(db, owner=owner, plan=plan, now=now)
+    # An unpaid bill on the other basis (so'm for an account now abroad, or
+    # the reverse) is not offered again: a new one is made on today's.
+    if existing is not None and (
+        existing.status != InvoiceStatus.PENDING
+        or bool(existing.usd_rate) == book.in_dollars
+    ):
+        return existing
     return insert_invoice(
         db,
         owner=owner,
@@ -505,8 +510,7 @@ def price_invoice(
         minor = plan_pages_minor(
             plan=locked.plan,
             count=carried.pages_carried,
-            owner=owner,
-            kept_rate=locked.usd_rate,
+            bill_rate=locked.usd_rate,
         )
         if minor > 0:
             locked.pages = carried.pages_carried
@@ -557,7 +561,7 @@ def _sales_offer(
     offer = live_offer(db, owner_id=owner.id, now=now)
     if offer is None:
         return None, 0
-    base = price_book(owner, kept_rate=invoice.usd_rate).plan_minor(invoice.plan)
+    base = bill_book(invoice.usd_rate).plan_minor(invoice.plan)
     take = offer_minor(
         offer=offer, plan=invoice.plan, base_minor=base, credit_minor=credit_minor
     )
@@ -578,9 +582,7 @@ def _promo_minor(
 
 def _add_seats(*, invoice: Invoice, count: int, owner: User | None = None) -> None:
     """Renew the seats somebody sits in on this bill, but the unticked ones."""
-    minor = plan_seats_minor(
-        plan=invoice.plan, count=count, owner=owner, kept_rate=invoice.usd_rate
-    )
+    minor = plan_seats_minor(plan=invoice.plan, count=count, bill_rate=invoice.usd_rate)
     if minor <= 0:
         return
     invoice.seats = count
