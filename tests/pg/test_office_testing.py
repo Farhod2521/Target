@@ -296,25 +296,6 @@ def test_a_test_card_phone_given_is_sent(
     assert shop.binds[-1]["phone"] == "998901234567"
 
 
-@pytest.mark.parametrize(
-    ("card_type", "sent"),
-    [("visa", None), ("uzcard", None), ("humo", "998901234567"), ("", "998901234567")],
-)
-def test_the_cabinet_sends_a_phone_for_humo_only(
-    client: TestClient, shop: FakeShop, card_type: str, sent: str | None
-) -> None:
-    auth = sign_up(client)
-
-    opened = client.post(
-        "/api/v1/billing/card/bind",
-        json={"consent": True, "phone": "+998 90 123 45 67", "card_type": card_type},
-        headers=auth,
-    )
-
-    assert opened.status_code == 200, opened.text
-    assert shop.binds[-1].get("phone") == sent
-
-
 def test_a_humo_test_card_needs_a_phone(
     client: TestClient, db: Session, shop: FakeShop
 ) -> None:

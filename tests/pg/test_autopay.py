@@ -749,6 +749,23 @@ def test_a_card_bound_from_a_checkout_comes_back_to_it_with_autopay_as_chosen(
     assert shown["card"] is not None and shown["autopay"] is False
 
 
+@pytest.mark.parametrize("card_type", ["", "humo", "uzcard", "visa"])
+def test_no_phone_is_sent_for_any_card(
+    client: TestClient, multicard: FakeMulticard, card_type: str
+) -> None:
+    """Multicard refuses a card whose SMS number differs from a given phone."""
+    auth = sign_up(client)
+
+    opened = client.post(
+        "/api/v1/billing/card/bind",
+        json={"consent": True, "phone": "998901234567", "card_type": card_type},
+        headers=auth,
+    )
+
+    assert opened.status_code == 200, opened.text
+    assert "phone" not in multicard.binds[-1]
+
+
 @pytest.mark.parametrize(
     "back", ["https://evil.example/app/", "//evil.example", "/app//x", "/office/", ""]
 )

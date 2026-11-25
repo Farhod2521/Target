@@ -15,15 +15,14 @@ class BindIn(BaseModel):
     phone: str = Field(
         "",
         max_length=20,
-        description="The card owner's phone, 998XXXXXXXXX. Sent for `humo` only "
-        "(Multicard needs it there); empty: the account's.",
+        description="Ignored: no phone is sent to Multicard, it refused cards whose "
+        "SMS number differed. Kept so older pages still bind.",
     )
     card_type: str = Field(
         "",
         max_length=16,
-        description="`humo`, `uzcard`, `visa`, `mastercard` or `other`, as the owner "
-        "picked it. Any but `humo` is bound with no phone: Multicard sends the code "
-        "to the card's own number. Empty: the phone is sent, as before.",
+        description="Ignored: every card is bound with no phone, the code goes to "
+        "the card's own number. Kept so older pages still bind.",
     )
     autopay: bool = Field(
         True,
