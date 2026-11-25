@@ -6,6 +6,7 @@ from app.modules.billing.models.promo_code import PromoCode
 from app.modules.billing.models.promo_redemption import PromoRedemption
 from app.modules.billing.models.subscription import Subscription
 from app.modules.billing.models.subscription_change import SubscriptionChange
+from app.modules.billing.models.test_card import TestCard
 from app.modules.billing.models.test_payment import TestPayment
 
-__all__ = ["Invoice", "PaymentTransaction", "Plan", "PlanFeature", "PromoCode", "PromoRedemption", "Subscription", "SubscriptionChange", "TestPayment"]
+__all__ = ["Invoice", "PaymentTransaction", "Plan", "PlanFeature", "PromoCode", "PromoRedemption", "Subscription", "SubscriptionChange", "TestCard", "TestPayment"]

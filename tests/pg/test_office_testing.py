@@ -17,9 +17,18 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.common.config import settings
 from app.modules.accounts.models import User
+from app.modules.autopay.models import SavedCard
 from app.modules.billing.models import Invoice, Subscription, TestPayment
 from tests.pg.conftest import sign_up
-from tests.pg.test_autopay import SECRET, STORE, FakeMulticard, _bound, _ok
+from tests.pg.test_autopay import (
+    SECRET,
+    SESSION,
+    STORE,
+    TOKEN,
+    FakeMulticard,
+    _bound,
+    _ok,
+)
 
 RATE = (Decimal("12650.37"), "25.11.2026")
 
@@ -218,3 +227,44 @@ def test_only_the_superuser_sees_testing(
     _superuser(db)
     me = client.get("/api/v1/office/me", headers=auth).json()
     assert "testing" in me["sections"]
+
+
+def test_a_test_card_is_bound_here_and_the_account_card_left_alone(
+    client: TestClient, db: Session, shop: FakeShop
+) -> None:
+    auth = sign_up(client)
+    _superuser(db)
+
+    opened = client.post(
+        "/api/v1/office/testing/cards",
+        json={"phone": "+998 90 123 45 67"},
+        headers=auth,
+    )
+    assert opened.status_code == 200, opened.text
+    assert opened.json()["form_url"].startswith("https://mc/card/")
+    assert shop.binds[-1]["redirect_url"].endswith("/ofis/test/?card=bound")
+    # Multicard's callback for the page: no account card has this session.
+    reported = client.post("/webhooks/cards/multicard", json={"payer_id": SESSION})
+    assert reported.status_code == 200, reported.text
+
+    shown = client.get("/api/v1/office/testing", headers=auth).json()
+    assert shown["card"] is None
+    assert [c["pan"] for c in shown["test_cards"]] == ["986027******1519"]
+    card_id = shown["test_cards"][0]["id"]
+
+    paid = client.post(
+        "/api/v1/office/testing/payments",
+        json={"method": "card", "usd": "1", "card_id": card_id},
+        headers=auth,
+    ).json()
+
+    assert paid["status"] == "paid"
+    assert paid["card_pan"] == "986027******1519"
+    assert shop.payments["p1"]["card"] == {"token": TOKEN}
+    assert db.scalar(select(SavedCard)) is None
+
+    gone = client.delete(f"/api/v1/office/testing/cards/{card_id}", headers=auth)
+    assert gone.status_code == 200, gone.text
+    assert f"DELETE /payment/card/{TOKEN}" in shop.seen
+    after = client.get("/api/v1/office/testing", headers=auth).json()
+    assert after["test_cards"] == []

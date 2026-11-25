@@ -94,7 +94,11 @@ async def card_callback(request: Request) -> JSONResponse:
         return JSONResponse({"success": False}, status_code=400)
     db = SessionLocal()
     try:
-        services.binding_reported(db, session_id=session_id, now=utcnow())
+        if not services.binding_reported(db, session_id=session_id, now=utcnow()):
+            # Not an account's card: perhaps one bound in the office «Testing».
+            from app.modules.backoffice.services.testing import card_reported
+
+            card_reported(db, session_id=session_id, now=utcnow())
         db.commit()
     except CardServiceDown:
         db.rollback()

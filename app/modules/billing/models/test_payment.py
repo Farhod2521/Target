@@ -34,6 +34,8 @@ class TestPayment(Base):
     rate: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     rate_date: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="created")
+    # The office test card it was taken from; null: the account's card or the page.
+    card_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("test_cards.id", ondelete="SET NULL"), nullable=True)
     # Multicard's payment uuid; empty for a page until its callback comes.
     external_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     page_url: Mapped[str] = mapped_column(String(512), nullable=False, default="")

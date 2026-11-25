@@ -22,7 +22,7 @@ from app.modules.accounts.models import User
 from app.modules.autopay.selectors import active_card
 from app.modules.backoffice.permissions import superuser_required
 from app.modules.backoffice.services import testing
-from app.modules.billing.models import TestPayment
+from app.modules.billing.models import TestCard, TestPayment
 
 router = APIRouter(prefix="/testing")
 Superuser = Annotated[User, Depends(superuser_required)]
@@ -42,6 +42,13 @@ class TestStartIn(BaseModel):
         description="`card` (your saved card) or `page` (Multicard's page)."
     )
     usd: str = Field("1", description="Dollars, e.g. `1` or `0.50`.")
+    card_id: str = Field(
+        "", description="With `card`: a test card's id; empty: the account's own card."
+    )
+
+
+class TestCardIn(BaseModel):
+    phone: str = Field("", description="The card's SMS phone; empty: the account's.")
 
 
 class TestCodeIn(BaseModel):
@@ -71,6 +78,10 @@ def _out(row: TestPayment) -> dict[str, Any]:
     }
 
 
+def _card_out(card: TestCard) -> dict[str, Any]:
+    return {"id": str(card.id), "pan": card.pan, "ps": card.ps, "holder": card.holder}
+
+
 def _cents(usd: str) -> int:
     try:
         value = Decimal(usd.replace(",", ".").strip())
@@ -93,6 +104,10 @@ def overview(db: Db, user: Superuser) -> dict[str, Any]:
         "card": {"pan": card.pan, "ps": card.ps, "holder": card.holder}
         if card is not None
         else None,
+        "test_cards": [
+            _card_out(card)
+            for card in testing.bound_test_cards(db, actor=user, now=utcnow())
+        ],
         "rows": [_out(row) for row in testing.recent(db)],
     }
 
@@ -100,7 +115,12 @@ def overview(db: Db, user: Superuser) -> dict[str, Any]:
 @router.post("/payments")
 def start(db: Db, user: Superuser, body: TestStartIn) -> dict[str, Any]:
     row = testing.start(
-        db, actor=user, method=body.method, usd_cents=_cents(body.usd), now=utcnow()
+        db,
+        actor=user,
+        method=body.method,
+        usd_cents=_cents(body.usd),
+        card_id=body.card_id,
+        now=utcnow(),
     )
     return _out(row)
 
@@ -120,3 +140,19 @@ def check(db: Db, user: Superuser, payment_id: uuid.UUID) -> dict[str, Any]:
 @router.post("/payments/{payment_id}/refund")
 def refund(db: Db, user: Superuser, payment_id: uuid.UUID) -> dict[str, Any]:
     return _out(testing.refund(db, actor=user, payment_id=payment_id, now=utcnow()))
+
+
+@router.post("/cards")
+def bind_card(db: Db, user: Superuser, body: TestCardIn) -> dict[str, Any]:
+    """Multicard's page to add a test card on; it is read back once added."""
+    card, form_url = testing.start_card_binding(
+        db, actor=user, phone=body.phone, now=utcnow()
+    )
+    return {"id": str(card.id), "form_url": form_url}
+
+
+@router.delete("/cards/{card_id}")
+def remove_card(db: Db, user: Superuser, card_id: uuid.UUID) -> dict[str, Any]:
+    """Forget a test card; Multicard voids its token too."""
+    testing.remove_test_card(db, actor=user, card_id=card_id, now=utcnow())
+    return {"ok": True}

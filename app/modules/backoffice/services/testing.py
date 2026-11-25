@@ -12,8 +12,9 @@ does; ``page`` opens Multicard's checkout page, where any card is typed.
 """
 
 import logging
+import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import ROUND_CEILING, Decimal
 from typing import Final
 
@@ -34,13 +35,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.config import settings
-from app.common.exceptions import DomainError
+from app.common.crypto import decrypt, encrypt
+from app.common.exceptions import DecryptionFailed, DomainError
 from app.common.money import decimal_places
 from app.modules.accounts.models import User
-from app.modules.autopay.exceptions import AutopayUnavailable
+from app.modules.autopay.exceptions import AutopayUnavailable, PhoneRequired
+from app.modules.autopay.models import SavedCard
 from app.modules.autopay.selectors import active_card
-from app.modules.autopay.services import _token, cards
-from app.modules.billing.models import TestPayment
+from app.modules.autopay.services import _token, cards, phone_of
+from app.modules.billing.models import TestCard, TestPayment
 from app.modules.billing.selectors.display import usd_rate
 from app.modules.billing.services import test_payments as states
 
@@ -55,6 +58,11 @@ MAX_USD_CENTS: Final = 10_000
 PAGE_TTL_SECONDS: Final = 30 * 60
 UZS: Final = "UZS"
 DESCRIPTION: Final = "TargetologAI test to'lovi"
+CARD_PENDING: Final = "pending"
+CARD_ACTIVE: Final = "active"
+CARD_REVOKED: Final = "revoked"
+# Multicard's card page lives 15 minutes; read a pending one back a while longer.
+BIND_PAGE_SECONDS: Final = 30 * 60
 
 
 class TestingRefused(DomainError):
@@ -103,8 +111,16 @@ def _live() -> MulticardAdapter:
 
 
 def start(
-    db: Session, *, actor: User, method: str, usd_cents: int, now: datetime
+    db: Session,
+    *,
+    actor: User,
+    method: str,
+    usd_cents: int,
+    now: datetime,
+    card_id: str = "",
 ) -> TestPayment:
+    """A trial payment; ``card`` takes it from a test card bound here
+    (``card_id``) or, with none named, from the account's own card."""
     if method not in METHODS:
         raise TestingRefused("To'lov usuli noto'g'ri.")
     if usd_cents < 1 or usd_cents > MAX_USD_CENTS:
@@ -120,7 +136,16 @@ def start(
         rate_date=rate.date,
         status=states.CREATED,
     )
-    if method == CARD:
+    token = ""
+    if method == CARD and card_id:
+        test_card = _test_card(db, actor=actor, card_id=card_id)
+        token = _decrypted(test_card.token_encrypted)
+        if test_card.status != CARD_ACTIVE or not token:
+            raise TestingRefused("Bu test karta ulanmagan.")
+        row.card_id = test_card.id
+        row.card_pan = test_card.pan[:32]
+        row.card_ps = test_card.ps[:16]
+    elif method == CARD:
         token, card = _card_of(db, actor)
         row.card_pan = card.pan[:32]
         row.card_ps = card.ps[:16]
@@ -132,15 +157,140 @@ def start(
     return _charge(db, row, token)
 
 
-def _card_of(db: Session, actor: User):  # type: ignore[no-untyped-def]
+def _decrypted(blob: bytes | None) -> str:
+    if not blob:
+        return ""
+    try:
+        return decrypt(blob)
+    except DecryptionFailed:
+        return ""
+
+
+def _card_of(db: Session, actor: User) -> tuple[str, SavedCard]:
     card = active_card(db, owner=actor)
     token = _token(card) if card is not None else ""
     if card is None or not token:
         raise TestingRefused(
-            "Sizning akkauntingizda ulangan karta yo'q - kabinetda karta ulang "
-            "yoki «To'lov sahifasi» usulini tanlang."
+            "Sizning akkauntingizda ulangan karta yo'q - bu yerda test karta "
+            "ulang yoki «To'lov sahifasi» usulini tanlang."
         )
     return token, card
+
+
+# --- Test cards: bound here, apart from the account's own card ------------
+
+
+def _test_card(db: Session, *, actor: User, card_id: object) -> TestCard:
+    try:
+        key = uuid.UUID(str(card_id))
+    except ValueError as exc:
+        raise TestingRefused("Test karta topilmadi.") from exc
+    card = db.scalar(
+        select(TestCard).where(TestCard.id == key, TestCard.actor_id == actor.id)
+    )
+    if card is None:
+        raise TestingRefused("Test karta topilmadi.")
+    return card
+
+
+def start_card_binding(
+    db: Session, *, actor: User, phone: str, now: datetime
+) -> tuple[TestCard, str]:
+    """Multicard's card page for a test card; answers the card and the page."""
+    try:
+        adapter = cards()
+    except AutopayUnavailable as exc:
+        raise TestingRefused("Karta ulash bu serverda yoqilmagan.") from exc
+    try:
+        number = phone_of(phone, user=actor)
+    except PhoneRequired as exc:
+        raise TestingRefused(
+            "Telefon raqamini kiriting: 998 va 9 ta raqam (karta SMS keladigan raqam)."
+        ) from exc
+    back = f"{settings.site_url}/ofis/test/"
+    try:
+        session = adapter.start_card_binding(
+            phone=number,
+            redirect_url=f"{back}?card=bound",
+            decline_url=f"{back}?card=declined",
+            callback_url=settings.multicard_card_callback_url,
+        )
+    except PaymentError as exc:
+        raise TestingRefused(f"Rahmat karta sahifasini ochmadi: {exc}") from exc
+    card = TestCard(
+        actor_id=actor.id, session_id=session.session_id, status=CARD_PENDING
+    )
+    db.add(card)
+    db.commit()
+    return card, session.form_url
+
+
+def finish_card(db: Session, *, card: TestCard, now: datetime) -> TestCard:
+    """Ask Multicard which card its page added; keep it if one was."""
+    if card.status != CARD_PENDING:
+        return card
+    try:
+        bound = cards().bound_card(session_id=card.session_id)
+    except (PaymentError, AutopayUnavailable) as exc:
+        logger.warning("test card %s could not be read: %s", card.session_id, exc)
+        return card
+    if bound is None or not bound.usable:
+        return card
+    card.status = CARD_ACTIVE
+    card.token_encrypted = encrypt(bound.token)
+    card.pan = bound.pan[:32]
+    card.ps = bound.ps[:16]
+    card.holder = bound.holder[:100]
+    card.bound_at = now
+    db.flush()
+    logger.info("test card %s bound for %s", card.pan, card.actor_id)
+    return card
+
+
+def card_reported(db: Session, *, session_id: str, now: datetime) -> bool:
+    """Multicard's card callback, for a session that is no account's card."""
+    card = db.scalar(select(TestCard).where(TestCard.session_id == session_id))
+    if card is None:
+        return False
+    finish_card(db, card=card, now=now)
+    return True
+
+
+def bound_test_cards(db: Session, *, actor: User, now: datetime) -> list[TestCard]:
+    """The actor's test cards, a page still open read once more."""
+    rows = list(
+        db.scalars(
+            select(TestCard)
+            .where(
+                TestCard.actor_id == actor.id,
+                TestCard.status.in_((CARD_PENDING, CARD_ACTIVE)),
+            )
+            .order_by(TestCard.created_at.desc())
+        )
+    )
+    fresh = now - timedelta(seconds=BIND_PAGE_SECONDS)
+    for card in rows:
+        if card.status == CARD_PENDING and card.created_at >= fresh:
+            finish_card(db, card=card, now=now)
+    db.commit()
+    return [card for card in rows if card.status == CARD_ACTIVE]
+
+
+def remove_test_card(
+    db: Session, *, actor: User, card_id: object, now: datetime
+) -> None:
+    card = _test_card(db, actor=actor, card_id=card_id)
+    token = _decrypted(card.token_encrypted)
+    card.status = CARD_REVOKED
+    card.revoked_at = now
+    card.token_encrypted = None
+    db.commit()
+    if not token:
+        return
+    try:
+        cards().revoke_card(token=token)
+    except (PaymentError, DomainError) as exc:
+        logger.warning("test card %s could not be voided: %s", card.id, exc)
 
 
 def _open_page(db: Session, row: TestPayment) -> TestPayment:
