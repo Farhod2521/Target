@@ -33,14 +33,14 @@ def _placement(launch: CampaignLaunch) -> object:
     return chosen.get("placement_mode")
 
 
-def test_a_page_with_instagram_starts_on_instagram_only(
+def test_a_page_with_instagram_starts_on_facebook_and_instagram(
     client: TestClient, db: Session
 ) -> None:
     launch = _launch(client, db, instagram="ig_1")
 
     apply_placement(db, launch=launch)
 
-    assert _placement(launch) == "instagram"
+    assert _placement(launch) == "standard"
 
 
 def test_a_lead_form_starts_on_facebook_and_instagram(

@@ -14,6 +14,7 @@ which rule fired, and that is the thing worth pinning.
 from core.advice import (
     BUILD_A_NEW_ONE,
     CHAT_ON_FACEBOOK,
+    CHAT_ON_INSTAGRAM,
     INSTAGRAM_IS_CONNECTED,
     LEAD_FORM_ON_BOTH,
     NO_INSTAGRAM,
@@ -50,10 +51,10 @@ def test_the_audience_rule_reads_nothing() -> None:
 
 
 # --- Where the ad may appear --------------------------------------------
-def test_a_page_with_instagram_is_advised_towards_instagram_only() -> None:
+def test_a_page_with_instagram_is_advised_towards_facebook_and_instagram() -> None:
     advice = placement_advice(has_instagram=True)
 
-    assert (advice.value, advice.reason) == ("instagram", INSTAGRAM_IS_CONNECTED)
+    assert (advice.value, advice.reason) == ("standard", INSTAGRAM_IS_CONNECTED)
 
 
 def test_a_page_without_instagram_is_advised_towards_facebook_only() -> None:
@@ -73,7 +74,7 @@ def test_a_messenger_chat_stays_on_facebook_even_with_instagram() -> None:
 def test_an_instagram_chat_keeps_instagram_only() -> None:
     advice = placement_advice(has_instagram=True, chat="instagram")
 
-    assert advice.value == "instagram"
+    assert (advice.value, advice.reason) == ("instagram", CHAT_ON_INSTAGRAM)
 
 
 def test_a_lead_form_goes_to_facebook_and_instagram_together() -> None:

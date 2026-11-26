@@ -26,6 +26,7 @@ PROVIDER_EXPANDS: Final = "provider_expands"
 INSTAGRAM_IS_CONNECTED: Final = "instagram_is_connected"
 NO_INSTAGRAM: Final = "no_instagram"
 CHAT_ON_FACEBOOK: Final = "chat_on_facebook"
+CHAT_ON_INSTAGRAM: Final = "chat_on_instagram"
 LEAD_FORM_ON_BOTH: Final = "lead_form_on_both"
 
 SAME_QUESTIONS: Final = "same_questions"
@@ -58,10 +59,12 @@ def audience_advice() -> Advice:
 def placement_advice(
     *, has_instagram: bool, chat: str = "", lead_form: bool = False
 ) -> Advice:
-    """One app: Instagram when the page has it, else Facebook. Never Threads.
+    """Facebook and Instagram together when the page has Instagram, else
+    Facebook. Never Threads.
 
-    A chat on Messenger keeps the ad on Facebook - an Instagram-only answer
-    would be handed back to the provider, Threads and all.
+    A chat keeps the ad on its own app: Messenger on Facebook, Instagram Direct
+    on Instagram - a one-app answer elsewhere would be handed back to the
+    provider, Threads and all.
 
     A lead form goes to both apps. Measured on production, 2026-10-21 to
     2026-11-19, launches that stayed on a day or longer: 59 of 85 form
@@ -71,11 +74,13 @@ def placement_advice(
     """
     if chat == "messenger":
         return Advice(value="facebook", reason=CHAT_ON_FACEBOOK)
-    if has_instagram and lead_form:
+    if not has_instagram:
+        return Advice(value="facebook", reason=NO_INSTAGRAM)
+    if chat == "instagram":
+        return Advice(value="instagram", reason=CHAT_ON_INSTAGRAM)
+    if lead_form:
         return Advice(value="standard", reason=LEAD_FORM_ON_BOTH)
-    if has_instagram:
-        return Advice(value="instagram", reason=INSTAGRAM_IS_CONNECTED)
-    return Advice(value="facebook", reason=NO_INSTAGRAM)
+    return Advice(value="standard", reason=INSTAGRAM_IS_CONNECTED)
 
 
 def buying_advice(*, is_offered: bool) -> Advice | None:
@@ -132,6 +137,7 @@ __all__ = [
     "BUILD_A_NEW_ONE",
     "CAMPAIGN_TYPE_REASONS",
     "CHAT_ON_FACEBOOK",
+    "CHAT_ON_INSTAGRAM",
     "INSTAGRAM_IS_CONNECTED",
     "LEAD_FORM_ON_BOTH",
     "NOTHING_MATCHES",
