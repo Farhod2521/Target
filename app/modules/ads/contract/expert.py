@@ -19,6 +19,8 @@ from app.modules.accounts.models import User
 from app.modules.ads.contract.figures_v2 import _by_account, _campaigns_by_id
 from app.modules.ads.contract.listing import ListAsk, figures_range
 from app.modules.ads.contract.manager import manager
+from app.modules.ads.selectors.row_marks import NONE as NO_MARKS
+from app.modules.ads.selectors.row_marks import campaign_marks
 from app.modules.metrics.constants import MetricLevel
 from app.modules.metrics.selectors.expert import (
     differing_attribution,
@@ -113,6 +115,11 @@ def expert_table(
     group_outcome: dict[str, Outcome] = {
         external_id: outcome_of_adsets([group]) for external_id, group in groups.items()
     }
+    # A group and an advert are as old, and as stopped, as their campaign.
+    marks = campaign_marks(db, campaigns=campaigns.values())
+    for _level, name in LEVELS:
+        for row in out[name]:
+            row.update(marks.get(row["campaign_external_id"], NO_MARKS).out())
     totals: dict[str, list[tuple[Figures, Outcome, str, Any]]] = defaultdict(list)
     # Each level's people counted by the network, account by account.
     people: dict[str, list[People | None]] = defaultdict(list)

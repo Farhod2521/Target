@@ -28,6 +28,7 @@ from app.modules.billing.selectors import (
     expiring_subscriptions,
     held_transactions,
 )
+from app.modules.integrations.block_causes import block_cause
 from app.modules.integrations.models import AdAccount
 from app.modules.integrations.selectors import broken_meta_connections
 from app.modules.leads.constants import SWEEP_STUCK_DAYS
@@ -83,7 +84,8 @@ def _connections(db: Session, *, limit: int | None) -> list[Problem]:
             severity=Severity.URGENT,
             owner_id=link.owner_id,
             who=link.owner.email,
-            what="Facebook ulanishi uzilgan — reklama va lidlar to'xtagan",
+            # The adverts go on at Meta: it is our reading of them that stopped.
+            what="Facebook ulanishi uzilgan — lidlar va reklama holati o'qilmayapti, reklama Meta'da to'xtamagan",
             since=link.updated_at,
             action="Mijozga xabar",
         )
@@ -113,6 +115,7 @@ def _ad_accounts(db: Session, *, limit: int | None) -> list[Problem]:
     found = []
     for account in db.scalars(query):
         owes = bool(account.payment_due)
+        cause = block_cause(account)
         found.append(
             Problem(
                 kind="payment_due" if owes else "account_blocked",
@@ -122,7 +125,11 @@ def _ad_accounts(db: Session, *, limit: int | None) -> list[Problem]:
                 what=(
                     "Meta'da to'lanmagan qarz — reklama to'xtagan"
                     if owes
-                    else "Meta reklama akkauntini bloklagan — reklama yurmaydi"
+                    else (
+                        f"{cause.cause} Reklama yurmaydi."
+                        if cause is not None
+                        else "Meta reklama akkauntini bloklagan — reklama yurmaydi"
+                    )
                 ),
                 since=account.synced_at or account.updated_at,
                 action="Mijozga xabar",

@@ -349,6 +349,18 @@ _STANDING_WORDS: Final = {
     "disabled": "Meta disabled it",
     "closed": "it is closed",
 }
+
+
+def _metas_reason(row: object) -> str:
+    """Meta's own name for why it disabled the account, when it gave one."""
+    from app.modules.integrations.block_causes import block_cause
+
+    cause = block_cause(row)
+    if cause is None or not cause.reason:
+        return ""
+    return f" (Meta's reason: {cause.reason} - tell the owner: «{cause.cause}»)"
+
+
 _MONEY_STANDINGS: Final = frozenset(
     {"payment_failed", "disabled_payment", "payment_grace", "payment_pending"}
 )
@@ -392,7 +404,7 @@ def _ad_accounts(db: Session, *, owner: User, now: datetime) -> list[str]:
         standing = row.standing or ""
         said = _STANDING_WORDS.get(standing)
         if said is not None:
-            faults.append(said)
+            faults.append(said + _metas_reason(row))
             if standing in _MONEY_STANDINGS:
                 fix = fix or _money_fix(row)
             elif standing == "review":

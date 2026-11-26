@@ -98,6 +98,8 @@ def test_the_filters_are_applied_on_the_server(client: TestClient, db: Session) 
         "paused": 0,
         "all": 1,
         "frozen": 0,
+        "stale": 0,
+        "accountStopped": 0,
     }
     assert elsewhere["sourceFallback"] is True and len(elsewhere["campaigns"]) == 1
     assert nonsense.status_code == 200

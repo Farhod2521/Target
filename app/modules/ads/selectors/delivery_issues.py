@@ -233,6 +233,50 @@ _META_FAULT: Final = Trouble(
     ),
     fix=SWAP,
 )
+# The five below were read from the production copy on 2026-11-26 with Meta's
+# own sentence beside each; the words follow that sentence and add nothing.
+_EDIT_NOT_SAVED: Final = Trouble(
+    title="Meta reklamadagi o'zgarishni saqlay olmadi",
+    cause="Reklamaga kiritilgan oxirgi o'zgarish Meta tomonida saqlanmagan, shuning uchun reklama ishlamayapti. Bu matn yoki rasmdagi xato emas.",
+    steps=(
+        "Reklamani o'zgartirmasdan qayta saqlang.",
+        "Takrorlansa, supportga yozing.",
+    ),
+    fix=SWAP,
+)
+_CREATIVE_NOT_FOR_GOAL: Final = Trouble(
+    title="Reklama tanlangan maqsadga mos emas",
+    cause="Reklamadagi kreativ (rasm, video yoki tugma) shu kampaniyaning maqsadi bilan ishlamaydi. Matnni o'zgartirish yordam bermaydi.",
+    steps=(
+        "Shu kampaniyada maqsadga mos yangi reklama yarating.",
+        "Eski reklamani o'chiring.",
+    ),
+    fix=CAMPAIGNS,
+)
+_FORMAT_WITH_FORM: Final = Trouble(
+    title="Reklama formati lid formasi bilan birga ishlamaydi",
+    cause="Reklamada lid formasi bor, tanlangan ko'rinish (format) esa Meta'da u bilan birga ishlamaydi.",
+    steps=(
+        "Shu kampaniyada boshqa rasm yoki video bilan yangi reklama yarating.",
+        "Eski reklamani o'chiring.",
+    ),
+    fix=CAMPAIGNS,
+)
+_WARNINGS_PILED: Final = Trouble(
+    title="Meta reklamani vaqtincha to'xtatdi",
+    cause="Reklamada ogohlantirishlar ko'p to'plangani uchun Meta uni vaqtincha to'xtatgan. Ular tuzatilmaguncha reklama ko'rsatilmaydi.",
+    steps=(
+        "Ads Manager'da shu reklama yonidagi ogohlantirishlarni oching va tuzating.",
+        "Keyin reklamani qayta chop eting (Publish).",
+    ),
+    fix=ADS_MANAGER,
+)
+_BUTTON_NOT_ON_INSTAGRAM: Final = Trouble(
+    title="Tanlangan tugma Instagram'da ishlamaydi",
+    cause="Reklamadagi harakat tugmasi (call to action) Instagram'da qo'llab-quvvatlanmaydi, shuning uchun reklama Instagram'da ko'rsatilmaydi.",
+    steps=("Reklamada boshqa tugma tanlang.", RESEND),
+    fix=SWAP,
+)
 
 TROUBLES: Final[dict[str, Trouble]] = {
     "2490471": _ACCOUNT_CLOSING,
@@ -285,6 +329,11 @@ TROUBLES: Final[dict[str, Trouble]] = {
     "2643200": _META_FAULT,
     "1815479": _META_FAULT,
     "2142030": _META_FAULT,
+    "1487083": _EDIT_NOT_SAVED,
+    "1487891": _CREATIVE_NOT_FOR_GOAL,
+    "1443073": _FORMAT_WITH_FORM,
+    "2490424": _WARNINGS_PILED,
+    "2875003": _BUTTON_NOT_ON_INSTAGRAM,
 }
 
 

@@ -316,6 +316,17 @@ class MetaOut(BaseModel):
     connected_at: datetime
 
 
+class AccountBlockOut(BaseModel):
+    kind: str = Field(description="`payment`, `closed` or `disabled`.")
+    reason: str | None = Field(
+        None, description="Meta's `disable_reason` name, e.g. `ADS_INTEGRITY_POLICY`."
+    )
+    title: str
+    cause: str
+    fix: str
+    href: str | None = None
+
+
 class AdAccountOut(BaseModel):
     id: str
     external_id: str
@@ -326,6 +337,19 @@ class AdAccountOut(BaseModel):
     payment_due: bool | None
     balance_minor: int
     synced_at: datetime | None
+    standing: str | None = Field(
+        None,
+        description="The account as last read: `active`, `payment_failed`, "
+        "`payment_grace`, `payment_pending`, `disabled_payment`, `disabled`, "
+        "`closed`, `review`, `unknown`. Null: never asked.",
+    )
+    account_status: str | None = Field(None, description="Meta's own number.")
+    disable_reason: str | None = Field(None, description="Meta's own number.")
+    block: AccountBlockOut | None = Field(
+        None,
+        description="Set when the account delivers nothing: whose stop it is, "
+        "Meta's own name for the cause, and the cause and the way out in Uzbek.",
+    )
 
 
 class PairOut(BaseModel):
@@ -393,7 +417,8 @@ class CardInvoiceOut(BaseModel):
     seats: int
     manual_method: str = Field(description="Set when the office wrote it down.")
     usd_rate: str = Field(
-        "", description="So'm per dollar a bill abroad was priced at; empty: so'm prices."
+        "",
+        description="So'm per dollar a bill abroad was priced at; empty: so'm prices.",
     )
     recorded_by: PersonOut | None
     created_at: datetime

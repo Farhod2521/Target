@@ -151,6 +151,8 @@ def campaign_row(
         if settings.starts_at
         else created,
         "frozen_since": None,
+        "stale_since": None,
+        "account_stopped": None,
     }
 
 
@@ -169,14 +171,33 @@ def disconnected_out(found: Any) -> dict[str, Any] | None:
     }
 
 
+def stopped_account_out(account: Any, *, kind: str) -> dict[str, Any]:
+    """One account that delivers nothing, as a screen is told it."""
+    from app.modules.integrations.block_causes import block_cause
+
+    cause = block_cause(account)
+    return {
+        "external_id": account.external_id,
+        "name": account.name or account.external_id,
+        "network": network_of(account.provider),
+        "kind": kind,
+        "reason": (cause.reason or None) if cause is not None else None,
+        "cause": cause.cause if cause is not None else None,
+        "fix": cause.fix if cause is not None else None,
+        "action": (cause.action or None) if cause is not None else None,
+        "href": (cause.href or None) if cause is not None else None,
+    }
+
+
 def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
     """Everything the list screen draws, for the filters asked."""
+    from app.modules.ads.selectors.row_marks import campaign_marks
     from app.modules.businesses.selectors import business_for_page
     from app.modules.integrations.selectors import (
         disconnected_of,
-        frozen_accounts,
         is_connected,
     )
+    from app.modules.integrations.selectors.standing import stopped_kind
     from app.modules.metrics.selectors import accounts_synced_at
     from app.modules.metrics.selectors import has_cooled as figures_cooled
     from app.modules.metrics.selectors.panel import campaign_chips, spend_total
@@ -222,13 +243,23 @@ def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
         )
         for row in rows
     ]
-    # A row behind a dead connection is as old as its account's last read:
-    # its status is what Meta said then, not what is true now.
-    frozen = frozen_accounts(db, account_ids={row.ad_account_id for row in rows})
+    # What each row's own word cannot say: its account's connection is dead,
+    # nothing has read it for too long, or the network switched its account
+    # off and left the campaign on.
+    marks = campaign_marks(db, campaigns=rows)
+    stopped: dict[Any, dict[str, Any]] = {}
     for row, shown_row in zip(rows, every, strict=True):
-        if row.ad_account_id in frozen:
-            stamp = frozen[row.ad_account_id]
-            shown_row["frozen_since"] = stamp.isoformat() if stamp else ""
+        mark = marks[str(row.external_id)]
+        shown_row.update(mark.out())
+        if mark.account_stopped is not None:
+            stopped.setdefault(
+                row.ad_account_id,
+                stopped_account_out(row.ad_account, kind=mark.account_stopped),
+            )
+    for held in advertising.accounts:
+        kind = stopped_kind(held)
+        if kind is not None:
+            stopped.setdefault(held.id, stopped_account_out(held, kind=kind))
     by_network = [row for row in every if ask.network in ("all", row["network"]["id"])]
     source = ask.source
     pool = [row for row in by_network if source in ("all", row["origin"])]
@@ -294,6 +325,7 @@ def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
                 or list(advertising.accounts),
             )
         ),
+        "stopped_accounts": list(stopped.values()),
         "auto_refresh": auto,
         "access": access_of(db, owner=owner),
         "unplaced": advertising.unplaced,
@@ -338,6 +370,17 @@ def campaign_list(db: Session, *, owner: User, ask: ListAsk) -> dict[str, Any]:
             "all": len(pool),
             "frozen": sum(
                 row["frozen_since"] is not None and row["status"] in RUNNING
+                for row in pool
+            ),
+            "stale": sum(
+                row["stale_since"] is not None and row["status"] in RUNNING
+                for row in pool
+            ),
+            "account_stopped": sum(
+                row["account_stopped"] is not None
+                and row["frozen_since"] is None
+                and row["stale_since"] is None
+                and row["status"] in RUNNING
                 for row in pool
             ),
         },

@@ -306,6 +306,29 @@ def _launch_note(db: Session, *, owner: User, campaign: Any) -> str:
     return LAUNCH_NOTES.get(draft_field.launch_note(launch.draft), "")
 
 
+def copy_marks(db: Session, *, campaign: Any) -> dict[str, Any]:
+    """What the page says over the campaign's own word: the list's marks, the
+    dead connection behind it and the account that was switched off."""
+    from app.modules.ads.contract.listing import (
+        disconnected_out,
+        stopped_account_out,
+    )
+    from app.modules.ads.selectors.row_marks import campaign_marks
+    from app.modules.integrations.selectors import disconnected_of
+
+    mark = campaign_marks(db, campaigns=[campaign])[str(campaign.external_id)]
+    account = campaign.ad_account
+    return {
+        **mark.out(),
+        "disconnected": disconnected_out(disconnected_of(db, accounts=[account]))
+        if mark.frozen_since is not None
+        else None,
+        "stopped_account": stopped_account_out(account, kind=mark.account_stopped)
+        if mark.account_stopped is not None
+        else None,
+    }
+
+
 def campaign_detail(
     db: Session,
     *,
@@ -353,6 +376,7 @@ def campaign_detail(
     )
     starts = settings.starts_at or (groups[0].start_time if groups else None)
     return {
+        **copy_marks(db, campaign=campaign),
         "id": str(campaign.id),
         "name": campaign.name,
         "kind": kind,

@@ -258,6 +258,10 @@ class FailureNote:
     explanation_html: str = ""
     # No answer yet: one is being written; ask for the state again.
     explaining: bool = False
+    # The cause and the steps of this very refusal, where the code's own
+    # guide would guess: a blocked account says why itself.
+    cause: str = ""
+    steps: tuple[str, ...] = ()
 
 
 def unfamiliar(action: ActionLog) -> bool:
@@ -305,10 +309,25 @@ def fix_link(fix: str, account: str) -> tuple[str, str]:
 def failure_note(*, action: ActionLog, target: Any, level: str) -> FailureNote:
     """The sentence and the button for one failed audit row."""
     sentence, fix = SENTENCES.get(action.error_code, FALLBACK)
-    account = account_of(target=target, level=level).external_id
-    label, url = fix_link(fix, account)
+    held = account_of(target=target, level=level)
+    label, url = fix_link(fix, held.external_id)
     if fix == RECONNECT:
         url = ""
+    own_cause: str = ""
+    own_steps: tuple[str, ...] = ()
+    if action.error_code == "account_blocked":
+        # The account says why itself: a debt is one cause of several, and a
+        # closed or hacked account is not mended on the billing page.
+        from app.modules.integrations.block_causes import block_cause
+
+        cause = block_cause(held)
+        if cause is not None:
+            sentence = (
+                "Meta bu reklama akkauntiga hozir hech qanday o'zgarish kiritishga "
+                f"ruxsat bermayapti. {cause.cause} {cause.fix}"
+            )
+            label, url = cause.action, cause.href
+            own_cause, own_steps = cause.cause, (cause.fix,)
     said = action.result_payload or {}
     words = " ".join(
         part
@@ -316,7 +335,13 @@ def failure_note(*, action: ActionLog, target: Any, level: str) -> FailureNote:
         if part
     )
     return FailureNote(
-        sentence=sentence, fix=fix, fix_label=label, fix_url=url, provider_words=words
+        sentence=sentence,
+        fix=fix,
+        fix_label=label,
+        fix_url=url,
+        provider_words=words,
+        cause=own_cause,
+        steps=own_steps,
     )
 
 
@@ -359,6 +384,8 @@ def note_refusal(*, note: FailureNote, action: ActionLog, key: str) -> Refusal:
         reverse("integrations:connections") if note.fix == RECONNECT else ""
     )
     cause, steps = guide_of(action.error_code)
+    if note.cause:
+        cause, steps = note.cause, note.steps
     return Refusal(
         key=key or None,
         retryable=action.error_code == "temporary",

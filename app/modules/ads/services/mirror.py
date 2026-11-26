@@ -819,8 +819,22 @@ def sync_ad_account(
             store_account_state,
         )
 
-        read = read_everything(db, ad_account, whole=whole)
+        # The account first: Meta may refuse the lists of an account it has
+        # switched off, and a block read only after them is never read.
         state = read_account_state(ad_account)
+        try:
+            read = read_everything(db, ad_account, whole=whole)
+        except (SyncFailed, ConnectionUnusable):
+            if state is not None:
+                store_account_state(db, ad_account=ad_account, state=state)
+                note_stops(
+                    db,
+                    ad_account=ad_account,
+                    before=our_rows(db, ad_account=ad_account),
+                    state=state,
+                    now=utcnow(),
+                )
+            raise
         before = our_rows(db, ad_account=ad_account)
         summary = store_everything(
             db,

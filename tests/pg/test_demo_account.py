@@ -104,7 +104,14 @@ def test_every_screen_reads_it_connected_and_fresh(
     listing = client.get(f"{V1}/campaigns?period=30", headers=head).json()
     assert listing["disconnected"] is None
     assert listing["sync"]["stale"] is False
-    assert listing["counts"] == {"running": 4, "paused": 1, "all": 5, "frozen": 0}
+    assert listing["counts"] == {
+        "running": 4,
+        "paused": 1,
+        "all": 5,
+        "frozen": 0,
+        "stale": 0,
+        "accountStopped": 0,
+    }
     assert {row["goal"] for row in listing["campaigns"]} == {"lead", "chat", "click"}
     assert all(
         row["metrics"]["results"]

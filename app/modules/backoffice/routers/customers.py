@@ -275,7 +275,23 @@ def _connection_out(link: ProviderConnection | None) -> dict[str, Any] | None:
 
 
 def _ad_account_out(account: AdAccount) -> dict[str, Any]:
+    from app.modules.integrations.block_causes import block_cause
+
+    cause = block_cause(account)
     return {
+        "standing": account.standing or None,
+        "account_status": account.account_status or None,
+        "disable_reason": account.disable_reason or None,
+        "block": {
+            "kind": cause.kind,
+            "reason": cause.reason or None,
+            "title": cause.title,
+            "cause": cause.cause,
+            "fix": cause.fix,
+            "href": cause.href or None,
+        }
+        if cause is not None
+        else None,
         "id": str(account.id),
         "external_id": account.external_id,
         "name": account.name,

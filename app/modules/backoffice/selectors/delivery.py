@@ -9,7 +9,10 @@ reads the copy through these rules, so it never claims more than it knows:
   copy is fresh;
 * deleted: the account was read whole after the launch and the campaign was
   not there - Meta lists no tombstones, absence is the deletion;
-* stale: the copy says on, but it is older than one sweep cycle allows.
+* stale: the copy says on, but it is older than one sweep cycle allows;
+* account_blocked: the campaign is on and its account is not - Meta keeps
+  the campaign ACTIVE on an account it closed or switched off. An account
+  stopped over a bill reads ``billing``, the word the office already knows.
 """
 
 from dataclasses import dataclass
@@ -27,6 +30,7 @@ from app.modules.ads.constants import (
 )
 from app.modules.ads.models import Ad, AdSet, Campaign, CampaignLaunch
 from app.modules.integrations.models import AdAccount
+from app.modules.integrations.selectors.standing import stopped_clause, stopped_kind
 
 STALE_AFTER: Final = timedelta(minutes=SYNC_STALE_MINUTES)
 # A sync reads Meta first and stamps the account when it has stored the lot,
@@ -37,12 +41,24 @@ DELETED: Final = "deleted"
 STALE: Final = "stale"
 NO_ADS: Final = "no_ads"
 NOT_READ: Final = "not_read"
+ACCOUNT_BLOCKED: Final = "account_blocked"
+# What a campaign says of itself that an account's stop is truer than. A
+# refusal, a switch that is off and an old copy keep their own word.
+_ON: Final = frozenset(
+    {
+        str(Delivery.ACTIVE),
+        str(Delivery.PENDING),
+        str(Delivery.BILLING),
+        str(Delivery.UNKNOWN),
+    }
+)
 STATE_LABELS: Final[dict[str, str]] = {
     **{str(key): str(label) for key, label in DELIVERY_LABELS.items()},
     DELETED: "O'chirilgan",
     STALE: "Holati eskirgan",
     NO_ADS: "Reklamasi qolmagan",
     NOT_READ: "Hali o'qilmagan",
+    ACCOUNT_BLOCKED: "Akkaunt bloklangan",
 }
 
 
@@ -86,6 +102,7 @@ def running_clause(*, now: datetime) -> ColumnElement[bool]:
         (Campaign.delivery == str(Delivery.ACTIVE))
         & (Campaign.synced_at >= now - STALE_AFTER)
         & live_ad
+        & Campaign.ad_account_id.not_in(select(AdAccount.id).where(stopped_clause()))
     )
 
 
@@ -160,6 +177,8 @@ def campaign_state(
         key = NO_ADS
     elif key == Delivery.ACTIVE and copy.live_ads == 0:
         key = _adverts_say(copy)
+    if key in _ON:
+        key = _account_says(account) or key
     running = key == Delivery.ACTIVE and copy.live_ads > 0
     return CampaignState(
         key=str(key),
@@ -168,6 +187,14 @@ def campaign_state(
         is_stale=stale,
         synced_at=copy.synced_at,
     )
+
+
+def _account_says(account: AdAccount | None) -> str | None:
+    """The account's stop, over whatever a campaign on it says of itself."""
+    kind = stopped_kind(account)
+    if kind is None:
+        return None
+    return str(Delivery.BILLING) if kind == "payment" else ACCOUNT_BLOCKED
 
 
 def _adverts_say(copy: Mirrored) -> str:

@@ -2,10 +2,10 @@
 
 from collections.abc import Sequence
 
-from metaads.accounts import manager_url
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
+from app.modules.integrations.block_causes import block_cause
 from app.modules.integrations.models import AdAccount
 from app.modules.integrations.selectors.watch import meta_action_required
 from core.inbox import InboxItem
@@ -48,18 +48,18 @@ def _blocked(*, account: AdAccount) -> list[InboxItem]:
     if account.payment_due or account.standing == "disabled_payment":
         # Money: the stop line says it, with its reason.
         return []
+    cause = block_cause(account)
+    if cause is None:
+        return []
     return [
         InboxItem(
             key=f"account_blocked:{account.external_id}:{account.account_status}",
             kind="account_blocked",
             level="urgent",
-            title="Reklama akkaunti reklama bera olmayapti",
-            body=(
-                "Meta bu akkauntni to'xtatgan: to'lov, cheklov yoki yopilgan "
-                "akkaunt. Buni faqat Meta'ning o'zida tuzatish mumkin."
-            ),
-            action="Meta'da ochish",
-            href=manager_url(account.external_id),
+            title=cause.title,
+            body=cause.body,
+            action=cause.action if cause.href else "",
+            href=cause.href,
         )
     ]
 

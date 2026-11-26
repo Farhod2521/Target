@@ -43,6 +43,19 @@ class ExpertRow(Camel):
         None, description="An advert's row: false when its words live on a post."
     )
     outcome: str = Field(description="What one result is for this row's goal.")
+    frozen_since: str | None = Field(
+        None,
+        description="The row's campaign hangs on a dead connection: everything "
+        "on it is as read at this moment (ISO; empty when never read).",
+    )
+    stale_since: str | None = Field(
+        None,
+        description="The row's campaign says it is on and was last read too "
+        "long ago (ISO) to be called running.",
+    )
+    account_stopped: Literal["payment", "closed", "disabled"] | None = Field(
+        None, description="The row's ad account delivers nothing."
+    )
     currency: str
     cells: dict[str, Cell] = Field(description="One per metric, keyed by its key.")
 

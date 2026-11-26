@@ -77,6 +77,43 @@ class ListedCampaign(Camel):
         "network said at this moment (ISO; empty when never read) and may no "
         "longer be true. Null on a row that is being read.",
     )
+    stale_since: str | None = Field(
+        None,
+        description="Set when the row says it is on and nothing has read it "
+        "for longer than a sweep allows (ISO: the last read). Its `status` is "
+        "what the network said then; do not draw it as running now. Null on a "
+        "fresh, a switched-off or a frozen row.",
+    )
+    account_stopped: Literal["payment", "closed", "disabled"] | None = Field(
+        None,
+        description="Set when the row's ad account delivers nothing, whatever "
+        "`status` says: the network keeps a campaign on while its account is "
+        "off. `payment`: a bill it could not charge; `closed`: the account is "
+        "closed; `disabled`: the network switched the account off. Draw the "
+        "row as stopped by its account, not as running.",
+    )
+
+
+class StoppedAccount(Camel):
+    external_id: str
+    name: str
+    network: NetworkRef
+    kind: Literal["payment", "closed", "disabled"]
+    reason: str | None = Field(
+        None,
+        description="The network's own name for the cause (Meta's "
+        "`disable_reason`, e.g. `ADS_INTEGRITY_POLICY`); null when it gave none.",
+    )
+    cause: str | None = Field(
+        None, description="Why the account is stopped, one sentence, in Uzbek."
+    )
+    fix: str | None = Field(None, description="What the owner does about it, in Uzbek.")
+    action: str | None = Field(None, description="The button's word for `href`.")
+    href: str | None = Field(
+        None,
+        description="Where the owner mends it at the network: the billing "
+        "page, Account Quality or Ads Manager. Null when there is none.",
+    )
 
 
 class Disconnected(Camel):
@@ -161,6 +198,16 @@ class Counts(Camel):
         description="How many of `running` stand behind a dead connection: "
         "running when last read, unknown now.",
     )
+    stale: int = Field(
+        0,
+        description="How many of `running` (and not of `frozen`) were last "
+        "read too long ago to be called running.",
+    )
+    account_stopped: int = Field(
+        0,
+        description="How many of `running` (not of `frozen` or `stale`) stand on an "
+        "account that delivers nothing: on, and shown to nobody.",
+    )
 
 
 class CampaignList(Camel):
@@ -173,6 +220,12 @@ class CampaignList(Camel):
         description="The connection these campaigns are read through no longer "
         "works. The rows are kept as last read; nothing here is live until the "
         "owner connects again.",
+    )
+    stopped_accounts: list[StoppedAccount] = Field(
+        default_factory=list,
+        description="The ad accounts here that deliver nothing: say so above "
+        "the list, with the reason and the way to mend it. Their rows carry "
+        "`accountStopped`.",
     )
     auto_refresh: bool
     access: Access
@@ -433,6 +486,23 @@ class CampaignDetail(Camel):
     access: Access
     panel: Panel
     creatives: CreativesReport | None
+    frozen_since: str | None = Field(
+        None, description="As on the list's row: the connection behind it is dead."
+    )
+    stale_since: str | None = Field(
+        None, description="As on the list's row: on, and not read for too long."
+    )
+    account_stopped: Literal["payment", "closed", "disabled"] | None = Field(
+        None, description="As on the list's row: its ad account delivers nothing."
+    )
+    disconnected: Disconnected | None = Field(
+        None, description="The dead connection, when `frozenSince` is set."
+    )
+    stopped_account: StoppedAccount | None = Field(
+        None,
+        description="The account that delivers nothing, with the cause and the "
+        "way out, when `accountStopped` is set.",
+    )
 
 
 class Fix(Camel):

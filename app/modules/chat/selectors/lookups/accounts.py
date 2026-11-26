@@ -59,12 +59,22 @@ def audiences(
     return "\n".join(section("Saved audiences", rows, empty="none saved"))
 
 
+def _why(row: AdAccount) -> str:
+    from app.modules.integrations.block_causes import block_cause
+
+    cause = block_cause(row)
+    if cause is None:
+        return ""
+    named = f", Meta's reason {cause.reason}" if cause.reason else ""
+    return f" ({cause.kind}{named}: {cause.cause})"
+
+
 def _account_line(row: AdAccount) -> str:
     parts = [f"currency {row.currency}"]
     if row.is_current:
         parts.insert(0, "current")
     if not row.may_advertise:
-        parts.append("cannot advertise right now")
+        parts.append("cannot advertise right now" + _why(row))
     if row.synced_at is not None:
         parts.append(f"figures synced {row.synced_at:%Y-%m-%d %H:%M} UTC")
     return f"- {named(row.name, row.external_id)} (id {row.external_id}): " + ", ".join(
