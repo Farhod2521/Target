@@ -22,6 +22,7 @@ from app.modules.backoffice.selectors.dashboard import recent_payments
 from app.modules.backoffice.selectors.stats import customer_ids
 from app.modules.billing.models import Invoice, Plan
 from app.modules.boards.triggers import _raise
+from app.modules.crm.models import CrmCard, CrmStage
 from app.modules.demo import NotADemo, seed, wipe
 from app.modules.integrations.models import AdAccount, ProviderConnection
 from app.modules.integrations.selectors import broken_meta_connections
@@ -176,6 +177,29 @@ def test_a_manager_signs_in_and_works_the_board(
     assert sold.json()["won_amount_minor"] == 240_000_000
     # A manager's login opens the board and nothing else.
     assert client.get(f"{V1}/metrics/numbers", headers=head).status_code == 403
+
+
+@pytest.mark.parametrize("clock", ["07:00", "09:30", "11:00", "12:30", "23:30"])
+def test_a_lead_waits_to_be_taken_whatever_the_hour(db: Session, clock: str) -> None:
+    """At these hours every lead of the day had been picked up, and the
+    board a visitor opened had nothing in its first column."""
+    _ground(db)
+    hour, minute = (int(part) for part in clock.split(":"))
+    now = utcnow().replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    seed(db, email=EMAIL, password=PASSWORD, now=now)
+    db.commit()
+
+    waiting = db.scalar(
+        select(func.count(CrmCard.id))
+        .join(CrmStage, CrmStage.id == CrmCard.stage_id)
+        .where(
+            CrmCard.assignee_id.is_(None),
+            CrmCard.closed_at.is_(None),
+            CrmStage.kind == "new",
+        )
+    )
+    assert waiting and waiting >= 1
 
 
 def test_another_account_is_never_deleted(client: TestClient, db: Session) -> None:

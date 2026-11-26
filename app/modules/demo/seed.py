@@ -1724,6 +1724,9 @@ def _crm(
         if manual_by:
             card.taken_at = t
             say(card, t, ActivityKind.ASSIGNED, by_user[who].full_name)
+        if sure == "fresh":
+            # Just in: nobody has pressed «Olish» on it yet.
+            return
         course = unit.campaign if unit else CAMPAIGNS[0]
         chance = skill[who] * (unit.spec.pull if unit else 1.6)
         draw = rng.random()
@@ -1958,6 +1961,49 @@ def _crm(
             updated=arrived,
         )
         live(card, None, manual_by=who.id, sure="won" if back in (24, 12) else "")
+        cards.append(card)
+    # The showcase always has a lead to take. At some hours every lead of the
+    # day has been picked up already, and the first column stood empty; then
+    # one more has only just come in.
+    newest = max(
+        (row for row in leads if not row["is_organic"]),
+        key=lambda row: row["submitted_at"],
+        default=None,
+    )
+    if newest is not None and all(card.taken_at is not None for card in cards):
+        arrived = now - timedelta(minutes=rng.uniform(3, 25))
+        phone += rng.randrange(1, 200)
+        name = f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}"
+        number = PHONE.format(phone)
+        lead_id = uuid.uuid4()
+        leads.append(
+            {
+                **newest,
+                "id": lead_id,
+                "leadgen_id": ids.next(),
+                "full_name": name,
+                "phone_e164": number,
+                "field_data_raw": [
+                    {"name": "full_name", "values": [name]},
+                    {"name": "phone_number", "values": [number]},
+                    *newest["field_data_raw"][2:],
+                ],
+                "submitted_at": arrived,
+                "received_at": arrived + timedelta(seconds=20),
+                "fetched_at": arrived + timedelta(seconds=45),
+                "created_at": arrived,
+                "updated_at": arrived,
+            }
+        )
+        card = _Card(
+            id=uuid.uuid4(),
+            lead_id=lead_id,
+            arrived=arrived,
+            stage=new.id,
+            assignee=members[0].id,
+            updated=arrived,
+        )
+        live(card, None, sure="fresh")
         cards.append(card)
 
     midnight = datetime.combine(_local(now).date(), time(0), tzinfo=TZ)
