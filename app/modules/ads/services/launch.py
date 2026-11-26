@@ -52,6 +52,7 @@ from app.modules.ads.exceptions import (
 )
 from app.modules.ads.models import CampaignLaunch, LaunchCreative
 from app.modules.ads.rows import fresh
+from app.modules.ads.selectors.campaign_type import require_unmade
 from app.modules.ads.selectors.launches import (
     OPEN_STATUSES,
     answers_complete,
@@ -223,6 +224,7 @@ def request_preparation(db: Session, *, launch: CampaignLaunch) -> None:
     check_preparation_allowance(db, owner=launch.owner)
     if launch.status == LaunchStatus.BUILDING:
         raise PreparationRunning
+    require_unmade(launch=launch, rebuilds=True)
     if not answers_complete(launch=launch):
         raise AnswersIncomplete
     started = utcnow()
@@ -272,12 +274,15 @@ def save_answers(
     given = {key: value for key, value in values.items() if value is not None}
     if not given:
         return launch
+    require_unmade(launch=launch)
     answers = fresh(launch, "answers")
     contradicted = {
         key
         for key in INVALIDATING & given.keys()
         if not same_wording(answers.get(key), given[key])
     }
+    if contradicted and is_written(launch.draft):
+        require_unmade(launch=launch, rebuilds=True)
     if "goal" in given and str(answers.get("goal") or "") != str(given["goal"]):
         answers.pop(CAMPAIGN_TYPE, None)
     answers.update(given)
@@ -414,7 +419,9 @@ def expire_stale_drafts(db: Session, *, now: datetime) -> int:
             db.commit()
         except SQLAlchemyError:
             db.rollback()
-            logger.exception("stale_draft_not_dropped", extra={"launch": str(launch.id)})
+            logger.exception(
+                "stale_draft_not_dropped", extra={"launch": str(launch.id)}
+            )
             continue
         dropped += 1
     if dropped:

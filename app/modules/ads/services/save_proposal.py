@@ -12,6 +12,7 @@ from app.modules.ads.rows import fresh
 from app.modules.ads.selectors.campaign_type import (
     campaign_type_locked,
     effective_campaign_type,
+    require_unmade,
 )
 from app.modules.ads.selectors.conversion_event import effective_conversion_event
 from app.modules.ads.selectors.lead_form import depth_changeable
@@ -78,6 +79,7 @@ def save_proposal(
     budget: BudgetEdit | None = None,
 ) -> None:
     """Apply the sections that were sent. The caller commits, or rolls all back."""
+    require_unmade(launch=launch)
     before = proposal_snapshot(db, launch=launch)
     if budget is not None:
         choose_budget(db, launch=launch, level=budget.level, sharing=budget.sharing)

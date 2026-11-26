@@ -19,7 +19,7 @@ from app.modules.ads.exceptions import (
     UnknownMedia,
 )
 from app.modules.ads.models import CampaignLaunch, LaunchCreative, MediaAsset
-from app.modules.ads.selectors.campaign_type import campaign_type_locked
+from app.modules.ads.selectors.campaign_type import campaign_type_locked, require_unmade
 from app.modules.ads.selectors.goals import goal_optimization
 from app.modules.ads.selectors.library import AdSpread, ad_spread
 from app.modules.ads.selectors.schedule import max_creatives
@@ -49,6 +49,7 @@ def add_media(
     uploads: list[Upload],
 ) -> int:
     """Add pictures to this launch. Returns how many were added."""
+    require_unmade(launch=launch)
     existing = launch_variants(db, launch=launch)
     limit = max_creatives()
     if len(existing) + len(asset_ids) + len(uploads) > limit:

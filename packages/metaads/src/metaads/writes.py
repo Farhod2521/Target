@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 from metaads.client import GraphClient
-from metaads.errors import MetaError
+from metaads.errors import MetaAPIError, MetaError
 from metaads.specs import STATUS_ACTIVE, STATUS_PAUSED, AdSetSpec, CampaignSpec
 from metaads.writing import fake_id, graph_client, id_of, is_dry_run_id, post_object
 
@@ -508,8 +508,41 @@ def delete_object(
         return True
 
     with graph_client(client, token) as graph:
-        payload = graph.delete(object_id)
+        try:
+            payload = graph.delete(object_id)
+        except MetaAPIError as exc:
+            if _already_gone(graph, object_id=object_id, refused=exc):
+                return True
+            raise
     return bool(payload.get(_SUCCESS, True))
+
+
+# Read at its own path, a deleted or unknown id answers 803 or 100/33; one
+# deleted in Ads Manager can still be read, and says so in its status.
+_GONE_CODE: Final = 803
+_MISSING_AT_PATH: Final = (100, 33)
+_DELETED: Final = "DELETED"
+
+
+def _missing(exc: MetaAPIError) -> bool:
+    return exc.code == _GONE_CODE or (exc.code, exc.subcode) == _MISSING_AT_PATH
+
+
+def _already_gone(graph: GraphClient, *, object_id: str, refused: MetaAPIError) -> bool:
+    """Whether a refused delete was refused because there is nothing to delete.
+
+    A rollback that cannot tell would keep the id forever and lock the
+    launch holding it. Anything but a plain "gone" keeps the refusal.
+    """
+    if _missing(refused):
+        return True
+    try:
+        row = graph.get(object_id, fields="effective_status")
+    except MetaAPIError as again:
+        return _missing(again)
+    except MetaError:
+        return False
+    return str(row.get("effective_status") or "") == _DELETED
 
 
 def dropped_from(

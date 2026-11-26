@@ -16,6 +16,8 @@ from adskit.errors import PortNotAvailable, ProviderError
 from adskit.unavailable import Unavailable
 from metaads.adapter import MetaCampaigns
 from metaads.client import GraphClient
+from metaads.errors import MetaAPIError
+from metaads.writes import delete_object
 
 CAMPAIGN = ExternalRef(provider="meta", level="campaign", id="120000000000238")
 
@@ -92,3 +94,42 @@ def test_a_provider_still_being_built_refuses_by_name(method: str) -> None:
 
     with pytest.raises(PortNotAvailable):
         getattr(stand_in, method)(ref=CAMPAIGN, token="t", **arguments)
+
+
+# --- Deleting what is already gone -----------------------------------------
+def answering(*, on_delete: tuple[int, dict], on_get: tuple[int, dict]) -> GraphClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        status, body = on_delete if request.method == "DELETE" else on_get
+        return httpx.Response(status, json=body)
+
+    return GraphClient(
+        token="t", client=httpx.Client(transport=httpx.MockTransport(handler))
+    )
+
+
+MISSING = {"error": {"code": 100, "error_subcode": 33, "message": "Unsupported"}}
+REFUSED = {"error": {"code": 100, "message": "Invalid parameter"}}
+
+
+def test_an_id_meta_no_longer_knows_counts_as_deleted() -> None:
+    """A rollback would otherwise keep the id, and the launch, forever."""
+    graph = answering(on_delete=(400, MISSING), on_get=(400, MISSING))
+
+    assert delete_object(object_id="120", token="t", client=graph, dry_run=False)
+
+
+def test_a_refused_delete_of_a_deleted_object_counts_as_deleted() -> None:
+    graph = answering(
+        on_delete=(400, REFUSED), on_get=(200, {"effective_status": "DELETED"})
+    )
+
+    assert delete_object(object_id="120", token="t", client=graph, dry_run=False)
+
+
+def test_a_refused_delete_of_a_live_object_stays_refused() -> None:
+    graph = answering(
+        on_delete=(400, REFUSED), on_get=(200, {"effective_status": "PAUSED"})
+    )
+
+    with pytest.raises(MetaAPIError):
+        delete_object(object_id="120", token="t", client=graph, dry_run=False)

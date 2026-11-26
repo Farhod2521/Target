@@ -35,6 +35,7 @@ from app.modules.ads.constants import (
 from app.modules.ads.exceptions import (
     ChatQuestionsExhausted,
     GoalReadingsExhausted,
+    ProposalLocked,
     UnknownGoal,
 )
 from app.modules.ads.models import CampaignLaunch
@@ -381,11 +382,17 @@ def _write(
         db.rollback()
         return "superseded"
     kept = {"v": asked["v"]} if "v" in asked else {}
-    save_answers(
-        db,
-        launch=row,
-        goal_reading=kept | settled | {"token": token, "text": asked.get("text", "")},
-    )
+    try:
+        save_answers(
+            db,
+            launch=row,
+            goal_reading=kept
+            | settled
+            | {"token": token, "text": asked.get("text", "")},
+        )
+    except ProposalLocked:
+        db.rollback()
+        return "superseded"
     db.commit()
     return str(settled["state"])
 
@@ -489,6 +496,10 @@ def _write_chat(
     ):
         db.rollback()
         return "superseded"
-    save_answers(db, launch=row, chat_questions_reading=settled | {"token": token})
+    try:
+        save_answers(db, launch=row, chat_questions_reading=settled | {"token": token})
+    except ProposalLocked:
+        db.rollback()
+        return "superseded"
     db.commit()
     return str(settled["state"])

@@ -76,6 +76,22 @@ def campaign_type_locked(*, launch: CampaignLaunch) -> bool:
     return LaunchStep.CAMPAIGN in left or LaunchStep.ADSET in left
 
 
+def require_unmade(*, launch: CampaignLaunch, rebuilds: bool = False) -> None:
+    """Refuse preparing a launch that is already at the provider.
+
+    A launch being created or created is history: preparing it again would
+    point the ids it holds at a proposal they were never built from. A failed
+    one keeps its campaign for the retry, so only a write that starts the
+    proposal over (``rebuilds``) is refused while that campaign is there.
+    """
+    from app.modules.ads.exceptions import ProposalLocked
+
+    if launch.status in BUILT_STATUSES:
+        raise ProposalLocked
+    if rebuilds and campaign_type_locked(launch=launch):
+        raise ProposalLocked
+
+
 @dataclass(frozen=True, slots=True)
 class CampaignTypeCard:
     label: Any

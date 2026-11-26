@@ -37,6 +37,7 @@ from app.modules.ads.constants import (
     SYNC_QUEUED,
     SYNC_RATE_LIMITED,
     SYNC_TRUNCATED,
+    LaunchStep,
 )
 from app.modules.ads.exceptions import (
     ConnectionUnusable,
@@ -202,12 +203,31 @@ def _known(
 KNOWN_PAGE = 1000
 
 
+_LAUNCH_STEPS: dict[Any, str] = {
+    Campaign: LaunchStep.CAMPAIGN,
+    AdSet: LaunchStep.ADSET,
+    Ad: LaunchStep.AD,
+}
+
+
 def _bulk_delete(db: Session, model: Any, *where: Any) -> int:
-    return int(
+    """Delete the rows, and let launches in preparation forget those objects.
+
+    Rows go only when the provider stopped listing the object or confirmed
+    its deletion, so a launch still holding the id would point at nothing.
+    """
+    from app.modules.ads.services.launch_refs import release_launch_refs
+
+    step = _LAUNCH_STEPS.get(model)
+    gone = list(db.scalars(select(model.external_id).where(*where))) if step else []
+    removed = int(
         db.execute(
             delete(model).where(*where).execution_options(synchronize_session=False)
         ).rowcount
     )
+    if step and gone:
+        release_launch_refs(db, step=step, external_ids=gone)
+    return removed
 
 
 def drop_ads(db: Session, *where: Any) -> int:
