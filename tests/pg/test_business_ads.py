@@ -251,3 +251,34 @@ def test_what_a_member_does_is_written_under_the_owner_with_their_name(
     }
     assert by_owner.payload == {}
     assert db.scalars(select(Event.owner_id).distinct()).all() == [world.owner.id]
+
+
+def test_a_member_cannot_reach_another_business_s_advert_by_its_id(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.ads.selectors.actions import managed_target
+
+    world, _, second = _two(db)
+    ali = _targetolog(client, world, second)
+    link = next(row for row in world.open_links() if row.business_id == second.id)
+    theirs, others = "c_act_2_0", "c_act_1_0"
+
+    def found(actor: User, external_id: str) -> bool:
+        held = Acting(
+            business_id=second.id,
+            owner_id=world.owner.id,
+            actor_id=actor.id,
+            page_id=link.page_id,
+            ad_account_id=link.ad_account_id,
+        )
+        with override(held):
+            return (
+                managed_target(
+                    db, owner=world.owner, level="campaign", external_id=external_id
+                )
+                is not None
+            )
+
+    assert found(ali, theirs) and not found(ali, others)
+    # The owner, naming a business, still reaches every advert that is theirs.
+    assert found(world.owner, theirs) and found(world.owner, others)

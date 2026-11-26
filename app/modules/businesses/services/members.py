@@ -26,6 +26,8 @@ from sqlalchemy.orm import Session
 
 from app.common.db import utcnow
 from app.modules.accounts.models import User
+from app.modules.audit.constants import EventName
+from app.modules.audit.services.emit import emit
 from app.modules.businesses.constants import (
     OTHER_SOURCE,
     GrantArea,
@@ -124,6 +126,48 @@ def check(
         _checked(grants, networks=networks_of(db, business_id=business.id))
 
 
+def standing(member: BusinessMember) -> dict[str, object]:
+    """What a member is and may do, as the history keeps it."""
+    return {
+        "roles": list(member.roles or []),
+        "is_rop": bool(member.is_rop),
+        "grants": sorted(
+            [grant.area, grant.provider, grant.level] for grant in member.grants
+        ),
+    }
+
+
+def record(
+    db: Session,
+    *,
+    member: BusinessMember,
+    name: str,
+    before: dict[str, object] | None = None,
+    via: str = "",
+) -> None:
+    """One line of the business's history: who was added, changed or taken
+    out, and what they held before and after."""
+    person = member.user if member.user_id is not None else None
+    payload: dict[str, object] = {
+        "member_id": str(member.id),
+        "user_id": str(member.user_id),
+        "full_name": (person.full_name or person.email) if person else "",
+        "after": standing(member),
+    }
+    if before is not None:
+        payload["before"] = before
+    if via:
+        payload["via"] = via
+    emit(
+        db,
+        owner_id=member.owner_id,
+        name=name,
+        aggregate_type="business",
+        aggregate_id=member.business_id,
+        payload=payload,
+    )
+
+
 def _write(member: BusinessMember, grants: Grants) -> None:
     held = {(grant.area, grant.provider): grant for grant in member.grants}
     for key, grant in held.items():
@@ -190,6 +234,7 @@ def add_member(
     member.removed_at = None
     _write(member, wanted)
     db.flush()
+    record(db, member=member, name=EventName.BUSINESS_MEMBER_ADDED)
     return member
 
 
@@ -210,10 +255,13 @@ def change_member(
         if grants is not None
         else preset(roles=chosen, networks=networks)
     )
+    before = standing(member)
     member.roles = chosen
     member.is_rop = is_rop
     _write(member, wanted)
     db.flush()
+    if standing(member) != before:
+        record(db, member=member, name=EventName.BUSINESS_MEMBER_CHANGED, before=before)
     return member
 
 
@@ -222,9 +270,11 @@ def remove_member(
 ) -> BusinessMember:
     """Take the person out of the business. The row stays, with its grants,
     so their name still stands on what they did."""
+    before = standing(member)
     member.is_active = False
     member.removed_at = now or utcnow()
     db.flush()
+    record(db, member=member, name=EventName.BUSINESS_MEMBER_REMOVED, before=before)
     return member
 
 
@@ -260,6 +310,7 @@ def mirror_crm_members(db: Session, *, owner_id: uuid.UUID | None = None) -> int
                     BusinessMember.user_id == manager.user_id,
                 )
             )
+            made = mirrored is None
             if mirrored is None:
                 mirrored = BusinessMember(
                     business_id=manager.business_id,
@@ -279,6 +330,14 @@ def mirror_crm_members(db: Session, *, owner_id: uuid.UUID | None = None) -> int
                 )
             mirrored.crm_member_id = manager.id
             changed += 1
+            if made:
+                db.flush()
+                record(
+                    db,
+                    member=mirrored,
+                    name=EventName.BUSINESS_MEMBER_ADDED,
+                    via="crm",
+                )
         if mirrored.is_active != manager.is_active:
             mirrored.is_active = manager.is_active
             mirrored.removed_at = None if manager.is_active else utcnow()
@@ -313,6 +372,7 @@ def _drop_left_sales(db: Session, *, owner_id: uuid.UUID | None) -> int:
     for member in db.scalars(query):
         if MemberRole.SALES not in member.roles:
             continue
+        before = standing(member)
         if MemberRole.TARGETOLOG in member.roles:
             member.roles = [MemberRole.TARGETOLOG.value]
             member.is_rop = False
@@ -324,9 +384,25 @@ def _drop_left_sales(db: Session, *, owner_id: uuid.UUID | None) -> int:
                     if grant.area != GrantArea.CRM
                 },
             )
+            db.flush()
+            record(
+                db,
+                member=member,
+                name=EventName.BUSINESS_MEMBER_CHANGED,
+                before=before,
+                via="crm",
+            )
         else:
             member.is_active = False
             member.removed_at = utcnow()
+            db.flush()
+            record(
+                db,
+                member=member,
+                name=EventName.BUSINESS_MEMBER_REMOVED,
+                before=before,
+                via="crm",
+            )
         dropped += 1
     db.flush()
     return dropped

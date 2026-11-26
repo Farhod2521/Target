@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import CurrentUser, Db
 from app.common.db import utcnow
 from app.modules.accounts.models import User
+from app.modules.audit.constants import EVENT_NAME_LABELS, EventName
+from app.modules.audit.models import Event
 from app.modules.businesses import selectors
 from app.modules.businesses.constants import (
     GRANT_AREA_LABELS,
@@ -39,6 +41,7 @@ from app.modules.businesses.models import Business, BusinessLink, BusinessMember
 from app.modules.businesses.routers import _out as profile_out
 from app.modules.businesses.schemas.v3 import (
     AccessOut,
+    AccountChoiceOut,
     AccountOut,
     BusinessCardOut,
     BusinessDetailOut,
@@ -47,15 +50,21 @@ from app.modules.businesses.schemas.v3 import (
     ChoiceOut,
     GrantIn,
     GrantOut,
+    HistoryItemOut,
+    HistoryOut,
+    HistoryPersonOut,
     MemberIn,
     MemberOut,
     MemberPatch,
     MembersOut,
+    NetworkIn,
     NetworkOut,
+    NetworksOut,
     PageOut,
     PersonOut,
     RoleOut,
     SeatsOut,
+    StandingOut,
 )
 from app.modules.businesses.selectors.access import (
     Access,
@@ -65,6 +74,7 @@ from app.modules.businesses.selectors.access import (
     seats_taken,
 )
 from app.modules.businesses.services import members as member_services
+from app.modules.businesses.services import networks as network_services
 from app.modules.businesses.services.members import networks_of, preset
 
 router = APIRouter(prefix="/businesses", tags=["businesses v3"])
@@ -467,3 +477,129 @@ def remove_member(
     _leave_crm(db, business=business, owner=user, user_id=person)
     db.commit()
     return _members(db, business=business, owner=user)
+
+
+def _network_list(db: Session, *, business: Business) -> NetworksOut:
+    return NetworksOut(
+        networks=_networks(db, [business.id])[business.id],
+        available=[
+            AccountChoiceOut(
+                id=account.id,
+                provider=account.provider,
+                external_id=account.external_id,
+                name=account.name,
+                currency=account.currency,
+            )
+            for account in network_services.available(db, business=business)
+        ],
+    )
+
+
+@router.get("/{business_id}/networks", response_model=NetworksOut)
+def list_networks(business_id: uuid.UUID, db: Db, user: CurrentUser) -> NetworksOut:
+    """What the business advertises from, and the owner's accounts on other
+    networks that may be tied to it."""
+    access = _owner_access(db, business_id, user)
+    return _network_list(db, business=access.business)
+
+
+@router.post(
+    "/{business_id}/networks",
+    response_model=NetworksOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def bind_network(
+    business_id: uuid.UUID, body: NetworkIn, db: Db, user: CurrentUser
+) -> NetworksOut:
+    """Tie one of the owner's accounts on another network to the business.
+    Its members get there what they hold on the business's other networks."""
+    access = _owner_access(db, business_id, user)
+    network_services.bind(db, business=access.business, account_id=body.ad_account_id)
+    db.commit()
+    return _network_list(db, business=access.business)
+
+
+@router.delete("/{business_id}/networks/{provider}", response_model=NetworksOut)
+def unbind_network(
+    business_id: uuid.UUID, provider: str, db: Db, user: CurrentUser
+) -> NetworksOut:
+    """Untie the business's account on a network. The members' grants over
+    that network are taken back; the Meta pair is not untied here."""
+    access = _owner_access(db, business_id, user)
+    network_services.unbind(db, business=access.business, provider=provider)
+    db.commit()
+    return _network_list(db, business=access.business)
+
+
+HISTORY_NAMES = (
+    EventName.BUSINESS_MEMBER_ADDED,
+    EventName.BUSINESS_MEMBER_CHANGED,
+    EventName.BUSINESS_MEMBER_REMOVED,
+    EventName.BUSINESS_NETWORK_BOUND,
+    EventName.BUSINESS_NETWORK_UNBOUND,
+)
+
+
+def _standing(held: object) -> StandingOut | None:
+    if not isinstance(held, dict):
+        return None
+    return StandingOut(
+        roles=list(held.get("roles") or []),
+        is_rop=bool(held.get("is_rop")),
+        grants=[
+            GrantOut(area=area, provider=provider, level=level)
+            for area, provider, level in held.get("grants") or []
+        ],
+    )
+
+
+def _id(value: object) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(value))
+    except ValueError:
+        return None
+
+
+@router.get("/{business_id}/history", response_model=HistoryOut)
+def history(
+    business_id: uuid.UUID, db: Db, user: CurrentUser, limit: int = 100
+) -> HistoryOut:
+    """Who was added, changed and taken out, and which networks were tied
+    and untied, newest first."""
+    access = _owner_access(db, business_id, user)
+    events = db.scalars(
+        select(Event)
+        .where(
+            Event.owner_id == access.business.user_id,
+            Event.aggregate_type == "business",
+            Event.aggregate_id == str(business_id),
+            Event.name.in_([str(name) for name in HISTORY_NAMES]),
+        )
+        .order_by(Event.occurred_at.desc(), Event.created_at.desc())
+        .limit(max(1, min(limit, 500)))
+    )
+    items = []
+    for event in events:
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        about_member = "member_id" in payload
+        items.append(
+            HistoryItemOut(
+                id=event.id,
+                at=event.occurred_at,
+                kind=event.name.split(".", 1)[-1],
+                label=EVENT_NAME_LABELS.get(event.name, event.name),  # type: ignore[call-overload]
+                via=str(payload.get("via") or ""),
+                member=HistoryPersonOut(
+                    member_id=_id(payload.get("member_id")),
+                    user_id=_id(payload.get("user_id")),
+                    full_name=str(payload.get("full_name") or ""),
+                )
+                if about_member
+                else None,
+                before=_standing(payload.get("before")),
+                after=_standing(payload.get("after")),
+                provider=str(payload.get("provider") or ""),
+                account_name=str(payload.get("name") or ""),
+            )
+        )
+    return HistoryOut(items=items)

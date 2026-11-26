@@ -10,9 +10,11 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from googleadskit import BUDGET_CONSTRAINED
+from googleadskit import PROVIDER as GOOGLE_NETWORK
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.common.acting import acting_for
 from app.common.db import utcnow
 from app.common.money import provider_money
 from app.modules.accounts.models import User
@@ -36,11 +38,20 @@ def google_launch_for(
         pk = UUID(str(launch_id))
     except ValueError:
         return None
-    return db.scalar(
+    found = db.scalar(
         select(GoogleLaunch).where(
             GoogleLaunch.owner_id == owner.id, GoogleLaunch.id == pk
         )
     )
+    pinned = acting_for(owner.id)
+    if (
+        found is not None
+        and pinned is not None
+        and found.ad_account_id != pinned.account(GOOGLE_NETWORK)
+    ):
+        # A request that names a business opens that business's preparations.
+        return None
+    return found
 
 
 def launch_profile(db: Session, *, launch: GoogleLaunch) -> Business | None:

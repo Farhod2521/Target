@@ -130,6 +130,16 @@ class BoardOut(PairsOut):
     step: int | None = Field(None, description="Only when `setup_needed`.")
     running: bool | None = None
     is_owner: bool | None = None
+    may_assign: bool | None = Field(
+        None,
+        description="Whether the reader hands cards out: the owner, or a ROP of "
+        "the business. Then `POST /cards/{id}/assign` and the bulk `assign` open.",
+    )
+    read_only: bool | None = Field(
+        None,
+        description="A manager whose every CRM grant is «ko'rish»: nothing on "
+        "the board is theirs to change.",
+    )
     currency: str | None = Field(
         None,
         description="The pair's currency: every column's `won_minor` is in it, "

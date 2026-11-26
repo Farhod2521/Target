@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.common.acting import acting_for
 from app.common.db import utcnow
 from app.common.money import format_minor
 from app.modules.accounts.models import User
@@ -50,12 +51,26 @@ def managed_target(
     model = MIRRORS.get(level)
     if model is None:
         return None
-    return db.scalars(
+    row = db.scalars(
         select(model)
         .options(_LOADS[level]())
         .where(model.owner_id == owner.id, model.external_id == external_id)
         .limit(1)
     ).first()
+    pinned = acting_for(owner.id)
+    if row is not None and pinned is not None and pinned.by_member:
+        # A member works the business the request names: an advert of another
+        # of the owner's businesses is not there for them.
+        campaign = (
+            row
+            if isinstance(row, Campaign)
+            else row.campaign
+            if isinstance(row, AdSet)
+            else row.adset.campaign
+        )
+        if campaign.ad_account_id not in pinned.account_ids:
+            return None
+    return row
 
 
 def shown_target(

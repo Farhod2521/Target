@@ -10,6 +10,8 @@ for them, so a place added later is covered without knowing:
   business;
 - at every flush, a row moved to another pair (a manager moved to another
   page) gets that pair's business;
+- at every flush, a new lead of another network gets the business its
+  account is tied to (``services.networks``);
 - at commit, an owner whose stored pairs, page profile or CRM managers
   changed in the transaction has their links and memberships brought level
   (:func:`links.settle`), which cannot fail the commit.
@@ -92,7 +94,10 @@ def _mark(session: Session, models: dict[str, Any]) -> None:
 
 
 def _write(session: Session, models: dict[str, Any]) -> None:
-    from app.modules.businesses.services.links import business_of_pair
+    from app.modules.businesses.services.links import (
+        business_of_network_lead,
+        business_of_pair,
+    )
 
     found: dict[tuple[Any, Any], uuid.UUID | None] = {}
 
@@ -138,6 +143,20 @@ def _write(session: Session, models: dict[str, Any]) -> None:
             form = session.get(models["form"], row.form_id)
             if form is not None:
                 row.business_id = of(form.page_id, None)
+    for row in new:
+        if (
+            isinstance(row, models["lead"])
+            and row.business_id is None
+            and row.form_id is None
+            and row.provider
+        ):
+            # A lead of another network: its account's business.
+            row.business_id = business_of_network_lead(
+                session,
+                owner_id=row.owner_id,
+                provider=row.provider,
+                campaign=row.campaign_external_id or "",
+            )
 
 
 @event.listens_for(Session, "before_commit")

@@ -4,6 +4,7 @@ from openaiadskit import PROVIDER as CHATGPT
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.acting import acting_for
 from app.common.config import settings
 from app.common.crypto import decrypt
 from app.common.exceptions import DecryptionFailed
@@ -37,6 +38,16 @@ def usable_connection(db: Session, *, owner: User) -> ProviderConnection | None:
 
 
 def chatgpt_account(db: Session, *, owner: User) -> AdAccount | None:
+    pinned = acting_for(owner.id)
+    if pinned is not None:
+        # A request that names a business works on that business's account.
+        return db.scalar(
+            select(AdAccount).where(
+                AdAccount.owner_id == owner.id,
+                AdAccount.provider == CHATGPT,
+                AdAccount.id == pinned.account(CHATGPT),
+            )
+        )
     return db.scalar(
         select(AdAccount).where(
             AdAccount.owner_id == owner.id,

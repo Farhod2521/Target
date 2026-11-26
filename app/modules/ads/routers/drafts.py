@@ -12,10 +12,13 @@ import uuid
 from typing import Any, Final
 
 from fastapi import APIRouter, HTTPException
+from googleadskit import PROVIDER as GOOGLE
+from metaads import PROVIDER as META
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, Db
+from app.common.acting import require_network
 from app.common.db import utcnow
 from app.common.exceptions import DomainError, InputRefused
 from app.modules.accounts.models import User
@@ -222,7 +225,9 @@ def start(body: DraftStart, db: Db, user: CurrentUser) -> LaunchDraft:
     the worker or the network comes back, since its page says how it went.
     """
     if body.flow == "google":
+        require_network(user.id, GOOGLE, write=True)
         return start_google(db, user)
+    require_network(user.id, META, write=True)
     opened = plan_routes.start(db, user, resume=_draft_id(body.resume), fresh=True)
     launch = launch_of(db, user=user, draft_id=uuid.UUID(opened["id"]))
     return read_draft(db, user=user, launch=launch)

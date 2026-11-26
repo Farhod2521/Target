@@ -348,6 +348,53 @@ def business_of_pair(
     return links[0][0] if len(links) == 1 else None
 
 
+def business_of_network_lead(
+    db: Session, *, owner_id: uuid.UUID, provider: str, campaign: str
+) -> uuid.UUID | None:
+    """The business a lead of another network is: the one whose account on
+    that network the lead's campaign is in. A network names its campaigns
+    under the account (``customers/<account>/...``); with no such name, the
+    owner's only business on that network takes it."""
+    if not provider or provider == PROVIDER:
+        return None
+    links = list(
+        db.execute(
+            select(BusinessLink.business_id, BusinessLink.external_id).where(
+                BusinessLink.owner_id == owner_id,
+                BusinessLink.provider == provider,
+                BusinessLink.kind == LinkKind.AD_ACCOUNT,
+                BusinessLink.unbound_at.is_(None),
+            )
+        )
+    )
+    for business_id, external_id in links:
+        if external_id and f"/{external_id}/" in f"/{campaign}":
+            return business_id
+    return links[0][0] if len(links) == 1 and not campaign else None
+
+
+def fill_network_leads(db: Session, *, link: BusinessLink) -> int:
+    """The business written on the leads its newly tied account brought."""
+    from app.modules.leads.models import Lead
+
+    if link.kind != LinkKind.AD_ACCOUNT or not link.external_id:
+        return 0
+    count = db.execute(
+        update(Lead)
+        .where(
+            Lead.owner_id == link.owner_id,
+            Lead.provider == link.provider,
+            Lead.business_id.is_(None),
+            Lead.campaign_external_id.contains(
+                f"/{link.external_id}/", autoescape=True
+            ),
+        )
+        .values(business_id=link.business_id)
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    return int(count or 0)
+
+
 def settle(db: Session, *, owner_id: uuid.UUID) -> Synced | None:
     """Links level with the pairs, the business on the rows a new link now
     reaches, and a membership for each CRM manager, for an owner whose pairs,

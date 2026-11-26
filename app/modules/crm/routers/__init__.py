@@ -142,6 +142,13 @@ def card_owner_viewer(viewer: Viewer = Depends(card_viewer)) -> Viewer:
     return viewer
 
 
+def card_assigner_viewer(viewer: Viewer = Depends(card_viewer)) -> Viewer:
+    """Whoever hands cards out: the owner, or a ROP of the business."""
+    if not viewer.may_assign:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return viewer
+
+
 def pairs_out(viewer: Viewer) -> dict[str, Any]:
     return {
         "pair": viewer.pair.key if viewer.pair is not None else None,
@@ -401,6 +408,8 @@ def board(
         "no_pair": False,
         "running": setup is not None and setup.state == SetupState.ON,
         "is_owner": viewer.is_owner,
+        "may_assign": viewer.may_assign,
+        "read_only": viewer.read_only and not viewer.is_owner,
         "currency": setup.currency if setup is not None else "",
         "columns": [column_out(column, found.ads) for column in found.columns],
         "late": found.late,
@@ -621,7 +630,7 @@ def bulk(body: BulkIn, db: Db, viewer: Viewer = Depends(crm_viewer)) -> dict[str
     """Many cards to one column, or to one manager (the owner only). Every
     card is judged alone by the rules of a single press: the ones refused
     stay as they were and come back in `refused` with the reason."""
-    if body.action == "assign" and not viewer.is_owner:
+    if body.action == "assign" and not viewer.may_assign:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     found = services.bulk(
         db,
@@ -665,8 +674,14 @@ def add_manual(
 
 @router.post("/cards/{pk}/assign", responses={200: {"model": CardOut}})
 def assign(
-    pk: uuid.UUID, body: AssignIn, db: Db, viewer: Viewer = Depends(card_owner_viewer)
+    pk: uuid.UUID,
+    body: AssignIn,
+    db: Db,
+    viewer: Viewer = Depends(card_assigner_viewer),
 ) -> dict[str, Any]:
+    """Hand the card to a manager, or back to the board with an empty
+    `assignee`. The owner's, and a ROP's (`may_assign` on the board): a ROP
+    hands cards to managers only, on the lead sources the ROP holds."""
     return _done(
         db,
         services.assign_card(db, viewer=viewer, card_id=str(pk), user_id=body.assignee),

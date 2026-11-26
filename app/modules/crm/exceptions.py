@@ -113,6 +113,15 @@ class MemberNotSeated(DomainError):
         super().__init__("Bu menejerda o'rin yo'q: u kartani ocha olmaydi.")
 
 
+class MemberLacksSource(DomainError):
+    code = "member_lacks_source"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu menejerga shu manbadan kelgan lidlar bilan ishlash ruxsati berilmagan."
+        )
+
+
 class EmptyNote(DomainError):
     def __init__(self) -> None:
         super().__init__("Izoh bo'sh.")

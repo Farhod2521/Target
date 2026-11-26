@@ -5,12 +5,13 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select, true
 from sqlalchemy.orm import Session, selectinload
 
 from app.common.dates import localtime
 from app.common.db import utcnow
 from app.modules.accounts.models import User
+from app.modules.businesses.constants import OTHER_SOURCE
 from app.modules.crm.constants import (
     CARDS_PER_COLUMN,
     CLOSED_DAYS_ON_BOARD,
@@ -101,6 +102,13 @@ class Viewer:
     reads_all: bool = False
     read_only: bool = False
     barred: bool = False
+    # The CRM grants are held per source of a lead: a network of the business,
+    # or «boshqa manba» for a customer no network brought. ``sources`` is what
+    # the manager reads (``None``: every source); ``view_only`` of those, what
+    # they read and do not change; ``networks``, what the business runs on.
+    sources: frozenset[str] | None = None
+    view_only: frozenset[str] = frozenset()
+    networks: frozenset[str] = frozenset()
 
     @property
     def is_owner(self) -> bool:
@@ -109,6 +117,22 @@ class Viewer:
     @property
     def scope(self) -> Scope | None:
         return Scope.of(self.pair) if self.pair is not None else None
+
+    @property
+    def may_assign(self) -> bool:
+        """Whether the cards are theirs to hand out: the owner's, and a ROP's
+        who may change the board."""
+        return self.is_owner or (self.reads_all and not self.read_only)
+
+    def source_of(self, provider: str) -> str:
+        """The source a lead of ``provider`` counts as on this board."""
+        return provider if provider in self.networks else OTHER_SOURCE
+
+    def reads(self, provider: str) -> bool:
+        return self.sources is None or self.source_of(provider) in self.sources
+
+    def changes(self, provider: str) -> bool:
+        return self.reads(provider) and self.source_of(provider) not in self.view_only
 
     @property
     def may_work(self) -> bool:
@@ -156,32 +180,90 @@ def member_rows(db: Session, *, user: User) -> list[CrmMember]:
     )
 
 
-def _standing(db: Session, *, member: CrmMember) -> dict[str, bool]:
+def _standing(db: Session, *, member: CrmMember) -> dict[str, Any]:
     """What the manager's membership of the business adds or takes away.
     Nothing, for a manager whose pair is no business yet."""
-    from metaads import PROVIDER
-
     from app.modules.businesses.constants import GrantArea, GrantLevel
     from app.modules.businesses.models import BusinessMember
+    from app.modules.businesses.services.members import networks_of
 
     held = db.scalar(
         select(BusinessMember).where(BusinessMember.crm_member_id == member.id)
     )
     if held is None:
         return {}
-    level = next(
-        (
-            grant.level
-            for grant in held.grants
-            if grant.area == GrantArea.CRM and grant.provider == PROVIDER
-        ),
-        None,
+    levels = {
+        grant.provider: grant.level
+        for grant in held.grants
+        if grant.area == GrantArea.CRM
+    }
+    networks = frozenset(networks_of(db, business_id=held.business_id))
+    everything = networks | {OTHER_SOURCE}
+    view_only = frozenset(
+        source for source, level in levels.items() if level == GrantLevel.VIEW
     )
     return {
-        "reads_all": bool(held.is_rop) and level is not None,
-        "read_only": level == GrantLevel.VIEW,
-        "barred": level is None,
+        "reads_all": bool(held.is_rop) and bool(levels),
+        "read_only": bool(levels) and view_only == frozenset(levels),
+        "barred": not levels,
+        "sources": None if everything <= set(levels) else frozenset(levels),
+        "view_only": view_only,
+        "networks": networks,
     }
+
+
+def edit_sources(
+    db: Session, *, members: Sequence[CrmMember]
+) -> dict[uuid.UUID, tuple[frozenset[str], frozenset[str]] | None]:
+    """``{manager row: (the sources they may change, the business's
+    networks)}``, and ``None`` for a manager whose pair is no business: every
+    source is theirs."""
+    from app.modules.businesses.constants import GrantArea, GrantLevel
+    from app.modules.businesses.models import BusinessMember
+    from app.modules.businesses.services.members import networks_of
+
+    found: dict[uuid.UUID, tuple[frozenset[str], frozenset[str]] | None] = {
+        member.id: None for member in members
+    }
+    if not members:
+        return found
+    networks: dict[uuid.UUID, frozenset[str]] = {}
+    for held in db.scalars(
+        select(BusinessMember).where(
+            BusinessMember.crm_member_id.in_([member.id for member in members])
+        )
+    ):
+        if held.business_id not in networks:
+            networks[held.business_id] = frozenset(
+                networks_of(db, business_id=held.business_id)
+            )
+        found[held.crm_member_id] = (
+            frozenset(
+                grant.provider
+                for grant in held.grants
+                if grant.area == GrantArea.CRM and grant.level == GrantLevel.EDIT
+            ),
+            networks[held.business_id],
+        )
+    return found
+
+
+def may_take(
+    db: Session, *, members: Sequence[CrmMember], provider: str
+) -> list[CrmMember]:
+    """The managers a lead of ``provider`` may be handed to: those whose CRM
+    grant over its source is «o'zgartirish»."""
+    held = edit_sources(db, members=members)
+    kept = []
+    for member in members:
+        standing = held[member.id]
+        if standing is None:
+            kept.append(member)
+            continue
+        sources, networks = standing
+        if (provider if provider in networks else OTHER_SOURCE) in sources:
+            kept.append(member)
+    return kept
 
 
 def viewer_for(db: Session, *, user: User, wanted: str = "") -> Viewer:
@@ -493,39 +575,96 @@ def reasons_of(db: Session, *, scope: Scope | None) -> list[CrmLostReason]:
 
 
 def pair_conditions(
-    db: Session, *, owner: User, pairs: Sequence[Pair]
+    db: Session,
+    *,
+    owner: User,
+    pairs: Sequence[Pair],
+    subscribed: ColumnElement[bool] | None = None,
 ) -> dict[str, ColumnElement[bool]]:
     """``{pair key: its leads, as a condition on Lead}``.
 
     A pair's leads come from the campaigns this product launched from that
     page and account. A campaign launched before launches named their page
     says only its account, so its lead joins the pair whose page the lead
-    itself names.
+    itself names. ``subscribed`` narrows those to the paid pages.
+
+    The leads of another network the pair's business advertises on join them
+    (:func:`network_leads`); they name no page, and are not asked for one.
     """
     from app.modules.ads.selectors.owned import campaigns_by_pair
     from app.modules.integrations.selectors import enabled_pages
     from app.modules.leads.selectors import lead_scope
 
     campaigns = campaigns_by_pair(db, owner=owner, pairs=pairs)
-    if not campaigns:
-        return {}
+    brought = network_leads(db, pairs=pairs)
     sole = len(enabled_pages(db, owner=owner)) == 1
     found: dict[str, ColumnElement[bool]] = {}
     for pair in pairs:
-        own = campaigns[pair.key]
-        condition: ColumnElement[bool] = Lead.campaign_external_id.in_(
-            sorted(own.exact)
-        )
-        if own.pageless:
-            condition = or_(
-                condition,
+        parts: list[ColumnElement[bool]] = []
+        own = campaigns.get(pair.key) if campaigns else None
+        if own is not None:
+            parts.append(
                 and_(
-                    Lead.campaign_external_id.in_(sorted(own.pageless)),
-                    lead_scope(page=pair.page, sole=sole),
-                ),
+                    Lead.campaign_external_id.in_(sorted(own.exact)),
+                    subscribed if subscribed is not None else true(),
+                )
             )
-        found[pair.key] = condition
+            if own.pageless:
+                parts.append(
+                    and_(
+                        Lead.campaign_external_id.in_(sorted(own.pageless)),
+                        lead_scope(page=pair.page, sole=sole),
+                        subscribed if subscribed is not None else true(),
+                    )
+                )
+        if pair.key in brought:
+            parts.append(brought[pair.key])
+        if parts:
+            found[pair.key] = or_(*parts)
     return found
+
+
+def network_leads(
+    db: Session, *, pairs: Sequence[Pair]
+) -> dict[str, ColumnElement[bool]]:
+    """``{pair key: the leads its business's other networks brought}``: a
+    business that advertises on another network takes that account's leads on
+    the same board. Empty for a pair whose business is on Meta alone."""
+    from app.modules.businesses.constants import LinkKind
+    from app.modules.businesses.models import BusinessLink
+
+    if not pairs:
+        return {}
+    by_business: dict[uuid.UUID, str] = {}
+    for business_id, page_id, account_id in db.execute(
+        select(
+            BusinessLink.business_id, BusinessLink.page_id, BusinessLink.ad_account_id
+        ).where(
+            BusinessLink.kind == LinkKind.META_PAIR,
+            BusinessLink.unbound_at.is_(None),
+            BusinessLink.page_id.in_([pair.page.id for pair in pairs]),
+        )
+    ):
+        for pair in pairs:
+            if pair.page.id == page_id and pair.account.id == account_id:
+                by_business[business_id] = pair.key
+    if not by_business:
+        return {}
+    networks: dict[uuid.UUID, set[str]] = {}
+    for business_id, provider in db.execute(
+        select(BusinessLink.business_id, BusinessLink.provider).where(
+            BusinessLink.kind == LinkKind.AD_ACCOUNT,
+            BusinessLink.unbound_at.is_(None),
+            BusinessLink.business_id.in_(list(by_business)),
+        )
+    ):
+        networks.setdefault(business_id, set()).add(provider)
+    return {
+        by_business[business_id]: and_(
+            Lead.business_id == business_id, Lead.provider.in_(sorted(providers))
+        )
+        for business_id, providers in networks.items()
+    }
 
 
 def countable_leads(
@@ -543,13 +682,19 @@ def countable_leads(
     pairs = page_pairs(db, owner=owner)
     if pair is not None:
         pairs = [each for each in pairs if each.key == pair.key]
-    conditions = list(pair_conditions(db, owner=owner, pairs=pairs).values())
+    conditions = list(
+        pair_conditions(
+            db,
+            owner=owner,
+            pairs=pairs,
+            subscribed=subscribed_lead_scope(db, owner=owner),
+        ).values()
+    )
     return select(Lead).where(
         Lead.owner_id == owner.id,
         Lead.is_test.is_(False),
         Lead.is_organic.is_(False),
         or_(*conditions) if conditions else false(),
-        subscribed_lead_scope(db, owner=owner),
     )
 
 
@@ -558,13 +703,14 @@ def pair_of_lead(db: Session, *, owner: User, lead_id: uuid.UUID) -> Pair | None
     from app.modules.leads.selectors import subscribed_lead_scope
 
     pairs = page_pairs(db, owner=owner)
-    conditions = pair_conditions(db, owner=owner, pairs=pairs)
+    conditions = pair_conditions(
+        db, owner=owner, pairs=pairs, subscribed=subscribed_lead_scope(db, owner=owner)
+    )
     base = select(Lead.id).where(
         Lead.id == lead_id,
         Lead.owner_id == owner.id,
         Lead.is_test.is_(False),
         Lead.is_organic.is_(False),
-        subscribed_lead_scope(db, owner=owner),
     )
     for pair in pairs:
         condition = conditions.get(pair.key)
@@ -719,8 +865,27 @@ class Board:
         return {column.key: column.total for column in self.columns}
 
 
+def _of_sources(viewer: Viewer) -> ColumnElement[bool] | None:
+    """The cards whose lead came from a source the manager reads; ``None``
+    when every source is theirs."""
+    if viewer.is_owner or viewer.sources is None:
+        return None
+    networks = sorted(viewer.sources & viewer.networks)
+    wanted: list[ColumnElement[bool]] = []
+    if networks:
+        wanted.append(Lead.provider.in_(networks))
+    if OTHER_SOURCE in viewer.sources:
+        wanted.append(Lead.provider.not_in(sorted(viewer.networks)))
+    if not wanted:
+        return false()
+    return select(Lead.id).where(Lead.id == CrmCard.lead_id, or_(*wanted)).exists()
+
+
 def _visible(viewer: Viewer) -> ColumnElement[bool]:
     mine = holds(viewer.scope, CrmCard)
+    of_sources = _of_sources(viewer)
+    if of_sources is not None:
+        mine = and_(mine, of_sources)
     if viewer.is_owner or viewer.reads_all:
         return mine
     new_stages = select(CrmStage.id).where(

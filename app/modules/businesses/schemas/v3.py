@@ -148,3 +148,58 @@ class MemberPatch(BaseModel):
     roles: list[Role] = Field(min_length=1)
     is_rop: bool = False
     grants: list[GrantIn] | None = None
+
+
+class AccountChoiceOut(BaseModel):
+    """One of the owner's accounts on another network, free to tie on."""
+
+    id: uuid.UUID
+    provider: str
+    external_id: str
+    name: str
+    currency: str
+
+
+class NetworksOut(BaseModel):
+    networks: list[NetworkOut]
+    available: list[AccountChoiceOut]
+
+
+class NetworkIn(BaseModel):
+    ad_account_id: uuid.UUID
+
+
+class HistoryPersonOut(BaseModel):
+    member_id: uuid.UUID | None
+    user_id: uuid.UUID | None
+    full_name: str
+
+
+class StandingOut(BaseModel):
+    roles: list[str]
+    is_rop: bool
+    grants: list[GrantOut]
+
+
+class HistoryItemOut(BaseModel):
+    """One change to who works in the business or what it advertises from.
+
+    ``kind`` is ``member_added``, ``member_changed``, ``member_removed``,
+    ``network_bound`` or ``network_unbound``. ``via`` is ``crm`` for a change
+    the CRM section made (a manager added or removed there).
+    """
+
+    id: uuid.UUID
+    at: datetime
+    kind: str
+    label: str
+    via: str
+    member: HistoryPersonOut | None
+    before: StandingOut | None
+    after: StandingOut | None
+    provider: str
+    account_name: str
+
+
+class HistoryOut(BaseModel):
+    items: list[HistoryItemOut]

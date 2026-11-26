@@ -5,6 +5,7 @@ from googleadskit import PROVIDER as GOOGLE
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.common.acting import acting_for
 from app.common.config import settings
 from app.modules.accounts.models import User
 from app.modules.integrations.models import AdAccount, ProviderConnection
@@ -45,17 +46,17 @@ def google_accounts(db: Session, *, owner: User) -> list[AdAccount]:
 
 
 def subscribed_google_accounts(db: Session, *, owner: User) -> list[AdAccount]:
-    return list(
-        db.scalars(
-            select(AdAccount)
-            .where(
-                AdAccount.owner_id == owner.id,
-                AdAccount.provider == GOOGLE,
-                AdAccount.is_active.is_(True),
-            )
-            .order_by(AdAccount.is_current.desc(), AdAccount.name)
-        )
+    query = select(AdAccount).where(
+        AdAccount.owner_id == owner.id,
+        AdAccount.provider == GOOGLE,
+        AdAccount.is_active.is_(True),
     )
+    pinned = acting_for(owner.id)
+    if pinned is not None:
+        # A request that names a business works on that business's Google
+        # account, and on none where the business has none.
+        query = query.where(AdAccount.id == pinned.account(GOOGLE))
+    return list(db.scalars(query.order_by(AdAccount.is_current.desc(), AdAccount.name)))
 
 
 def current_google_account(db: Session, *, owner: User) -> AdAccount | None:

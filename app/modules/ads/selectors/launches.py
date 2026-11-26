@@ -75,11 +75,22 @@ def provider_for(db: Session, *, owner: User) -> str:
 
 def launch_for(db: Session, *, owner: User, launch_id: UUID) -> CampaignLaunch | None:
     """One preparation, or ``None`` when it is not this owner's."""
-    return db.scalar(
+    from app.common.acting import acting_for
+
+    launch = db.scalar(
         select(CampaignLaunch).where(
             CampaignLaunch.owner_id == owner.id, CampaignLaunch.id == launch_id
         )
     )
+    pinned = acting_for(owner.id)
+    if launch is not None and pinned is not None and pinned.by_member:
+        # A member opens the preparations of the business the request names.
+        if launch.business_id is not None:
+            if launch.business_id != pinned.business_id:
+                return None
+        elif launch.page_id is not None and launch.page_id != pinned.page_id:
+            return None
+    return launch
 
 
 def open_launch(

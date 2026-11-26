@@ -63,6 +63,7 @@ from app.modules.crm.exceptions import (
     DueInPast,
     EmailTaken,
     EmptyNote,
+    MemberLacksSource,
     MemberNotSeated,
     NameRequired,
     NoAdsChosen,
@@ -105,6 +106,7 @@ from app.modules.crm.selectors import (
     holds,
     is_running,
     lead_places,
+    may_take,
     pair_of_lead,
     qualified_count,
     seated_ids,
@@ -204,10 +206,20 @@ def require_open(viewer: Viewer) -> None:
         raise CrmClosed
 
 
-def require_writer(viewer: Viewer) -> None:
+def require_writer(viewer: Viewer, *, provider: str | None = None) -> None:
     """A manager whose CRM grant in the business is «ko'rish» reads the board
-    and changes nothing on it."""
-    if viewer.read_only and not viewer.is_owner:
+    and changes nothing on it. With ``provider``, the lead's source is asked
+    about: a card from a source they hold nothing over is not there for them,
+    and one from a source they only read is not theirs to change."""
+    if viewer.is_owner:
+        return
+    if viewer.read_only:
+        raise NotYours
+    if provider is None:
+        return
+    if not viewer.reads(provider):
+        raise UnknownCard
+    if not viewer.changes(provider):
         raise NotYours
 
 
@@ -327,7 +339,7 @@ def card_for_write(
     *,
     viewer: Viewer,
     card_id: str,
-    purpose: Literal["work", "take"] = "work",
+    purpose: Literal["work", "take", "assign"] = "work",
 ) -> CrmCard:
     require_open(viewer)
     require_writer(viewer)
@@ -338,7 +350,11 @@ def card_for_write(
     )
     if card is None:
         raise UnknownCard
+    require_writer(viewer, provider=card.lead.provider)
     if viewer.is_owner or card.assignee_id == viewer.user.id:
+        return card
+    if purpose == "assign" and viewer.may_assign:
+        # A ROP hands out the cards of the sources they hold.
         return card
     if card.assignee_id is None and purpose == "take":
         # «Men o'zim beraman»: only the owner hands a card out.
@@ -507,6 +523,8 @@ def new_card(
 ) -> CrmCard:
     """``added_by`` is whoever typed the customer in by hand; without one
     the card is an advert's lead arriving."""
+    # Only a manager who may change leads of this source is handed one.
+    members = may_take(db, members=members, provider=lead.provider)
     assignee = keeper or next_assignee(setup=setup, members=members)
     card = CrmCard(
         **scope_of(setup).fields(),
@@ -699,7 +717,8 @@ def add_manual(
 
     require_open(viewer)
     require_writer(viewer)
-    if not viewer.may_work:
+    if not viewer.may_work or not viewer.changes(MANUAL_PROVIDER):
+        # A customer typed in is «boshqa manba»: it takes that grant.
         raise NotYours
     scope = require_pair(viewer)
     name = " ".join(name.split())[:MANUAL_NAME_LENGTH]
@@ -1666,7 +1685,10 @@ def enable_crm(db: Session, *, viewer: Viewer) -> int:
             now=now,
         )
     for lead in chosen:
-        assignee = next_assignee(setup=setup, members=members)
+        assignee = next_assignee(
+            setup=setup,
+            members=may_take(db, members=members, provider=lead.provider),
+        )
         if assignee is not None:
             setup.last_assigned_id = assignee.id
         card = CrmCard(
@@ -1842,12 +1864,16 @@ def delete_reason(db: Session, *, viewer: Viewer, reason_id: str) -> None:
 
 
 def assign_card(db: Session, *, viewer: Viewer, card_id: str, user_id: str) -> CrmCard:
-    if not viewer.is_owner:
+    """Hand a card to a manager, or take it back to the board. The owner's
+    to do, and a ROP's: among the managers, on the sources the ROP holds."""
+    if not viewer.may_assign:
         raise NotYours
-    card = card_for_write(db, viewer=viewer, card_id=card_id)
+    card = card_for_write(db, viewer=viewer, card_id=card_id, purpose="assign")
     if not user_id:
         assignee = None
     elif user_id == str(viewer.owner.id):
+        if not viewer.is_owner:
+            raise NotYours
         assignee = viewer.owner
     else:
         member = db.scalar(
@@ -1861,6 +1887,8 @@ def assign_card(db: Session, *, viewer: Viewer, card_id: str, user_id: str) -> C
             raise UnknownMember
         if member.id not in seated_ids(db, owner=viewer.owner, at=utcnow()):
             raise MemberNotSeated
+        if not may_take(db, members=[member], provider=card.lead.provider):
+            raise MemberLacksSource
         assignee = member.user
     if card.assignee_id == (assignee.id if assignee else None):
         return card

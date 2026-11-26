@@ -179,6 +179,11 @@ class EventName(Choices):
     SALES_MONTH_CLOSED = "sales.month_closed"
     SALES_ARIZAS_ADOPTED = "sales.arizas_adopted"
     BUSINESS_CREATED = "business.created"
+    BUSINESS_NETWORK_BOUND = "business.network_bound"
+    BUSINESS_NETWORK_UNBOUND = "business.network_unbound"
+    BUSINESS_MEMBER_ADDED = "business.member_added"
+    BUSINESS_MEMBER_CHANGED = "business.member_changed"
+    BUSINESS_MEMBER_REMOVED = "business.member_removed"
     CONNECTION_ADDED = "connection.added"
     CONNECTION_REMOVED = "connection.removed"
     CONNECTION_LOST = "connection.lost"
@@ -311,6 +316,11 @@ EVENT_NAME_LABELS = {
     EventName.SALES_MONTH_CLOSED: "Sotuv oyi yopildi",
     EventName.SALES_ARIZAS_ADOPTED: "Ariza kartalari hisobga o'tdi",
     EventName.BUSINESS_CREATED: "Biznes profili to'ldirildi",
+    EventName.BUSINESS_NETWORK_BOUND: "Biznesga tarmoq ulandi",
+    EventName.BUSINESS_NETWORK_UNBOUND: "Biznesdan tarmoq uzildi",
+    EventName.BUSINESS_MEMBER_ADDED: "Biznesga xodim qo'shildi",
+    EventName.BUSINESS_MEMBER_CHANGED: "Xodimning roli yoki ruxsati o'zgardi",
+    EventName.BUSINESS_MEMBER_REMOVED: "Xodim biznesdan chiqarildi",
     EventName.CONNECTION_ADDED: "Reklama akkaunti ulandi",
     EventName.CONNECTION_REMOVED: "Reklama akkaunti uzildi",
     EventName.CONNECTION_LOST: "Ulanish ishlamay qoldi",

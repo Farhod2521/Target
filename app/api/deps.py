@@ -48,8 +48,46 @@ MEMBER_BUSINESS_PATHS = (
     "/api/v2/campaigns",
     "/api/v1/launch",
     "/api/v1/metrics",
+    "/api/v1/google",
+    "/api/v1/chatgpt",
+)
+# The network a path works on, where it is not Meta.
+NETWORK_PATHS = (("/api/v1/google", "google"), ("/api/v1/chatgpt", "chatgpt"))
+DRAFTS_PATH = "/api/v1/launch/drafts"
+# The owner's own, whatever a member holds: the key the network is reached
+# with, and which account the cabinet stands on.
+OWNER_ONLY_PATHS = frozenset(
+    {
+        "/api/v1/chatgpt/connect",
+        "/api/v1/chatgpt/disconnect",
+        "/api/v1/google/account",
+    }
 )
 READING_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _network_of(request: Request, db: Session) -> str | None:
+    """The network whose adverts the request reads or changes. ``None`` for
+    the one route that opens a draft on whichever network its body names:
+    the route asks for itself."""
+    from metaads import PROVIDER
+
+    path = request.url.path.rstrip("/")
+    for prefix, network in NETWORK_PATHS:
+        if path.startswith(prefix):
+            return network
+    if path == DRAFTS_PATH:
+        return None
+    if path.startswith(DRAFTS_PATH + "/"):
+        from app.modules.ads.models import GoogleLaunch
+
+        try:
+            draft_id = uuid.UUID(path[len(DRAFTS_PATH) + 1 :].split("/", 1)[0])
+        except ValueError:
+            return PROVIDER
+        if db.get(GoogleLaunch, draft_id) is not None:
+            return "google"
+    return PROVIDER
 
 
 def business_scope(
@@ -61,10 +99,9 @@ def business_scope(
     a business's to open (their CRM board is theirs under their own login).
     Raises as :func:`access_for` does for a business that is not theirs.
     """
-    from metaads import PROVIDER
     from sqlalchemy import select
 
-    from app.modules.businesses.constants import GrantArea, GrantLevel, LinkKind
+    from app.modules.businesses.constants import GrantArea, LinkKind
     from app.modules.businesses.exceptions import NoAccess, UnknownBusiness
     from app.modules.businesses.models import BusinessLink
     from app.modules.businesses.selectors.access import access_for
@@ -80,24 +117,47 @@ def business_scope(
     except ValueError:
         raise UnknownBusiness from None
     access = access_for(db, business_id=business_id, user=user)
-    link = db.scalar(
-        select(BusinessLink).where(
-            BusinessLink.business_id == business_id,
-            BusinessLink.kind == LinkKind.META_PAIR,
-            BusinessLink.unbound_at.is_(None),
+    links = list(
+        db.scalars(
+            select(BusinessLink).where(
+                BusinessLink.business_id == business_id,
+                BusinessLink.unbound_at.is_(None),
+            )
         )
     )
+    pair = next((link for link in links if link.kind == LinkKind.META_PAIR), None)
     held = Acting(
         business_id=business_id,
         owner_id=access.business.user_id,
         actor_id=user.id,
-        page_id=link.page_id if link is not None else None,
-        ad_account_id=link.ad_account_id if link is not None else None,
+        page_id=pair.page_id if pair is not None else None,
+        ad_account_id=pair.ad_account_id if pair is not None else None,
+        accounts=tuple(
+            sorted(
+                (link.provider, link.ad_account_id)
+                for link in links
+                if link.kind == LinkKind.AD_ACCOUNT and link.ad_account_id is not None
+            )
+        ),
+        ads=tuple(
+            sorted(
+                (provider, level)
+                for (area, provider), level in access.grants.items()
+                if area == GrantArea.ADS
+            )
+        ),
     )
     if access.is_owner:
         return user, held
-    level = GrantLevel.VIEW if request.method in READING_METHODS else GrantLevel.EDIT
-    if not access.may(GrantArea.ADS, PROVIDER, level):
+    if request.url.path.rstrip("/") in OWNER_ONLY_PATHS:
+        raise NoAccess
+    write = request.method not in READING_METHODS
+    network = _network_of(request, db)
+    if network is None:
+        allowed = any(held.allows(one, write=write) for one, _ in held.ads)
+    else:
+        allowed = held.allows(network, write=write)
+    if not allowed:
         raise NoAccess
     owner = db.get(User, access.business.user_id)
     if owner is None or not owner.is_active:
