@@ -41,8 +41,10 @@ def test_money_figures_and_who_sees_them(client: TestClient, db: Session) -> Non
     now = utcnow()
     _bill(db, plan, shop.id, amount_minor=49000000, status=InvoiceStatus.PAID,
           paid_at=now, manual_method="cash")  # fmt: skip
+    # A second earlier: the list is newest first, and two bills paid at the
+    # same instant come back in either order.
     _bill(db, plan, shop.id, amount_minor=6000000, status=InvoiceStatus.PAID,
-          paid_at=now, kind=InvoiceKind.SEATS)  # fmt: skip
+          paid_at=now - timedelta(seconds=1), kind=InvoiceKind.SEATS)  # fmt: skip
     _bill(db, plan, shop.id, amount_minor=10000000, status=InvoiceStatus.PAID,
           paid_at=now - timedelta(days=9))  # fmt: skip
     _bill(db, plan, shop.id, amount_minor=1, status=InvoiceStatus.PENDING)

@@ -132,6 +132,14 @@ def test_the_office_writes_first_to_a_client_without_a_chat(
     assert [row["body"] for row in opened["messages"]] == ["Salom"]
 
 
+def _next_message(socket, frames: int = 6):  # type: ignore[no-untyped-def]
+    for _ in range(frames):
+        frame = socket.receive_json()
+        if "message" in frame:
+            return frame
+    raise AssertionError("no message frame came")
+
+
 def test_the_office_socket_speaks_for_the_office(
     client: TestClient, db: Session
 ) -> None:
@@ -160,8 +168,10 @@ def test_the_office_socket_speaks_for_the_office(
         office_side.send_json({"typing": True})
         assert client_side.receive_json() == {"type": "typing", "side": "office"}
         office_side.send_json({"body": "Javob", "nonce": "o1"})
-        mine = office_side.receive_json()
+        # The two sides also tell each other who is typing and what was
+        # read, and those frames may come first: the next message is awaited.
+        mine = _next_message(office_side)
         assert mine["nonce"] == "o1" and mine["message"]["own"]
-        theirs = client_side.receive_json()
+        theirs = _next_message(client_side)
         assert theirs["message"]["who"] == "Qo'llab-quvvatlash"
         assert not theirs["message"]["own"]
