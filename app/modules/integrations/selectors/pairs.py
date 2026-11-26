@@ -7,6 +7,7 @@ from metaads import PROVIDER
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.acting import acting_for
 from app.modules.accounts.models import User
 from app.modules.integrations.models import AdAccount, PageAccount, PagePair
 from app.modules.integrations.selectors.portfolio import fits
@@ -134,10 +135,32 @@ def stored_pairs(
     return found
 
 
+def _named(pairs: Sequence[Pair]) -> Pair | None:
+    """The pair of the business this request names (``app.common.acting``),
+    when it is among ``pairs``."""
+    if not pairs:
+        return None
+    pinned = acting_for(pairs[0].page.owner_id)
+    if pinned is None:
+        return None
+    return next(
+        (
+            pair
+            for pair in pairs
+            if pair.page.id == pinned.page_id
+            and pair.account.id == pinned.ad_account_id
+        ),
+        None,
+    )
+
+
 def pair_on(pairs: Sequence[Pair], page: PageAccount | None) -> Pair | None:
     if page is None:
         return None
     own = [pair for pair in pairs if pair.page.id == page.id]
+    named = _named(own)
+    if named is not None:
+        return named
     return next((pair for pair in own if pair.account.is_current), None) or (
         own[0] if own else None
     )
@@ -147,6 +170,9 @@ def current_pair(
     db: Session, *, owner: User, pairs: Sequence[Pair] | None = None
 ) -> Pair | None:
     pairs = page_pairs(db, owner=owner) if pairs is None else pairs
+    named = _named(pairs)
+    if named is not None:
+        return named
     page = page_shown(_pages_of(pairs))
     if page is None:
         return None

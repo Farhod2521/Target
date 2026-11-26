@@ -307,13 +307,50 @@ endi olinadi.
 ko'radi. Ularni o'zgartira olmaydi (`403`), faqat o'zinikini. Filtrdagi «menejer» tanlovini
 ROP uchun ham ko'rsating.
 
+## 8a. Reklama: `X-Business` sarlavhasi
+
+Reklama yo'llari (`/api/v1/campaigns`, `/api/v2/campaigns`, `/api/v1/launch`,
+`/api/v1/metrics`) o'zgarmagan. Ularga bitta sarlavha qo'shildi:
+
+```
+X-Business: <biznes id>
+```
+
+| Kim | Sarlavha bilan | Sarlavhasiz |
+|---|---|---|
+| Ega | So'rov shu biznesning sahifa va akkauntida ishlaydi. Kabinetning «joriy juftligi» o'zgarmaydi | Avvalgidek: kabinetning joriy juftligi |
+| Xodim (reklama ruxsati bor) | So'rov shu biznesda, egasi nomidan ishlaydi | `403` |
+| Xodim (reklama ruxsati yo'q) | `403 no_access` | `403` |
+| Begona biznes | `404 unknown_business` | — |
+
+Ruxsat darajasi so'rov turiga qarab tekshiriladi (`area: "ads"`, `provider: "meta"`):
+
+| So'rov | Kerakli daraja |
+|---|---|
+| `GET` | `view` |
+| `POST`, `PUT`, `PATCH`, `DELETE` | `edit` |
+
+Ba'zi o'qish amallari `POST` bilan qilinadi (masalan `/campaigns/sync`): ular ham `edit`
+talab qiladi. `view` ruxsatli xodimga bunday tugmalarni ko'rsatmang.
+
+**Frontda:** API mijoziga bitta joyda qo'shing — tanlangan biznes bo'lsa, shu to'rt
+prefiksdagi har so'rovga `X-Business` qo'yiladi. Shunda biznes almashtirgich
+`POST /connections/meta/switch/pair` ni chaqirmasdan ishlaydi: almashtirish shunchaki
+sarlavhadagi id ni o'zgartiradi va so'rovlarni qayta yuboradi (React Query kalitiga biznes
+id sini qo'shing).
+
+Xodim bajargan o'zgarishlar tarixda egasi hisobida, lekin xodim nomi bilan saqlanadi.
+
+Bu sarlavha faqat yuqoridagi to'rt prefiksda xodimga yo'l ochadi. To'lov, ulanishlar,
+sozlamalar va boshqa hamma narsa xodimga avvalgidek yopiq.
+
 ## 9. Frontda qilinadigan ishlar
 
 | # | Ish | Qayerda |
 |---|---|---|
 | 1 | API qatlami: `packages/api/src/businesses.ts` + ko'prik + mock | `packages/api` |
 | 2 | Biznes almashtirgich (yuqori panel): `GET /businesses`, tanlangan biznes `id` si saqlanadi | `apps/cabinet/src/shell.tsx` |
-| 3 | Tanlangan biznesdan eski ekranlarga o'tish: `networks[0].pair` ni mavjud `?pair=` ga bering; ega uchun kerak bo'lsa `POST /api/v1/connections/meta/switch/pair` | dashboard, CRM, lidlar |
+| 3 | Tanlangan biznesdan eski ekranlarga o'tish: reklama so'rovlariga `X-Business` (8a-bo'lim), CRM so'rovlariga `?pair=<networks[0].pair>` | dashboard, reklama, CRM, lidlar |
 | 4 | Sozlamalar → «Xodimlar» sahifasi: ro'yxat, joylar ko'rsatkichi, qo'shish (yangi login / mavjud odam), rol va ruxsat jadvali, o'chirish | `apps/cabinet/src/pages/settings` |
 | 5 | Ruxsat jadvali: qatorlar — `networks` + «Boshqa manba»; ustunlar — Reklama, CRM; katak — yo'q / ko'rish / o'zgartirish | o'sha yerda |
 | 6 | Xodim logini uchun kirish oqimi: bizneslar ro'yxati → biznes; ruxsati yo'q bo'limlar yashiriladi (`may()` funksiyasi) | `apps/cabinet` |
@@ -323,9 +360,10 @@ ROP uchun ham ko'rsating.
 
 Bular keyingi bosqichlarda chiqadi; hozir ularga tayanib ekran qurmang.
 
-- **Reklama yo'llari xodim uchun.** Targetolog qo'shiladi va biznesni ko'radi, lekin
-  kampaniyalar yo'llari (`/api/v1/campaigns`, `/api/v2/…`) xodim loginiga hali yopiq.
-  Ya'ni targetolog hozircha reklamani boshqara olmaydi.
+- **Fon vazifalari.** `X-Business` so'rov davomida ishlaydi. So'rovdan keyin fonda
+  bajariladigan ishlar (masalan sinxronlash) biznesni so'rov bergan ma'lumotdan oladi;
+  sezilgan nomuvofiqlik bo'lsa xabar bering.
+- **AI chat va agent** xodimga hali yopiq (`/api/v1/chat`, `/api/v1/agent`).
 - **Profilni v3 dan tahrirlash.**
 - **ROP uchun boshqa menejer kartasini o'zgartirish** (masalan boshqasiga o'tkazish): hozir
   faqat ko'radi, taqsimlashni ega qiladi.

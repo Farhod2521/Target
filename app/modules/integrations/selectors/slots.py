@@ -5,6 +5,7 @@ from metaads import PROVIDER
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, aliased
 
+from app.common.acting import acting_for
 from app.modules.accounts.models import User
 from app.modules.integrations.models import AdAccount, PageAccount, PageInstagram
 
@@ -96,6 +97,11 @@ def enabled_pages(db: Session, *, owner: User) -> list[PageAccount]:
 
 
 def page_shown(pages: Sequence[PageAccount]) -> PageAccount | None:
+    if pages:
+        # A request that names a business is shown that business's page.
+        pinned = acting_for(pages[0].owner_id)
+        if pinned is not None and pinned.page_id is not None:
+            return next((page for page in pages if page.id == pinned.page_id), None)
     if pages and pages[0].is_current:
         return pages[0]
     return pages[0] if len(pages) == 1 else None

@@ -8,6 +8,7 @@ from metaads.oauth import INSTAGRAM_SCOPE, holds, missing
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.common.acting import acting_for
 from app.modules.accounts.models import User
 from app.modules.integrations.constants import LINKED_CONNECTION_STATUSES
 from app.modules.integrations.models import (
@@ -139,6 +140,15 @@ def ad_accounts_held_elsewhere(
 
 
 def active_ad_account(db: Session, *, owner: User) -> AdAccount | None:
+    pinned = acting_for(owner.id)
+    if pinned is not None and pinned.ad_account_id is not None:
+        # A request that names a business works on that business's account.
+        return db.scalar(
+            select(AdAccount).where(
+                AdAccount.owner_id == owner.id,
+                AdAccount.id == pinned.ad_account_id,
+            )
+        )
     return db.scalar(
         select(AdAccount).where(
             AdAccount.owner_id == owner.id,
@@ -154,6 +164,11 @@ def page_ad_account(db: Session, *, owner: User, page: PageAccount) -> AdAccount
     pairs = page_pairs(db, owner=owner, pages=[page])
     if not pairs:
         return None
+    pinned = acting_for(owner.id)
+    if pinned is not None and pinned.page_id == page.id:
+        for pair in pairs:
+            if pair.account.id == pinned.ad_account_id:
+                return pair.account
     return next(
         (pair.account for pair in pairs if pair.account.is_current), pairs[0].account
     )
@@ -191,6 +206,13 @@ def active_pixel(db: Session, *, owner: User) -> PixelAccount | None:
 
 
 def active_page(db: Session, *, owner: User) -> PageAccount | None:
+    pinned = acting_for(owner.id)
+    if pinned is not None and pinned.page_id is not None:
+        return db.scalar(
+            select(PageAccount).where(
+                PageAccount.owner_id == owner.id, PageAccount.id == pinned.page_id
+            )
+        )
     found = list(
         db.scalars(
             select(PageAccount)
