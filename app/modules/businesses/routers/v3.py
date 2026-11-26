@@ -24,14 +24,15 @@ from app.modules.businesses.constants import (
     OTHER_SOURCE,
     GrantArea,
     GrantLevel,
+    LinkKind,
     MemberRole,
 )
 from app.modules.businesses.exceptions import (
     LoginRequired,
-    ManagedByCrm,
+    MemberExists,
+    NoPairForCrm,
     NoSeat,
     NotYourStaff,
-    SalesThroughCrm,
     UnknownMember,
 )
 from app.modules.businesses.models import Business, BusinessLink, BusinessMember
@@ -249,29 +250,68 @@ def _asked(grants: list[GrantIn] | None) -> dict[tuple[str, str], str] | None:
     return {(grant.area, grant.provider): grant.level for grant in grants}
 
 
-def _works_the_crm(db: Session, *, business: Business, user_id: uuid.UUID) -> bool:
+def _crm_owner(db: Session, *, business: Business, owner: User):  # type: ignore[no-untyped-def]
+    """The owner on this business's pair of the CRM, whose managers a sales
+    manager is one of."""
+    from app.modules.crm.selectors import viewer_for
+
+    key = db.scalar(
+        select(BusinessLink.external_id).where(
+            BusinessLink.business_id == business.id,
+            BusinessLink.kind == LinkKind.META_PAIR,
+            BusinessLink.unbound_at.is_(None),
+        )
+    )
+    viewer = viewer_for(db, user=owner, wanted=key or "")
+    if key is None or viewer.pair is None or viewer.pair.key != key:
+        raise NoPairForCrm
+    return viewer
+
+
+def _manager_row(db: Session, *, business: Business, user_id: uuid.UUID):  # type: ignore[no-untyped-def]
     from app.modules.crm.models import CrmMember
 
-    return bool(
-        db.scalar(
-            select(CrmMember.id).where(
-                CrmMember.business_id == business.id,
-                CrmMember.user_id == user_id,
-                CrmMember.is_active.is_(True),
-            )
+    return db.scalar(
+        select(CrmMember).where(
+            CrmMember.business_id == business.id,
+            CrmMember.user_id == user_id,
+            CrmMember.is_active.is_(True),
         )
     )
 
 
-def _check_sales(
-    db: Session, *, business: Business, user_id: uuid.UUID | None, roles: list[str]
+def _mirrored(db: Session, *, business: Business, user_id: uuid.UUID) -> BusinessMember:
+    """The membership the CRM's new manager row was just given."""
+    db.flush()
+    member_services.mirror_crm_members(db, owner_id=business.user_id)
+    member = db.scalar(
+        select(BusinessMember).where(
+            BusinessMember.business_id == business.id,
+            BusinessMember.user_id == user_id,
+        )
+    )
+    if member is None:
+        raise UnknownMember
+    return member
+
+
+def _leave_crm(
+    db: Session, *, business: Business, owner: User, user_id: uuid.UUID
 ) -> None:
-    """A sales manager works the CRM, whose managers the CRM section still
-    adds: the role is given here only to somebody it has added."""
-    if MemberRole.SALES not in roles:
+    """Take the person off this business's CRM: their cards go back to the
+    board, and the login stays while they have other work."""
+    from app.modules.crm.services import remove_member as remove_manager
+
+    row = _manager_row(db, business=business, user_id=user_id)
+    if row is None:
         return
-    if user_id is None or not _works_the_crm(db, business=business, user_id=user_id):
-        raise SalesThroughCrm
+    remove_manager(
+        db, viewer=_crm_owner(db, business=business, owner=owner), member_id=str(row.id)
+    )
+    # The removal deletes around the session; what it holds of the person's
+    # rows is read again.
+    db.flush()
+    db.expire_all()
 
 
 @router.get("/{business_id}/members", response_model=MembersOut)
@@ -288,15 +328,18 @@ def list_members(business_id: uuid.UUID, db: Db, user: CurrentUser) -> MembersOu
 def add_member(
     business_id: uuid.UUID, body: MemberIn, db: Db, user: CurrentUser
 ) -> MembersOut:
-    """One of the owner's people, or a new login, put to work here."""
+    """One of the owner's people, or a new login, put to work here. A sales
+    manager is made a manager of this business's CRM in the same step."""
     from app.modules.accounts.services import create_member_login
+    from app.modules.crm import services as crm
     from app.modules.crm.services import check_email, check_password
 
     access = _owner_access(db, business_id, user)
     business = access.business
-    _check_sales(db, business=business, user_id=body.user_id, roles=list(body.roles))
+    sales = MemberRole.SALES in body.roles
     if _seats(db, owner=user).free < 1:
         raise NoSeat
+    person: User | None = None
     if body.user_id is not None:
         person = db.get(User, body.user_id)
         if person is None or person.crm_owner_id != user.id:
@@ -305,19 +348,50 @@ def add_member(
         name, email = body.name.strip(), body.email.strip().lower()
         if not (name and email and body.password):
             raise LoginRequired
-        check_email(email)
-        check_password(password=body.password, email=email, full_name=name)
-        person = create_member_login(
-            db, owner=user, email=email, full_name=name, password=body.password
+    if not sales:
+        if person is None:
+            check_email(email)
+            check_password(password=body.password, email=email, full_name=name)
+            person = create_member_login(
+                db, owner=user, email=email, full_name=name, password=body.password
+            )
+        member_services.add_member(
+            db,
+            business=business,
+            user=person,
+            roles=body.roles,
+            is_rop=body.is_rop,
+            grants=_asked(body.grants),
         )
-    member_services.add_member(
-        db,
-        business=business,
-        user=person,
-        roles=body.roles,
-        is_rop=body.is_rop,
-        grants=_asked(body.grants),
-    )
+    else:
+        # Refuse what the roles and grants cannot be before a manager is made.
+        member_services.check(
+            db,
+            business=business,
+            roles=body.roles,
+            is_rop=body.is_rop,
+            grants=_asked(body.grants),
+        )
+        viewer = _crm_owner(db, business=business, owner=user)
+        if person is None:
+            row = crm.add_member(
+                db, viewer=viewer, name=name, email=email, password=body.password
+            )
+        else:
+            if any(
+                one.user_id == person.id
+                for one in members_of(db, business_id=business.id)
+            ):
+                raise MemberExists
+            row = crm.add_person(db, viewer=viewer, user=person)
+        member = _mirrored(db, business=business, user_id=row.user_id)
+        member_services.change_member(
+            db,
+            member=member,
+            roles=body.roles,
+            is_rop=body.is_rop,
+            grants=_asked(body.grants),
+        )
     db.commit()
     return _members(db, business=business, owner=user)
 
@@ -344,14 +418,28 @@ def change_member(
     user: CurrentUser,
 ) -> MembersOut:
     """New roles for a member. With no ``grants`` the roles' ready set
-    replaces what they held; with them, exactly those are kept."""
+    replaces what they held; with them, exactly those are kept. Giving the
+    sales role makes the person a manager of this business's CRM; taking it
+    away takes them off it, and their cards go back to the board."""
+    from app.modules.crm import services as crm
+
     access = _owner_access(db, business_id, user)
-    member = _member(db, business=access.business, member_id=member_id)
-    _check_sales(
-        db, business=access.business, user_id=member.user_id, roles=list(body.roles)
+    business = access.business
+    member = _member(db, business=business, member_id=member_id)
+    member_services.check(
+        db,
+        business=business,
+        roles=body.roles,
+        is_rop=body.is_rop,
+        grants=_asked(body.grants),
     )
-    if member.crm_member_id is not None and MemberRole.SALES not in body.roles:
-        raise ManagedByCrm
+    sales = MemberRole.SALES in body.roles
+    works = _manager_row(db, business=business, user_id=member.user_id) is not None
+    if sales and not works:
+        crm.add_person(
+            db, viewer=_crm_owner(db, business=business, owner=user), user=member.user
+        )
+        member = _mirrored(db, business=business, user_id=member.user_id)
     member_services.change_member(
         db,
         member=member,
@@ -359,18 +447,23 @@ def change_member(
         is_rop=body.is_rop,
         grants=_asked(body.grants),
     )
+    if works and not sales:
+        _leave_crm(db, business=business, owner=user, user_id=member.user_id)
     db.commit()
-    return _members(db, business=access.business, owner=user)
+    return _members(db, business=business, owner=user)
 
 
 @router.delete("/{business_id}/members/{member_id}", response_model=MembersOut)
 def remove_member(
     business_id: uuid.UUID, member_id: uuid.UUID, db: Db, user: CurrentUser
 ) -> MembersOut:
+    """Take the person out of the business, and off its CRM if they were a
+    manager there. A login with no other work is closed."""
     access = _owner_access(db, business_id, user)
-    member = _member(db, business=access.business, member_id=member_id)
-    if member.crm_member_id is not None:
-        raise ManagedByCrm
+    business = access.business
+    member = _member(db, business=business, member_id=member_id)
+    person = member.user_id
     member_services.remove_member(db, member=member)
+    _leave_crm(db, business=business, owner=user, user_id=person)
     db.commit()
-    return _members(db, business=access.business, owner=user)
+    return _members(db, business=business, owner=user)

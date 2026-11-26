@@ -231,7 +231,6 @@ def test_what_the_owner_may_not_send(client: TestClient, db: Session) -> None:
         400,
         "not_your_staff",
     )
-    assert code(_new_login("Ali", ["sales"])) == (409, "sales_through_crm")
     assert code(_new_login("Ali", ["targetolog"], is_rop=True)) == (
         400,
         "rop_needs_sales",
@@ -281,12 +280,18 @@ def test_a_manager_the_crm_added_is_shown_and_made_a_rop_here(
         ("crm", "other"),
     }
 
+    # Without the sales role the person leaves the CRM and stays a targetolog.
     kept = client.patch(
         f"{url}/{member['id']}", json={"roles": ["targetolog"]}, headers=owner
     )
-    assert (kept.status_code, kept.json()["code"]) == (409, "managed_by_crm")
-    gone = client.delete(f"{url}/{member['id']}", headers=owner)
-    assert (gone.status_code, gone.json()["code"]) == (409, "managed_by_crm")
+    assert kept.status_code == 200, kept.text
+    (member,) = kept.json()["members"]
+    assert (member["roles"], member["from_crm"], member["is_rop"]) == (
+        ["targetolog"],
+        False,
+        False,
+    )
+    assert member["grants"] == [{"area": "ads", "provider": "meta", "level": "edit"}]
 
 
 def test_a_member_taken_out_loses_the_business_at_once(

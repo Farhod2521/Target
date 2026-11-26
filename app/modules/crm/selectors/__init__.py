@@ -95,6 +95,12 @@ class Viewer:
     # A member of staff working the customer's CRM from the office: the owner's
     # reach, under their own name in the log.
     staff: bool = False
+    # What the business says of a manager (``businesses.BusinessMember``): a
+    # ROP reads every card of the pair, a manager whose CRM grant is «ko'rish»
+    # changes nothing, and one with no CRM grant left does not open the board.
+    reads_all: bool = False
+    read_only: bool = False
+    barred: bool = False
 
     @property
     def is_owner(self) -> bool:
@@ -112,6 +118,7 @@ class Viewer:
             self.member is not None
             and self.member.is_active
             and self.seated
+            and not self.barred
             and self.pair is not None
             and bool(self.owner.is_active)
         )
@@ -138,6 +145,45 @@ def pair_of_row(pairs: Sequence[Pair], row: Any) -> Pair | None:
     )
 
 
+def member_rows(db: Session, *, user: User) -> list[CrmMember]:
+    """A manager's rows, one for each pair they work: active first, oldest first."""
+    return list(
+        db.scalars(
+            select(CrmMember)
+            .where(CrmMember.user_id == user.id)
+            .order_by(CrmMember.is_active.desc(), CrmMember.created_at, CrmMember.id)
+        )
+    )
+
+
+def _standing(db: Session, *, member: CrmMember) -> dict[str, bool]:
+    """What the manager's membership of the business adds or takes away.
+    Nothing, for a manager whose pair is no business yet."""
+    from metaads import PROVIDER
+
+    from app.modules.businesses.constants import GrantArea, GrantLevel
+    from app.modules.businesses.models import BusinessMember
+
+    held = db.scalar(
+        select(BusinessMember).where(BusinessMember.crm_member_id == member.id)
+    )
+    if held is None:
+        return {}
+    level = next(
+        (
+            grant.level
+            for grant in held.grants
+            if grant.area == GrantArea.CRM and grant.provider == PROVIDER
+        ),
+        None,
+    )
+    return {
+        "reads_all": bool(held.is_rop) and level is not None,
+        "read_only": level == GrantLevel.VIEW,
+        "barred": level is None,
+    }
+
+
 def viewer_for(db: Session, *, user: User, wanted: str = "") -> Viewer:
     if user.crm_owner_id is None:
         pairs = tuple(page_pairs(db, owner=user))
@@ -148,12 +194,23 @@ def viewer_for(db: Session, *, user: User, wanted: str = "") -> Viewer:
             pair=chosen_pair(db, owner=user, wanted=wanted, pairs=pairs),
             pairs=pairs,
         )
-    member = db.scalar(select(CrmMember).where(CrmMember.user_id == user.id))
-    owner_id = member.owner_id if member is not None else user.crm_owner_id
+    rows = member_rows(db, user=user)
+    owner_id = rows[0].owner_id if rows else user.crm_owner_id
     owner = db.get(User, owner_id) or user
-    if member is None:
+    if not rows:
         return Viewer(owner=owner, user=user, member=None)
     pairs = tuple(page_pairs(db, owner=owner))
+    # A manager of several pairs names the one to open; the first otherwise.
+    member = next(
+        (
+            row
+            for row in rows
+            if wanted
+            and (pair := pair_of_row(pairs, row)) is not None
+            and pair.key == wanted
+        ),
+        rows[0],
+    )
     return Viewer(
         owner=owner,
         user=user,
@@ -161,6 +218,7 @@ def viewer_for(db: Session, *, user: User, wanted: str = "") -> Viewer:
         pair=pair_of_row(pairs, member),
         pairs=pairs,
         seated=member.id in seated_ids(db, owner=owner, at=utcnow()),
+        **_standing(db, member=member),
     )
 
 
@@ -663,7 +721,7 @@ class Board:
 
 def _visible(viewer: Viewer) -> ColumnElement[bool]:
     mine = holds(viewer.scope, CrmCard)
-    if viewer.is_owner:
+    if viewer.is_owner or viewer.reads_all:
         return mine
     new_stages = select(CrmStage.id).where(
         holds(viewer.scope, CrmStage), CrmStage.kind == StageKind.NEW

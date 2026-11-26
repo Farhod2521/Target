@@ -1,6 +1,6 @@
 # Biznes: yangi API (`/api/v3/businesses`) — frontend qo'llanmasi
 
-Backend: `feat/business-structure` shoxi, migratsiyalar `0085`, `0086`. Avval backend deploy
+Backend: migratsiyalar `0085`, `0086`, `0088`. Avval backend deploy
 qilinadi, keyin `python -m app.modules.businesses.backfill --apply` bir marta yurgiziladi.
 
 **Eski API o'zgarmagan.** `/api/v1` va `/api/v2` dagi hech bir yo'l, maydon yoki javob
@@ -15,7 +15,7 @@ OpenAPI'ni qayta generatsiya qiling (`pnpm api:gen`): yangi sxemalar `BusinessCa
 | Avval | Endi |
 |---|---|
 | Ish birligi: Facebook sahifa + reklama akkaunt juftligi | Ish birligi: **Biznes**. Har juftlik bitta biznes |
-| Xodim = faqat CRM menejeri, bitta juftlikda | Xodim biznesga a'zo; **rol** va **ruxsatlar** bilan; bir nechta biznesda ishlay oladi |
+| Xodim = faqat CRM menejeri, bitta juftlikda | Xodim biznesga a'zo; **rol** va **ruxsatlar** bilan; bir nechta biznesda ishlay oladi, CRM'da ham |
 | Menejer logini faqat `/api/v1/crm` ni ochadi | Xodim logini `/api/v3/businesses` ni ham ochadi |
 
 Bitta sahifaga ikkita reklama akkaunti ulangan bo'lsa, ular **ikkita alohida biznes**
@@ -183,7 +183,7 @@ dagi tarmoqlar bilan almashtirib ko'rsating.
 
 | Maydon | Ma'nosi |
 |---|---|
-| `from_crm` | `true` — bu sotuv manageri CRM bo'limida qo'shilgan. Uni bu yerdan o'chirib bo'lmaydi va `sales` rolini olib bo'lmaydi (`409 managed_by_crm`). «O'chirish» tugmasini yashiring, o'rniga «CRM bo'limida boshqariladi» deb yozing |
+| `from_crm` | `true` — bu odam shu biznes CRM'ining menejeri (`sales` roli bor). Faqat ma'lumot uchun: uni ham shu yerdan o'zgartirish va o'chirish mumkin |
 | `seats` | Joylar egasining **barcha** bizneslari bo'yicha umumiy. `free: 0` bo'lsa «Xodim qo'shish» o'rniga «Joy sotib olish» ko'rsating |
 | `candidates` | Egasining boshqa biznesda ishlayotgan, bu biznesga hali qo'shilmagan odamlari. «Mavjud xodimni tanlash» ro'yxati |
 | `networks` | Ruxsat berish mumkin bo'lgan tarmoqlar |
@@ -214,11 +214,13 @@ Mavjud odamni tanlab (`candidates` dan):
 - `grants` yuborilsa — **aynan shular** yoziladi, tayyor to'plam qo'llanmaydi.
 - Parol qoidalari ro'yxatdan o'tishdagidek; xato matni `detail` da keladi.
 
-**Muhim cheklov (hozircha):** `sales` rolini bu yerdan yangi odamga berib bo'lmaydi —
-`409 sales_through_crm`. Sotuv manageri avvalgidek CRM bo'limida qo'shiladi
-(`POST /api/v1/crm/settings/members`) va bu ro'yxatda o'zi paydo bo'ladi (`from_crm: true`). Shundan
-keyin unga shu yerdan ROP belgisi yoki `targetolog` roli qo'shish mumkin. Formada «Sotuv
-manageri» tanlansa, CRM bo'limiga yo'naltiring.
+**Sotuv manageri (`sales`)** shu yo'lning o'zida CRM menejeriga ham aylanadi: unga CRM
+doskasi ochiladi, lidlar navbat bilan tusha boshlaydi. Alohida `POST /api/v1/crm/settings/members`
+chaqirish shart emas. Yangi login birinchi kirishda parolni almashtirishi so'raladi
+(avvalgidek); mavjud odam (`user_id`) dan so'ralmaydi.
+
+Bir odam ikki biznesning CRM'ida ishlashi mumkin: ikkinchi biznesga `user_id` bilan
+qo'shiladi. Har biznesning lid navbati alohida.
 
 ### O'zgartirish
 
@@ -232,12 +234,37 @@ manageri» tanlansa, CRM bo'limiga yo'naltiring.
 qo'lda o'zgartirishlar yo'qoladi), yuborilsa aynan shular qoladi. Shuning uchun ruxsatlar
 jadvalini tahrirlaganda har doim to'liq `grants` ni yuboring.
 
+`sales` rolining qo'shilishi va olinishi CRM'ga ham ta'sir qiladi:
+
+| O'zgarish | Natija |
+|---|---|
+| `sales` qo'shildi | Odam shu biznes CRM'ining menejeri bo'ladi |
+| `sales` olindi | Odam CRM'dan chiqadi; ochiq kartalari birinchi ustunga, egasiz qaytadi |
+
+CRM ruxsati darajasi ham ishlaydi (`area: "crm"`, `provider: "meta"`):
+
+| Daraja | CRM doskasida |
+|---|---|
+| `edit` | Odatdagidek ishlaydi |
+| `view` | Doskani ko'radi, hech narsani o'zgartira olmaydi (`403`) |
+| yo'q | Doska ochilmaydi: `409`, `detail.crm = "closed"` (CRM'ning mavjud «yopiq» javobi) |
+
 ### O'chirish
 
 `DELETE /api/v3/businesses/{id}/members/{member_id}`
 
-Xodim shu zahoti biznesni ko'rmay qoladi (`404`). Yozuvi saqlanadi, qayta qo'shilsa
-o'sha yozuvda tiklanadi. Login o'chirilmaydi: odam boshqa bizneslarda ishlashda davom etadi.
+Xodim shu zahoti biznesni ko'rmay qoladi (`404`). CRM menejeri bo'lsa, shu biznesning
+CRM'idan ham chiqadi va shu biznesdagi ochiq kartalari egasiz qaytadi.
+
+Login taqdiri:
+
+| Holat | Login |
+|---|---|
+| Odam boshqa biznesda ham ishlaydi | saqlanadi, u yerda ishlashda davom etadi |
+| Bu uning yagona ishi edi | yopiladi (avvalgi CRM qoidasi) |
+
+O'chirishdan oldin tasdiq so'rang va ikkinchi holatda «login yopiladi» deb ogohlantiring:
+`candidates` ro'yxatida va boshqa bizneslarda bu odam bo'lmasa, bu uning yagona ishi.
 
 ## 7. Xato kodlari
 
@@ -248,8 +275,7 @@ o'sha yozuvda tiklanadi. Login o'chirilmaydi: odam boshqa bizneslarda ishlashda 
 | 404 | `unknown_member` | Xodim topilmadi yoki o'chirilgan | Ro'yxatni yangilang |
 | 409 | `member_exists` | Bu odam biznesda allaqachon bor | Xabar |
 | 409 | `no_seat` | Bo'sh joy yo'q | «Joy sotib olish» ga yo'naltiring |
-| 409 | `sales_through_crm` | `sales` roli CRM'da qo'shilmagan odamga berildi | CRM bo'limiga yo'naltiring |
-| 409 | `managed_by_crm` | CRM menejerini bu yerdan o'chirish yoki `sales` ni olib tashlash | Xabar |
+| 409 | `no_pair_for_crm` | `sales` berilmoqda, lekin biznesning sahifa + akkaunt juftligi topilmadi | Ulanishlarga yo'naltiring |
 | 400 | `login_required` | Na `user_id`, na ism+email+parol | Forma xatosi |
 | 400 | `not_your_staff` | `user_id` egasining odami emas | Xabar |
 | 400 | `rop_needs_sales` | `is_rop` `sales` rolisiz | Belgini o'chiring |
@@ -264,13 +290,22 @@ Xodim logini (CRM menejeri yoki targetolog) uchun ochiq yo'llar:
 | Yo'l | Ochiq |
 |---|---|
 | `/api/v1/auth/*`, `GET /api/v1/account`, `/api/v1/account/language` | ha, avvalgidek |
-| `/api/v1/crm/*` | ha, avvalgidek (faqat CRM menejeri ishlay oladi) |
+| `/api/v1/crm/*` | ha, avvalgidek (faqat CRM menejeri ishlay oladi). Bir nechta biznesda ishlasa — `?pair=` bilan tanlaydi, pastga qarang |
 | `/api/v3/businesses`, `/{id}`, `/catalog` | **ha, yangi** |
 | `/api/v3/businesses/{id}/members` | yo'q — `403 no_access` |
 | boshqa hamma `/api/v1`, `/api/v2` | yo'q — `403`, avvalgidek |
 
 Kirgandan keyin: `GET /api/v3/businesses` → ro'yxatda bitta bo'lsa to'g'ri o'sha biznesga,
 bir nechta bo'lsa almashtirgichni ko'rsating.
+
+**CRM menejeri bir nechta biznesda ishlasa:** barcha `/api/v1/crm/*` so'rovlariga
+tanlangan biznesning `networks[0].pair` qiymatini `?pair=` qilib qo'shing. Parametrsiz
+so'rov uning birinchi biznesini ochadi. Avval `?pair=` menejer uchun e'tiborga olinmas edi,
+endi olinadi.
+
+**ROP** (`access.reads_all_leads: true`) doskada boshqa menejerlarning kartalarini ham
+ko'radi. Ularni o'zgartira olmaydi (`403`), faqat o'zinikini. Filtrdagi «menejer» tanlovini
+ROP uchun ham ko'rsating.
 
 ## 9. Frontda qilinadigan ishlar
 
@@ -282,7 +317,7 @@ bir nechta bo'lsa almashtirgichni ko'rsating.
 | 4 | Sozlamalar → «Xodimlar» sahifasi: ro'yxat, joylar ko'rsatkichi, qo'shish (yangi login / mavjud odam), rol va ruxsat jadvali, o'chirish | `apps/cabinet/src/pages/settings` |
 | 5 | Ruxsat jadvali: qatorlar — `networks` + «Boshqa manba»; ustunlar — Reklama, CRM; katak — yo'q / ko'rish / o'zgartirish | o'sha yerda |
 | 6 | Xodim logini uchun kirish oqimi: bizneslar ro'yxati → biznes; ruxsati yo'q bo'limlar yashiriladi (`may()` funksiyasi) | `apps/cabinet` |
-| 7 | Xato kodlari bo'yicha yo'naltirish (`no_seat`, `sales_through_crm`) | o'sha yerda |
+| 7 | Xato kodlari bo'yicha yo'naltirish (`no_seat`, `no_pair_for_crm`) | o'sha yerda |
 
 ## 10. Hali yo'q narsalar
 
@@ -291,10 +326,11 @@ Bular keyingi bosqichlarda chiqadi; hozir ularga tayanib ekran qurmang.
 - **Reklama yo'llari xodim uchun.** Targetolog qo'shiladi va biznesni ko'radi, lekin
   kampaniyalar yo'llari (`/api/v1/campaigns`, `/api/v2/…`) xodim loginiga hali yopiq.
   Ya'ni targetolog hozircha reklamani boshqara olmaydi.
-- **CRM biznes bo'yicha.** CRM hali `/api/v1/crm` da va juftlik bo'yicha ishlaydi. Bitta
-  odam CRM'da faqat bitta juftlikda ishlay oladi.
-- **ROP ko'rinishi.** `reads_all_leads` belgisi keladi, lekin CRM hali uni hisobga olmaydi.
-- **Sotuv managerini v3 dan qo'shish** va **profilni v3 dan tahrirlash**.
+- **Profilni v3 dan tahrirlash.**
+- **ROP uchun boshqa menejer kartasini o'zgartirish** (masalan boshqasiga o'tkazish): hozir
+  faqat ko'radi, taqsimlashni ega qiladi.
+- **«Boshqa manba» ruxsati** (`crm` · `other`) saqlanadi, lekin CRM hali manba bo'yicha
+  ajratmaydi: doska `crm` · `meta` ruxsatiga qarab ochiladi.
 - **Yangi biznes yaratish.** Biznes hozircha sahifa ulanib, juftlik va profil saqlanganda
   o'zi paydo bo'ladi.
 - **AI chat, hisobot, bot** hali juftlik bo'yicha.

@@ -13,7 +13,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import User
-from app.modules.businesses.constants import GrantLevel
+from app.modules.businesses.constants import GrantLevel, MemberRole
 from app.modules.businesses.exceptions import NoAccess, UnknownBusiness
 from app.modules.businesses.models import Business, BusinessLink, BusinessMember
 
@@ -134,10 +134,37 @@ def seats_taken(db: Session, *, owner_id: uuid.UUID) -> int:
     )
 
 
+def works_elsewhere(
+    db: Session, *, user_id: uuid.UUID, crm_member_id: uuid.UUID | None = None
+) -> bool:
+    """Whether a person taken off one pair's CRM still has work to sign in
+    for: another pair's CRM, or a business they are in as more than the
+    manager being removed."""
+    from app.modules.crm.models import CrmMember
+
+    other_crm = select(CrmMember.id).where(
+        CrmMember.user_id == user_id, CrmMember.is_active.is_(True)
+    )
+    if crm_member_id is not None:
+        other_crm = other_crm.where(CrmMember.id != crm_member_id)
+    if db.scalar(other_crm.limit(1)):
+        return True
+    for member in db.scalars(
+        select(BusinessMember).where(
+            BusinessMember.user_id == user_id, BusinessMember.is_active.is_(True)
+        )
+    ):
+        mirrors_it = crm_member_id is not None and member.crm_member_id == crm_member_id
+        if not mirrors_it or MemberRole.TARGETOLOG in member.roles:
+            return True
+    return False
+
+
 __all__ = [
     "Access",
     "access_for",
     "businesses_of",
     "members_of",
     "seats_taken",
+    "works_elsewhere",
 ]

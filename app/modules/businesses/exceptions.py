@@ -3,24 +3,28 @@ from app.common.exceptions import Conflict, DomainError, NotAllowed, NotFound
 
 class UnknownBusiness(NotFound):
     code = "unknown_business"
+
     def __init__(self) -> None:
         super().__init__("Biznes topilmadi.")
 
 
 class NoAccess(NotAllowed):
     code = "no_access"
+
     def __init__(self) -> None:
         super().__init__("Bu amal sizga ruxsat etilmagan.")
 
 
 class UnknownMember(NotFound):
     code = "unknown_member"
+
     def __init__(self) -> None:
         super().__init__("Xodim topilmadi.")
 
 
 class MemberExists(Conflict):
     code = "member_exists"
+
     def __init__(self) -> None:
         super().__init__("Bu xodim biznesga allaqachon qo'shilgan.")
 
@@ -57,23 +61,19 @@ class BadGrant(DomainError):
 
 class NoSeat(Conflict):
     code = "no_seat"
+
     def __init__(self) -> None:
         super().__init__("Bo'sh joy yo'q. Yangi xodim uchun joy sotib oling.")
 
 
-class SalesThroughCrm(Conflict):
-    code = "sales_through_crm"
+class NoPairForCrm(Conflict):
+    code = "no_pair_for_crm"
+
     def __init__(self) -> None:
         super().__init__(
-            "Sotuv manageri hozircha CRM bo'limida qo'shiladi. "
-            "Qo'shilgach, u shu ro'yxatda o'zi paydo bo'ladi."
+            "Bu biznesning sahifa va reklama akkaunti juftligi topilmadi. "
+            "Ulanishni tekshiring."
         )
-
-
-class ManagedByCrm(Conflict):
-    code = "managed_by_crm"
-    def __init__(self) -> None:
-        super().__init__("Bu sotuv manageri. Uni CRM bo'limidan o'chiring.")
 
 
 class LoginRequired(DomainError):

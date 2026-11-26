@@ -109,6 +109,21 @@ def _checked(
     return checked
 
 
+def check(
+    db: Session,
+    *,
+    business: Business,
+    roles: Iterable[str],
+    is_rop: bool,
+    grants: Mapping[tuple[str, str], str] | None,
+) -> None:
+    """Raise what :func:`add_member` or :func:`change_member` would, and
+    write nothing: for a caller with something to do before either."""
+    _roles(roles, is_rop=is_rop)
+    if grants is not None:
+        _checked(grants, networks=networks_of(db, business_id=business.id))
+
+
 def _write(member: BusinessMember, grants: Grants) -> None:
     held = {(grant.area, grant.provider): grant for grant in member.grants}
     for key, grant in held.items():
@@ -269,4 +284,49 @@ def mirror_crm_members(db: Session, *, owner_id: uuid.UUID | None = None) -> int
             mirrored.removed_at = None if manager.is_active else utcnow()
             changed += 1
         db.flush()
-    return changed
+    return changed + _drop_left_sales(db, owner_id=owner_id)
+
+
+def _drop_left_sales(db: Session, *, owner_id: uuid.UUID | None) -> int:
+    """A sales manager the CRM has taken off the pair stops being one here:
+    a member who is a targetolog as well keeps that role and its grants, and
+    anybody else leaves the business."""
+    from app.modules.crm.models import CrmMember
+
+    works = (
+        select(CrmMember.id)
+        .where(
+            CrmMember.business_id == BusinessMember.business_id,
+            CrmMember.user_id == BusinessMember.user_id,
+            CrmMember.is_active.is_(True),
+        )
+        .exists()
+    )
+    query = select(BusinessMember).where(
+        BusinessMember.is_active.is_(True),
+        BusinessMember.crm_member_id.is_(None),
+        ~works,
+    )
+    if owner_id is not None:
+        query = query.where(BusinessMember.owner_id == owner_id)
+    dropped = 0
+    for member in db.scalars(query):
+        if MemberRole.SALES not in member.roles:
+            continue
+        if MemberRole.TARGETOLOG in member.roles:
+            member.roles = [MemberRole.TARGETOLOG.value]
+            member.is_rop = False
+            _write(
+                member,
+                {
+                    (grant.area, grant.provider): grant.level
+                    for grant in member.grants
+                    if grant.area != GrantArea.CRM
+                },
+            )
+        else:
+            member.is_active = False
+            member.removed_at = utcnow()
+        dropped += 1
+    db.flush()
+    return dropped

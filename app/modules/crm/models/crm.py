@@ -128,9 +128,11 @@ class CrmMember(_Tenant, _Pair, Base):
     __table_args__ = (
         Index("crm_members_owner_active_idx", "owner_id", "is_active"),
         Index("crm_members_pair_idx", "owner_id", "page_id", "ad_account_id"),
+        # One row for a person on a pair; the same person may work several pairs.
+        Index("uniq_crm_member_per_pair", "user_id", "page_id", "ad_account_id", unique=True),
     )
 
-    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     takes_leads: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

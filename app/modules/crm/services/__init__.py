@@ -204,6 +204,13 @@ def require_open(viewer: Viewer) -> None:
         raise CrmClosed
 
 
+def require_writer(viewer: Viewer) -> None:
+    """A manager whose CRM grant in the business is «ko'rish» reads the board
+    and changes nothing on it."""
+    if viewer.read_only and not viewer.is_owner:
+        raise NotYours
+
+
 def scope_of(row: CrmSetup | CrmCard | CrmMember) -> Scope:
     assert row.page_id is not None and row.ad_account_id is not None
     return Scope(
@@ -323,6 +330,7 @@ def card_for_write(
     purpose: Literal["work", "take"] = "work",
 ) -> CrmCard:
     require_open(viewer)
+    require_writer(viewer)
     card = db.scalar(
         select(CrmCard)
         .where(holds(viewer.scope, CrmCard), CrmCard.id == _uuid(card_id))
@@ -690,6 +698,7 @@ def add_manual(
     from core.leads.phone import to_e164
 
     require_open(viewer)
+    require_writer(viewer)
     if not viewer.may_work:
         raise NotYours
     scope = require_pair(viewer)
@@ -802,6 +811,51 @@ def add_member(
     return member
 
 
+def add_person(db: Session, *, viewer: Viewer, user: User) -> CrmMember:
+    """One of the owner's people, who has a login already, put to work on
+    this pair's CRM as well. They keep their password and are not asked to
+    change it; a row they once held here is switched back on."""
+    scope = require_owner(viewer)
+    owner = viewer.owner
+    setup_for_update(db, scope=scope)
+    if user.crm_owner_id != owner.id:
+        raise UnknownMember
+    held = db.scalar(
+        select(CrmMember)
+        .where(scope.holds(CrmMember), CrmMember.user_id == user.id)
+        .with_for_update()
+    )
+    if held is not None and held.is_active:
+        raise EmailTaken
+    active = db.scalar(
+        select(func.count(CrmMember.id)).where(
+            scope.holds(CrmMember), CrmMember.is_active.is_(True)
+        )
+    )
+    if (active or 0) >= MAX_MEMBERS:
+        raise TooManyMembers
+    member = held
+    if member is None:
+        member = CrmMember(
+            **scope.fields(), user_id=user.id, must_change_password=False
+        )
+        db.add(member)
+    member.is_active = True
+    db.flush()
+    record_config(
+        db,
+        owner=owner,
+        actor=viewer.user,
+        level="member",
+        target_id=member.id,
+        before={},
+        after={"email": user.email, "name": user.full_name, "kpi": member.has_kpi},
+        event=EventName.CRM_MEMBER_SAVED,
+        now=utcnow(),
+    )
+    return member
+
+
 def _member(
     db: Session, *, viewer: Viewer, member_id: str, active: bool = True
 ) -> CrmMember:
@@ -903,6 +957,7 @@ def _remove(
     now: datetime | None = None,
 ) -> int:
     from app.modules.accounts.services import remove_member_login
+    from app.modules.businesses.selectors.access import works_elsewhere
 
     owner = viewer.owner
     now = now or utcnow()
@@ -914,7 +969,13 @@ def _remove(
     member_pk = member.id
     member.is_active = False
     db.flush()
-    remove_member_login(db, user=holder)
+    if works_elsewhere(db, user_id=holder.id, crm_member_id=member_pk):
+        # The person still works another pair, or this business as something
+        # other than a manager: the row goes, the login stays.
+        db.expunge(member)
+        delete_rows(db, CrmMember.__table__, CrmMember.id == member_pk)
+    else:
+        remove_member_login(db, user=holder)
     record_config(
         db,
         owner=owner,
@@ -1002,16 +1063,26 @@ def _release_cards(
     owner = viewer.owner
     holder = member.user
     # Every pair's: cards copied from the one-CRM days may sit on another.
-    cards = list(
-        db.scalars(
-            select(CrmCard).where(
-                CrmCard.owner_id == owner.id,
-                CrmCard.page_id.is_not(None),
-                CrmCard.assignee_id == holder.id,
-                CrmCard.closed_at.is_(None),
-            )
+    # Not so for somebody who works another pair as well: the cards they hold
+    # there are theirs to keep.
+    elsewhere = db.scalar(
+        select(CrmMember.id)
+        .where(
+            CrmMember.user_id == holder.id,
+            CrmMember.is_active.is_(True),
+            CrmMember.id != member.id,
         )
+        .limit(1)
     )
+    held = select(CrmCard).where(
+        CrmCard.owner_id == owner.id,
+        CrmCard.page_id.is_not(None),
+        CrmCard.assignee_id == holder.id,
+        CrmCard.closed_at.is_(None),
+    )
+    if elsewhere is not None:
+        held = held.where(scope.holds(CrmCard))
+    cards = list(db.scalars(held))
     released = 0
     name = holder.full_name or holder.email
     firsts: dict[Scope, CrmStage | None] = {}
@@ -1098,7 +1169,9 @@ def change_first_password(
     if password != again:
         raise PasswordsDiffer
     set_member_password(db, user=user, password=password)
-    member.must_change_password = False
+    # One password for the person, whichever pairs they work.
+    for row in db.scalars(select(CrmMember).where(CrmMember.user_id == user.id)):
+        row.must_change_password = False
     db.flush()
     return member
 
