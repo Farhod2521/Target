@@ -321,3 +321,33 @@ def test_sums_are_shown_in_the_account_s_money() -> None:
 
     assert amount_words(550, FRAME) == "$5.50"
     assert amount_words(60_000, som) == "60 000 so'm"
+
+
+def test_a_guessed_kind_is_asked_as_a_yes_or_no() -> None:
+    frame = Frame(goals=(SITE,), kind_guessed=True, kind_label="Ta'lim")
+
+    said = reply(Brief(), frame)
+
+    assert said.ask is not None and said.ask.slot == "kind"
+    assert said.ask.text == "Biznesingiz: Ta'lim. To'g'rimi?"
+    assert [option.value for option in said.ask.options] == ["yes", "no"]
+    assert said.chips == ()
+
+    agreed = merge(Brief(), Heard(kind_ok="yes"), frame)
+    assert agreed.took == ("kind",)
+    assert next_slot(agreed.brief, frame) == "offer"
+
+    refused = merge(Brief(), Heard(kind_ok="no"), frame)
+    again = reply(refused.brief, frame)
+    assert again.ask is not None and again.ask.slot == "kind"
+    assert again.ask.options == ()
+    told = merge(refused.brief, Heard(kind="Mebel yasaymiz"), frame)
+    assert next_slot(told.brief, frame) == "offer"
+    assert reply(told.brief, frame).chips[0].value == "Mebel yasaymiz"
+
+
+def test_a_kind_already_agreed_is_not_asked() -> None:
+    frame = Frame(goals=(SITE,), kind_label="Ta'lim")
+
+    assert next_slot(Brief(), frame) == "offer"
+    assert merge(Brief(), Heard(kind_ok="no"), frame).took == ()

@@ -93,7 +93,8 @@ Tugma (oxirgi javobdagi `ask.options[]` dan `slot` va `value` aynan o'zi):
 - `stage` — reklama qayerda turgani: `asking`, `media`, `preparing`, `review`,
   `creating`, `done`, `failed` (5-bo'lim). Har doim keladi.
 - `wait` — `true` bo'lsa backendda ish ketyapti: 3 soniyadan keyin `GET` qiling.
-- `card` — tayyorlangan reklama qisqachasi; faqat `stage: "review"` da, boshqa payt `null`.
+- `card` — tayyorlangan reklama qisqachasi: `stage: "review"` da, va tayyor reklamani
+  Meta rad etgan `stage: "failed"` da. Boshqa payt `null`.
 - `messages` — butun suhbat, eskisidan yangisiga (`author`: `user` yoki `agent`).
   Sahifa qayta ochilganda shundan chizing.
 - `status` — `open`, `ready`, `closed`.
@@ -119,7 +120,13 @@ To'liq sxema `openapi.json` da (prodda `https://api.targetolog.ai/openapi.json`)
 
 ## 3. Savollar tartibi
 
-1. `kind` — biznes nima qiladi (faqat biznes turi umuman noma'lum bo'lsa).
+1. `kind` — biznes turi. Ikki ko'rinishda keladi:
+   - tur umuman noma'lum: «Biznesingiz nima bilan shug'ullanadi?» — yozma javob;
+   - turni AI sahifadan taxmin qilgan, hali hech kim tasdiqlamagan:
+     «Biznesingiz: Ta'lim. To'g'rimi?» va ikki tugma — «Ha, to'g'ri»
+     (`slot: "kind"`, `value: "yes"`) va «Yo'q, boshqa» (`value: "no"`). «Yo'q» dan
+     keyin birinchi ko'rinishdagi savol keladi. Tugma o'rniga yozsa ham bo'ladi.
+   Tur allaqachon tasdiqlangan bo'lsa, bu savol kelmaydi.
 2. `offer` — hozir nimani reklama qilamiz.
 3. `goal` — reklamadan nima kerak (tugmalar).
 4. Maqsadning o'z savoli: `link` (sayt yoki Telegram), `phone`, `channel`.
@@ -127,8 +134,10 @@ To'liq sxema `openapi.json` da (prodda `https://api.targetolog.ai/openapi.json`)
 
 Bitta xabarda bir nechtasi aytilsa, ular so'ralmaydi. Hammasi aytilsa — darhol `ready`.
 
-Biznes turi suhbatda aniqlansa, `chips` da «Biznes: Ta'lim → ingliz tili kurslari»
-ko'rinadi. Foydalanuvchi `ready` ga yetib davom etsa, bu uning tasdig'i hisoblanadi.
+Biznes turi aniq bo'lgach `chips` da «Biznes: Ta'lim → ingliz tili kurslari»
+ko'rinadi. Taxmin tasdiqlanmaguncha u `chips` da yo'q — faqat savolning o'zida.
+Tur faqat ikki yo'l bilan tasdiqlanadi: «Ha, to'g'ri» bosilsa, yoki foydalanuvchi
+biznesini o'z so'zi bilan aytib, savollarni oxirigacha javoblasa.
 
 ## 4. Xatolar
 
@@ -160,7 +169,14 @@ ko'rinadi):
 | `review` | `card` + «Ishga tushirish» va «Sozlamalarni ko'rish» | Kartani chizing |
 | `creating` | «Reklama Meta'da yaratilmoqda…», `wait: true` | Har 3 soniyada `GET` |
 | `done` | «Reklama yaratildi va yoqilmoqda…» | Suhbat yopiladi (`status: closed`) |
-| `failed` | `ask.text` — sabab; «Qayta urinish» yoki «Sozlamalarni ko'rish» | — |
+| `failed` | `ask.text` — sabab. Tayyorlash o'xshamagan bo'lsa: «Qayta urinish» (`slot: "prepare"`, `value: "retry"`). Tayyor reklamani Meta rad etgan bo'lsa: `card` + «Qayta ishga tushirish» (`slot: "launch"`, `value: "start"`) va «Sozlamalarni ko'rish» | Tugmalarni `ask.options` dan chizing |
+
+Suhbat ochilganda (`POST …/sessions`) reklama allaqachon tayyorlangan bo'lsa (eski
+sahifada yoki oldingi suhbatda), birinchi javobning o'zi shu bosqichni qaytaradi:
+masalan `stage: "review"` va `card`. Savollar qaytadan so'ralmaydi.
+
+Javobda yo'q tugma yuborilsa (masalan, eski xabardagi tugma), hech narsa bajarilmaydi
+va `lines` da «Bu tugma hozir ishlamaydi. Quyidagilardan birini tanlang.» keladi.
 
 ### Media
 

@@ -311,6 +311,132 @@ def test_a_business_nobody_described_is_asked_and_its_kind_settled(
     assert view.does == "Ingliz tili o'quv markazimiz bor"
 
 
+def _guessed(db: Session, user: User) -> Business:
+    """The owner's business with a kind read off its page, never agreed."""
+    from app.modules.businesses.constants import KnowledgeSource
+    from app.modules.businesses.services.kinds import set_kind
+
+    business = db.scalars(select(Business).where(Business.user_id == user.id)).one()
+    business.direction_id = None
+    business.custom_category_id = None
+    education = BusinessCategory(
+        key="education", label_uz="Ta'lim", preset_key="education"
+    )
+    db.add(education)
+    db.flush()
+    set_kind(
+        db,
+        business=business,
+        direction=education,
+        state=TypeState.GUESSED,
+        source=KnowledgeSource.PAGE,
+    )
+    db.commit()
+    return business
+
+
+def test_a_kind_read_off_the_page_is_asked_and_their_yes_settles_it(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, user = _ready(client, db)
+    business = _guessed(db, user)
+    asked = _model(monkeypatch)
+
+    state = _open(client, auth)
+
+    assert state["ask"]["slot"] == "kind"
+    assert state["ask"]["text"] == "Biznesingiz: Ta'lim. To'g'rimi?"
+    assert [(one["slot"], one["value"]) for one in state["ask"]["options"]] == [
+        ("kind", "yes"),
+        ("kind", "no"),
+    ]
+    # Not among what is settled while it waits for their answer.
+    assert state["chips"] == []
+
+    state = _press(client, auth, state, "yes")
+
+    assert state["ask"]["slot"] == "offer"
+    assert state["chips"][0] == {"slot": "kind", "label": "Biznes", "value": "Ta'lim"}
+    assert asked == []
+    db.expire_all()
+    assert known(db, business).type_state == TypeState.CONFIRMED
+
+
+def test_a_kind_they_said_no_to_is_never_settled_by_carrying_on(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, user = _ready(client, db)
+    _floor(db, user)
+    business = _guessed(db, user)
+    asked = _model(
+        monkeypatch,
+        # Their words, which the model could not file under a kind.
+        HeardOut(kind="Mebel yasaymiz"),
+        HeardOut(offer="Oshxona mebeli", goal="views", budget="5"),
+    )
+    state = _open(client, auth)
+
+    # Typed, not pressed: read with no model.
+    state = _turn(client, auth, state["session_id"], text="Yo'q")
+
+    assert asked == []
+    assert state["ask"]["slot"] == "kind"
+    assert state["ask"]["text"] == "Biznesingiz nima bilan shug'ullanadi? Qisqa yozing."
+    assert state["ask"]["options"] == []
+
+    state = _turn(client, auth, state["session_id"], text="Mebel yasaymiz")
+
+    assert "## Kinds of business" in asked[0]["system_tail"]
+    assert state["ask"]["slot"] == "offer"
+    # Their own words, not the reading they refused.
+    assert state["chips"][0]["value"] == "Mebel yasaymiz"
+
+    state = _turn(client, auth, state["session_id"], text="Oshxona mebeli, 5$")
+
+    assert state["ready"] is True
+    db.expire_all()
+    view = known(db, business)
+    assert view.type_state == TypeState.GUESSED
+    assert view.does == "Mebel yasaymiz"
+
+
+def test_a_launch_prepared_elsewhere_opens_at_its_summary(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth, state, asked = _at_media(client, db, monkeypatch)
+    assert (
+        client.post(f"{URL}/{state['session_id']}/close", headers=auth).status_code
+        == 204
+    )
+    launch = _launch_of(db, state)
+    launch.status = "ready"
+    launch.draft = {
+        "creative": {
+            "ai": [{"primary_text": "IELTS 7+.", "headline": "IELTS kursi"}],
+            "chosen": None,
+        }
+    }
+    db.commit()
+
+    fresh = _open(client, auth)
+
+    assert fresh["session_id"] != state["session_id"]
+    assert fresh["launch_id"] == state["launch_id"]
+    assert (fresh["stage"], fresh["status"]) == ("review", "ready")
+    assert fresh["ask"]["slot"] == "launch"
+    assert fresh["card"]["adverts"][0]["headline"] == "IELTS kursi"
+    assert (
+        fresh["messages"][-1]["text"] == "Reklama tayyor. Tekshirib, ishga tushiring."
+    )
+    read = client.get(f"{URL}/{fresh['session_id']}", headers=auth).json()
+    assert read["stage"] == "review" and read["ask"]["slot"] == "launch"
+    # Words change nothing here, as in the conversation that prepared it.
+    said = _turn(client, auth, fresh["session_id"], text="byudjet 10")
+    assert said["stage"] == "review"
+    assert said["lines"][0].startswith("Sozlamalar saqlangan.")
+    assert len(asked) == 1
+
+
 def test_an_open_conversation_is_carried_on_and_a_closed_one_is_not(
     client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -539,6 +665,53 @@ def test_a_preparation_that_failed_can_be_tried_again(
     assert failed["stage"] == "failed"
     assert failed["ask"]["text"] == "AI javob bermadi."
     assert [option["value"] for option in failed["ask"]["options"]] == ["retry"]
+
+
+def test_an_advert_the_network_refused_can_be_sent_again(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch, queued: list
+) -> None:
+    auth, state, _asked = _at_media(client, db, monkeypatch)
+    session = state["session_id"]
+    launch = _launch_of(db, state)
+    launch.status = "failed"
+    launch.error_message = "Meta rad etdi."
+    launch.targeting = {"age_min": 18}
+    launch.draft = {
+        "creative": {
+            "ai": [{"primary_text": "IELTS 7+.", "headline": "IELTS kursi"}],
+            "chosen": None,
+        }
+    }
+    db.commit()
+    made: list[str] = []
+    monkeypatch.setattr(
+        stages.creation, "request_creation", lambda *_, **__: made.append("x")
+    )
+
+    failed = client.get(f"{URL}/{session}", headers=auth).json()
+
+    assert failed["stage"] == "failed"
+    assert failed["ask"]["text"] == "Meta rad etdi."
+    assert [
+        (one["label"], one["slot"], one["value"], one["opens"])
+        for one in failed["ask"]["options"]
+    ] == [
+        ("Qayta ishga tushirish", "launch", "start", ""),
+        ("Sozlamalarni ko'rish", "launch", "", "review"),
+    ]
+    assert failed["card"]["adverts"][0]["headline"] == "IELTS kursi"
+
+    # A button this answer does not carry is not carried out, and says so.
+    stale = _turn(client, auth, session, slot="prepare", value="retry")
+    assert stale["lines"] == [
+        "Bu tugma hozir ishlamaydi. Quyidagilardan birini tanlang."
+    ]
+    assert not [name for name, _args in queued if name.endswith("build_draft_task")]
+    assert made == []
+
+    _press(client, auth, failed, "start")
+
+    assert made == ["x"]
 
 
 # -- what the advert sold is remembered, and offered next time ---------------

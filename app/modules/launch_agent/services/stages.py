@@ -53,6 +53,8 @@ SAY_DONE: Final = (
     "Reklama yaratildi va yoqilmoqda. Holatini «Reklama» sahifasida ko'rasiz."
 )
 SAY_FAILED: Final = "Reklamani tayyorlab bo'lmadi."
+SAY_NOT_CREATED: Final = "Reklamani yaratib bo'lmadi."
+NOT_NOW: Final = "Bu tugma hozir ishlamaydi. Quyidagilardan birini tanlang."
 SETTLED: Final = (
     "Sozlamalar saqlangan. O'zgartirish uchun «Sozlamalarni ko'rish» ni oching."
 )
@@ -125,18 +127,31 @@ def _ask_launch() -> Ask:
 
 
 def _ask_failed(launch: CampaignLaunch) -> Ask:
-    written = draft_field.is_written(launch.draft)
-    retry = Option(label="Qayta urinish", slot=SLOT_PREPARE, value=VALUE_RETRY)
+    if _made(launch):
+        # The advert was prepared and the network refused it: the same
+        # press sends it again, as the review screen's own button does.
+        return Ask(
+            slot=SLOT_LAUNCH,  # type: ignore[arg-type]
+            text=str(launch.error_message or SAY_NOT_CREATED),
+            options=(
+                Option(
+                    label="Qayta ishga tushirish", slot=SLOT_LAUNCH, value=VALUE_START
+                ),
+                _open("Sozlamalarni ko'rish", SLOT_LAUNCH, "review"),
+            ),
+            input="none",
+        )
     return Ask(
         slot=SLOT_PREPARE,  # type: ignore[arg-type]
         text=str(launch.error_message or SAY_FAILED),
-        options=(
-            (_open("Sozlamalarni ko'rish", SLOT_LAUNCH, "review"),)
-            if written
-            else (retry,)
-        ),
+        options=(Option(label="Qayta urinish", slot=SLOT_PREPARE, value=VALUE_RETRY),),
         input="none",
     )
+
+
+def _made(launch: CampaignLaunch) -> bool:
+    """Whether a failed launch has a prepared advert to send again."""
+    return draft_field.is_written(launch.draft) and bool(launch.targeting)
 
 
 def card_of(db: Session, launch: CampaignLaunch) -> dict[str, Any]:
@@ -212,7 +227,7 @@ def staged(
     return Staged(
         reply=Reply(lines=lines, ask=_ask_failed(launch), chips=chips, ready=True),
         stage=FAILED,
-        card=card_of(db, launch) if draft_field.is_written(launch.draft) else None,
+        card=card_of(db, launch) if _made(launch) else None,
     )
 
 
@@ -239,12 +254,24 @@ def press(
             variants.require_ad_texts(db, launch=launch)
             launch_services.request_preparation(db, launch=launch)
             db.commit()
-        elif slot == SLOT_PREPARE and stage == FAILED and value == VALUE_RETRY:
+        elif (
+            slot == SLOT_PREPARE
+            and stage == FAILED
+            and value == VALUE_RETRY
+            and not _made(launch)
+        ):
             launch_services.request_preparation(db, launch=launch)
             db.commit()
-        elif slot == SLOT_LAUNCH and stage == REVIEW and value == VALUE_START:
+        elif (
+            slot == SLOT_LAUNCH
+            and value == VALUE_START
+            and (stage == REVIEW or (stage == FAILED and _made(launch)))
+        ):
             # The press that spends: the review screen's own create.
             creation.request_creation(db, launch=launch, business=business)
+        else:
+            # A button from an earlier answer: nothing is done, and said so.
+            return (NOT_NOW,)
     except DomainError as refused:
         db.rollback()
         logger.info("launch_agent_press_refused", extra={"slot": slot})

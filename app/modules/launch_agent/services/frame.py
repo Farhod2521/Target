@@ -118,6 +118,7 @@ def build_frame(
         minor_per_unit=10**places,
         uzs_per_usd=int(rate[0]) if rate is not None else 0,
         kind_known=view.type_state != TypeState.UNSET,
+        kind_guessed=view.type_state == TypeState.GUESSED,
         kind_label=kind_label(view),
         advice=_advice(view, goals),
         known_link=str(business.website or ""),

@@ -59,7 +59,19 @@ from app.modules.launch_agent.services.stages import (
     stage_of,
     staged,
 )
-from core.launch_agent import Brief, Frame, Heard, Reply, is_ready, merge, money, reply
+from core.launch_agent import (
+    KIND_NO,
+    KIND_YES,
+    Brief,
+    Frame,
+    Heard,
+    Reply,
+    is_ready,
+    kind_open,
+    merge,
+    money,
+    reply,
+)
 from core.launch_agent.hear import Note
 from core.launch_agent.words import READY, ask_for, next_slot
 
@@ -122,8 +134,10 @@ def session_for(
 def _placed(db: Session, *, launch: CampaignLaunch, said: Reply) -> Staged:
     """An engine reply with where the launch stands: past the questions it
     is the stage's own words and buttons."""
-    if not said.ready:
+    if not said.ready and stage_of(launch, brief_ready=False) == ASKING:
         return Staged(reply=said, stage=ASKING)
+    # Prepared already - here or on the wizard's screens: the launch says
+    # where it stands, whatever this conversation has heard.
     return staged(
         db,
         launch=launch,
@@ -162,9 +176,11 @@ def start(
         )
         db.add(session)
         db.flush()
-        said = reply(Brief(), frame)
-        _say(session, Author.AGENT, _spoken(said), now)
-        return session, Staged(reply=said, stage=ASKING)
+        out = _placed(db, launch=launch, said=reply(Brief(), frame))
+        if out.stage != ASKING:
+            session.status = SessionStatus.READY
+        _say(session, Author.AGENT, _spoken(out.reply), now)
+        return session, out
     return session, _placed(db, launch=launch, said=reply(_brief(session), frame))
 
 
@@ -174,6 +190,8 @@ def _spoken(said: Reply) -> str:
 
 
 def _heard_button(slot: str, value: str) -> Heard:
+    if slot == "kind" and value in (KIND_YES, KIND_NO):
+        return Heard(kind_ok=value)
     if slot not in PRESSABLE:
         return Heard()
     return Heard(**{slot: value})
@@ -268,14 +286,35 @@ def _save_plan(
     return brief, (), ()
 
 
+def _agree_kind(db: Session, *, business: Business, user: User, now: datetime) -> None:
+    """Our reading of the kind becomes theirs: they said yes to it."""
+    view = known(db, business)
+    if view.type_state == TypeState.GUESSED and view.direction is not None:
+        set_kind(
+            db,
+            business=business,
+            direction=view.direction,
+            subtype=view.subtype,
+            state=TypeState.CONFIRMED,
+            source=KnowledgeSource.LAUNCH_AGENT,
+            actor=user,
+            now=now,
+        )
+
+
 def _confirm(
     db: Session, *, business: Business, user: User, brief: Brief, now: datetime
 ) -> None:
-    """Carrying on past the summary is the person's yes to what it shows:
-    a kind that was our reading becomes theirs, and what they said the
-    business does is kept."""
+    """The questions are answered: a kind this conversation filed from the
+    person's own words becomes theirs, and what they said the business does
+    is kept. A kind read off the page is never settled here - only by their
+    yes to it (:func:`_agree_kind`)."""
     view = known(db, business)
-    if view.type_state == TypeState.GUESSED and view.direction is not None:
+    if (
+        brief.kind_set
+        and view.type_state == TypeState.GUESSED
+        and view.direction is not None
+    ):
         set_kind(
             db,
             business=business,
@@ -454,20 +493,23 @@ def turn(
         _say(session, Author.USER, text, now)
 
     if (
-        not frame.kind_known
+        (not frame.kind_known or kind_open(brief, frame))
         and listened.kind_direction
         and _set_kind_from(db, business=business, user=user, listened=listened, now=now)
     ):
         # Another kind of business is offered other goals and floors.
         kind_said = listened.heard.kind or text
         frame = build_frame(db, launch=launch, user=user, business=business, now=now)
-        brief = brief.with_(kind_said=kind_said[:300])
+        brief = brief.with_(kind_said=kind_said[:300], kind_set=True)
 
     if listened.sold_name:
         brief = brief.with_(
             sold_name=listened.sold_name[:80], sold_price=listened.sold_price[:60]
         )
     merged = merge(brief, listened.heard, frame)
+    if merged.brief.kind_ok == KIND_YES and brief.kind_ok != KIND_YES:
+        _agree_kind(db, business=business, user=user, now=now)
+        frame = build_frame(db, launch=launch, user=user, business=business, now=now)
     brief, notes, lines = merged.brief, merged.notes, ()
     understood = listened.understood and (bool(merged.took) or bool(notes) or not text)
     ready = is_ready(brief, frame)

@@ -22,7 +22,16 @@ from app.modules.audit.services import record_llm_result
 from app.modules.businesses.selectors import offered_directions
 from app.modules.launch_agent.constants import PROMPT, RELATED_TYPE
 from app.modules.launch_agent.models import LaunchAgentSession
-from core.launch_agent import Ask, Brief, Frame, Heard
+from core.launch_agent import (
+    KIND_NO,
+    KIND_YES,
+    Ask,
+    Brief,
+    Frame,
+    Heard,
+    checks_kind,
+    kind_open,
+)
 from core.launch_agent.hear import amount, phone_number, site_link, telegram_link
 from core.launch_agent.heard import HeardOut
 from core.launch_agent.words import chips
@@ -32,6 +41,14 @@ logger = logging.getLogger(__name__)
 BARE_CHARS: Final = 40
 _SOM: Final = re.compile(r"so['ʻ’`]?m|sum|ming|mln|сум|сўм|минг|млн", re.IGNORECASE)
 _DOLLAR: Final = re.compile(r"\$|dollar|usd|доллар|у\.?\s?е", re.IGNORECASE)
+# A bare yes or no to «is this your business?», as it is typed.
+_YES: Final = frozenset(
+    {"ha", "xa", "ha to'g'ri", "to'g'ri", "togri", "ha togri", "да", "да верно"}
+    | {"верно", "ҳа", "тўғри", "yes", "ok", "ок"}
+)
+_NO: Final = frozenset(
+    {"yo'q", "yoq", "yo'q boshqa", "noto'g'ri", "нет", "неверно", "йўқ", "no"}
+)
 NOTHING: Final = "Nothing yet."
 NO_CHANNELS: Final = "None for the goal chosen."
 
@@ -65,6 +82,22 @@ def plain_answer(
     it is more than that."""
     if asked is None or len(text) > BARE_CHARS:
         return None
+    if asked.slot == "kind" and checks_kind(brief, frame):
+        bare = " ".join(
+            text.lower()
+            .replace("ʻ", "'")
+            .replace("’", "'")
+            .replace("`", "'")
+            .replace(",", " ")
+            .replace(".", " ")
+            .replace("!", " ")
+            .split()
+        )
+        if bare in _YES:
+            return Heard(kind_ok=KIND_YES)
+        if bare in _NO:
+            return Heard(kind_ok=KIND_NO)
+        return None
     if asked.slot == "budget" and amount(text) is not None:
         if re.search(r"[A-Za-zА-Яа-я]{6,}", _SOM.sub("", _DOLLAR.sub("", text))):
             return None
@@ -84,8 +117,8 @@ def _settled(brief: Brief, frame: Frame) -> str:
     return "\n".join(lines) or NOTHING
 
 
-def _kinds(db: Session, frame: Frame) -> str:
-    if frame.kind_known:
+def _kinds(db: Session, brief: Brief, frame: Frame) -> str:
+    if frame.kind_known and not kind_open(brief, frame):
         return ""
     rows = "\n".join(f"- {row.key} - {row.label_uz}" for row in offered_directions(db))
     return f"## Kinds of business\n\n{rows}"
@@ -102,7 +135,7 @@ def _variables(
         "goals": "\n".join(f"- {one.key} - {one.label}" for one in frame.goals),
         "channels": "\n".join(f"- {key} - {label}" for key, label in channels)
         or NO_CHANNELS,
-        "kinds": _kinds(db, frame),
+        "kinds": _kinds(db, brief, frame),
     }
 
 

@@ -12,10 +12,13 @@ from core.launch_agent.brief import (
     FORM_AUTO,
     FORM_NEW,
     FORM_OWN,
+    KIND_NO,
+    KIND_YES,
     Brief,
     Frame,
     GoalFrame,
     Slot,
+    checks_kind,
     is_ready,
     money,
     next_slot,
@@ -90,6 +93,7 @@ NOT_UNDERSTOOD: Final = "Buni tushunmadim, qaytadan yozib bering."
 
 ASKS: Final[dict[str, str]] = {
     "kind": "Biznesingiz nima bilan shug'ullanadi? Qisqa yozing.",
+    "kind_check": "Biznesingiz: {kind}. To'g'rimi?",
     "offer": "Hozir nimani reklama qilamiz? Mahsulot, xizmat yoki aksiyani yozing.",
     "goal": "Reklamadan nima kerak?",
     "link": "Sayt manzilini yozing.",
@@ -119,6 +123,8 @@ FORM_LABELS: Final[dict[str, str]] = {
     FORM_NEW: "Yangi forma",
     FORM_OWN: "O'zim tanlayman",
 }
+KIND_YES_LABEL: Final = "Ha, to'g'ri"
+KIND_NO_LABEL: Final = "Yo'q, boshqa"
 READY: Final = "Sozlamalar tayyor. Endi post tanlang yoki rasm, video yuklang."
 ADVISED: Final = "Sizning yo'nalishingizga «{goal}» tavsiya etiladi: {reason}"
 SECOND: Final = "«{goal}» esa shunday holatda yaxshiroq: {when}"
@@ -248,6 +254,16 @@ def ask_for(slot: Slot, brief: Brief, frame: Frame) -> Ask:
             input="money",
             hint=hint,
         )
+    if slot == "kind" and checks_kind(brief, frame):
+        return Ask(
+            slot=slot,
+            text=ASKS["kind_check"].format(kind=frame.kind_label),
+            options=(
+                Option(label=KIND_YES_LABEL, slot="kind", value=KIND_YES),
+                Option(label=KIND_NO_LABEL, slot="kind", value=KIND_NO),
+            ),
+            input="text",
+        )
     if slot == "offer" and frame.offers:
         return Ask(
             slot=slot,
@@ -288,7 +304,13 @@ def advice_lines(frame: Frame) -> tuple[str, ...]:
 
 def _value_words(slot: str, brief: Brief, frame: Frame) -> str:
     if slot == "kind":
-        # The kind as it was filed, once it is; their own words until then.
+        # The kind as it was filed, once it is; their own words until then
+        # - and instead of a reading they said no to. One still waiting for
+        # their yes is in the question, not among what is settled.
+        if checks_kind(brief, frame):
+            return ""
+        if frame.kind_guessed and brief.kind_ok == KIND_NO and not brief.kind_set:
+            return brief.kind_said
         return frame.kind_label or brief.kind_said
     if slot == "goal":
         goal = frame.goal(brief.goal)
@@ -308,7 +330,7 @@ def _value_words(slot: str, brief: Brief, frame: Frame) -> str:
 def chips(brief: Brief, frame: Frame) -> tuple[Chip, ...]:
     """What is settled so far, in the order it was asked."""
     slots: list[str] = list(wanted(brief, frame))
-    if frame.kind_known and frame.kind_label:
+    if frame.kind_known and frame.kind_label and "kind" not in slots:
         slots.insert(0, "kind")
     found = []
     for slot in slots:

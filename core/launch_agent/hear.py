@@ -16,9 +16,12 @@ from core.launch_agent.brief import (
     FORM_AUTO,
     FORM_NEW,
     FORM_OWN,
+    KIND_NO,
+    KIND_YES,
     START_DAYS,
     Brief,
     Frame,
+    kind_open,
 )
 
 USD: Final = "USD"
@@ -37,6 +40,8 @@ class Heard:
     """What one message said. Every field empty: nothing of that was said."""
 
     kind: str = ""
+    # The answer to «is this your business?»: "yes" or "no".
+    kind_ok: str = ""
     offer: str = ""
     goal: str = ""
     link: str = ""
@@ -52,6 +57,7 @@ class Heard:
         return not any(
             (
                 self.kind,
+                self.kind_ok,
                 self.offer,
                 self.goal,
                 self.link,
@@ -169,8 +175,15 @@ def merge(brief: Brief, heard: Heard, frame: Frame) -> Merged:
         new = new.with_(**changes, said=new.said | {slot})
         took.append(slot)
 
-    if heard.kind and not frame.kind_known:
+    if heard.kind and (not frame.kind_known or kind_open(brief, frame)):
+        # Saying what the business does answers «is this right?» as well.
         take("kind", kind_said=_plain(heard.kind, KIND_CHARS))
+    elif (
+        heard.kind_ok in (KIND_YES, KIND_NO)
+        and frame.kind_guessed
+        and kind_open(brief, frame)
+    ):
+        take("kind", kind_ok=heard.kind_ok)
     if heard.offer:
         take("offer", offer=_plain(heard.offer, OFFER_CHARS))
     if heard.goal:
