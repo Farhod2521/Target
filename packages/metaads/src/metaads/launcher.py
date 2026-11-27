@@ -36,6 +36,7 @@ from metaads.boosts import (
     read_creative,
 )
 from metaads.campaigns import read_adset_settings
+from metaads.delivery import write as write_delivery
 from metaads.leadforms import create_lead_form
 from metaads.restage import create_from_story, read_url_tags
 from metaads.specs import STATUS_PAUSED, AdSetSpec, CampaignSpec, CreativeSpec
@@ -165,6 +166,23 @@ class MetaLauncher:
         """What a new ad set copied from this one must carry beyond the mirror."""
         with session(token) as graph:
             return read_adset_settings(adset_id=adset.id, token=token, client=graph)
+
+    def set_adset_delivery(
+        self,
+        *,
+        adset: ExternalRef,
+        data: dict[str, Any],
+        token: str,
+        dry_run: bool = True,
+    ) -> bool:
+        """An ad set's bid, attribution window and frequency cap, in one write.
+
+        ``data`` is Meta's own fields, built by :func:`metaads.delivery.payload`.
+        """
+        with session(token) as graph:
+            return write_delivery(
+                adset_id=adset.id, data=data, token=token, client=graph, dry_run=dry_run
+            )
 
     def create_creative(
         self,

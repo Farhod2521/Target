@@ -409,6 +409,13 @@ class CostCapTooLow(DomainError):
         )
 
 
+class DeliveryUnreadable(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Meta bu guruhning sozlamalarini hozir bermadi. Birozdan keyin qayta urinib ko'ring."
+        )
+
+
 class CostCapNotOffered(DomainError):
     def __init__(self) -> None:
         super().__init__("Bu maqsadda bitta natija narxiga chegara qo'yilmaydi.")

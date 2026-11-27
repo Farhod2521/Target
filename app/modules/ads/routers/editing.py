@@ -41,6 +41,7 @@ from app.modules.ads.contract.shapes import (
     AdPreview,
     CampaignEdit,
     ControlState,
+    DeliveryForm,
     DetailFound,
     EditLocale,
     ReachEstimate,
@@ -96,6 +97,16 @@ PLACEMENT_CLOSED = "Reklama tugagan: bu sozlama endi o'zgarmaydi."
 PLACEMENT_NOT_OFFERED = (
     "Bu reklamada suhbat boshqa ilovada ochiladi, shuning uchun uni faqat "
     "shu tanlovda ko'rsatib bo'lmaydi."
+)
+DELIVERY_UNREAD = (
+    "Meta bu guruhning sozlamalarini hozir bermadi. Birozdan keyin qayta oching."
+)
+DELIVERY_FOREIGN_BID = (
+    "Bu guruhda narx Ads Manager'da boshqa usulda cheklangan, "
+    "uni shu yerdan o'zgartirib bo'lmaydi."
+)
+DELIVERY_CAMPAIGN_BUDGET = (
+    "Byudjet kampaniyada turibdi, shuning uchun narx chegarasi guruhda qo'yilmaydi."
 )
 ADVANTAGE_SPECIAL = (
     "Maxsus toifadagi reklamada Meta auditoriyani o'zi kengaytira olmaydi."
@@ -1270,6 +1281,125 @@ def campaign_patch(
     level, external_id = _followed(form["sections"], sent=sections, edit=edit)
     state = control_state(db, user, level=level, external_id=external_id)
     return state | {"notes": adjusted_sentences(saved["adjustments"])}
+
+
+class FrequencyIn(Camel):
+    times: int = Field(ge=1)
+    days: int = Field(ge=1)
+
+
+class DeliveryIn(Camel):
+    """Only what is sent is touched; a field sent as null removes that setting."""
+
+    cost_cap: Decimal | None = Field(
+        default=None, ge=0, description="Major units; null removes the ceiling."
+    )
+    attribution: str | None = Field(default=None, description="A key from `options`.")
+    frequency: FrequencyIn | None = Field(
+        default=None, description="Null removes the cap."
+    )
+
+
+def _delivery_form(target: Any) -> dict[str, Any]:
+    from app.modules.ads.constants import ATTRIBUTION_LABELS
+    from app.modules.ads.selectors.delivery_options import MAX_CAP_DAYS
+    from app.modules.ads.services import delivery
+    from core.targeting import windows_for
+    from core.targeting.budget import CAP_BUDGET_MULTIPLE
+
+    found = delivery.held(target)
+    group, now = found.group, found.now
+    currency = str(group.currency or group.campaign.currency or "")
+    places = provider_money(provider=group.provider).decimal_places(currency)
+    daily = group.daily_budget_minor
+    note = ""
+    if not found.readable:
+        note = DELIVERY_UNREAD
+    elif not found.can_change:
+        note = PLACEMENT_CLOSED
+    cap_note = ""
+    if now.foreign_bid:
+        cap_note = DELIVERY_FOREIGN_BID
+    elif not found.offers_cap and daily is None:
+        cap_note = DELIVERY_CAMPAIGN_BUDGET
+    times, days = now.frequency or (None, None)
+    return {
+        "external_id": group.external_id,
+        "name": group.name,
+        "currency": currency,
+        "readable": found.readable,
+        "can_change": found.can_change,
+        "warns_learning": bool(group.is_learning),
+        "note": note,
+        "cost_cap": {
+            "offered": found.offers_cap,
+            "value": float(_major(now.cap_minor, places) or 0) or None,
+            "highest": float(_major(daily // CAP_BUDGET_MULTIPLE, places) or 0)
+            if daily
+            else None,
+            "budget_multiple": CAP_BUDGET_MULTIPLE,
+            "note": cap_note,
+        },
+        "attribution": {
+            "offered": found.offers_window,
+            "value": found.window_key,
+            "options": [
+                {"key": row.key, "label": str(ATTRIBUTION_LABELS.get(row.key, row.key))}
+                for row in windows_for(provider=group.provider)
+            ],
+        },
+        "frequency": {
+            "offered": found.offers_frequency,
+            "times": times,
+            "days": days,
+            "max_times": delivery.MAX_CAP_TIMES,
+            "max_days": MAX_CAP_DAYS,
+        },
+    }
+
+
+@router.get("/adsets/{external_id}/delivery", response_model=DeliveryForm)
+def adset_delivery(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
+    """What a result may cost, which results count and how often it shows, as Meta holds them now."""
+    return _delivery_form(_target(db, user, ManagedLevel.ADSET, external_id))
+
+
+@router.post("/adsets/{external_id}/delivery", response_model=ControlState)
+def adset_delivery_save(
+    external_id: str, body: DeliveryIn, db: Db, user: CurrentUser
+) -> dict[str, Any]:
+    """Change the settings that were sent; the rest stay. Followed like any press."""
+    from app.modules.ads.routers import control_state
+    from app.modules.ads.services import delivery
+
+    group = _target(db, user, ManagedLevel.ADSET, external_id)
+    asked: dict[str, Any] = {}
+    sent = body.model_fields_set
+    if "cost_cap" in sent:
+        asked[delivery.CAP] = 0
+        if body.cost_cap:
+            problems = Problems()
+            currency = str(group.currency or group.campaign.currency or "")
+            asked[delivery.CAP] = checked_cap(
+                body.cost_cap,
+                currency=currency,
+                money=provider_money(provider=group.provider),
+                problems=problems,
+                field="costCap",
+            )
+            if problems.found:
+                raise InputRefused(problems.found)
+    if "attribution" in sent:
+        asked[delivery.WINDOW] = body.attribution or ""
+    if "frequency" in sent:
+        asked[delivery.FREQUENCY] = (
+            [body.frequency.times, body.frequency.days] if body.frequency else []
+        )
+    actions.request(
+        db, user=user, ask=actions.Delivery(external_id=external_id, asked=asked)
+    )
+    db.commit()
+    return control_state(db, user, level=ManagedLevel.ADSET, external_id=external_id)
 
 
 class CampaignNameIn(Camel):

@@ -379,3 +379,143 @@ Reklama tahriri «Qaytarish» bilan qaytarilmaydi (avvalgidek).
 Soxta Meta javoblari bilan testlangan. **Real Meta'da sinalmagan**: tugma so'zini
 almashtirish, havolani almashtirish, `url_tags`ni o'qish va yangi kreativga
 yozish, karusel kartalarini qayta qurish.
+
+---
+
+## 3-bosqich. Narx chegarasi, attribution, chastota
+
+Reklama guruhining uchta sozlamasi. Bular Meta'da guruhda turadi va bizning
+bazada saqlanmaydi, shuning uchun **alohida ikki yo'l** bor va forma ochilganda
+qiymatlar Meta'dan shu paytda o'qiladi.
+
+Qayerga qo'yiladi: tahrir oynasida (`C/EditSheet.tsx`) yangi «Kengaytirilgan»
+bo'limi. Bo'lim **ochilganda** so'rang, oyna ochilishi bilan emas — har so'rov
+Meta'ga bitta murojaat.
+
+### 3.1. Forma
+
+`GET /campaigns/adsets/{adsetId}/delivery`
+
+`adsetId` — guruhning Meta id'si (`group.externalId`, ro'yxat va daraxtdagi `externalId`).
+
+```json
+{
+  "externalId": "120…",
+  "name": "Guruh",
+  "currency": "USD",
+  "readable": true,
+  "canChange": true,
+  "warnsLearning": false,
+  "note": "",
+  "costCap": { "offered": true, "value": 2.5, "highest": 3.33, "budgetMultiple": 3, "note": "" },
+  "attribution": {
+    "offered": false,
+    "value": "click_7",
+    "options": [
+      { "key": "click_7_view_1", "label": "7 kun bosish, 1 kun ko'rish" },
+      { "key": "click_7", "label": "…" },
+      { "key": "click_1_view_1", "label": "…" },
+      { "key": "click_1", "label": "…" }
+    ]
+  },
+  "frequency": { "offered": false, "times": null, "days": null, "maxTimes": 50, "maxDays": 90 }
+}
+```
+
+```ts
+type DeliveryForm = {
+  externalId: string; name: string; currency: string;
+  readable: boolean; canChange: boolean; warnsLearning: boolean; note: string;
+  costCap: { offered: boolean; value: number | null; highest: number | null; budgetMultiple: number; note: string };
+  attribution: { offered: boolean; value: string; options: { key: string; label: string }[] };
+  frequency: { offered: boolean; times: number | null; days: number | null; maxTimes: number; maxDays: number };
+};
+```
+
+| Maydon | Ma'nosi |
+|---|---|
+| `readable` | `false` — Meta javob bermadi. `note`ni ko'rsating, **hech narsani tahrirlatmang** va bo'sh qiymat chizmang. «Qayta urinish» tugmasi shu GET'ni qayta chaqiradi. |
+| `canChange` | `false` — kampaniya tugagan; `note`da sababi. |
+| `warnsLearning` | Guruh o'rganish davrida. Tahrir **ochiq**, lekin saqlashdan oldin ogohlantiring: «Bu o'zgarish o'rganishni qaytadan boshlaydi». |
+| `*.offered` | `false` — bu sozlama shu guruhga qo'llanmaydi. Qismni **chizmang** (`costCap.note` bo'sh bo'lmasa, o'rniga shu matnni ko'rsating). |
+
+Uchala sozlama ham `offered: false` bo'lsa, «Kengaytirilgan» bo'limini umuman chizmang.
+
+Qaysi maqsadda nima taklif qilinadi:
+
+| Sozlama | Qachon `offered: true` |
+|---|---|
+| Narx chegarasi | Lid formali yoki saytdagi konversiya maqsadi, **va** byudjet shu guruhda turgan bo'lsa (ABO). Byudjet kampaniyada (CBO) bo'lsa yopiq, `costCap.note` sababini aytadi. |
+| Attribution | Saytdagi konversiya maqsadi. |
+| Chastota | Qamrov (reach) maqsadi. |
+
+### 3.2. Narx chegarasi (`costCap`)
+
+- Bitta natija (lid, konversiya) uchun eng ko'p to'lanadigan narx.
+- `value: null` — chegara yo'q (Meta eng arzon narxda oladi).
+- `highest` — bugungi kunlik byudjet ko'tara oladigan eng yuqori chegara: kunlik byudjet chegaraning kamida `budgetMultiple` barobari bo'lishi kerak. Maydon ostida yozing: «Kunlik byudjetingiz bilan eng ko'pi {highest}».
+- `costCap.note` — Ads Manager'da boshqa usulda (bid cap) cheklangan guruhda keladi; bunda `offered: false`.
+
+### 3.3. Attribution (`attribution`)
+
+- Natija reklamaga qachon yoziladi: bosishdan / ko'rishdan necha kun ichida.
+- `options` — tanlovlar, `label`ni ko'rsating, `key`ni yuboring.
+- `value` bo'sh satr bo'lsa — Ads Manager'da bizning to'rttamizdan boshqasi qo'yilgan. Hech biri belgilanmagan holda chizing.
+
+### 3.4. Chastota (`frequency`)
+
+- Bir odam reklamani `days` kun ichida ko'pi bilan `times` marta ko'radi.
+- Ikkalasi `null` — chegara yo'q.
+- Chegaralar: `1..maxTimes`, `1..maxDays`.
+
+### 3.5. Saqlash
+
+`POST /campaigns/adsets/{adsetId}/delivery`
+
+**Faqat yuborilgan maydon o'zgaradi.** Yuborilmagan maydon o'zgarmaydi;
+`null` yuborilsa — o'sha sozlama **olib tashlanadi**.
+
+```json
+{ "costCap": 3 }                              // chegarani 3 ga qo'yish
+{ "costCap": null }                           // chegarani olib tashlash
+{ "attribution": "click_1_view_1" }
+{ "frequency": { "times": 2, "days": 7 } }
+{ "frequency": null }                         // chastota chegarasini olib tashlash
+```
+
+Shuning uchun frontda `undefined` va `null`ni aralashtirmang: o'zgarmagan
+maydonni tanadan **olib tashlang**.
+
+**Javob:** `ControlState` (`level: "adset"`), odatdagidek kuzatiladi.
+
+**Xatolar:**
+
+| Kod | Javob | Qachon |
+|---|---|---|
+| `422` | `problems.costCap` | Summa noto'g'ri yozilgan (valyutaning eng kichik birligidan mayda). |
+| `400` | `code: cost_cap_too_low` | Chegara kunlik byudjetga nisbatan yuqori. `detail`da kerakli byudjet aytiladi. |
+| `400` | `code: cost_cap_not_offered` | Bu guruhda chegara qo'yilmaydi. |
+| `400` | `code: delivery_option_unusable` | Attribution yoki chastota shu maqsadga qo'llanmaydi, yoki qiymat chegaradan tashqarida. |
+| `400` | `code: delivery_unreadable` | Meta hozirgi qiymatlarni bermadi; birozdan keyin qayta urinish. |
+| `400` | `code: nothing_changed` | Yuborilgan qiymat hozirgisi bilan bir xil. |
+| `400` | `code: campaign_finished` | Kampaniya tugagan. |
+
+### 3.6. Qaytarish va tarix
+
+- Tarixda «Narx va hisoblash» nomi bilan ko'rinadi.
+- Mavjud **«Qaytarish»** (`POST /campaigns/manage/adset/{id}/revert`) ishlaydi: avvalgi qiymatlar tiklanadi (chegara bo'lmagan bo'lsa — olib tashlanadi).
+
+### 3.7. Tekshirish ro'yxati (front)
+
+- [ ] So'rov bo'lim ochilganda yuboriladi.
+- [ ] `readable: false`da qiymat chizilmaydi, «qayta urinish» bor.
+- [ ] `offered: false` qism chizilmaydi (`costCap.note` bo'lsa — matn).
+- [ ] O'zgarmagan maydon tanadan olib tashlanadi; `null` faqat «olib tashlash» uchun.
+- [ ] `warnsLearning`da saqlashdan oldin ogohlantirish.
+- [ ] `highest` maydon ostida ko'rsatiladi.
+
+### Hali tekshirilmagan
+
+Soxta Meta javoblari bilan testlangan. **Real Meta'da sinalmagan**: ishlab turgan
+guruhda `bid_strategy`/`bid_amount`ni almashtirish, `attribution_spec`ni
+o'zgartirish, `frequency_control_specs`ni bo'sh ro'yxat bilan tozalash.

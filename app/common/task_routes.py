@@ -45,6 +45,7 @@ _BY_CHANGE: Final[dict[str, tuple[str, str]]] = {
     "app.modules.ads.tasks.apply_change_task": ("agent", GOOGLE_QUEUE),
     "app.modules.ads.tasks.apply_delete_task": ("agent", GOOGLE_QUEUE),
     "app.modules.ads.tasks.apply_swap_task": ("agent", GOOGLE_QUEUE),
+    "app.modules.ads.tasks.apply_delivery_task": ("agent", GOOGLE_QUEUE),
 }
 
 ROUTED: Final = frozenset(_BY_ACCOUNT) | frozenset(_BY_CHANGE)

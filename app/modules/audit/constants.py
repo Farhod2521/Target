@@ -23,6 +23,7 @@ class ActionType(Choices):
     END_TIME_SET = "end_time_set"
     SPEND_CAP_SET = "spend_cap_set"
     NAME_SET = "name_set"
+    DELIVERY_SET = "delivery_set"
     CREATIVE_SWAP = "creative_swap"
     CREATE_ADSET = "create_adset"
     CREATE_AD = "create_ad"
@@ -66,6 +67,7 @@ ACTION_TYPE_LABELS = {
     ActionType.TARGETING_SWAP: "Auditoriyani almashtirish",
     ActionType.END_TIME_SET: "Tugash sanasini belgilash",
     ActionType.SPEND_CAP_SET: "Umumiy chegarani belgilash",
+    ActionType.DELIVERY_SET: "Narx va hisoblash sozlamalarini o'zgartirish",
     ActionType.NAME_SET: "Kampaniya nomini o'zgartirish",
     ActionType.CREATIVE_SWAP: "Reklama mazmunini almashtirish",
     ActionType.CREATE_ADSET: "Yangi guruh yaratish",

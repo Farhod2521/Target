@@ -178,6 +178,16 @@ def apply_swap_task(log_id: str) -> str:
         return apply_swap(db, log_id=log_id)
 
 
+# Its queue is the change's: see app.common.task_routes.
+@celery_app.task
+def apply_delivery_task(log_id: str) -> str:
+    """Write an ad group's price ceiling, attribution window or frequency cap."""
+    from app.modules.ads.services.delivery import apply_delivery
+
+    with task_session() as db:
+        return apply_delivery(db, log_id=log_id)
+
+
 @celery_app.task(queue="agent")
 def apply_new_group_task(log_id: str) -> str:
     """Make a new group from one of the campaign's. Never retried: every call creates."""

@@ -608,6 +608,62 @@ class EditAudience(Camel):
     blocked: str = Field(description="Why it cannot be chosen; empty when it can.")
 
 
+class CostCapForm(Camel):
+    """The most one result may cost. ``value`` null: no ceiling."""
+
+    offered: bool = Field(description="False: this goal or budget takes no ceiling.")
+    value: float | None
+    highest: float | None = Field(
+        description="The highest ceiling today's daily budget can deliver on."
+    )
+    budget_multiple: int = Field(
+        description="The daily budget must be at least this many ceilings."
+    )
+    note: str
+
+
+class WindowChoice(Camel):
+    key: str
+    label: str
+
+
+class AttributionForm(Camel):
+    """Which results count as the advert's: how long after a click or a view."""
+
+    offered: bool
+    value: str = Field(description="A key from `options`; empty: one of Ads Manager's.")
+    options: list[WindowChoice]
+
+
+class FrequencyForm(Camel):
+    """How often one person may see it. Both null: no cap."""
+
+    offered: bool
+    times: int | None
+    days: int | None
+    max_times: int
+    max_days: int
+
+
+class DeliveryForm(Camel):
+    """One ad group's price ceiling, attribution window and frequency cap, read from Meta now."""
+
+    external_id: str
+    name: str
+    currency: str
+    readable: bool = Field(
+        description="False: Meta did not answer; show `note`, change nothing."
+    )
+    can_change: bool
+    warns_learning: bool = Field(
+        description="The group is learning: a change here starts that again."
+    )
+    note: str
+    cost_cap: CostCapForm
+    attribution: AttributionForm
+    frequency: FrequencyForm
+
+
 class ShownPosition(Camel):
     """One place an advert can show; ``needs``: one of these must run beside it."""
 

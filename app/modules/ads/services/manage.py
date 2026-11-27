@@ -329,6 +329,7 @@ TARGETING: Final = "targeting"
 END_TIME: Final = "end_time"
 SPEND_CAP: Final = "spend_cap"
 NAME: Final = "name"
+DELIVERY: Final = "delivery"
 CREATIVE: Final = "creative"
 REMOVAL: Final = "removal"
 ADDITION: Final = "addition"
@@ -349,6 +350,7 @@ ASPECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     END_TIME: frozenset({ActionType.END_TIME_SET}),
     SPEND_CAP: frozenset({ActionType.SPEND_CAP_SET}),
     NAME: frozenset({ActionType.NAME_SET}),
+    DELIVERY: frozenset({ActionType.DELIVERY_SET}),
     CREATIVE: frozenset({ActionType.CREATIVE_SWAP}),
     REMOVAL: frozenset(_DELETES),
 }
@@ -902,6 +904,7 @@ EVENTS: dict[str, str] = {
     ActionType.END_TIME_SET: EventName.BUDGET_CHANGED,
     ActionType.SPEND_CAP_SET: EventName.BUDGET_CHANGED,
     ActionType.NAME_SET: EventName.CAMPAIGN_RENAMED,
+    ActionType.DELIVERY_SET: EventName.BUDGET_CHANGED,
     ActionType.CREATIVE_SWAP: EventName.CREATIVE_CHANGED,
     ActionType.CREATE_ADSET: EventName.ADSET_CREATED,
     ActionType.CREATE_AD: EventName.AD_CREATED,
@@ -1292,6 +1295,8 @@ def _kept(log: ActionLog) -> dict[str, Any]:
     if log.action == ActionType.TARGETING_SWAP:
         spec = log.previous_state.get("targeting")
         return {"targeting": spec} if isinstance(spec, dict) else {}
+    if log.action == ActionType.DELIVERY_SET:
+        return {"delivery": log.previous_state.get("delivery") or {}}
     field = LIMIT_FIELDS.get(log.action)
     if field is None:
         return {}

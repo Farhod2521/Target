@@ -26,6 +26,7 @@ from app.modules.ads.constants import ManagedLevel
 from app.modules.ads.exceptions import NothingToRevert
 from app.modules.ads.services.additions import plan_new_ad, plan_new_group
 from app.modules.ads.services.copies import plan_copy
+from app.modules.ads.services.delivery import plan_delivery
 from app.modules.ads.services.manage import (
     BUDGET_ACTIONS,
     BY_HAND,
@@ -95,6 +96,19 @@ class Rename:
     name: str
     # An undo puts the earlier name back exactly, however it was written.
     restore: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class Delivery:
+    """An ad group's price ceiling, attribution window and frequency cap.
+
+    Only the settings named in ``asked`` are touched: ``cap_minor`` (0 removes
+    it), ``window`` (a window's key), ``frequency`` (``[times, days]``, ``[]``
+    removes it).
+    """
+
+    external_id: str
+    asked: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,6 +206,7 @@ Ask = (
     | SpendCap
     | Rename
     | Audience
+    | Delivery
     | Places
     | NewAdvert
     | NewGroup
@@ -276,6 +291,12 @@ SPECS: dict[type, Spec] = {
         "places",
         lambda db, user, ask, _origin: plan_places(
             db, user=user, external_id=ask.external_id, places=ask.places
+        ),
+    ),
+    Delivery: Spec(
+        "delivery",
+        lambda db, user, ask, _origin: plan_delivery(
+            db, user=user, external_id=ask.external_id, asked=dict(ask.asked)
         ),
     ),
     NewAdvert: Spec(
@@ -404,6 +425,7 @@ KINDS: dict[str, str] = {
     ActionType.END_TIME_SET: "end_time",
     ActionType.SPEND_CAP_SET: "spend_cap",
     ActionType.NAME_SET: "name",
+    ActionType.DELIVERY_SET: "delivery",
     ActionType.CREATIVE_SWAP: "advert",
 }
 DELETES = frozenset(
@@ -477,6 +499,11 @@ def undoing(original: ActionLog) -> Ask | None:
         if ceiling is None:
             return None
         return SpendCap(external_id=external_id, spend_cap_minor=int(ceiling))
+    if original.action == ActionType.DELIVERY_SET:
+        before = previous.get("delivery")
+        if not isinstance(before, dict) or not before:
+            return None
+        return Delivery(external_id=external_id, asked=before)
     if original.action == ActionType.NAME_SET:
         name = str(previous.get("name") or "")
         return (
@@ -499,6 +526,7 @@ __all__ = [
     "Budget",
     "Copy",
     "Delete",
+    "Delivery",
     "EndTime",
     "NewAd",
     "NewAdvert",
