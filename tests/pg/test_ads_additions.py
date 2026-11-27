@@ -83,7 +83,11 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> Fake:
         seen.removed.append(ref.id)
         return True
 
+    def creative_url_tags(_self: Any, *, creative_id: str, token: str) -> str:
+        return f"utm_content={creative_id}"
+
     for name, method in (
+        ("creative_url_tags", creative_url_tags),
         ("adset_settings", adset_settings),
         ("create_adset", create_adset),
         ("restage_creative", restage_creative),
@@ -260,6 +264,8 @@ def test_a_new_advert_is_a_paused_copy_with_what_was_typed(
     made = dict(fake.calls)
     assert made["creative"]["story"]["link_data"]["message"] == "Bugun chegirma"
     assert made["creative"]["story"]["page_id"] == "page_1"
+    # The tracking tags of the advert it copies go with it.
+    assert made["creative"]["url_tags"] == "utm_content=cr_1"
     assert made["ad"]["status"] == "PAUSED"
     assert made["ad"]["adset"].id == "s_1"
     # TZ 4: the advert is named by the system, after the one it copies.

@@ -56,6 +56,7 @@ from app.modules.ads.services.swap import (
     _picture,
     _sweep,
     foreign_pictures,
+    tags_to_carry,
 )
 from app.modules.audit.constants import ActionType
 from app.modules.audit.models import ActionLog
@@ -458,6 +459,12 @@ def _write_ad(db: Session, job: Any) -> ActionResult:
         story=revised,
         token=job.token,
         dry_run=job.dry_run,
+        url_tags=tags_to_carry(
+            asked={},
+            creative_id=str(copied.creative_external_id or ""),
+            token=job.token,
+            dry_run=job.dry_run,
+        ),
     )
     try:
         made = launcher.create_ad(

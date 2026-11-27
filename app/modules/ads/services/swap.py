@@ -11,23 +11,39 @@ from adskit.errors import InvalidRequest, ProviderError
 from metaads import welcome as greeting
 from metaads.assets import MetaAssets
 from metaads.launcher import MetaLauncher
-from metaads.restage import changed, restage, welcome_of
+from metaads.restage import (
+    MAX_CARDS,
+    MIN_CARDS,
+    Card,
+    button_of,
+    cards_of,
+    changed,
+    link_of,
+    restage,
+    welcome_of,
+)
 from metaads.specs import STATUS_ACTIVE, STATUS_PAUSED
 from metaads.writes import set_creative
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.exceptions import DomainError
 from app.modules.accounts.models import User
 from app.modules.ads.constants import ManagedLevel, MediaKind
 from app.modules.ads.exceptions import (
+    ButtonNotOffered,
     CampaignFinished,
+    CardsNotOffered,
+    CardsRefused,
     ChangeRefused,
     CreativeNotEditable,
     LeadFormConverted,
     LearningInProgress,
+    LinkNotOffered,
     NothingChanged,
     UnknownLeadForm,
     UnknownMedia,
+    UrlTagsUnusable,
     WelcomeNotOffered,
     WelcomeRefused,
 )
@@ -46,6 +62,8 @@ from app.modules.audit.models import ActionLog
 from app.modules.integrations.models import PageAccount
 from core.agent import AdContext, ObjectState, check_creative_swap
 from core.agent.guardrails import PAUSED, REFUSED_FINISHED, REFUSED_LEARNING
+from core.targeting.buttons import buttons_for, kept_destination
+from core.targeting.tracking import clean_tags, tags_are_usable
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +75,8 @@ REFUSALS: dict[str, type[Exception]] = {
 }
 NAME_SUFFIX = " · yangi"
 FOREIGN_PICTURE = "foreign_picture"
+# The request's key for the tags: there only when the owner changed them.
+URL_TAGS = "url_tags"
 
 
 def form_page(db: Session, *, owner: User, ad: Ad) -> PageAccount | None:
@@ -101,6 +121,10 @@ def plan_swap(
     lead_form_id: str = "",
     welcome: dict[str, Any] | None = None,
     in_place: bool = False,
+    button: str = "",
+    link: str = "",
+    url_tags: str | None = None,
+    cards: list[dict[str, Any]] | None = None,
 ) -> Planned:
     """Replace what one advert says, by making the next one.
 
@@ -108,6 +132,11 @@ def plan_swap(
     Meta reviews it again and its likes and comments start from nothing.
     ``welcome`` is a chat advert's greeting (TZ 2.5): ``text`` and
     ``questions`` of ``title`` and ``response``.
+
+    ``button`` is another word on the button and ``link`` another address
+    behind it; ``url_tags`` the tracking tags added to that address, where
+    ``None`` keeps the ones it has; ``cards`` a carousel's cards in the order
+    wanted (``source``, ``headline``, ``description``, ``asset_id``).
     """
     from app.modules.ads.selectors import creative_of
     from app.modules.billing.services import require_live_subscription
@@ -124,7 +153,18 @@ def plan_swap(
     form = _form(db, owner=user, ad=target, lead_form_id=lead_form_id)
     words = {"message": message, "headline": headline, "description": description}
     chat = welcome_plan(story, welcome)
-    if not changed(story, **words, **picture, **form, **_greeting(chat)):
+    leads = _leads(story, button=button, link=link)
+    carousel = _cards(db, owner=user, story=story, asked=cards)
+    tags = _tags(story, target=target, asked=url_tags)
+    if not tags and not changed(
+        story,
+        **words,
+        **picture,
+        **form,
+        **_greeting(chat),
+        **leads,
+        **_card_rows(carousel),
+    ):
         raise NothingChanged
     context = _ad_context(db, owner=user, target=target)
     verdict = check_creative_swap(
@@ -146,6 +186,9 @@ def plan_swap(
             **picture,
             **form,
             **chat,
+            **leads,
+            **carousel,
+            **tags,
             "asset_id": asset_id,
             "in_place": in_place,
         },
@@ -153,6 +196,148 @@ def plan_swap(
         dispatch=_dispatch,
         revertible=False,
     )
+
+
+def offered_buttons(story: Any) -> tuple[str, ...]:
+    """The words the button may take: its own first, then its kind's (TZ 2.3)."""
+    from metaads import PROVIDER
+
+    current = button_of(story)
+    own = str(current.get("type") or "")
+    kind = kept_destination(current=current)
+    others = (
+        [row.key for row in buttons_for(provider=PROVIDER, sends_to=kind)]
+        if kind
+        else []
+    )
+    return tuple(dict.fromkeys([key for key in (own, *others) if key]))
+
+
+def _leads(story: dict[str, Any], *, button: str, link: str) -> dict[str, str]:
+    """The button's word and the address behind it, where either was changed."""
+    found: dict[str, str] = {}
+    if button and button != str(button_of(story).get("type") or ""):
+        if button not in offered_buttons(story):
+            raise ButtonNotOffered
+        found["button"] = button
+    held = link_of(story)
+    if link and link != held:
+        if not held:
+            raise LinkNotOffered
+        found["link"] = link
+    return found
+
+
+def held_url_tags(*, target: Any) -> str | None:
+    """The tracking tags the advert carries, asked of the provider now.
+
+    The mirror does not keep them. ``None`` is "could not be read", which is
+    not the same as none: a form that drew that as empty would have the
+    owner save the emptiness back.
+    """
+    from app.common.config import settings
+    from app.modules.ads.services.access import target_account_and_token
+
+    creative_id = str(getattr(target, "creative_external_id", "") or "")
+    if settings.ads_dry_run or not creative_id:
+        return ""
+    try:
+        _account, token = target_account_and_token(target=target, level=LEVEL)
+        return MetaLauncher().creative_url_tags(creative_id=creative_id, token=token)
+    except (ProviderError, DomainError):
+        logger.info("could not read the tags of creative %s", creative_id)
+        return None
+
+
+def _tags(story: dict[str, Any], *, target: Ad, asked: str | None) -> dict[str, str]:
+    """The tracking tags, when they were changed; nothing keeps the ones it has.
+
+    Compared with what the provider holds now: without that, every save that
+    sent the tags back as they were would make a new advert. Tags that could
+    not be read are taken as changed - the owner asked for these.
+    """
+    if asked is None:
+        return {}
+    if not link_of(story):
+        raise LinkNotOffered
+    if not tags_are_usable(asked):
+        raise UrlTagsUnusable
+    wanted = clean_tags(asked)
+    held = held_url_tags(target=target)
+    if held is not None and clean_tags(held) == wanted:
+        return {}
+    return {URL_TAGS: wanted}
+
+
+def _cards(
+    db: Session,
+    *,
+    owner: User,
+    story: dict[str, Any],
+    asked: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """The carousel's cards as they are stored on the request, pictures by their hash."""
+    if asked is None:
+        return {}
+    if not cards_of(story):
+        raise CardsNotOffered
+    if not MIN_CARDS <= len(asked) <= MAX_CARDS:
+        raise CardsRefused
+    rows = []
+    for card in asked:
+        asset_id = str(card.get("asset_id") or "")
+        picture = _picture(db, owner=owner, asset_id=asset_id, kinds=(MediaKind.IMAGE,))
+        rows.append(
+            {
+                "source": card.get("source"),
+                "headline": card.get("headline"),
+                "description": card.get("description"),
+                "image_hash": picture.get("image_hash", ""),
+            }
+        )
+    try:
+        restage(story, **_card_rows({"cards": rows}))
+    except InvalidRequest as exc:
+        raise CardsRefused from exc
+    return {"cards": rows}
+
+
+def _card_rows(asked: dict[str, Any]) -> dict[str, Any]:
+    """The restage argument for stored ``cards``; nothing when none."""
+    found = asked.get("cards")
+    if not isinstance(found, list):
+        return {}
+    return {
+        "cards": [
+            Card(
+                source=row.get("source"),
+                headline=row.get("headline"),
+                description=row.get("description"),
+                image_hash=str(row.get("image_hash") or ""),
+            )
+            for row in found
+        ]
+    }
+
+
+def tags_to_carry(
+    *, asked: dict[str, Any], creative_id: str, token: str, dry_run: bool
+) -> str:
+    """The tags the next creative carries: the ones asked for, else the ones it had.
+
+    Meta keeps them on the creative beside its story, so a creative rebuilt
+    from the story alone would lose them and the owner's analytics would
+    stop seeing the advert without a word from anyone.
+    """
+    if URL_TAGS in asked:
+        return str(asked.get(URL_TAGS) or "")
+    if dry_run or not creative_id:
+        return ""
+    try:
+        return MetaLauncher().creative_url_tags(creative_id=creative_id, token=token)
+    except ProviderError:
+        logger.info("could not read the tags of %s to carry them", creative_id)
+        return ""
 
 
 def welcome_plan(story: dict[str, Any], asked: dict[str, Any] | None) -> dict[str, Any]:
@@ -193,7 +378,13 @@ def _greeting(asked: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _picture(db: Session, *, owner: User, asset_id: str) -> dict[str, str]:
+def _picture(
+    db: Session,
+    *,
+    owner: User,
+    asset_id: str,
+    kinds: tuple[str, ...] = SWAPPABLE_KINDS,
+) -> dict[str, str]:
     if not asset_id:
         return {}
     try:
@@ -204,7 +395,7 @@ def _picture(db: Session, *, owner: User, asset_id: str) -> dict[str, str]:
         select(MediaAsset).where(
             MediaAsset.owner_id == owner.id,
             MediaAsset.id == key,
-            MediaAsset.kind.in_(SWAPPABLE_KINDS),
+            MediaAsset.kind.in_(kinds),
         )
     )
     if asset is None:
@@ -331,13 +522,17 @@ def swap_refusal(
     parent_ref = ExternalRef(
         provider=log.target_provider, level=ManagedLevel.ADSET, id=parent_id
     )  # type: ignore[arg-type]
-    picture = str((log.request_payload or {}).get("image_hash") or "")
+    asked = log.request_payload or {}
+    pictures = [
+        str(asked.get("image_hash") or ""),
+        *(str(row.get("image_hash") or "") for row in asked.get("cards") or ()),
+    ]
     try:
         parent = port.get_status(ref=parent_ref, token=token)
         foreign = not dry_run and foreign_pictures(
             provider=log.target_provider,
             account_id=account_id,
-            hashes=[picture],
+            hashes=pictures,
             token=token,
         )
     except ProviderError:
@@ -380,6 +575,9 @@ def _swap(
         **_frame(asked=asked, token=token, dry_run=dry_run),
         lead_form_id=str(asked.get("lead_form_id") or ""),
         **_greeting(asked),
+        button=str(asked.get("button") or ""),
+        link=str(asked.get("link") or ""),
+        **_card_rows(asked),
     )
     account_ref = ExternalRef(
         provider=log.target_provider, level="account", id=account_id
@@ -390,6 +588,12 @@ def _swap(
         story=revised,
         token=token,
         dry_run=dry_run,
+        url_tags=tags_to_carry(
+            asked=asked,
+            creative_id=str(getattr(target, "creative_external_id", "") or ""),
+            token=token,
+            dry_run=dry_run,
+        ),
     )
     if asked.get("in_place"):
         return _in_place(
@@ -497,7 +701,10 @@ __all__ = [
     "apply_swap",
     "foreign_pictures",
     "form_page",
+    "held_url_tags",
+    "offered_buttons",
     "parent_external_id",
     "plan_swap",
     "swap_refusal",
+    "tags_to_carry",
 ]

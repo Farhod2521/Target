@@ -128,6 +128,13 @@ class NewAdvert:
     welcome: dict[str, Any] | None = None
     # TZ 2.4 «Shu e'londa»: this advert takes the new creative, none is made.
     in_place: bool = False
+    # Another word on the button, another address behind it; empty keeps each.
+    button: str = ""
+    link: str = ""
+    # The tracking tags added to the address; ``None`` keeps the ones it has.
+    url_tags: str | None = None
+    # A carousel's cards in the order wanted; ``None`` keeps them.
+    cards: tuple[Mapping[str, Any], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +291,10 @@ SPECS: dict[type, Spec] = {
             lead_form_id=ask.lead_form_id,
             welcome=ask.welcome,
             in_place=ask.in_place,
+            button=ask.button,
+            link=ask.link,
+            url_tags=ask.url_tags,
+            cards=[dict(card) for card in ask.cards] if ask.cards is not None else None,
         ),
     ),
     NewGroup: Spec(

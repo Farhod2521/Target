@@ -21,6 +21,7 @@ from app.api.deps import CurrentUser, Db
 from app.common import throttle
 from app.common.contract import Camel
 from app.common.db import utcnow
+from app.common.exceptions import InputRefused
 from app.common.money import provider_money
 from app.modules.accounts.models import User
 from app.modules.ads import actions, selectors, services
@@ -47,6 +48,7 @@ from app.modules.ads.contract.shapes import (
 from app.modules.ads.inputs import Problems
 from app.modules.ads.inputs.budget import budget_minor as checked_budget
 from app.modules.ads.inputs.budget import cap_minor as checked_cap
+from app.modules.ads.inputs.destination import own_site
 from app.modules.ads.models import Campaign
 from app.modules.ads.routers import _target, router
 from app.modules.ads.schemas import (
@@ -85,6 +87,7 @@ REACHES_PER_MINUTE = 30
 SENT_SETTINGS = "O'zgarish yuborildi. Bir necha soniyada ko'rinadi."
 HEADLINE_LIMIT = 255
 MESSAGE_LIMIT = 2000
+URL_TAGS_LIMIT = 1000
 DEFAULT_ZONE = "Asia/Tashkent"
 PLACEMENT_WAITS = (
     "Reklama o'rganish davrida: bu sozlamani o'rganish tugagach o'zgartirasiz."
@@ -110,6 +113,7 @@ def _ad_forms(db: Session, user: User, ad: Any) -> dict[str, Any] | None:
     """The form this advert opens now and the page's others, or nothing."""
     from app.modules.ads.services.swap import form_page
     from app.modules.leads.selectors import forms_by_external_id, usable_forms
+    from app.modules.leads.selectors.reads import custom_questions
 
     page = form_page(db, owner=user, ad=ad)
     if page is None:
@@ -121,6 +125,10 @@ def _ad_forms(db: Session, user: User, ad: Any) -> dict[str, Any] | None:
     return {
         "current_id": ad.lead_form_external_id,
         "current_name": current.name,
+        # Its own questions only: a new form asks the name and the phone anyway.
+        "current_questions": [
+            row["label"] for row in custom_questions(current.questions_raw)
+        ],
         "options": [
             {
                 "external_id": row.external_id,
@@ -155,7 +163,7 @@ def ad_edit(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     ad = _target(db, user, ManagedLevel.AD, external_id)
     content = selectors.creative_of(db, owner=user, ad=ad)
     story = getattr(content, "story_raw", None)
-    return ad_edit_form(
+    return _ad_leads(db, user, ad, story) | ad_edit_form(
         ad,
         initial={
             "message": getattr(content, "message", "") or "",
@@ -177,6 +185,109 @@ def ad_edit(external_id: str, db: Db, user: CurrentUser) -> dict[str, Any]:
     )
 
 
+def _ad_leads(db: Session, user: User, ad: Any, story: Any) -> dict[str, Any]:
+    """Where the advert leads and what it shows in cards: its button, its site,
+    its tags, its carousel, and the greetings kept for its page."""
+    from metaads.restage import (
+        MAX_CARDS,
+        MIN_CARDS,
+        button_of,
+        cards_of,
+        link_of,
+        welcome_of,
+    )
+
+    from app.modules.ads.constants import BUTTON_LABELS
+    from app.modules.ads.services.chat_templates import templates_of_page
+    from app.modules.ads.services.swap import held_url_tags, offered_buttons
+    from core.targeting.tracking import DEFAULT_TAGS
+
+    if not isinstance(story, dict) or not story:
+        return {}
+    link = link_of(story)
+    cards = cards_of(story)
+    templates = (
+        templates_of_page(
+            db, owner=user, page_external_id=str(story.get("page_id") or "")
+        )
+        if welcome_of(story) is not None
+        else []
+    )
+    return {
+        "button": str(button_of(story).get("type") or ""),
+        "buttons": [
+            {"key": key, "label": BUTTON_LABELS.get(key, key)}
+            for key in offered_buttons(story)
+        ],
+        "link": link or None,
+        "url_tags": {
+            "value": held_url_tags(target=ad),
+            "suggested": DEFAULT_TAGS,
+            "max_chars": URL_TAGS_LIMIT,
+        }
+        if link
+        else None,
+        "cards": _card_rows(db, user, cards) if cards else None,
+        "card_limits": {
+            "min": MIN_CARDS,
+            "max": MAX_CARDS,
+            "headline": HEADLINE_LIMIT,
+            "description": HEADLINE_LIMIT,
+        }
+        if cards
+        else None,
+        "welcome_templates": [
+            {
+                "id": str(row.id),
+                "name": row.name,
+                "text": row.welcome_text,
+                "questions": [
+                    {"title": str(title), "response": str(answer or "")}
+                    for title, answer in zip(
+                        row.questions or (),
+                        [*(row.answers or ()), *[""] * len(row.questions or ())],
+                        strict=False,
+                    )
+                ],
+            }
+            for row in templates
+        ],
+    }
+
+
+def _card_rows(db: Session, user: User, cards: list[dict[str, Any]]) -> list[Any]:
+    """Each card with a picture to draw: the library's for a still, Meta's for a video."""
+    from sqlalchemy import select
+
+    from app.modules.ads.models import MediaAsset
+
+    hashes = [str(card.get("image_hash") or "") for card in cards]
+    stills = (
+        dict(
+            db.execute(
+                select(MediaAsset.external_id, MediaAsset.thumbnail_url).where(
+                    MediaAsset.owner_id == user.id,
+                    MediaAsset.external_id.in_([key for key in hashes if key]),
+                )
+            ).all()
+        )
+        if any(hashes)
+        else {}
+    )
+    return [
+        {
+            "source": place,
+            "headline": str(card.get("name") or ""),
+            "description": str(card.get("description") or ""),
+            "thumb": stills.get(hashes[place])
+            or str(card.get("picture") or card.get("image_url") or "")
+            or None,
+            "is_video": bool(card.get("video_id")),
+        }
+        for place, card in enumerate(cards)
+    ]
+
+
 class WelcomeQuestionIn(Camel):
     title: str = Field(max_length=MAX_QUESTION_CHARS)
     response: str = Field(default="", max_length=MESSAGE_LIMIT)
@@ -186,6 +297,17 @@ class WelcomeIn(Camel):
     text: str = Field(default="", max_length=MESSAGE_LIMIT)
     questions: list[WelcomeQuestionIn] = Field(
         default_factory=list, max_length=MAX_WELCOME_QUESTIONS
+    )
+
+
+class CardIn(Camel):
+    source: int | None = Field(
+        default=None, description="The card's `source` from the form; none: a new card."
+    )
+    headline: str | None = Field(default=None, max_length=HEADLINE_LIMIT)
+    description: str | None = Field(default=None, max_length=HEADLINE_LIMIT)
+    picture: str | None = Field(
+        default=None, description="A library image id; a new card must have one."
     )
 
 
@@ -207,6 +329,21 @@ class AdEditIn(Camel):
         description="TZ 2.4: this advert takes the new creative - Meta reviews it "
         "again, likes and comments start from nothing. False: a new advert is "
         "made and this one stops.",
+    )
+    button: str | None = Field(
+        default=None, description="A key from `buttons`; left out keeps the word."
+    )
+    link: str | None = Field(
+        default=None, description="Another site address; left out keeps it."
+    )
+    url_tags: str | None = Field(
+        default=None,
+        max_length=URL_TAGS_LIMIT,
+        description="The tracking tags, `a=b&c=d`; left out keeps them, empty removes.",
+    )
+    cards: list[CardIn] | None = Field(
+        default=None,
+        description="A carousel's cards in the order wanted; left out keeps them.",
     )
 
 
@@ -285,6 +422,17 @@ def ad_edit_save(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Bu formani tanlab bo'lmaydi.",
             )
+    link = ""
+    if body.link is not None and body.link.strip():
+        problems = Problems()
+        link = own_site(body.link, problems=problems, field="link")
+        if problems.found:
+            raise InputRefused(problems.found)
+    images = {str(row.id) for row in _ad_library(db, user, ad) if row.kind == "image"}
+    if any(
+        (card.picture or "") and card.picture not in images for card in body.cards or ()
+    ):
+        raise InputRefused({"cards": "Kartaga kutubxonadagi rasmni tanlang."})
     actions.request(
         db,
         user=user,
@@ -297,6 +445,20 @@ def ad_edit_save(
             lead_form_id=(body.lead_form or ""),
             welcome=body.welcome.model_dump() if body.welcome is not None else None,
             in_place=body.in_place,
+            button=(body.button or ""),
+            link=link,
+            url_tags=body.url_tags,
+            cards=tuple(
+                {
+                    "source": card.source,
+                    "headline": card.headline,
+                    "description": card.description,
+                    "asset_id": card.picture or "",
+                }
+                for card in body.cards
+            )
+            if body.cards is not None
+            else None,
         ),
     )
     db.commit()

@@ -721,7 +721,13 @@ class FormOption(Camel):
 
 
 class AdForms(Camel):
+    current_id: str = ""
     current_name: str
+    current_questions: list[str] = Field(
+        default_factory=list,
+        description="The questions of the form it opens now: what a new form "
+        "made «from this one» starts with.",
+    )
     options: list[FormOption]
 
 
@@ -746,6 +752,47 @@ class WelcomeForm(Camel):
     max_chars: int = Field(description="The longest quick question.")
 
 
+class ButtonChoice(Camel):
+    key: str
+    label: str
+
+
+class AdCard(Camel):
+    """One card of a carousel. ``source`` is sent back to keep or move it."""
+
+    source: int
+    headline: str
+    description: str
+    thumb: str | None
+    is_video: bool
+
+
+class CardLimits(Camel):
+    min: int
+    max: int
+    headline: int
+    description: int
+
+
+class UrlTagsForm(Camel):
+    """The tracking tags Meta adds to the address (UTM)."""
+
+    value: str | None = Field(
+        description="What the advert carries now; null when Meta did not answer."
+    )
+    suggested: str = Field(description="The product's own tags, offered as a start.")
+    max_chars: int
+
+
+class WelcomeTemplate(Camel):
+    """A greeting and questions kept under a name for this advert's page."""
+
+    id: str
+    name: str
+    text: str
+    questions: list[WelcomeQuestion]
+
+
 class AdEdit(Camel):
     external_id: str
     campaign: CampaignRef
@@ -760,6 +807,23 @@ class AdEdit(Camel):
     forms: AdForms | None
     early_hours: int
     welcome: WelcomeForm | None = None
+    welcome_templates: list[WelcomeTemplate] = Field(
+        default_factory=list,
+        description="Ready greetings for a chat advert; empty on any other.",
+    )
+    button: str = Field("", description="The button's word now; empty for none.")
+    buttons: list[ButtonChoice] = Field(
+        default_factory=list,
+        description="The words it may take, its own first; one or none: no choice.",
+    )
+    link: str | None = Field(
+        None, description="The site it leads to; null when it leads to none."
+    )
+    url_tags: UrlTagsForm | None = Field(
+        None, description="Null on an advert that leads to no site."
+    )
+    cards: list[AdCard] | None = Field(None, description="Null unless a carousel.")
+    card_limits: CardLimits | None = None
 
 
 class GroupSource(Camel):

@@ -26,7 +26,8 @@ the other.
 """
 
 import copy
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Final
 
 from adskit.errors import InvalidRequest
@@ -35,7 +36,7 @@ from metaads import welcome as greeting
 from metaads.client import GraphClient
 from metaads.enhancements import post_creative
 from metaads.welcome import Welcome
-from metaads.writing import fake_id
+from metaads.writing import fake_id, graph_client
 
 _CREATIVE: Final = "creative"
 
@@ -73,6 +74,27 @@ _REWRITTEN: Final[frozenset[str]] = frozenset(
 ) | frozenset(name for names in _PICTURE.values() for name in names)
 
 
+_CARDS: Final = "child_attachments"
+MIN_CARDS: Final = 2
+MAX_CARDS: Final = 10
+_URL_TAGS: Final = "url_tags"
+
+
+@dataclass(frozen=True, slots=True)
+class Card:
+    """One card of a carousel as it is asked to be.
+
+    ``source`` is the place the card holds now, counted from nought; ``None``
+    is a card that is not there yet. A word left ``None`` stays as the card
+    has it. A new card has no picture of its own, so it must be given one.
+    """
+
+    source: int | None = None
+    headline: str | None = None
+    description: str | None = None
+    image_hash: str = ""
+
+
 def restage(
     story: Mapping[str, Any],
     *,
@@ -85,6 +107,8 @@ def restage(
     lead_form_id: str = "",
     button: str = "",
     welcome: Welcome | None = None,
+    link: str = "",
+    cards: Sequence[Card] | None = None,
 ) -> dict[str, Any]:
     """One story spec with new words, picture, form or button, and nothing else moved.
 
@@ -108,6 +132,15 @@ def restage(
 
     ``welcome`` rewrites a chat advert's greeting, its quick questions and
     their answers (TZ 2.5); see :mod:`metaads.welcome`.
+
+    ``link`` sends the person somewhere else. Only on an advert that leads
+    to a site: a form, a chat and a call each carry an address that is not
+    the owner's to change, and writing over it breaks the advert without an
+    error from anyone.
+
+    ``cards`` is a carousel's cards in the order wanted: kept, moved, taken
+    out, reworded, given another picture, or new. Only on a creative that
+    is a carousel already.
 
     Raises :class:`~adskit.errors.InvalidRequest` when there is no block to
     work from. Two creatives answer that way and both are real: one that
@@ -144,6 +177,10 @@ def restage(
         _put_button(rebuilt, button)
     if welcome is not None:
         greeting.put(rebuilt, welcome)
+    if cards is not None:
+        _put_cards(rebuilt, cards)
+    if link:
+        _put_link(rebuilt, link)
 
     revised = {key: value for key, value in dict(story).items() if key not in _BLOCKS}
     revised[kind] = rebuilt
@@ -172,6 +209,129 @@ def _put_button(block: dict[str, Any], button: str) -> None:
     if not isinstance(current, dict) or not current.get("type"):
         raise InvalidRequest("this advert carries no button", code="restage_button")
     block["call_to_action"] = {**current, "type": button}
+
+
+def _put_link(block: dict[str, Any], link: str) -> None:
+    """Another address, everywhere the block names the one it had.
+
+    The address sits in up to three places - the block, the button and each
+    card - and Meta opens whichever the placement reads. One left behind is
+    an advert that leads to two sites.
+    """
+    held = link_of_block(block)
+    if not held:
+        raise InvalidRequest("this advert does not lead to a site", code="restage_link")
+    if block.get("link"):
+        block["link"] = link
+    moved = _button_to(block.get("call_to_action"), link=link)
+    if moved is not None:
+        block["call_to_action"] = moved
+    rows = block.get(_CARDS)
+    if isinstance(rows, list):
+        block[_CARDS] = [_card_with_link(row, held=held, link=link) for row in rows]
+
+
+def _card_with_link(row: Any, *, held: str, link: str) -> Any:
+    """A card that led where the advert led follows it; one with its own address keeps it."""
+    if not isinstance(row, dict):
+        return row
+    moved = dict(row)
+    if moved.get("link") == held:
+        moved["link"] = link
+    button = _button_to(moved.get("call_to_action"), link=link, only=held)
+    if button is not None:
+        moved["call_to_action"] = button
+    return moved
+
+
+def _button_to(button: Any, *, link: str, only: str = "") -> dict[str, Any] | None:
+    """The button leading to ``link``; None when it names no address to move.
+
+    ``only`` moves it just when it led there: a card with an address of its
+    own is not following the advert's.
+    """
+    value = button.get("value") if isinstance(button, dict) else None
+    if not isinstance(value, dict) or not value.get("link"):
+        return None
+    if only and value["link"] != only:
+        return None
+    return {**button, "value": {**value, "link": link}}
+
+
+def link_of_block(block: Mapping[str, Any]) -> str:
+    """The site this block leads to; empty when it opens a form, a chat or a call."""
+    button = block.get("call_to_action")
+    value = button.get("value") if isinstance(button, Mapping) else None
+    value = value if isinstance(value, Mapping) else {}
+    if value.get("lead_gen_form_id") or value.get("app_destination"):
+        return ""
+    found = str(value.get("link") or block.get("link") or "")
+    return found if found.startswith(("http://", "https://")) else ""
+
+
+def link_of(story: Any) -> str:
+    """The site an advert leads to, ``""`` when it leads to none."""
+    try:
+        _kind, block = _block_of(story)
+    except InvalidRequest:
+        return ""
+    return link_of_block(block)
+
+
+def _put_cards(block: dict[str, Any], cards: Sequence[Card]) -> None:
+    """The carousel's cards, rebuilt from the ones it has in the order asked."""
+    held = block.get(_CARDS)
+    if not isinstance(held, list) or not held:
+        raise InvalidRequest("this advert is not a carousel", code="restage_cards")
+    if not MIN_CARDS <= len(cards) <= MAX_CARDS:
+        raise InvalidRequest(
+            f"a carousel has {MIN_CARDS}-{MAX_CARDS} cards", code="restage_cards"
+        )
+    kept = [card.source for card in cards if card.source is not None]
+    if len(kept) != len(set(kept)) or any(not 0 <= at < len(held) for at in kept):
+        raise InvalidRequest("a card was named that is not there", code="restage_cards")
+    block[_CARDS] = [_card(held, card) for card in cards]
+
+
+def _card(held: list[Any], card: Card) -> dict[str, Any]:
+    if card.source is None:
+        if not card.image_hash:
+            raise InvalidRequest("a new card needs a picture", code="restage_cards")
+        # A new card leads where the first one leads and wears its button.
+        first = held[0] if isinstance(held[0], dict) else {}
+        made: dict[str, Any] = {
+            key: copy.deepcopy(first[key])
+            for key in ("link", "call_to_action")
+            if first.get(key)
+        }
+    else:
+        row = held[card.source]
+        made = copy.deepcopy(dict(row)) if isinstance(row, dict) else {}
+    for key, asked in (("name", card.headline), ("description", card.description)):
+        if asked is None:
+            continue
+        if asked:
+            made[key] = asked
+        else:
+            made.pop(key, None)
+    if card.image_hash:
+        # A still in place of whatever the card showed, a video included.
+        for key in ("video_id", "picture", "image_url"):
+            made.pop(key, None)
+        made["image_hash"] = card.image_hash
+    return made
+
+
+def cards_of(story: Any) -> list[dict[str, Any]]:
+    """A carousel's cards as Meta holds them; none for any other advert."""
+    try:
+        _kind, block = _block_of(story)
+    except InvalidRequest:
+        return []
+    rows = block.get(_CARDS)
+    return (
+        [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    )
 
 
 def restageable(story: Any) -> bool:
@@ -220,8 +380,13 @@ def create_from_story(
     token: str,
     client: GraphClient | None = None,
     dry_run: bool = True,
+    url_tags: str = "",
 ) -> str:
     """One creative from a story spec that is already built.
+
+    ``url_tags`` is not part of the story: Meta keeps the tracking tags on
+    the creative beside it. A creative made from another without them
+    reports its visits to nobody's analytics, and says so nowhere.
 
     The sibling of :func:`metaads.stories.create_creative`, and the same
     call underneath. That one assembles the block from a flat spec this
@@ -233,10 +398,20 @@ def create_from_story(
 
     return post_creative(
         account_id=account_id,
-        data={"name": name, "object_story_spec": dict(story)},
+        data={"name": name, "object_story_spec": dict(story)}
+        | ({_URL_TAGS: url_tags} if url_tags else {}),
         token=token,
         client=client,
     )
+
+
+def read_url_tags(
+    *, creative_id: str, token: str, client: GraphClient | None = None
+) -> str:
+    """The tracking tags a creative carries right now; ``""`` for none."""
+    with graph_client(client, token) as graph:
+        row = graph.get(creative_id, fields=_URL_TAGS)
+    return str(row.get(_URL_TAGS) or "")
 
 
 def _block_of(story: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -283,4 +458,16 @@ def _normalised(story: Mapping[str, Any]) -> dict[str, Any]:
     return restage(story)
 
 
-__all__ = ["button_of", "changed", "create_from_story", "restage", "welcome_of"]
+__all__ = [
+    "MAX_CARDS",
+    "MIN_CARDS",
+    "Card",
+    "button_of",
+    "cards_of",
+    "changed",
+    "create_from_story",
+    "link_of",
+    "read_url_tags",
+    "restage",
+    "welcome_of",
+]

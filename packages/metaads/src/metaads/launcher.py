@@ -37,7 +37,7 @@ from metaads.boosts import (
 )
 from metaads.campaigns import read_adset_settings
 from metaads.leadforms import create_lead_form
-from metaads.restage import create_from_story
+from metaads.restage import create_from_story, read_url_tags
 from metaads.specs import STATUS_PAUSED, AdSetSpec, CampaignSpec, CreativeSpec
 from metaads.specs import LeadFormSpec as FormSpec
 from metaads.stories import create_creative
@@ -252,6 +252,16 @@ class MetaLauncher:
         )
         return tuple(media_id for media_id in found if media_id)
 
+    def creative_url_tags(self, *, creative_id: str, token: str) -> str:
+        """The tracking tags a creative carries now; ``""`` for none.
+
+        Meta keeps them beside the story, not in it, so whoever rebuilds a
+        creative from its story asks for them here first. Its failures come
+        back as the domain's, like every other call above the boundary.
+        """
+        with session(token) as graph:
+            return read_url_tags(creative_id=creative_id, token=token, client=graph)
+
     def restage_creative(
         self,
         *,
@@ -260,6 +270,7 @@ class MetaLauncher:
         story: dict[str, Any],
         token: str,
         dry_run: bool = True,
+        url_tags: str = "",
     ) -> ActionResult:
         """A creative from a story spec that came back from Meta and was edited.
 
@@ -281,6 +292,7 @@ class MetaLauncher:
                 token=token,
                 client=graph,
                 dry_run=dry_run,
+                url_tags=url_tags,
             )
 
         return self._done(

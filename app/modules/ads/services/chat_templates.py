@@ -47,6 +47,28 @@ def templates_for(db: Session, *, launch: CampaignLaunch) -> list[ChatTemplate]:
     )
 
 
+def templates_of_page(
+    db: Session, *, owner: User, page_external_id: str
+) -> list[ChatTemplate]:
+    """The templates kept for the page a running advert speaks as, last saved first."""
+    from app.modules.integrations.models import PageAccount
+
+    if not page_external_id:
+        return []
+    return list(
+        db.scalars(
+            select(ChatTemplate)
+            .join(PageAccount, PageAccount.id == ChatTemplate.page_id)
+            .where(
+                ChatTemplate.owner_id == owner.id,
+                PageAccount.owner_id == owner.id,
+                PageAccount.external_id == page_external_id,
+            )
+            .order_by(ChatTemplate.updated_at.desc(), ChatTemplate.id)
+        )
+    )
+
+
 def save_template(
     db: Session,
     *,

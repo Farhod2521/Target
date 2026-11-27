@@ -75,12 +75,13 @@ from app.modules.ads.services.swap import (
     _picture,
     _sweep,
     foreign_pictures,
+    offered_buttons,
+    tags_to_carry,
     welcome_plan,
 )
 from app.modules.audit.constants import ActionType
 from app.modules.audit.models import ActionLog
 from core.agent.guardrails import FINISHED
-from core.targeting.buttons import buttons_for, kept_destination
 
 logger = logging.getLogger(__name__)
 
@@ -250,19 +251,6 @@ def _new_creative(
         "button": button,
         "name": f"{ad.name}{COPY_SUFFIX}",
     }
-
-
-def offered_buttons(story: Mapping[str, Any] | None) -> tuple[str, ...]:
-    """The words the button may take: its own first, then its kind's (TZ 2.3)."""
-    current = button_of(story)
-    own = str(current.get("type") or "")
-    kind = kept_destination(current=current)
-    others = (
-        [row.key for row in buttons_for(provider=PROVIDER, sends_to=kind)]
-        if kind
-        else []
-    )
-    return tuple(dict.fromkeys([key for key in (own, *others) if key]))
 
 
 def plan_copy(
@@ -527,6 +515,12 @@ def _advert_anew(
         story=revised,
         token=job.token,
         dry_run=job.dry_run,
+        url_tags=tags_to_carry(
+            asked={},
+            creative_id=str(source.creative_external_id or ""),
+            token=job.token,
+            dry_run=job.dry_run,
+        ),
     )
     try:
         group = _new_group(source, into=into, meta=meta)

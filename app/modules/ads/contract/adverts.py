@@ -61,7 +61,11 @@ def ad_edit_form(
             if row.get("is_eligible") is not False
         ],
         "forms": {
+            "current_id": forms.get("current_id", ""),
             "current_name": forms["current_name"],
+            "current_questions": [
+                _question(item) for item in forms.get("current_questions", ())
+            ],
             "options": [
                 {
                     "id": row["external_id"],

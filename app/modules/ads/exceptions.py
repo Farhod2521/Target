@@ -359,6 +359,25 @@ class UrlTagsUnusable(DomainError):
         )
 
 
+class LinkNotOffered(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu reklama saytga olib bormaydi, shuning uchun unda havola o'zgarmaydi."
+        )
+
+
+class CardsNotOffered(DomainError):
+    def __init__(self) -> None:
+        super().__init__("Bu reklama karusel emas, unda kartalar yo'q.")
+
+
+class CardsRefused(DomainError):
+    def __init__(self) -> None:
+        super().__init__(
+            "Karuselda 2 tadan 10 tagacha karta bo'ladi, yangi kartaga rasm kerak."
+        )
+
+
 class UrlTagsLocked(DomainError):
     def __init__(self) -> None:
         super().__init__(
