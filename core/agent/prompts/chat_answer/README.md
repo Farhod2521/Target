@@ -265,3 +265,9 @@ Earlier versions were deleted from the folder on 2026-11-08 and live in git.
 through `{{ places }}`), drawn as links with the name in the person's
 language; and «A forgotten password» - email, then the Telegram bot, then
 the sign-in page's help card - answered at once, never handed over first.
+
+`v30` widens the one section about preparing a change: `propose_change`
+now also takes a name, an end date or none, a price ceiling per result, an
+audience's ages, gender and Advantage+ switch, where it is shown, and an
+advert's words, button and site address. Nothing else moved. Each is the
+campaigns screen's own change behind the same confirm button.

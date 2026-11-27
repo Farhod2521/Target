@@ -148,13 +148,16 @@ TOOLS: Final[tuple[Tool, ...]] = (
     _tool(
         CHANGE_TOOL,
         ChangeProposal,
-        "Prepare one change the owner asked for - a new daily budget, a pause",
-        "or switching something back on - so they can confirm it with a",
-        "button under your answer. It changes nothing: the product re-checks",
-        "it and carries it out only when the owner presses. Call it only once",
-        "you know exactly which object and, for a budget, the exact new",
-        "amount; ask first otherwise. The result says whether it can be",
-        "prepared and, if not, why.",
+        "Prepare one change the owner asked for, so they can confirm it with",
+        "a button under your answer: a daily budget, a pause, switching back",
+        "on, a new name, an end date or none, a price ceiling per result, an",
+        "audience's age, gender or Advantage+ switch, where it is shown, or",
+        "an advert's words, button and site address. It changes nothing: the",
+        "product re-checks it and carries it out only when the owner presses.",
+        "Call it only once you know exactly which object and the exact new",
+        "value; ask first otherwise. Fill only the fields of the one action",
+        "you chose. The result says whether it can be prepared and, if not,",
+        "why.",
     ),
 )
 

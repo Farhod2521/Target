@@ -20,11 +20,13 @@ from app.common.exceptions import DomainError
 from app.common.money import format_minor
 from app.modules.accounts.models import User
 from app.modules.ads.constants import ManagedLevel
+from app.modules.ads.exceptions import ChangeRefused
 from app.modules.ads.selectors.delivery import own_off
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.audit.constants import ActionStatus
 from app.modules.audit.models import ActionLog
 from app.modules.chat.models import ChatMessage
+from app.modules.chat.services import change_kinds
 from core.agent.guardrails import ACTIVE, PAUSED
 from core.chat.lookup_arguments import ChangeProposal
 
@@ -91,16 +93,31 @@ def prepare_change(
     account = account_of(target=target, level=level)
     name = str(getattr(target, "name", "") or external_id)
     try:
-        if arguments.action == "budget":
+        if arguments.action in change_kinds.KINDS:
+            # Checked here as the screen checks it; what the button keeps is
+            # the wish, read again against the object when it is pressed.
+            params = change_kinds.params_of(arguments)
+            built = change_kinds.build(
+                db,
+                owner=owner,
+                kind=arguments.action,
+                level=level,
+                target=target,
+                params=params,
+            )
+            actions.preview(db, user=owner, ask=built.ask)
+            item = {"before": built.before, "after": built.after, "params": params}
+        elif arguments.action == "budget":
             item = _budget(
                 db, owner=owner, arguments=arguments, target=target, account=account
             )
+            actions.preview(
+                db, user=owner, ask=_ask(arguments.action, level, external_id, item)
+            )
         else:
-            item = {}
-        planned = actions.preview(
-            db, user=owner, ask=_ask(arguments.action, level, external_id, item)
-        )
-        if arguments.action != "budget":
+            planned = actions.preview(
+                db, user=owner, ask=_ask(arguments.action, level, external_id, {})
+            )
             # A campaign's one group stops by the campaign's switch, and a
             # start reaches what above is off: the button names what moves.
             target, level_shown = planned.target, planned.level
@@ -113,7 +130,7 @@ def prepare_change(
                 "after": STATE_WORDS[wanted],
                 "shown_level": level_shown,
             }
-    except _NotABudget as exc:
+    except (_NotABudget, change_kinds.NotPossible) as exc:
         return Prepared(text=str(exc))
     except DomainError as exc:
         return Prepared(
@@ -127,7 +144,7 @@ def prepare_change(
         "external_id": external_id,
         "target": name,
         "target_kind": LEVEL_WORDS.get(str(item.pop("shown_level", level)), str(level)),
-        "label": WHAT[arguments.action],
+        "label": WHAT.get(arguments.action) or change_kinds.WHAT[arguments.action],
         "state": OPEN,
         "log_id": "",
     }
@@ -199,7 +216,39 @@ def _ask(action: str, level: str, external_id: str, item: dict[str, Any]) -> Any
         )
     if action == "pause":
         return actions.Pause(level=level, external_id=external_id)
-    return actions.Resume(level=level, external_id=external_id)
+    if action == "resume":
+        return actions.Resume(level=level, external_id=external_id)
+    # Never the nearest thing: a button of a kind this does not know must
+    # not switch an advert on.
+    raise ChangeRefused
+
+
+def _stored_ask(db: Session, *, owner: User, item: dict[str, Any]) -> Any:
+    """The change a kept button stands for, read against the object as it is now.
+
+    None when it can no longer be made - the object is gone, or the wish has
+    already come true some other way: the button then goes, nothing is sent.
+    """
+    from app.modules.ads.selectors.actions import managed_target
+
+    action, level = str(item["action"]), str(item["level"])
+    external_id = str(item["external_id"])
+    if action not in change_kinds.KINDS:
+        return _ask(action, level, external_id, item)
+    target = managed_target(db, owner=owner, level=level, external_id=external_id)
+    if target is None:
+        return None
+    try:
+        return change_kinds.build(
+            db,
+            owner=owner,
+            kind=action,
+            level=level,
+            target=target,
+            params=dict(item.get("params") or {}),
+        ).ask
+    except change_kinds.NotPossible:
+        return None
 
 
 def _status_of(target: Any) -> str:
@@ -271,7 +320,10 @@ def confirm_change(
     item = row.choices[index]
     if item.get("state") != OPEN:
         return change_state(db, owner=owner, message_id=message_id, key=key)
-    ask = _ask(str(item["action"]), str(item["level"]), str(item["external_id"]), item)
+    ask = _stored_ask(db, owner=owner, item=item)
+    if ask is None:
+        _write(db, row, index, state=DISMISSED)
+        return ChangeState(state="gone", text=GONE_WORDS)
     log = actions.request(db, user=owner, ask=ask)
     _write(db, row, index, state=SENT, log_id=str(log.id))
     return ChangeState(state="working", text=WORKING)

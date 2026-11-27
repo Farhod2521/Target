@@ -158,7 +158,8 @@ def with_choices(db: Session, *, owner: User, messages: Iterable[Any]) -> list[A
             if str(choice.get("pk", "")) in live
         ]
         message.changes = [
-            choice
+            # ``params`` is the wish kept for the press, not for the screen.
+            {key: value for key, value in choice.items() if key != "params"}
             for choice in (message.choices or ())
             if choice.get("kind") == "change"
         ]

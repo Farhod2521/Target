@@ -66,3 +66,10 @@ look-ups, the base having no room.
 as the person sees them, so a place is named «Sozlash → Boshqaruv» and
 never an address or a path. The look-ups' fix lines drop `/app/...` too,
 and «Ulanishlar» is the block inside «Boshqaruv», not a page.
+
+`v8`: `propose_change` takes more than a budget and a switch - a name, an
+end date or none, a price ceiling per result, an audience's ages, gender
+and Advantage+ switch, where it is shown, an advert's words, button and
+site address. Each is the Reklama screen's own change behind the same
+confirm button; the tool's `action` field lists them, so the base names
+them in one sentence. Not run against the live cases yet.

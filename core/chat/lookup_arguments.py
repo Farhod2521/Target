@@ -10,7 +10,21 @@ DEFAULT_DAYS: Final = 30
 LeadGrouping = Literal["day", "campaign", "ad_group", "form", "page"]
 CampaignState = Literal["all", "running", "stopped"]
 ProposalState = Literal["open", "answered", "all"]
-ChangeAction = Literal["budget", "pause", "resume"]
+ChangeAction = Literal[
+    "budget",
+    "pause",
+    "resume",
+    "rename",
+    "end_date",
+    "no_end_date",
+    "cost_cap",
+    "audience",
+    "placement",
+    "advert_text",
+]
+ChangeGender = Literal["", "all", "men", "women"]
+ChangeSwitch = Literal["", "on", "off"]
+ChangeApps = Literal["", "auto", "fbig", "instagram", "facebook"]
 ChangeLevel = Literal["campaign", "adset", "ad"]
 
 
@@ -108,7 +122,13 @@ class ChangeProposal(Arguments):
     action: ChangeAction = Field(
         description=(
             "budget: set a new daily budget. pause: switch it off. "
-            "resume: switch it back on."
+            "resume: switch it back on. rename: a new name (any level). "
+            "end_date: the last day it runs (adset). no_end_date: take the "
+            "end date off (adset). cost_cap: the most one result may cost, "
+            "0 removes it (adset). audience: age, gender, Advantage+ audience "
+            "(adset). placement: where it is shown (adset). advert_text: an "
+            "advert's text, headline, description, button word or site "
+            "address (ad)."
         ),
     )
     level: ChangeLevel = Field(
@@ -133,6 +153,73 @@ class ChangeProposal(Arguments):
             "work the amount out and say it to the owner first."
         ),
     )
+    name: str = Field(
+        default="", max_length=100, description="For rename only: the new name."
+    )
+    end_date: str = Field(
+        default="",
+        pattern=r"^(\d{4}-\d{2}-\d{2})?$",
+        description="For end_date only: the last day, as YYYY-MM-DD.",
+    )
+    cost_cap: str = Field(
+        default="",
+        max_length=20,
+        pattern=r"^(\d{1,9}([.,]\d{1,2})?)?$",
+        description=(
+            "For cost_cap only: the most one result may cost, in the ad "
+            "account's currency, a plain number. 0 removes the ceiling."
+        ),
+    )
+    age_min: int | None = Field(
+        default=None, ge=18, le=65, description="For audience: the youngest age."
+    )
+    age_max: int | None = Field(
+        default=None,
+        ge=18,
+        le=65,
+        description="For audience: the oldest age; 65 is 65+.",
+    )
+    gender: ChangeGender = Field(
+        default="", description="For audience: all, men or women. Empty keeps it."
+    )
+    advantage: ChangeSwitch = Field(
+        default="",
+        description=(
+            "For audience: Meta's own widening of the audience (Advantage+ "
+            "audience), on or off. Empty keeps it."
+        ),
+    )
+    apps: ChangeApps = Field(
+        default="",
+        description=(
+            "For placement only: auto (Meta chooses), fbig (Facebook and "
+            "Instagram), instagram or facebook."
+        ),
+    )
+    message: str | None = Field(
+        default=None, max_length=2000, description="For advert_text: the main text."
+    )
+    headline: str | None = Field(
+        default=None, max_length=255, description="For advert_text: the headline."
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=255,
+        description="For advert_text: the line under the headline.",
+    )
+    button: str = Field(
+        default="",
+        max_length=40,
+        description=(
+            "For advert_text: the button's word as Meta names it, e.g. "
+            "LEARN_MORE, SHOP_NOW, SIGN_UP. Only one the advert may carry."
+        ),
+    )
+    link: str = Field(
+        default="",
+        max_length=1000,
+        description="For advert_text: another site address for the advert to open.",
+    )
 
 
 __all__ = [
@@ -144,8 +231,11 @@ __all__ = [
     "CampaignList",
     "CampaignLookup",
     "ChangeAction",
+    "ChangeApps",
+    "ChangeGender",
     "ChangeLevel",
     "ChangeProposal",
+    "ChangeSwitch",
     "DailyFigures",
     "FormList",
     "LeadCounts",

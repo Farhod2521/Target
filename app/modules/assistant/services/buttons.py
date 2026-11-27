@@ -324,19 +324,21 @@ def _confirm_change(
 ) -> Pressed:
     """The Reklama screen's own service, which checks everything again."""
     from app.modules.ads import actions
-    from app.modules.chat.services.changes import _ask
+    from app.modules.chat.services.changes import _stored_ask
     from app.modules.notifications.services.refusals import refusal_words
 
     item = row.buttons[index]
     key = str(item.get("key", ""))
-    try:
-        log = actions.request(
-            db,
-            user=owner,
-            ask=_ask(
-                str(item["action"]), str(item["level"]), str(item["external_id"]), item
-            ),
+    # Read against the object as it is now; gone, or already as wished, and
+    # the button goes with nothing sent.
+    ask = _stored_ask(db, owner=owner, item=item)
+    if ask is None:
+        _write(db, row, index, state=ButtonState.DISMISSED)
+        return Pressed(
+            kind=ButtonKind.CHANGE, key=key, state=ButtonState.GONE, text=GONE_WORDS
         )
+    try:
+        log = actions.request(db, user=owner, ask=ask)
     except DomainError as exc:
         db.rollback()
         return Pressed(

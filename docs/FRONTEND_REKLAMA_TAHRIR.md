@@ -591,3 +591,101 @@ Soxta Meta javoblari bilan testlangan. **Real Meta'da sinalmagan**: guruh va
 reklama nomini o'zgartirish, `end_time=0` bilan sanani olib tashlash,
 `spend_cap=922337203685478` bilan limitni olib tashlash (ikkalasi Meta
 hujjatidagi qiymatlar).
+
+---
+
+## 6-bosqich. AI chat shu o'zgarishlarni taklif qiladi
+
+Foydalanuvchi chatda so'rasa, AI o'zgarishni **tayyorlaydi** va javob ostida
+tasdiqlash tugmasi chiqadi. AI hech narsani o'zi o'zgartirmaydi: o'zgarish
+faqat egasi tugmani bosganda yuboriladi va o'sha paytda Reklama sahifasidagi
+tekshiruvlardan qayta o'tadi.
+
+**Yo'llar va tugma shakli o'zgarmagan.** Front ishi kam: faqat quyidagi
+ikki narsani tekshiring.
+
+### 6.1. Chat endi nimalarni taklif qila oladi
+
+| `action` | Nima | Daraja |
+|---|---|---|
+| `budget`, `pause`, `resume` | avvalgidek | kampaniya / guruh / reklama |
+| `rename` | nom | uchala daraja |
+| `end_date` | tugash sanasini qo'yish | guruh |
+| `no_end_date` | tugash sanasini olib tashlash | guruh |
+| `cost_cap` | bitta natija narxi chegarasi (0 — olib tashlash) | guruh |
+| `audience` | yosh, jins, Advantage+ auditoriya | guruh |
+| `placement` | qayerda ko'rsatilishi | guruh |
+| `advert_text` | reklama matni, sarlavha, tavsif, tugma so'zi, sayt manzili | reklama |
+
+Chatdan **qilinmaydi** (AI «Reklama sahifasida» deb aytadi): joylar,
+qiziqishlar, tillar, o'z auditoriyalari, rasm/video, lid forma, chat
+salomi, karusel kartalari, nusxa olish, yangi reklama.
+
+Bir javobda ko'pi bilan **2 ta** tugma (avvalgidek).
+
+### 6.2. Tugma maydonlari (o'zgarmagan shakl)
+
+Eski chat: `GET /chat/threads/{id}` → `messages[].changes[]`.
+Yangi assistent: `messages[].buttons[]` (`kind: "change"`).
+
+```json
+{
+  "kind": "change",
+  "key": "P1",
+  "action": "audience",
+  "level": "adset",
+  "external_id": "120…",
+  "target": "Toshkent 25-45",
+  "target_kind": "reklama guruhi",
+  "label": "Auditoriyani o'zgartirish",
+  "before": "25-45 yosh, hamma, Advantage+ o'chirilgan",
+  "after": "25-35 yosh, ayollar, Advantage+ o'chirilgan",
+  "state": "open",
+  "log_id": ""
+}
+```
+
+Front tekshiradigan ikki narsa:
+
+1. **`label`, `before`, `after`ni backend bergan matn bilan chizing**, `action`
+   bo'yicha frontda matn yozmang. Yangi `action` qiymatlari kelganda tugma
+   baribir to'g'ri chiqishi kerak. Agar front `action`ga qarab ikonka yoki
+   matn tanlasa — noma'lum qiymatda umumiy ko'rinishga tushsin.
+2. **`before` / `after` bir necha qatorli bo'lishi mumkin** (`\n` bilan) —
+   `advert_text`da har o'zgargan maydon alohida qatorda:
+
+   ```
+   before: "Matn: Buyurtma bering\nTugma: Batafsil"
+   after:  "Matn: Bugun 20% chegirma\nTugma: Xarid qilish"
+   ```
+
+   `white-space: pre-line` bilan chizing. Uzun matn 80 belgida «…» bilan
+   kesilgan holda keladi.
+
+Yangi assistent tugmasida qo'shimcha `params` maydoni keladi — bu backendning
+ichki ma'lumoti, uni chizmang va yubormang.
+
+### 6.3. Bosish, bekor qilish, holat
+
+O'zgarmagan:
+
+- eski chat: `POST /chat/changes/{messageId}/{key}`, `…/dismiss`, `GET …`;
+- yangi assistent: `POST /assistant/buttons/{messageId}/{key}`, `…/dismiss`.
+
+Yangi holat: tugma bosilganda obyekt o'chirilgan yoki o'zgarish allaqachon
+boshqa yo'l bilan bajarilgan bo'lsa, javob `state: "gone"` bo'ladi va hech
+narsa yuborilmaydi. Tugmani yashiring, matnini ko'rsating.
+
+### 6.4. Muhim ogohlantirish
+
+`advert_text` yangi reklama yaratadi va eskisini to'xtatadi (Meta qayta
+ko'rikdan o'tkazadi). AI buni javobida aytadi; tugma ostida ham qisqa izoh
+bo'lsa yaxshi.
+
+### Hali tekshirilmagan
+
+- Tugma oqimi soxta Meta javoblari bilan testlangan; real Meta'da sinalmagan.
+- **AI'ning o'zi jonli tekshirilmagan**: yangi prompt versiyalari
+  (`assistant/v8`, `chat_answer/v30`) bilan AI to'g'ri obyekt va to'g'ri
+  qiymatni tanlashi jonli savollarda (`python -m tools.assistant_eval`)
+  o'tkazilmagan.
