@@ -62,6 +62,7 @@ from app.modules.notifications.services.announce_account import (
     CUT_OFF,
     STOPPED,
     announce_action_required,
+    announce_blocks,
     announce_connection,
     announce_expiry,
     announce_lapse,
@@ -110,6 +111,8 @@ def deliver_notices(db: Session, *, now: datetime) -> int:
         sent += announce_stops(db, client=client, now=now)
         sent += announce_guard(db, client=client, now=now, asleep=asleep)
         sent += _announce_broken_connections(db, client=client, now=now)
+        if sends_mandatory_notices():
+            sent += announce_blocks(db, client=client, now=now)
         sent += _announce_action_required(db, client=client, now=now)
 
     if sent:

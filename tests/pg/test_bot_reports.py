@@ -1417,3 +1417,140 @@ def test_a_message_a_shorter_list_no_longer_needs_says_so(
     assert second["message_id"] == 102 and second["text"] == escaped(LIST_MOVED)
     assert not second["buttons"]
     assert len(_sent(phone)) == 2
+
+
+# -- a pair nothing of can run is left out of the day ------------------------------
+
+
+def _block(db: Session, account: AdAccount, **values: Any) -> None:
+    for name, value in {
+        "may_advertise": False,
+        "standing": "disabled",
+        "account_status": "2",
+        **values,
+    }.items():
+        setattr(account, name, value)
+    db.commit()
+
+
+def test_a_blocked_account_s_day_is_not_sent_though_it_spent(
+    client: TestClient, db: Session, phone: FakeBot
+) -> None:
+    user = _cabinet(client, db)
+    _spent(db, user)
+    _linked(db, user)
+    _block(db, _account(db, user))
+
+    assert not deliver_daily_report_for(db, owner=user, now=MORNING)
+
+    assert _sent(phone) == []
+    # Marked done: the next hour does not come back for it.
+    assert daily_report_audience(db, now=MORNING + timedelta(hours=1)) == []
+
+
+def test_a_pair_with_every_advert_off_is_not_sent_though_it_spent(
+    client: TestClient, db: Session, phone: FakeBot
+) -> None:
+    user = _cabinet(client, db)
+    _spent(db, user)
+    _linked(db, user)
+    db.execute(update(AdSet).where(AdSet.owner_id == user.id).values(delivery="paused"))
+    db.commit()
+
+    assert not deliver_daily_report_for(db, owner=user, now=MORNING)
+    assert _sent(phone) == []
+
+
+def test_a_group_whose_only_advert_was_refused_counts_as_off(
+    client: TestClient, db: Session, phone: FakeBot
+) -> None:
+    from app.modules.ads.models import Ad
+
+    user = _cabinet(client, db)
+    _spent(db, user)
+    _linked(db, user)
+    assert db.scalar(select(Ad.id).where(Ad.owner_id == user.id)) is not None
+    db.execute(update(Ad).where(Ad.owner_id == user.id).values(delivery="rejected"))
+    db.commit()
+
+    assert not deliver_daily_report_for(db, owner=user, now=MORNING)
+    assert _sent(phone) == []
+
+
+def test_the_working_pair_is_still_told_and_the_blocked_one_is_not_named(
+    client: TestClient, db: Session, phone: FakeBot
+) -> None:
+    user = _cabinet(client, db)
+    _spent(db, user)
+    other = _second_pair(db, user)
+    _group(db, user, other, "c_2", "s_2", spend=30000, built=False)
+    _linked(db, user)
+    _block(db, _account(db, user))
+
+    assert deliver_daily_report_for(db, owner=user, now=MORNING)
+
+    (message,) = _sent(phone)
+    # The one pair left is the whole message: its money is the total.
+    assert "Jami sarf: $300,00" in message["text"]
+    assert "200,00" not in message["text"]
+    assert "Bahor" not in message["text"]
+    assert "Sarf bo'lmagan" not in message["text"]
+    book = day_book(db, owner=user, now=MORNING)
+    assert book is not None and len(book.dark) == 1
+
+
+def test_an_unblocked_account_is_told_again_from_the_same_kept_day(
+    client: TestClient, db: Session, phone: FakeBot
+) -> None:
+    user = _cabinet(client, db)
+    _spent(db, user)
+    _night_ran(db, user)
+    account = _account(db, user)
+    _block(db, account)
+    cache.clear()
+
+    blocked = day_book(db, owner=user, now=MORNING)
+    assert blocked is not None and blocked.final and blocked.is_quiet
+
+    _block(db, account, may_advertise=True, standing="active", account_status="1")
+    back = day_book(db, owner=user, now=MORNING)
+
+    assert back is not None and not back.is_quiet and back.dark == ()
+
+
+def test_hisobot_says_why_there_is_no_report_and_the_week_keeps_the_money(
+    client: TestClient, db: Session, phone: FakeBot
+) -> None:
+    user = _cabinet(client, db)
+    _spent(db, user)
+    _linked(db, user)
+    _block(db, _account(db, user))
+
+    assert handle_update(db, payload=_text("700", "/hisobot"), now=MORNING) == (
+        "report_quiet"
+    )
+    said = _sent(phone)[-1]["text"]
+    assert "Hisobot yo" in said and "pul sarflanmagan" not in said
+
+    week = weekly_book(db, owner=user, now=MORNING + timedelta(days=7))
+    assert week is not None
+
+
+def test_a_sent_message_is_not_emptied_when_its_pair_goes_dark_before_the_night_ends(
+    client: TestClient, db: Session, phone: FakeBot
+) -> None:
+    user = _cabinet(client, db)
+    _spent(db, user)
+    _linked(db, user)
+    _night_ran(db, user)
+    db.execute(update(MetricsDaily).values(synced_at=_ended() - timedelta(hours=2)))
+    db.commit()
+    deliver_daily_report_for(db, owner=user, now=MORNING)
+    assert "yakuniy emas" in _sent(phone)[0]["text"]
+
+    db.execute(update(MetricsDaily).values(synced_at=MORNING))
+    _block(db, _account(db, user))
+
+    assert not finish_daily_report_for(db, owner=user, now=MORNING)
+    assert _edits(phone) == []
+    assert unfinished_report_audience(db, now=MORNING) == []

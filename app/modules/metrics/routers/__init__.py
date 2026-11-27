@@ -120,6 +120,18 @@ def _disconnected(db: Session, *, accounts: Any) -> dict[str, Any] | None:
     }
 
 
+def _stopped(accounts: Any) -> list[dict[str, Any]]:
+    """The accounts behind these figures that deliver nothing, with the cause."""
+    from app.modules.ads.contract.listing import stopped_account_out
+    from app.modules.integrations.selectors.standing import stopped_kind
+
+    return [
+        stopped_account_out(account, kind=kind)
+        for account in accounts
+        if (kind := stopped_kind(account)) is not None
+    ]
+
+
 def numbers_context(
     db: Session,
     user: User,
@@ -187,6 +199,7 @@ def numbers_context(
         ),
         "is_stale": figures_are_stale(synced_at=synced_at, now=now),
         "disconnected": _disconnected(db, accounts=page.accounts),
+        "stopped_accounts": _stopped(page.accounts),
         "since": synced_at.isoformat() if synced_at else "",
         "syncing": syncing,
         "account_ids": [str(row.id) for row in page.accounts],

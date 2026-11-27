@@ -10,7 +10,8 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 from telegramkit import BotClient, Button
 
 from app.common.dates import date_format
@@ -19,8 +20,9 @@ from app.modules.accounts.models import User
 from app.modules.ads.models import LapseHold
 from app.modules.billing.models import Subscription
 from app.modules.businesses.selectors import business_timezone
-from app.modules.integrations.models import ProviderConnection
+from app.modules.integrations.models import AdAccount, ProviderConnection
 from app.modules.integrations.selectors import ActionRequired
+from app.modules.integrations.selectors.standing import stopped_clause
 from app.modules.leads.selectors import held_lead_count
 from app.modules.notifications.constants import MAX_TROUBLES_PER_SWEEP, NoticeKind
 from app.modules.notifications.keys import (
@@ -32,12 +34,14 @@ from app.modules.notifications.keys import (
     unfrozen_subject,
 )
 from app.modules.notifications.models import TelegramChat
+from app.modules.notifications.selectors import chat_for, left_keys
 from app.modules.notifications.selectors.inbox import (
     cabinet_inbox,
     not_left,
     page_inbox,
 )
 from app.modules.notifications.selectors.inbox_guard import is_guard_key
+from app.modules.notifications.selectors.inbox_meta import blocked_items
 from app.modules.notifications.selectors.inbox_page import inbox_pages
 from app.modules.notifications.services.announce import tell
 from app.modules.notifications.services.compose import (
@@ -54,7 +58,7 @@ from app.modules.notifications.services.compose_lapse import (
     lapse_stopped_message,
     unfrozen_message,
 )
-from core.inbox import InboxItem, by_page
+from core.inbox import InboxItem, by_page, left_key
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +197,48 @@ def announce_troubles(
     return sent
 
 
+def announce_blocks(db: Session, *, client: BotClient, now: datetime) -> int:
+    """An ad account the network stopped, told in the quarter hour it is read.
+
+    The morning's list would say it too, up to a day later - a day of adverts
+    that are switched on and shown to nobody. Told under the list's own key,
+    so the morning does not say it again; an owner who left the line as it is
+    is not told at all. An unpaid account is the stop's own message.
+    """
+    sent = 0
+    accounts = db.scalars(
+        select(AdAccount)
+        .where(stopped_clause(), AdAccount.is_active.is_(True))
+        .options(joinedload(AdAccount.owner))
+    ).all()
+    for account in accounts:
+        items = blocked_items(account=account)
+        if not items:
+            continue
+        chat = chat_for(db, owner=account.owner)
+        if chat is None:
+            continue
+        left = left_keys(db, owner=account.owner, now=now)
+        with override(chat.owner.language):
+            for item in items:
+                if left_key(item.key) in left:
+                    continue
+                told = tell(
+                    db,
+                    client=client,
+                    chat=chat,
+                    kind=NoticeKind.TROUBLE,
+                    subject=item.key,
+                    text=trouble_message(item=item).text,
+                    buttons=ask_button(item_key=item.key),
+                    now=now,
+                )
+                sent += bool(told)
+    if sent:
+        logger.info("account_block_notices_sent", extra={"count": sent})
+    return sent
+
+
 def announce_connection(
     db: Session,
     *,
@@ -320,6 +366,7 @@ __all__ = [
     "SPOKEN_FOR",
     "STOPPED",
     "announce_action_required",
+    "announce_blocks",
     "announce_connection",
     "announce_expiry",
     "announce_lapse",

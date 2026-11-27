@@ -27,6 +27,7 @@ from app.modules.chat.selectors import (
     week_bounds,
     weekly_book,
 )
+from app.modules.chat.selectors.day_dark import without_dark
 from app.modules.notifications.constants import (
     DAILY_REPORTS_KEY,
     DAILY_REPORTS_TTL_SECONDS,
@@ -37,8 +38,20 @@ from core.chat.day_report import DailyReport, DayBook, DayTotal, Figure, Result
 def day_book(
     db: Session, *, owner: User, now: datetime, day: date | None = None
 ) -> DayBook | None:
-    """The owner's day. ``day`` is the morning's unless a press or a command
-    names its own."""
+    """The owner's day, less the pairs nothing of can run now (see
+    :mod:`app.modules.chat.selectors.day_dark`). ``day`` is the morning's
+    unless a press or a command names its own."""
+    book = _whole_day(db, owner=owner, now=now, day=day)
+    if book is None:
+        return None
+    return without_dark(db, owner=owner, book=book)
+
+
+def _whole_day(
+    db: Session, *, owner: User, now: datetime, day: date | None = None
+) -> DayBook | None:
+    """Every pair's day, kept once final: what is dark is judged afresh on
+    each reading, so it is never kept."""
     clock = cabinet_clock(db, owner=owner)
     if clock is None:
         return None
@@ -95,6 +108,7 @@ def _loaded(row: dict[str, Any]) -> DayBook:
             "reports": tuple(_report(report) for report in row["reports"]),
             "totals": tuple(DayTotal(**total) for total in row["totals"]),
             "outside": tuple(row["outside"]),
+            "dark": tuple(row.get("dark", ())),
         }
     )
 

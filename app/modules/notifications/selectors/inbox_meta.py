@@ -17,7 +17,7 @@ def meta_items(
     """Meta holding the person, and accounts that cannot advertise. Usually neither."""
     return [
         *_hold(db, owner=owner),
-        *(item for account in accounts for item in _blocked(account=account)),
+        *(item for account in accounts for item in blocked_items(account=account)),
     ]
 
 
@@ -41,7 +41,9 @@ def _hold(db: Session, *, owner: User) -> list[InboxItem]:
     ]
 
 
-def _blocked(*, account: AdAccount) -> list[InboxItem]:
+def blocked_items(*, account: AdAccount) -> list[InboxItem]:
+    """The line of an account that may not advertise, or nothing. An unpaid
+    one has its own line, the stop's."""
     # ``None`` is an account Meta was never asked about: carry on.
     if account.may_advertise is not False:
         return []
@@ -64,4 +66,4 @@ def _blocked(*, account: AdAccount) -> list[InboxItem]:
     ]
 
 
-__all__ = ["meta_items"]
+__all__ = ["blocked_items", "meta_items"]

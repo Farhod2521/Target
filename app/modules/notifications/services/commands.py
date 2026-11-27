@@ -36,6 +36,13 @@ from app.modules.notifications.services.compose_day_pair import (
 from app.modules.notifications.services.send import answer, edit, send_to
 from core.chat.day_report import DayBook
 
+# A day whose only pairs are ones nothing can run on: "nothing was spent"
+# would be untrue of it, and its figures are not what the reader needs.
+NOTHING_RUNS = (
+    "Hisobot yo'q: reklama akkaunti to'xtatilgan yoki hamma reklamalar "
+    "o'chirilgan. Sababi va nima qilish kerakligi kabinetda yozilgan."
+)
+
 
 def send_yesterday(
     db: Session, *, client: BotClient, chat: TelegramChat, now: datetime
@@ -174,7 +181,8 @@ def _send_book(
     now: datetime,
 ) -> str:
     if book is None or book.is_quiet:
-        send_to(db, client=client, chat=chat, text=escaped(empty), now=now)
+        said = NOTHING_RUNS if book is not None and book.dark else empty
+        send_to(db, client=client, chat=chat, text=escaped(said), now=now)
         return "report_quiet"
     for message, buttons in day_views(book=book):
         send_to(

@@ -81,6 +81,23 @@ class DisconnectedOut(BaseModel):
     )
 
 
+class StoppedAccountOut(BaseModel):
+    """One ad account the network stopped. The same words the campaign list
+    shows over its rows (`stoppedAccounts` there)."""
+
+    external_id: str
+    name: str
+    network: dict[str, str] = Field(description="`id`, `letter`, `name`.")
+    kind: str = Field(description="`payment`, `closed` or `disabled`.")
+    reason: str | None = Field(
+        None, description="Meta's own name for the cause (`disable_reason`)."
+    )
+    cause: str | None = Field(None, description="Why, one sentence, in Uzbek.")
+    fix: str | None = Field(None, description="What the owner does, in Uzbek.")
+    action: str | None = Field(None, description="The button's word for `href`.")
+    href: str | None = Field(None, description="Where it is mended at the network.")
+
+
 class NumbersOut(BaseModel):
     crm_qualified: int | None = Field(
         description="Qualified leads counted by the CRM; null when the CRM is off."
@@ -107,6 +124,11 @@ class NumbersOut(BaseModel):
         None,
         description="The connection these figures are read through no longer "
         "works: nothing after `last_synced_at` is here, whatever the range says.",
+    )
+    stopped_accounts: list[StoppedAccountOut] = Field(
+        default_factory=list,
+        description="The ad accounts behind these figures that the network "
+        "stopped: their adverts are on and reach nobody. Empty as a rule.",
     )
     since: str = Field(
         description="Pass to `GET /metrics/numbers/poll` after a refresh."

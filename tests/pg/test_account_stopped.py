@@ -653,3 +653,108 @@ def test_the_showcase_never_goes_old(client: TestClient, db: Session) -> None:
     mark = campaign_marks(db, campaigns=[row])[row.external_id]
 
     assert mark.stale_since is None and mark.frozen_since is None
+
+
+# -- the phone and the dashboard are told too -------------------------------------------
+
+
+def _phone(monkeypatch: pytest.MonkeyPatch, db: Session, account: AdAccount) -> Any:
+    from app.common.config import settings
+    from app.modules.billing.selectors import has_live_subscription
+    from app.modules.billing.services import start_trial
+    from app.modules.notifications.models import TelegramChat
+    from tests.pg.test_office_telegram import FakeBot
+
+    monkeypatch.setattr(settings, "telegram_bot_token", "t")
+    monkeypatch.setattr(settings, "telegram_mandatory_notices", True)
+    monkeypatch.setattr(settings, "site_url", "https://targetolog.test")
+    # A notice is owed only under a live subscription.
+    if not has_live_subscription(db, owner=account.owner):
+        start_trial(db, user=account.owner, now=utcnow())
+    db.add(
+        TelegramChat(
+            owner_id=account.owner_id, chat_id="700", is_active=True, linked_at=utcnow()
+        )
+    )
+    db.commit()
+    return FakeBot()
+
+
+def test_a_block_is_told_on_the_phone_at_once_with_its_cause_and_door(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.notifications.selectors import chat_for
+    from app.modules.notifications.services.announce_account import (
+        announce_blocks,
+        announce_troubles,
+    )
+
+    _headers, campaign = _cabinet_with_figures(client, db)
+    account = _account(db, campaign)
+    bot = _phone(monkeypatch, db, account)
+    assert announce_blocks(db, client=bot, now=utcnow()) == 0
+
+    _stop(
+        db,
+        account,
+        may_advertise=False,
+        standing="disabled",
+        account_status="2",
+        disable_reason="15",
+    )
+
+    assert announce_blocks(db, client=bot, now=utcnow()) == 1
+    [text] = bot.texts()
+    assert "bloklagan" in text and "begona odam kirgan" in text
+    # Answered in the center, like every notice: the door is on its line there.
+    assert "/app/amallar/?item=account_blocked" in text
+    assert "Account Quality" in text and "accountquality" not in text
+
+    # Once: neither the next quarter hour nor the morning's list says it again.
+    assert announce_blocks(db, client=bot, now=utcnow()) == 0
+    chat = chat_for(db, owner=account.owner)
+    assert chat is not None
+    announce_troubles(db, client=bot, chat=chat, now=utcnow())
+    assert sum("bloklagan" in said for said in bot.texts()) == 1
+
+
+def test_an_unpaid_account_is_left_to_the_stop_s_own_message(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.notifications.services.announce_account import announce_blocks
+
+    _headers, campaign = _cabinet_with_figures(client, db)
+    account = _account(db, campaign)
+    bot = _phone(monkeypatch, db, account)
+    _stop(db, account, may_advertise=False, standing="disabled_payment")
+
+    assert announce_blocks(db, client=bot, now=utcnow()) == 0
+
+
+def test_the_dashboard_says_the_account_is_switched_off(
+    client: TestClient, db: Session
+) -> None:
+    headers, campaign = _cabinet_with_figures(client, db)
+    account = _account(db, campaign)
+
+    assert (
+        client.get("/api/v1/metrics/numbers", headers=headers).json()[
+            "stopped_accounts"
+        ]
+        == []
+    )
+
+    _stop(
+        db,
+        account,
+        may_advertise=False,
+        standing="disabled",
+        account_status="2",
+        disable_reason="1",
+    )
+    body = client.get("/api/v1/metrics/numbers", headers=headers).json()
+
+    [told] = body["stopped_accounts"]
+    assert told["external_id"] == account.external_id and told["kind"] == "disabled"
+    assert told["reason"] == "ADS_INTEGRITY_POLICY"
+    assert "qoidalari" in told["cause"] and "accountquality" in told["href"]

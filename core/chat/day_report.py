@@ -155,6 +155,10 @@ class DayBook:
     # figures stop there, and "not final yet" would promise a re-read that
     # cannot come.
     cut_off: str = ""
+    # The pairs left out of a daily message because nothing of theirs can run
+    # now - a stopped account, every advert off - by title. Their money is in
+    # no total here.
+    dark: tuple[str, ...] = ()
 
     @property
     def spent(self) -> tuple[DailyReport, ...]:

@@ -292,6 +292,13 @@ def finish_daily_report_for(db: Session, *, owner: User, now: datetime) -> bool:
         return False
     if not _unfinished_message(db, chat=chat, day=book.day):
         return False
+    if book.is_quiet:
+        # Every pair the message was about went dark since (a block, all
+        # switched off): the message stays as it was sent rather than being
+        # emptied, and the day is not come back for.
+        _settle_final(db, chat=chat, book=book, now=now)
+        db.commit()
+        return False
     with bot() as client:
         _finish_parts(
             db,
