@@ -73,6 +73,9 @@ class LimitsTarget:
     currency: str
     can_change: bool
     offers_spend_cap: bool = True
+    # No daily budget anywhere above it: the budget is a lifetime one, and
+    # Meta does not let such a group run without an end.
+    end_required: bool = False
 
     @property
     def offers_end_time(self) -> bool:
@@ -135,6 +138,8 @@ def _limits(*, campaign: Campaign, groups: list[AdSet]) -> LimitsTarget | None:
         spend_cap_minor=campaign.spend_cap_minor,
         currency=_currency(campaign=campaign, groups=groups),
         can_change=check_limit_change(state=state).allowed,
+        end_required=campaign.daily_budget_minor is None
+        and all(row.daily_budget_minor is None for row in groups),
     )
 
 

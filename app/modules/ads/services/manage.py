@@ -700,9 +700,10 @@ def plan_end_time(
     *,
     user: User,
     external_id: str,
-    end_time: datetime,
+    end_time: datetime | None,
     level: str = ManagedLevel.ADSET,
 ) -> Planned:
+    """When it stops; ``None`` takes the end date off and it runs until stopped."""
     _live(db, user)
     target = target_for(
         db,
@@ -715,12 +716,17 @@ def plan_end_time(
     if not verdict.allowed:
         raise {REFUSED_FINISHED: CampaignFinished}.get(verdict.reason, ChangeRefused)()
     previous = getattr(target, "end_time", None)
+    if end_time is None:
+        if target.provider != META:
+            raise ChangeRefused
+        if previous is None:
+            raise AlreadyInState
     return Planned(
         target=target,
         level=level,
         external_id=external_id,
         action=ActionType.END_TIME_SET,
-        requested={"end_time": end_time.isoformat()},
+        requested={"end_time": end_time.isoformat() if end_time else ""},
         previous=state_payload(target)
         | {"end_time": previous.isoformat() if previous else ""},
     )
@@ -730,7 +736,7 @@ def plan_spend_cap(
     db: Session, *, user: User, external_id: str, spend_cap_minor: int
 ) -> Planned:
     _live(db, user)
-    if spend_cap_minor <= 0:
+    if spend_cap_minor < 0:
         raise ChangeRefused
     target = target_for(
         db,
@@ -739,6 +745,13 @@ def plan_spend_cap(
         external_id=external_id,
         aspect=SPEND_CAP,
     )
+    if not spend_cap_minor:
+        # Nought takes the ceiling off: only where there is one, and only on
+        # the network whose spelling of "none" this product knows.
+        if target.provider != META:
+            raise ChangeRefused
+        if not getattr(target, "spend_cap_minor", None):
+            raise AlreadyInState
     verdict = check_limit_change(state=state_of(target))
     if not verdict.allowed:
         raise {REFUSED_FINISHED: CampaignFinished}.get(verdict.reason, ChangeRefused)()
@@ -754,7 +767,13 @@ def plan_spend_cap(
 
 
 def plan_name(
-    db: Session, *, user: User, external_id: str, name: str, restore: bool = False
+    db: Session,
+    *,
+    user: User,
+    external_id: str,
+    name: str,
+    restore: bool = False,
+    level: str = ManagedLevel.CAMPAIGN,
 ) -> Planned:
     """A campaign's new name. TZ 4: campaigns only, Meta only, never empty, at
     most ``LAUNCH_NAME_MAX`` characters. Allowed whatever the campaign is
@@ -769,7 +788,7 @@ def plan_name(
     target = target_for(
         db,
         user=user,
-        level=ManagedLevel.CAMPAIGN,
+        level=level,
         external_id=external_id,
         aspect=NAME,
     )
@@ -779,7 +798,7 @@ def plan_name(
         raise AlreadyInState
     return Planned(
         target=target,
-        level=ManagedLevel.CAMPAIGN,
+        level=level,
         external_id=external_id,
         action=ActionType.NAME_SET,
         requested={"name": wanted},
@@ -912,6 +931,10 @@ EVENTS: dict[str, str] = {
     ActionType.COPY_ADSET: EventName.ADSET_CREATED,
     ActionType.COPY_AD: EventName.AD_CREATED,
 }
+# A limit taken off: the mirror's column goes back to nothing, which a plain
+# ``None`` cannot say - that is "the write told us nothing".
+CLEARED: Final = object()
+CLEARABLE: Final = frozenset({"end_time", "spend_cap_minor"})
 LIMIT_FIELDS: dict[str, str] = {
     ActionType.END_TIME_SET: "end_time",
     ActionType.SPEND_CAP_SET: "spend_cap_minor",
@@ -1307,9 +1330,12 @@ def _limit(*, log: ActionLog, result: ActionResult) -> tuple[str, Any] | None:
     field = LIMIT_FIELDS.get(log.action)
     if field is None:
         return None
+    applied = result.applied.get(field)
+    if field in CLEARABLE and field in result.applied and not applied:
+        return field, CLEARED
     if field == "end_time":
-        return field, parse_datetime(str(result.applied.get("end_time", "")))
-    return field, result.applied.get(field)
+        return field, parse_datetime(str(applied or ""))
+    return field, applied
 
 
 def _snapshot(status: StatusDTO) -> dict[str, Any]:
@@ -1333,7 +1359,9 @@ def _refresh_mirror(
         target.targeting_raw = applied_targeting
     if applied_limit is not None:
         field, value = applied_limit
-        if value is not None and hasattr(target, field):
+        if value is CLEARED and hasattr(target, field):
+            setattr(target, field, None)
+        elif value is not None and hasattr(target, field):
             setattr(target, field, value)
     target.status = after.status
     target.effective_status = after.effective_status

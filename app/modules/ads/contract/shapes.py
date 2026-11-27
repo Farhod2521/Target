@@ -752,6 +752,11 @@ class CampaignEdit(Camel):
     reach: list[int]
     ends_at: str | None
     limit: float | None
+    ends_at_required: bool = Field(
+        False,
+        description="A lifetime budget: it cannot run without an end date, "
+        "so «tugash sanasiz» is not offered.",
+    )
     group: EditGroup | None
     split: bool
     locks: EditLocks

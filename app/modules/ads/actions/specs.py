@@ -76,7 +76,8 @@ class EndTime:
     """An ad group's last day, or a Google campaign's."""
 
     external_id: str
-    end_time: datetime
+    # ``None`` takes the end date off: it runs until it is stopped.
+    end_time: datetime | None
     level: str = ManagedLevel.ADSET
 
 
@@ -90,12 +91,13 @@ class SpendCap:
 
 @dataclass(frozen=True, slots=True)
 class Rename:
-    """A campaign's new name (TZ 4: campaigns only)."""
+    """A new name for a campaign, an ad group or an advert."""
 
     external_id: str
     name: str
     # An undo puts the earlier name back exactly, however it was written.
     restore: bool = False
+    level: str = ManagedLevel.CAMPAIGN
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,6 +276,7 @@ SPECS: dict[type, Spec] = {
             external_id=ask.external_id,
             name=ask.name,
             restore=ask.restore,
+            level=ask.level,
         ),
     ),
     Audience: Spec(
@@ -490,15 +493,17 @@ def undoing(original: ActionLog) -> Ask | None:
             )
         return Audience(external_id=external_id, targeting=spec)
     if original.action == ActionType.END_TIME_SET:
-        stamp = parse_datetime(str(previous.get("end_time") or ""))
-        if stamp is None:
+        if "end_time" not in previous:
             return None
+        # Nothing kept is "it had no end": the undo takes the date off again.
+        stamp = parse_datetime(str(previous.get("end_time") or ""))
         return EndTime(external_id=external_id, end_time=stamp, level=level)
     if original.action == ActionType.SPEND_CAP_SET:
-        ceiling = previous.get("spend_cap_minor")
-        if ceiling is None:
+        if "spend_cap_minor" not in previous:
             return None
-        return SpendCap(external_id=external_id, spend_cap_minor=int(ceiling))
+        # Nothing kept is "it had no ceiling": the undo takes it off again.
+        ceiling = previous.get("spend_cap_minor")
+        return SpendCap(external_id=external_id, spend_cap_minor=int(ceiling or 0))
     if original.action == ActionType.DELIVERY_SET:
         before = previous.get("delivery")
         if not isinstance(before, dict) or not before:
@@ -507,7 +512,9 @@ def undoing(original: ActionLog) -> Ask | None:
     if original.action == ActionType.NAME_SET:
         name = str(previous.get("name") or "")
         return (
-            Rename(external_id=external_id, name=name, restore=True) if name else None
+            Rename(external_id=external_id, name=name, restore=True, level=level)
+            if name
+            else None
         )
     if original.action not in (ActionType.PAUSE, ActionType.RESUME):
         return None

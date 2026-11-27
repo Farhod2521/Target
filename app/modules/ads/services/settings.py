@@ -47,6 +47,7 @@ def change_settings(
     audience: AudienceEdit | None = None,
     end_time: datetime | None = None,
     spend_cap_minor: int | None = None,
+    clear_end_time: bool = False,
 ) -> SettingsOutcome:
     """Ask for every section that actually moved, and say what came of each."""
     queued: list[str] = []
@@ -71,6 +72,7 @@ def change_settings(
                 editable=editable,
                 end_time=end_time,
                 spend_cap_minor=spend_cap_minor,
+                clear_end_time=clear_end_time,
             ),
         ),
     )
@@ -156,14 +158,29 @@ def _limits(
     editable: Editable,
     end_time: datetime | None,
     spend_cap_minor: int | None,
+    clear_end_time: bool = False,
 ) -> str | None:
+    """``spend_cap_minor`` 0 takes the ceiling off; ``clear_end_time`` the end date."""
     from app.modules.ads import actions
 
     target = editable.limits
     if target is None:
         return None
     sent = False
-    if end_time is not None and end_time != target.end_time:
+    if clear_end_time and target.end_time is not None:
+        try:
+            with db.begin_nested():
+                actions.request(
+                    db,
+                    user=user,
+                    ask=actions.EndTime(
+                        external_id=target.adset_external_id, end_time=None
+                    ),
+                )
+        except DomainError as exc:
+            return str(exc)
+        sent = True
+    elif end_time is not None and end_time != target.end_time:
         try:
             with db.begin_nested():
                 actions.request(
@@ -176,7 +193,7 @@ def _limits(
         except DomainError as exc:
             return str(exc)
         sent = True
-    if spend_cap_minor is not None and spend_cap_minor != target.spend_cap_minor:
+    if spend_cap_minor is not None and spend_cap_minor != (target.spend_cap_minor or 0):
         try:
             with db.begin_nested():
                 actions.request(

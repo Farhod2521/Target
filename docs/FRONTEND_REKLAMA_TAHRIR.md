@@ -519,3 +519,75 @@ maydonni tanadan **olib tashlang**.
 Soxta Meta javoblari bilan testlangan. **Real Meta'da sinalmagan**: ishlab turgan
 guruhda `bid_strategy`/`bid_amount`ni almashtirish, `attribution_spec`ni
 o'zgartirish, `frequency_control_specs`ni bo'sh ro'yxat bilan tozalash.
+
+---
+
+## 4-bosqich. Nomlar, tugash sanasini olib tashlash, sarf limitini olib tashlash
+
+### 4.1. Guruh va reklama nomi — YANGI yo'l
+
+`POST /campaigns/manage/{level}/{externalId}/name`
+
+- `level`: `campaign` | `adset` | `ad`. `externalId` — obyektning Meta id'si.
+- Tana: `{ "name": "Yangi nom" }`. Javob: `ControlState`.
+- Kampaniya uchun eski `POST /campaigns/{id}/name` ham ishlayveradi.
+
+Qoidalar kampaniya nomidagi bilan bir xil:
+
+- bo'sh bo'lmasin, 100 belgidan oshmasin → aks holda `422 problems.name`;
+- ortiqcha bo'shliqlar yig'iladi;
+- hozirgi nom yuborilsa — rad etiladi (o'zgarish yo'q);
+- nom yetkazishga ta'sir qilmaydi: qayta ko'rik ham, o'rganish ham yo'q. O'rganish davrida ham ochiq;
+- tarixda ko'rinadi, «Qaytarish» eski nomni aynan tiklaydi.
+
+Qayerga: `C/NameEdit.tsx` komponenti guruh va reklama qatorlarida ham
+ishlatiladi (`C/Manager.tsx` Expert jadvali, `C/Tree.tsx`). Hozir u faqat
+kampaniyada chiziladi.
+
+### 4.2. Tugash sanasini olib tashlash
+
+Yangi yo'l yo'q. `PATCH /campaigns/{id}` da `endsAt: null` endi **ishlaydi**:
+reklama tugash sanasiz, to'xtatilguncha ishlaydi.
+
+**Muhim:** olib tashlash faqat `endsAt` tanada **aniq `null` qilib yuborilganda**
+bajariladi. Maydon umuman yuborilmasa — hech narsa o'zgarmaydi. Shuning uchun
+foydalanuvchi «tugash sanasiz»ni tanlaganda `endsAt: null` yuboring, boshqa
+hollarda formadagi qiymatni qaytaring.
+
+Formaga qo'shildi (`GET /campaigns/{id}/edit`):
+
+| Maydon | Ma'nosi |
+|---|---|
+| `endsAtRequired` | `true` — byudjet butun muddatga belgilangan (lifetime), Meta bunday reklamani tugash sanasiz ishlatmaydi. «Tugash sanasiz» tanlovini **chizmang**. |
+
+`endsAtRequired: true` bo'lganda `endsAt: null` yuborilsa — `422 problems.endsAt`.
+
+### 4.3. Sarf limitini olib tashlash
+
+`PATCH /campaigns/{id}` da `limit: null` endi limitni **olib tashlaydi** —
+xuddi shu qoida bilan: faqat aniq `null` yuborilganda.
+
+Limit maydoni avvalgidek faqat backend taklif qilgan kampaniyada chiziladi.
+**O'zimiz ishga tushirgan kampaniyalarda limit maydoni yo'q va bo'lmaydi**:
+bunday kampaniya bir sahifa va bir maqsad uchun umumiy, keyingi ishga
+tushirishlar ham unga guruh qo'shadi. Kampaniyaga qo'yilgan umumiy limit
+keyingi reklamalarni ham jimgina to'xtatib qo'yardi.
+
+### 4.4. Qaytarish
+
+- Tugash sanasi olib tashlansa, «Qaytarish» eski sanani tiklaydi; sana qo'yilgan bo'lsa va avval sana bo'lmagan bo'lsa — «Qaytarish» uni olib tashlaydi.
+- Sarf limiti uchun ham xuddi shunday.
+
+### 4.5. Tekshirish ro'yxati (front)
+
+- [ ] Guruh va reklama nomi joyida tahrirlanadi (`x/100`).
+- [ ] «Tugash sanasiz» tanlanganda `endsAt: null` aniq yuboriladi; `endsAtRequired`da tanlov yo'q.
+- [ ] Limit tozalanganda `limit: null` aniq yuboriladi.
+- [ ] O'zgarmagan forma hech narsa yubormaydi yoki qiymatlarni o'zgarmagan holda qaytaradi.
+
+### Hali tekshirilmagan
+
+Soxta Meta javoblari bilan testlangan. **Real Meta'da sinalmagan**: guruh va
+reklama nomini o'zgartirish, `end_time=0` bilan sanani olib tashlash,
+`spend_cap=922337203685478` bilan limitni olib tashlash (ikkalasi Meta
+hujjatidagi qiymatlar).

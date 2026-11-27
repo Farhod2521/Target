@@ -134,14 +134,49 @@ def changed_sections(
     limits = sections.get("limits")
     if limits and limits["can_change"]:
         cap = float(limits["spend_cap"]) if limits["spend_cap"] else None
-        if patch.ends_at != limits["end_date"] or patch.limit != cap:
-            out["limits"] = {
-                "end_date": patch.ends_at if limits["offers_end_time"] else None,
-                "spend_cap": Decimal(str(patch.limit))
-                if limits["offers_spend_cap"] and patch.limit is not None
-                else None,
-            }
+        sent = _limits_sent(limits, patch, cap=cap)
+        if sent:
+            out["limits"] = sent
     return out or None
+
+
+def _limits_sent(
+    limits: dict[str, Any], patch: CampaignPatch, *, cap: float | None
+) -> dict[str, Any] | None:
+    """The end date and the ceiling, set or taken off.
+
+    A limit is taken off only when the form sent it as null in so many
+    words. A form that left the field out is an older one that does not
+    know the field, and its silence must not remove anything.
+    """
+    named = patch.model_fields_set
+    clears_end = (
+        "ends_at" in named
+        and patch.ends_at is None
+        and limits["end_date"] is not None
+        and limits["offers_end_time"]
+    )
+    clears_cap = (
+        "limit" in named
+        and patch.limit is None
+        and cap is not None
+        and limits["offers_spend_cap"]
+    )
+    spend_cap = None
+    if clears_cap:
+        spend_cap = Decimal(0)
+    elif limits["offers_spend_cap"] and patch.limit is not None and patch.limit != cap:
+        spend_cap = Decimal(str(patch.limit))
+    end_date = None
+    if (
+        limits["offers_end_time"]
+        and patch.ends_at is not None
+        and patch.ends_at != limits["end_date"]
+    ):
+        end_date = patch.ends_at
+    if end_date is None and spend_cap is None and not clears_end:
+        return None
+    return {"end_date": end_date, "spend_cap": spend_cap, "clear_end_date": clears_end}
 
 
 def _audience_sent(
@@ -340,6 +375,7 @@ def edit_form(
         if limits and limits["end_date"]
         else None,
         "limit": float(limits["spend_cap"]) if limits and limits["spend_cap"] else None,
+        "ends_at_required": bool(limits and limits["end_required"]),
         "group": {"external_id": group.external_id, "name": group.name}
         if group is not None
         else None,

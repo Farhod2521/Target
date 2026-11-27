@@ -98,6 +98,10 @@ PLACEMENT_NOT_OFFERED = (
     "Bu reklamada suhbat boshqa ilovada ochiladi, shuning uchun uni faqat "
     "shu tanlovda ko'rsatib bo'lmaydi."
 )
+END_REQUIRED = (
+    "Bu reklamaning byudjeti butun muddatga belgilangan, "
+    "shuning uchun tugash sanasiz ishlay olmaydi."
+)
 DELIVERY_UNREAD = (
     "Meta bu guruhning sozlamalarini hozir bermadi. Birozdan keyin qayta oching."
 )
@@ -572,6 +576,7 @@ def _sections(
             "can_change": limits.can_change,
             "offers_end_time": limits.offers_end_time,
             "offers_spend_cap": limits.offers_spend_cap,
+            "end_required": limits.end_required,
             "end_date": limits.end_time.date() if limits.end_time else None,
             "earliest_end_date": today + timedelta(days=1),
             "spend_cap": _major(limits.spend_cap_minor, places)
@@ -733,7 +738,12 @@ class AudienceSectionIn(BaseModel):
 
 class LimitsSectionIn(BaseModel):
     end_date: date | None = None
-    spend_cap: Decimal | None = Field(default=None, ge=0)
+    spend_cap: Decimal | None = Field(
+        default=None, ge=0, description="0 takes the ceiling off."
+    )
+    clear_end_date: bool = Field(
+        default=False, description="Take the end date off: it runs until stopped."
+    )
 
 
 class CampaignEditIn(BaseModel):
@@ -759,6 +769,7 @@ def _save(
     cap_minor: int | None = None
     end_time: datetime | None = None
     audience = None
+    clear_end = False
     if (
         body.budget is not None
         and edit.budget is not None
@@ -779,7 +790,11 @@ def _save(
         )
     if body.limits is not None and edit.limits is not None and edit.limits.can_change:
         zone = ZoneInfo(_zone(db, user))
-        if body.limits.end_date is not None and edit.limits.offers_end_time:
+        if body.limits.clear_end_date and edit.limits.offers_end_time:
+            if edit.limits.end_required:
+                errors["limits"] = END_REQUIRED
+            clear_end = True
+        elif body.limits.end_date is not None and edit.limits.offers_end_time:
             if body.limits.end_date <= utcnow().astimezone(zone).date():
                 errors["limits"] = (
                     "Ertangi kundan boshlab sana tanlang. "
@@ -809,6 +824,7 @@ def _save(
         audience=audience,
         end_time=end_time,
         spend_cap_minor=cap_minor,
+        clear_end_time=clear_end,
     )
     db.commit()
     return {
@@ -1434,6 +1450,38 @@ def campaign_rename(
     return control_state(
         db, user, level=ManagedLevel.CAMPAIGN, external_id=campaign.external_id
     )
+
+
+@router.post("/manage/{level}/{external_id}/name", response_model=ControlState)
+def object_rename(
+    level: ManagedLevel,
+    external_id: str,
+    body: CampaignNameIn,
+    db: Db,
+    user: CurrentUser,
+) -> dict[str, Any]:
+    """A new name for a campaign, an ad group or an advert, by its Meta id.
+
+    A name changes nothing about delivery: no review, no learning. Followed
+    like any press; an empty or too long name is refused under ``name``.
+    """
+    from app.common.exceptions import InputRefused
+    from app.modules.ads.exceptions import CampaignNameEmpty, CampaignNameTooLong
+    from app.modules.ads.routers import control_state
+
+    target = _target(db, user, level, external_id)
+    try:
+        actions.request(
+            db,
+            user=user,
+            ask=actions.Rename(
+                external_id=str(target.external_id), name=body.name, level=str(level)
+            ),
+        )
+    except (CampaignNameEmpty, CampaignNameTooLong) as exc:
+        raise InputRefused({"name": str(exc)}) from None
+    db.commit()
+    return control_state(db, user, level=level, external_id=str(target.external_id))
 
 
 def _followed(

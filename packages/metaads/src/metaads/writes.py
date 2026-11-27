@@ -38,6 +38,11 @@ TARGETING_FIELDS: Final = "targeting"
 # Meta's answer to a delete and to a status change. Both are a bare
 # ``{"success": true}`` rather than an object.
 _SUCCESS: Final = "success"
+# Meta's own spellings of "none": an ad set that runs until stopped, and a
+# campaign with no ceiling ("Set the value to 922337203685478 to remove the
+# spend cap" - Marketing API reference, Campaign).
+NO_END_TIME: Final = 0
+NO_SPEND_CAP: Final = 922337203685478
 
 # Levels, as they appear in a dry-run id. Short words rather than the
 # ``Level`` literal from adskit, because this module builds strings and the
@@ -306,20 +311,21 @@ def set_end_time(
     ``AdSetSpec.start_time`` is one: this package has no clock and no
     timezone, and the caller knows the business's.
 
-    **Setting only.** Meta reads an absent field as "no change" and an
-    empty one as an error, and ``post_object`` drops empties for exactly
-    that reason - so there is no value this function could send to mean
-    "remove the end date". Removing one is a different call, it is not
-    written here, and the screens above do not offer it: an end date can be
-    moved forward but not taken off. See ``apps.ads.services.request_limits``
-    for what that costs an advertiser and why it is the honest trade.
+    An empty ``end_time`` takes the end date off: the ad set runs until it
+    is stopped. Meta allows that only where the budget is a daily one - an
+    ad set with a lifetime budget must end - and refuses it otherwise with
+    an ordinary Graph error.
     """
     if dry_run or is_dry_run_id(object_id):
         return True
 
     payload = post_object(
         path=object_id,
-        data={"end_time": end_time},
+        # An empty ``end_time`` is the caller asking for no end at all, and
+        # nought is how Meta's reference spells that: "specify end_time=0 ...
+        # to set the set as ongoing". Sent as a number, so ``post_object``
+        # does not take it for an empty field and leave it out.
+        data={"end_time": end_time or NO_END_TIME},
         token=token,
         client=client,
     )
@@ -396,15 +402,15 @@ def set_spend_cap(
     would be a second copy to keep in step with a figure Meta publishes and
     changes.
 
-    **Setting only**, like :func:`set_end_time` above and for the same
-    reason: there is no value here that means "no cap".
+    Nought takes the cap off. Meta has no empty value for it; its reference
+    names one number that means none (``NO_SPEND_CAP``), and that is sent.
     """
     if dry_run or is_dry_run_id(object_id):
         return True
 
     payload = post_object(
         path=object_id,
-        data={"spend_cap": spend_cap_minor},
+        data={"spend_cap": spend_cap_minor or NO_SPEND_CAP},
         token=token,
         client=client,
     )
