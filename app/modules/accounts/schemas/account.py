@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.modules.accounts.constants import Language, Role
 
@@ -41,6 +41,15 @@ class UserOut(BaseModel):
         description="False for an account opened by Google: «Parol o'rnatish» "
         "needs no current password.",
     )
+
+    @computed_field(  # type: ignore[prop-decorator]
+        description="`owner` for an account of its own; `member` for a login an "
+        "owner made for one of their people (what it may do is in "
+        "`/api/v3/businesses`)."
+    )
+    @property
+    def kind(self) -> str:
+        return "member" if self.crm_owner_id is not None else "owner"
 
 
 class AccountIn(BaseModel):

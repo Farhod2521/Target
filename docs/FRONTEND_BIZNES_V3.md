@@ -178,6 +178,7 @@ dagi tarmoqlar bilan almashtirib ko'rsating.
       "joined_at": "2026-11-25T09:00:00Z",
       "removed_at": null,
       "from_crm": false,
+      "login_closes": true,
       "grants": [{"area": "ads", "provider": "meta", "level": "edit"}]
     }
   ],
@@ -189,6 +190,7 @@ dagi tarmoqlar bilan almashtirib ko'rsating.
 
 | Maydon | Ma'nosi |
 |---|---|
+| `login_closes` | `true` — bu odam eganing boshqa hech bir biznesida ishlamaydi: o'chirilsa logini yopiladi |
 | `from_crm` | `true` — bu odam shu biznes CRM'ining menejeri (`sales` roli bor). Faqat ma'lumot uchun: uni ham shu yerdan o'zgartirish va o'chirish mumkin |
 | `seats` | Joylar egasining **barcha** bizneslari bo'yicha umumiy. `free: 0` bo'lsa «Xodim qo'shish» o'rniga «Joy sotib olish» ko'rsating |
 | `candidates` | Egasining boshqa biznesda ishlayotgan, bu biznesga hali qo'shilmagan odamlari. «Mavjud xodimni tanlash» ro'yxati |
@@ -267,10 +269,32 @@ Login taqdiri:
 | Holat | Login |
 |---|---|
 | Odam boshqa biznesda ham ishlaydi | saqlanadi, u yerda ishlashda davom etadi |
-| Bu uning yagona ishi edi | yopiladi (avvalgi CRM qoidasi) |
+| Bu uning yagona ishi edi | yopiladi — sotuv manageri ham, targetolog ham |
 
-O'chirishdan oldin tasdiq so'rang va ikkinchi holatda «login yopiladi» deb ogohlantiring:
-`candidates` ro'yxatida va boshqa bizneslarda bu odam bo'lmasa, bu uning yagona ishi.
+Qaysi holat ekanini ro'yxatdagi har bir xodimning **`login_closes`** maydoni aytadi:
+`true` bo'lsa, o'chirishdan oldingi tasdiq oynasida «Bu xodimning logini yopiladi» deb
+ogohlantiring. O'zingiz hisoblamang.
+
+### Parolni yangilash
+
+`POST /api/v3/businesses/{id}/members/{member_id}/password`
+
+```json
+{ "password": "Yangi-parol-2026" }
+```
+
+Ega xodimga yangi parol qo'yadi va uni o'zi aytadi (email yuborilmaydi; «loginni qayta
+yuborish» ham shu: email o'zgarmaydi, parol yangilanadi). Javob — yangilangan `MembersOut`.
+
+- Xodim hamma qurilmada tizimdan chiqariladi.
+- Sotuv manageri keyingi kirishda o'z parolini qo'yishi so'raladi (CRM'ning mavjud
+  `409 {"crm": "password"}` holati). Targetologdan so'ralmaydi.
+- Parol qoidalari ro'yxatdan o'tishdagi bilan bir xil; yaroqsiz bo'lsa `400`
+  `password_too_weak`, sababi `detail` da.
+- Tarixda `member_password` yozuvi paydo bo'ladi (8c-bo'lim).
+
+CRM'dagi eski `POST /api/v1/crm/settings/members/{pk}/password` ham ishlayveradi (u CRM
+menejeri id'sini oladi); yangi ekranda shu v3 yo'lini ishlating — u targetolog uchun ham ishlaydi.
 
 ## 7. Xato kodlari
 
@@ -292,11 +316,34 @@ O'chirishdan oldin tasdiq so'rang va ikkinchi holatda «login yopiladi» deb ogo
 | 409 | `network_taken` | Biznesda shu tarmoqning akkaunti allaqachon bor | Avval uzishni taklif qiling |
 | 409 | `account_bound` | Akkaunt boshqa biznesga ulangan | Xabar |
 | 400 | `member_lacks_source` | CRM: karta berilayotgan menejerda shu manba ruxsati yo'q | Xabar |
+| 400 | `password_too_weak` | Xodimga qo'yilayotgan parol yaroqsiz | `detail` ni maydon ostida ko'rsating |
 | 400 | `bad_grant` | Ulanmagan tarmoq, yoki `other` reklama uchun | `detail` ni ko'rsating |
 | 409 | `conflict` | Bu email bilan akkaunt bor (`detail` da matni) | Forma xatosi |
 | 422 | — | `roles` bo'sh yoki noto'g'ri qiymat | Forma xatosi |
 
+### Xato javobining shakli
+
+Uch xil shakl bor, frontda bitta funksiya bilan o'qing:
+
+| Shakl | Qayerda |
+|---|---|
+| `{ "detail": "matn", "code": "no_access" }` | hamma yangi yo'llar va ko'pchilik eski yo'llar. `code` bo'yicha tarmoqlaning |
+| `{ "detail": { "crm": "closed" } }` (409) | faqat `/api/v1/crm/*`: `no_pair`, `seat`, `closed`, `soon`, `password`, `off`. Eski shakl, o'zgarmaydi |
+| `{ "detail": "matn" }` (`code` siz) | 401 (kirilmagan), xodim uchun yopiq yo'l (403 «Faqat CRM doskasi.»), 422 da `detail` — ro'yxat |
+
+```ts
+const crmReason = typeof body.detail === "object" && !Array.isArray(body.detail) ? body.detail.crm : undefined;
+```
+
+**Matnlar tili.** `detail` matnlari va katalogdagi `label` lar hozir faqat o'zbekcha;
+`Accept-Language` o'qilmaydi. Frontend `code` va `key` bo'yicha o'zi tarjima qiladi
+(kalitlar barqaror), backend matni — zaxira.
+
 ## 8. Xodim logini bilan kirganda
+
+**Kim kirgani:** `GET /api/v1/account` javobida yangi maydon `kind`: `"owner"` yoki
+`"member"` (xodim logini). Xodim targetologmi yoki sotuvchimi — `GET /api/v3/businesses`
+dagi har biznesning `access.roles` va `access.grants` idan.
 
 Xodim logini (CRM menejeri yoki targetolog) uchun ochiq yo'llar:
 
@@ -305,6 +352,8 @@ Xodim logini (CRM menejeri yoki targetolog) uchun ochiq yo'llar:
 | `/api/v1/auth/*`, `GET /api/v1/account`, `/api/v1/account/language` | ha, avvalgidek |
 | `/api/v1/crm/*` | ha, avvalgidek (faqat CRM menejeri ishlay oladi). Bir nechta biznesda ishlasa — `?pair=` bilan tanlaydi, pastga qarang |
 | `/api/v3/businesses`, `/{id}`, `/catalog` | **ha, yangi** |
+| `/api/v3/businesses/{id}/pixels` | **ha** — Meta reklamasiga ruxsati bo'lsa (8a-bo'lim) |
+| `/api/v1/connections/audiences*` + `X-Business` | **ha** — Meta reklamasiga ruxsati bo'lsa (8a-bo'lim) |
 | `/api/v3/businesses/{id}/members` | yo'q — `403 no_access` |
 | boshqa hamma `/api/v1`, `/api/v2` | yo'q — `403`, avvalgidek |
 
@@ -400,6 +449,47 @@ Sarlavha bilan so'rov biznesga ulangan akkauntda ishlaydi. Biznesga shu tarmoq u
 bo'lsa, ega uchun ham «akkaunt yo'q» holati qaytadi (kabinetdagi joriy Google akkaunti
 olinmaydi) — bu holda «Tarmoq ulash» ni taklif qiling (8b-bo'lim).
 
+**Reklama berishda kerak bo'ladigan boshqa ma'lumotlar.** Xodim uchun manbalar:
+
+| Kerak narsa | Xodim qayerdan oladi | Ruxsat |
+|---|---|---|
+| Sahifa, Instagram, reklama akkaunti | `GET /api/v3/businesses` → `networks` (`provider === "meta"`) | biznes a'zosi |
+| Lid formalari, media | `/api/v1/launch/...` ichida (o'zgarmagan) | `ads` · `meta` |
+| Auditoriyalar | `/api/v1/connections/audiences`, `/audiences/rows`, yaratish (`POST /audiences`, `/rule`, `/lookalike`), `/{pk}/fill`, `DELETE /{pk}` — `X-Business` bilan | o'qish `view`, qolgani `edit` |
+| Piksellar | `GET /api/v3/businesses/{id}/pixels` | `ads` · `meta` `view` |
+| Biznes profili | `GET /api/v3/businesses/{id}` → `profile` | biznes a'zosi |
+
+```json
+// GET /api/v3/businesses/{id}/pixels
+{ "pixels": [
+  { "id": "…", "external_id": "1234567890", "name": "Asosiy piksel",
+    "is_active": true, "is_unavailable": false, "last_fired_at": "2026-11-26T09:00:00Z" }
+] }
+```
+
+`is_active: true` — biznes reklamasi shu piksel bilan o'lchanadi. Pikselni tanlash
+(`POST /api/v1/connections/meta/pixel`) faqat eganiki.
+
+`X-Business` bilan auditoriyalar faqat shu biznes akkauntiniki bo'lib qaytadi — ega uchun
+ham. Boshqa biznesning auditoriyasi `404`.
+
+**Xodimga yopiq qoladi** (`403`): `GET /api/v1/connections`, `/connections/cabinet`,
+`/connections/pages` va boshqa hamma `/connections/*` — ular eganing butun kabinetini
+(hamyon, hamma sahifa va akkauntlar) qaytaradi. Shuningdek `/api/v1/business`,
+`/api/v1/leads` (xodim lidni CRM'da ko'radi), to'lov, sozlamalar. Xodim logini bilan bu
+yo'llarni chaqirmang; yuqoridagi jadvaldagi manbalardan foydalaning.
+
+**Ega uchun** `X-Business` hamma yo'lda ishlaydi: sarlavha so'rov davomida biznesning
+sahifasi va akkauntini mahkamlaydi, shuning uchun lidlar ro'yxati, qo'ng'iroqcha,
+dashboard va AI chat ham shu biznes bo'yicha javob beradi. `/api/v1/crm/*` ning hamma
+yo'llari `?pair=` ni oladi; `?pair=` bo'lmasa `X-Business` dagi juftlik olinadi.
+
+**Profilsiz juftlik.** Endi bunday holat yo'q: juftlik saqlanganda profil sahifadan o'zi
+yoziladi va juftlik bizneslar ro'yxatida chiqadi.
+
+**Joy sotib olish.** `GET` / `POST /api/v1/billing/seats` — CRM joylari bilan bitta hovuz.
+`seats` (6-bo'lim) shu hovuzdan hisoblanadi; har bir xodim (targetolog ham) bitta joy.
+
 ## 8b. Biznesga boshqa tarmoq ulash — faqat ega uchun
 
 Meta juftligi «Ulanishlar» bo'limida boshqariladi va biznes shundan paydo bo'ladi. Qolgan
@@ -485,6 +575,7 @@ o'zgardi, kim chiqarildi, qaysi tarmoq ulandi yoki uzildi. Yangisi birinchi.
 | `member_added` | Xodim qo'shildi | `member`, `after` |
 | `member_changed` | Rol yoki ruxsat o'zgardi | `member`, `before`, `after` |
 | `member_removed` | Xodim chiqarildi | `member`, `before`, `after` |
+| `member_password` | Ega xodim parolini yangiladi | `member`, `after` |
 | `network_bound` | Tarmoq ulandi | `provider`, `account_name` |
 | `network_unbound` | Tarmoq uzildi | `provider`, `account_name` |
 

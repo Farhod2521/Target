@@ -246,12 +246,13 @@ def test_the_history_says_who_was_given_what_and_when(
     ]
     assert (items[1]["provider"], items[1]["account_name"]) == ("google", "Google 111")
     assert items[1]["label"] == "Biznesga tarmoq ulandi"
-    # The history is the owner's to read.
-    ali = db.get(User, made.json()["members"][0]["user"]["id"])
-    assert ali is not None
-    assert client.get(
-        f"{URL}/{business.id}/history", headers=_auth(ali)
-    ).status_code in (401, 403, 404)
+    # The history is the owner's to read; the login taken out of its last
+    # business is closed.
+    ali = User(id=made.json()["members"][0]["user"]["id"])
+    assert (
+        client.get(f"{URL}/{business.id}/history", headers=_auth(ali)).status_code
+        == 401
+    )
 
 
 def test_a_request_that_names_a_business_is_answered_about_its_google_account(

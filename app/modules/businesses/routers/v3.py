@@ -55,6 +55,7 @@ from app.modules.businesses.schemas.v3 import (
     HistoryPersonOut,
     MemberIn,
     MemberOut,
+    MemberPasswordIn,
     MemberPatch,
     MembersOut,
     NetworkIn,
@@ -62,6 +63,8 @@ from app.modules.businesses.schemas.v3 import (
     NetworksOut,
     PageOut,
     PersonOut,
+    PixelOut,
+    PixelsOut,
     RoleOut,
     SeatsOut,
     StandingOut,
@@ -72,6 +75,7 @@ from app.modules.businesses.selectors.access import (
     businesses_of,
     members_of,
     seats_taken,
+    works_elsewhere,
 )
 from app.modules.businesses.services import members as member_services
 from app.modules.businesses.services import networks as network_services
@@ -161,7 +165,7 @@ def list_businesses(db: Db, user: CurrentUser) -> BusinessListOut:
                 **_card(access_for(db, business_id=row.id, user=user), networks[row.id])
             )
             for row in rows
-        ]
+        ],
     )
 
 
@@ -208,8 +212,9 @@ def _person(user: User) -> PersonOut:
     return PersonOut(id=user.id, full_name=user.full_name, email=user.email)
 
 
-def _member_out(member: BusinessMember) -> MemberOut:
+def _member_out(member: BusinessMember, *, stays: frozenset[uuid.UUID]) -> MemberOut:
     return MemberOut(
+        login_closes=member.user_id not in stays,
         id=member.id,
         user=_person(member.user),
         roles=list(member.roles),
@@ -222,6 +227,32 @@ def _member_out(member: BusinessMember) -> MemberOut:
             ((grant.area, grant.provider), grant.level) for grant in member.grants
         ),
     )
+
+
+def _working_elsewhere(
+    db: Session, *, business: Business, user_ids: set[uuid.UUID]
+) -> frozenset[uuid.UUID]:
+    """Of these people, the ones who work somewhere besides this business:
+    in another business of the owner's, or on a CRM that is not this one's."""
+    from app.modules.crm.models import CrmMember
+
+    if not user_ids:
+        return frozenset()
+    members = db.scalars(
+        select(BusinessMember.user_id).where(
+            BusinessMember.user_id.in_(user_ids),
+            BusinessMember.business_id != business.id,
+            BusinessMember.is_active.is_(True),
+        )
+    )
+    managers = db.scalars(
+        select(CrmMember.user_id).where(
+            CrmMember.user_id.in_(user_ids),
+            CrmMember.business_id.is_distinct_from(business.id),
+            CrmMember.is_active.is_(True),
+        )
+    )
+    return frozenset(members) | frozenset(managers)
 
 
 def _seats(db: Session, *, owner: User) -> SeatsOut:
@@ -240,8 +271,9 @@ def _members(db: Session, *, business: Business, owner: User) -> MembersOut:
         .where(User.crm_owner_id == owner.id, User.is_active.is_(True))
         .order_by(User.full_name, User.email)
     )
+    stays = _working_elsewhere(db, business=business, user_ids=here)
     return MembersOut(
-        members=[_member_out(member) for member in members],
+        members=[_member_out(member, stays=stays) for member in members],
         seats=_seats(db, owner=owner),
         candidates=[_person(one) for one in candidates if one.id not in here],
         networks=list(networks_of(db, business_id=business.id)),
@@ -475,8 +507,105 @@ def remove_member(
     person = member.user_id
     member_services.remove_member(db, member=member)
     _leave_crm(db, business=business, owner=user, user_id=person)
+    _close_idle_login(db, user_id=person)
     db.commit()
     return _members(db, business=business, owner=user)
+
+
+def _close_idle_login(db: Session, *, user_id: uuid.UUID) -> None:
+    """Close the login of a person with no work left. Leaving the CRM does it
+    for a manager; this is the same rule for one who was never a manager."""
+    from app.modules.accounts.services import remove_member_login
+
+    holder = db.get(User, user_id)
+    if holder is None or not holder.is_active or holder.crm_owner_id is None:
+        return
+    if works_elsewhere(db, user_id=user_id):
+        return
+    remove_member_login(db, user=holder)
+    db.flush()
+    db.expire_all()
+
+
+@router.post("/{business_id}/members/{member_id}/password", response_model=MembersOut)
+def member_password(
+    business_id: uuid.UUID,
+    member_id: uuid.UUID,
+    body: MemberPasswordIn,
+    db: Db,
+    user: CurrentUser,
+) -> MembersOut:
+    """A new password for a member, set by the owner, who tells it to them.
+    Every device the member is signed in on is signed out; a sales manager
+    is asked for a password of their own at the next sign-in."""
+    from app.common import tokens
+    from app.common.db import on_commit
+    from app.modules.accounts.services import set_member_password
+    from app.modules.crm.models import CrmMember
+    from app.modules.crm.services import check_password
+
+    access = _owner_access(db, business_id, user)
+    business = access.business
+    member = _member(db, business=business, member_id=member_id)
+    person = member.user
+    check_password(
+        password=body.password, email=person.email, full_name=person.full_name
+    )
+    set_member_password(db, user=person, password=body.password)
+    for row in db.scalars(
+        select(CrmMember).where(
+            CrmMember.user_id == person.id, CrmMember.is_active.is_(True)
+        )
+    ):
+        row.must_change_password = True
+    subject = str(person.id)
+    on_commit(db, lambda: tokens.revoke_all(subject=subject, now=utcnow()))
+    member_services.record(db, member=member, name=EventName.BUSINESS_MEMBER_PASSWORD)
+    db.commit()
+    return _members(db, business=business, owner=user)
+
+
+@router.get("/{business_id}/pixels", response_model=PixelsOut)
+def pixels(business_id: uuid.UUID, db: Db, user: CurrentUser) -> PixelsOut:
+    """The pixels of the business's Meta ad account, for the owner and for a
+    member who may read its Meta adverts. Choosing one stays the owner's."""
+    from metaads import PROVIDER
+
+    from app.modules.integrations.models import PixelAccount
+
+    access = access_for(db, business_id=business_id, user=user)
+    access.require(GrantArea.ADS, PROVIDER)
+    account_id = db.scalar(
+        select(BusinessLink.ad_account_id).where(
+            BusinessLink.business_id == business_id,
+            BusinessLink.kind == LinkKind.META_PAIR,
+            BusinessLink.unbound_at.is_(None),
+        )
+    )
+    if account_id is None:
+        return PixelsOut(pixels=[])
+    rows = db.scalars(
+        select(PixelAccount)
+        .where(
+            PixelAccount.owner_id == access.business.user_id,
+            PixelAccount.provider == PROVIDER,
+            PixelAccount.ad_account_id == account_id,
+        )
+        .order_by(PixelAccount.is_active.desc(), PixelAccount.name)
+    )
+    return PixelsOut(
+        pixels=[
+            PixelOut(
+                id=row.id,
+                external_id=row.external_id,
+                name=row.name,
+                is_active=row.is_active,
+                is_unavailable=row.is_unavailable,
+                last_fired_at=row.last_fired_at,
+            )
+            for row in rows
+        ]
+    )
 
 
 def _network_list(db: Session, *, business: Business) -> NetworksOut:
@@ -535,6 +664,7 @@ HISTORY_NAMES = (
     EventName.BUSINESS_MEMBER_ADDED,
     EventName.BUSINESS_MEMBER_CHANGED,
     EventName.BUSINESS_MEMBER_REMOVED,
+    EventName.BUSINESS_MEMBER_PASSWORD,
     EventName.BUSINESS_NETWORK_BOUND,
     EventName.BUSINESS_NETWORK_UNBOUND,
 )

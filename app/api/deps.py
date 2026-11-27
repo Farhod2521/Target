@@ -50,6 +50,9 @@ MEMBER_BUSINESS_PATHS = (
     "/api/v1/metrics",
     "/api/v1/google",
     "/api/v1/chatgpt",
+    # The business account's audiences, and nothing else under /connections:
+    # the rest of it is the owner's whole cabinet (wallet, every page).
+    "/api/v1/connections/audiences",
 )
 # The network a path works on, where it is not Meta.
 NETWORK_PATHS = (("/api/v1/google", "google"), ("/api/v1/chatgpt", "chatgpt"))

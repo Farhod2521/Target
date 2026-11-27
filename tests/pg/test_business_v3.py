@@ -307,6 +307,8 @@ def test_a_member_taken_out_loses_the_business_at_once(
     ).json()["members"][0]
     ali = db.get(User, member["user"]["id"])
     assert ali is not None
+    token = _auth(ali)
+    assert client.get(URL, headers=token).status_code == 200
 
     trimmed = client.patch(
         f"{url}/{member['id']}",
@@ -325,8 +327,9 @@ def test_a_member_taken_out_loses_the_business_at_once(
     assert removed.status_code == 200, removed.text
     assert removed.json()["members"] == []
     assert removed.json()["seats"]["taken"] == 0
-    assert client.get(URL, headers=_auth(ali)).json() == {"businesses": []}
-    assert client.get(f"{URL}/{business.id}", headers=_auth(ali)).status_code == 404
+    # It was their only work: the login is closed with it.
+    assert client.get(URL, headers=token).status_code == 401
+    assert client.get(f"{URL}/{business.id}", headers=token).status_code == 401
     missing = client.delete(f"{url}/{member['id']}", headers=owner)
     assert (missing.status_code, missing.json()["code"]) == (404, "unknown_member")
     assert db.get(Business, business.id) is not None

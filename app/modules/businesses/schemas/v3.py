@@ -116,6 +116,9 @@ class MemberOut(BaseModel):
     # A sales manager the CRM section added: taken out there, not here.
     from_crm: bool
     grants: list[GrantOut]
+    # Taking them out of this business closes their login: they work nowhere
+    # else of the owner's.
+    login_closes: bool = False
 
 
 class SeatsOut(BaseModel):
@@ -148,6 +151,24 @@ class MemberPatch(BaseModel):
     roles: list[Role] = Field(min_length=1)
     is_rop: bool = False
     grants: list[GrantIn] | None = None
+
+
+class MemberPasswordIn(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+
+
+class PixelOut(BaseModel):
+    id: uuid.UUID
+    external_id: str
+    name: str
+    # The one the business's adverts are measured with.
+    is_active: bool
+    is_unavailable: bool
+    last_fired_at: datetime | None
+
+
+class PixelsOut(BaseModel):
+    pixels: list[PixelOut]
 
 
 class AccountChoiceOut(BaseModel):

@@ -865,7 +865,7 @@ def _audience(db: Session, user: User, pk: uuid.UUID) -> CustomAudience:
 def fill_audience(pk: uuid.UUID, db: Db, user: CurrentUser) -> MessageOut:
     audience = _audience(db, user, pk)
     filled = _provider_call(
-        lambda: services.fill_audience(db, owner=user, audience=audience)
+        db, user, lambda: services.fill_audience(db, owner=user, audience=audience)
     )
     return MessageOut(
         detail="%(count)s ta yozuv yuborildi. Hisoblash bir necha soat davom etadi."

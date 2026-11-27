@@ -7,6 +7,7 @@ from metaads.writing import is_dry_run_id
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
+from app.common.acting import acting_for
 from app.modules.accounts.models import User
 from app.modules.integrations.constants import (
     BREADTH_LABELS,
@@ -33,6 +34,10 @@ def audiences_query(
     *, owner: User, accounts: Sequence[AdAccount] | None = None
 ) -> Select[tuple[CustomAudience]]:
     query = select(CustomAudience).where(CustomAudience.owner_id == owner.id)
+    # A request that names a business reads that business's audiences only.
+    pinned = acting_for(owner.id)
+    if pinned is not None:
+        query = query.where(CustomAudience.ad_account_id.in_(pinned.account_ids))
     if accounts is not None:
         query = query.where(
             CustomAudience.ad_account_id.in_([account.id for account in accounts])
@@ -52,9 +57,7 @@ def audience_for(db: Session, *, owner: User, pk: object) -> CustomAudience | No
     except ValueError:
         return None
     return db.scalar(
-        select(CustomAudience).where(
-            CustomAudience.owner_id == owner.id, CustomAudience.id == key
-        )
+        audiences_query(owner=owner).where(CustomAudience.id == key).order_by(None)
     )
 
 
