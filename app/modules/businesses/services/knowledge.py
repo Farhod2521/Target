@@ -569,6 +569,80 @@ def reject(
     return row
 
 
+# Who writes without the owner having typed it: the two chats and the
+# reading of the page.
+AI_SOURCES = frozenset(
+    {
+        KnowledgeSource.LAUNCH_AGENT.value,
+        KnowledgeSource.ASSISTANT.value,
+        KnowledgeSource.PAGE.value,
+    }
+)
+
+
+def clear_ai(
+    db: Session,
+    *,
+    business: Business,
+    actor: User | None = None,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    """Take out what the AI wrote, and leave what a person did; flushes.
+
+    The description, the things sold and the facts whose last writer was a
+    chat or the reading of the page go; so does everything still waiting
+    for a yes, and a kind nobody confirmed. What the owner, a member or the
+    office wrote stays, as does a confirmed kind. Answers how much went of
+    each; all zeros when there was nothing.
+    """
+    from app.modules.businesses.constants import TypeState
+
+    now = now or utcnow()
+    row = locked_row(db, business)
+    document = _shape(row.data)
+
+    def by_ai(piece: Mapping[str, Any] | None) -> bool:
+        return piece is not None and str(piece.get("src") or "") in AI_SOURCES
+
+    gone = {"about": 0, "items": 0, "facts": 0, "pending": 0, "kind": 0}
+    if by_ai(document["about"]):
+        document["about"], gone["about"] = None, 1
+    kept_items = [item for item in document["items"] if not by_ai(item)]
+    gone["items"] = len(document["items"]) - len(kept_items)
+    document["items"] = kept_items
+    kept_facts = {
+        key: fact for key, fact in document["facts"].items() if not by_ai(fact)
+    }
+    gone["facts"] = len(document["facts"]) - len(kept_facts)
+    document["facts"] = kept_facts
+    gone["pending"] = len(document["pending"])
+    document["pending"] = []
+    if row.type_state == TypeState.GUESSED:
+        # The reading goes from the profile too: a direction left there
+        # with nothing said of how sure it is reads as the owner's own
+        # choice. The preset an advert is made from (``category``) stays.
+        row.type_state, row.subtype_id, gone["kind"] = TypeState.UNSET.value, None, 1
+        for one in {
+            home(db, business).id: home(db, business),
+            business.id: business,
+        }.values():
+            one.direction = None
+            one.direction_id = None
+            one.updated_at = now
+    if any(gone.values()):
+        _write(
+            db,
+            row,
+            document,
+            via="clear_ai",
+            source=KnowledgeSource.STAFF.value,
+            actor=actor,
+            done=[{"op": "clear_ai", **gone}],
+            now=now,
+        )
+    return gone
+
+
 def document_of(row: BusinessKnowledge | None) -> dict[str, Any]:
     """The whole document of a row, every part present, safe to read."""
     return _shape(row.data if row is not None else None)

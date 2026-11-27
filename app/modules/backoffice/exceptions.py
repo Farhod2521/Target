@@ -155,3 +155,47 @@ class InvoiceBeingPaid(DomainError):
 class InvoiceAlreadyArchived(DomainError):
     def __init__(self) -> None:
         super().__init__("Bu hisob allaqachon arxivda.")
+
+
+class UnknownCustomerBusiness(DomainError):
+    status_code = 404
+    code = "unknown_business"
+
+    def __init__(self) -> None:
+        super().__init__("Bu mijozda bunday biznes yo'q.")
+
+
+class BusinessHasNoPair(DomainError):
+    status_code = 409
+    code = "business_has_no_pair"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu biznesda sahifa va reklama akkaunti juftligi yo'q: o'chiradigan narsa yo'q."
+        )
+
+
+class BusinessHasNoPage(DomainError):
+    status_code = 409
+    code = "business_has_no_page"
+
+    def __init__(self) -> None:
+        super().__init__("Bu biznesga sahifa bog'lanmagan: obunada o'rni bo'lmaydi.")
+
+
+class BusinessEmailMismatch(DomainError):
+    code = "business_email_mismatch"
+
+    def __init__(self) -> None:
+        super().__init__("Email mos kelmadi — biznes o'chirilmadi.")
+
+
+class BusinessLeadsHeld(DomainError):
+    status_code = 409
+    code = "business_leads_held"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Lidlarni o'chirib bo'lmadi: ularga boshqa yozuvlar bog'langan. "
+            "Biznes o'chirilmadi; lidlarni qoldirib qayta urinib ko'ring."
+        )

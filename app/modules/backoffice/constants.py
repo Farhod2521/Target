@@ -131,6 +131,13 @@ class ActionKind(Choices):
     CRM_SETTINGS_CHANGED = "crm_settings_changed"
     CRM_MEMBERS_CHANGED = "crm_members_changed"
     CRM_ERASED = "crm_erased"
+    BUSINESS_AI_CLEARED = "business_ai_cleared"
+    BUSINESS_CRM_ERASED = "business_crm_erased"
+    BUSINESS_NETWORK_REMOVED = "business_network_removed"
+    BUSINESS_DELETED = "business_deleted"
+    BUSINESS_SUBSCRIBED = "business_subscribed"
+    BUSINESS_UNSUBSCRIBED = "business_unsubscribed"
+    BUSINESS_SLOT_MOVED = "business_slot_moved"
     FACEBOOK_FORGOTTEN = "facebook_forgotten"
     SIGNALS_SENT = "signals_sent"
     PLAN_CREATED = "plan_created"
@@ -198,6 +205,13 @@ ACTION_KIND_LABELS = {
     ActionKind.CRM_SETTINGS_CHANGED: "CRM sozlamalari o'zgartirildi",
     ActionKind.CRM_MEMBERS_CHANGED: "CRM menejerlari o'zgartirildi",
     ActionKind.CRM_ERASED: "CRM butunlay o'chirildi",
+    ActionKind.BUSINESS_AI_CLEARED: "Biznesning AI yozgan bilimlari tozalandi",
+    ActionKind.BUSINESS_CRM_ERASED: "Biznesning CRM'i o'chirildi",
+    ActionKind.BUSINESS_NETWORK_REMOVED: "Biznesdan reklama tarmog'i uzildi",
+    ActionKind.BUSINESS_DELETED: "Biznes butunlay o'chirildi",
+    ActionKind.BUSINESS_SUBSCRIBED: "Biznes obunaga qo'shildi",
+    ActionKind.BUSINESS_UNSUBSCRIBED: "Biznes obunadan olib tashlandi",
+    ActionKind.BUSINESS_SLOT_MOVED: "Obunadagi o'rin boshqa biznesga o'tkazildi",
     ActionKind.FACEBOOK_FORGOTTEN: "Facebook to'liq uzildi",
     ActionKind.SIGNALS_SENT: "Lid signallari Metaga qo'lda yuborildi",
     ActionKind.PLAN_CREATED: "Tarif yaratildi",
