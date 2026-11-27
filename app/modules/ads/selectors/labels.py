@@ -27,6 +27,7 @@ from app.modules.ads.selectors.launched import (
 )
 from app.modules.ads.selectors.page_boundary import PageScope
 from app.modules.integrations.models import AdAccount
+from app.modules.integrations.selectors.standing import stopped_clause
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,23 +182,31 @@ def advert_owner(
 # -- the tier's ceiling ---------------------------------------------------------------
 
 
-def adsets_delivering(db: Session, *, owner: User, scope: PageScope) -> int:
+def adsets_delivering(
+    db: Session, *, owner: User, scope: PageScope, shown: bool = False
+) -> int:
+    """Ad groups switched on, as a plan's ceiling counts them. ``shown`` leaves
+    out those on an account the network stopped: they are on and shown to
+    nobody, which a ceiling still counts and a screen must not call running."""
     launched = all_launched_campaign_ids(db, owner=owner)
-    return (
-        db.scalar(
-            select(func.count(AdSet.id))
-            .join(Campaign, Campaign.id == AdSet.campaign_id)
-            .join(AdAccount, AdAccount.id == Campaign.ad_account_id)
-            .where(
-                AdSet.owner_id == owner.id,
-                AdSet.delivery.not_in([str(d) for d in NOT_RUNNING]),
-                AdSet.external_id.not_in(list(scope.outside)),
-                AdAccount.is_active.is_(True),
-                Campaign.external_id.in_(list(launched)),
-            )
+    query = (
+        select(func.count(AdSet.id))
+        .join(Campaign, Campaign.id == AdSet.campaign_id)
+        .join(AdAccount, AdAccount.id == Campaign.ad_account_id)
+        .where(
+            AdSet.owner_id == owner.id,
+            AdSet.delivery.not_in([str(d) for d in NOT_RUNNING]),
+            AdSet.external_id.not_in(list(scope.outside)),
+            AdAccount.is_active.is_(True),
+            Campaign.external_id.in_(list(launched)),
         )
-        or 0
     )
+    if shown:
+        # By id, not by negation: an account never asked about has no standing.
+        query = query.where(
+            Campaign.ad_account_id.not_in(select(AdAccount.id).where(stopped_clause()))
+        )
+    return db.scalar(query) or 0
 
 
 def counted_by_tier(db: Session, *, owner: User, account: AdAccount) -> bool:

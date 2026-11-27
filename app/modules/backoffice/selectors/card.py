@@ -201,7 +201,10 @@ def limits(db: Session, *, owner: User, now: datetime) -> Limits:
             Running(
                 about="" if sole else (name or page_id),
                 used=adsets_delivering(
-                    db, owner=owner, scope=ceiling_scope(whole=whole, page_id=page_id)
+                    db,
+                    owner=owner,
+                    scope=ceiling_scope(whole=whole, page_id=page_id),
+                    shown=True,
                 ),
             )
             for page_id, name in whole.pages.items()

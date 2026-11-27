@@ -758,3 +758,32 @@ def test_the_dashboard_says_the_account_is_switched_off(
     assert told["external_id"] == account.external_id and told["kind"] == "disabled"
     assert told["reason"] == "ADS_INTEGRITY_POLICY"
     assert "qoidalari" in told["cause"] and "accountquality" in told["href"]
+
+
+# -- the office's client card ----------------------------------------------------------
+
+
+def test_the_client_card_counts_no_group_of_a_blocked_account_as_running(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.ads.selectors import adsets_delivering, page_scope
+    from app.modules.backoffice.selectors.card import limits
+
+    owner, launch, _headers = _launched(client, db)
+    account = _fresh(db, launch)
+
+    def shown() -> int:
+        return sum(row.used for row in limits(db, owner=owner, now=utcnow()).running)
+
+    def ceiling() -> int:
+        return adsets_delivering(db, owner=owner, scope=page_scope(db, owner=owner))
+
+    on = shown()
+    assert on > 0
+    assert ceiling() == on
+    _stop(db, account, may_advertise=False, standing="disabled", account_status="2")
+    assert shown() == 0
+    # A plan's ceiling still counts them: they are switched on.
+    assert ceiling() == on
+    _stop(db, account, may_advertise=None, standing="")
+    assert shown() == on
