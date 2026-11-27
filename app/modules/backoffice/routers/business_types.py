@@ -44,7 +44,7 @@ router = APIRouter(tags=["office business types"])
 Keeper = Annotated[User, Depends(staff_required(*BUSINESS_TYPE_ROLES))]
 
 
-class RuleIn(BaseModel):
+class TypeRuleIn(BaseModel):
     goal_first: str = Field("", max_length=32, description="See `goals` on the row.")
     reason_first: str = Field("", description="Shown to the customer as written.")
     goal_second: str = Field("", max_length=32)
@@ -187,7 +187,7 @@ def business_types(db: Db, user: Keeper) -> dict[str, Any]:
 
 @router.put("/business-types/{direction_id}/rule")
 def save_rule(
-    direction_id: uuid.UUID, body: RuleIn, db: Db, actor: Keeper
+    direction_id: uuid.UUID, body: TypeRuleIn, db: Db, actor: Keeper
 ) -> dict[str, Any]:
     """Write a direction's advice over what was there. An empty first goal
     takes the advice back: the direction is advised nothing."""

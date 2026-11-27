@@ -1,5 +1,5 @@
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -26,30 +26,39 @@ class TurnIn(BaseModel):
         return self
 
 
-class OptionOut(BaseModel):
+class LaunchChatOptionOut(BaseModel):
     label: str
     slot: str
     value: str
     recommended: bool = False
-    opens: str = Field("", description="`form`: open the cabinet's lead form dialog.")
+    opens: Literal["", "media", "upload", "review", "form"] = Field(
+        "",
+        description=(
+            "Not empty: the press opens one of the cabinet's own windows instead "
+            "of sending a turn. `media`: the media picker. `upload`: the file "
+            "upload. `review`: the review screen. `form`: the lead form dialog."
+        ),
+    )
 
 
-class AskOut(BaseModel):
+class LaunchChatAskOut(BaseModel):
     slot: str
     text: str
-    options: list[OptionOut] = []
-    input: str = Field(description="`text`, `url`, `phone`, `money` or `none`.")
+    options: list[LaunchChatOptionOut] = []
+    input: Literal["text", "url", "phone", "money", "none"] = Field(
+        description="The kind of box to type in. `none`: buttons, typing still taken."
+    )
     hint: str = ""
 
 
-class ChipOut(BaseModel):
+class LaunchChatChipOut(BaseModel):
     slot: str
     label: str
     value: str
 
 
-class MessageOut(BaseModel):
-    author: str = Field(description="`user` or `agent`.")
+class LaunchChatMessageOut(BaseModel):
+    author: Literal["user", "agent"]
     text: str
     at: str = ""
 
@@ -61,29 +70,52 @@ class VoiceOut(BaseModel):
     language: str = ""
 
 
+class LaunchChatCardAdvertOut(BaseModel):
+    primary_text: str
+    headline: str
+
+
+class LaunchChatCardOut(BaseModel):
+    """What was prepared, short enough for a chat. The review screen has
+    the whole of it."""
+
+    name: str = Field(description="The campaign's name; empty until one is given.")
+    media_count: int = Field(description="Pictures and videos chosen.")
+    age_min: int | None
+    age_max: int | None
+    genders: list[str] = Field(description="Ready to show: `Ayollar`, `Erkaklar`…")
+    interests: list[str] = Field(description="The first few interests, by name.")
+    interests_more: int = Field(description="How many more there are than shown.")
+    adverts: list[LaunchChatCardAdvertOut] = Field(
+        description="The first adverts' words."
+    )
+
+
 class SessionOut(BaseModel):
     session_id: uuid.UUID
-    status: str = Field(description="`open`, `ready` or `closed`.")
+    status: Literal["open", "ready", "closed"]
     lines: list[str] = Field(
         description="What the agent says now, before the question."
     )
-    ask: AskOut | None = Field(description="The one question waiting; null when ready.")
-    chips: list[ChipOut]
-    ready: bool
-    stage: str = Field(
-        description=(
-            "`asking`, `media`, `preparing`, `review`, `creating`, `done` or `failed`."
-        )
+    ask: LaunchChatAskOut | None = Field(
+        description="The one question waiting; null when ready."
     )
+    chips: list[LaunchChatChipOut]
+    ready: bool
+    stage: Literal[
+        "asking", "media", "preparing", "review", "creating", "done", "failed"
+    ] = Field(description="Where the advert stands, read off the launch itself.")
     wait: bool = Field(
         description="Ask again (GET) in a few seconds: work is going on."
     )
-    card: dict[str, Any] | None = Field(
-        description="What was prepared, at `review`: audience, interests, adverts."
+    card: LaunchChatCardOut | None = Field(
+        description="What was prepared; only at `review`, otherwise null."
     )
     launch_id: uuid.UUID | None
     next: str = Field("", description="`media` while pictures are being chosen.")
-    messages: list[MessageOut] = Field(description="The conversation, oldest first.")
+    messages: list[LaunchChatMessageOut] = Field(
+        description="The conversation, oldest first."
+    )
     turns_left: int
 
 
@@ -95,17 +127,17 @@ def as_out(session: Any, out: Any, *, max_turns: int, next_step: str) -> Session
         session_id=session.id,
         status=str(session.status),
         lines=list(said.lines),
-        ask=AskOut(**asdict(said.ask)) if said.ask is not None else None,
-        chips=[ChipOut(**asdict(chip)) for chip in said.chips],
+        ask=LaunchChatAskOut(**asdict(said.ask)) if said.ask is not None else None,
+        chips=[LaunchChatChipOut(**asdict(chip)) for chip in said.chips],
         ready=said.ready,
         stage=out.stage,
         wait=out.wait,
-        card=out.card,
+        card=LaunchChatCardOut(**out.card) if out.card else None,
         launch_id=session.launch_id,
         next=next_step if out.stage == next_step else "",
-        messages=[MessageOut(**row) for row in session.messages or []],
+        messages=[LaunchChatMessageOut(**row) for row in session.messages or []],
         turns_left=max(0, max_turns - int(session.turns or 0)),
     )
 
 
-__all__ = ["SessionOut", "TurnIn", "as_out"]
+__all__ = ["LaunchChatCardOut", "SessionOut", "TurnIn", "VoiceOut", "as_out"]

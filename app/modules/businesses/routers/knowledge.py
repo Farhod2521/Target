@@ -50,18 +50,18 @@ from app.modules.businesses.exceptions import (
 from app.modules.businesses.models import BusinessSubtype
 from app.modules.businesses.schemas.knowledge import (
     AboutOut,
-    AdviceOut,
     ChangesIn,
     ChoiceOut,
     FactOut,
     ItemOut,
     KindIn,
     KindOut,
+    KnowledgeAdviceOut,
     KnowledgeCatalogOut,
     KnowledgeEventOut,
     KnowledgeHistoryOut,
     KnowledgeOut,
-    ProposalOut,
+    KnowledgeProposalOut,
     SubtypeOut,
     SubtypesOut,
 )
@@ -176,7 +176,7 @@ def _out(view: Known, access: Access) -> KnowledgeOut:
             if key.value in view.facts
         ],
         pending=[
-            ProposalOut(
+            KnowledgeProposalOut(
                 id=str(one.get("id") or ""),
                 source=str(one.get("src") or ""),
                 source_label=_label(KNOWLEDGE_SOURCE_LABELS, str(one.get("src"))),
@@ -190,7 +190,7 @@ def _out(view: Known, access: Access) -> KnowledgeOut:
             )
             for one in view.pending
         ],
-        advice=AdviceOut(
+        advice=KnowledgeAdviceOut(
             goal_first=_goal(advice.goal_first),
             reason_first=advice.reason_first,
             goal_second=_goal(advice.goal_second) if advice.goal_second else None,

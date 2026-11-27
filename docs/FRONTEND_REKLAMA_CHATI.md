@@ -66,6 +66,9 @@ Tugma (oxirgi javobdagi `ask.options[]` dan `slot` va `value` aynan o'zi):
   },
   "chips": [{"slot": "offer", "label": "Reklama", "value": "IELTS kursi"}],
   "ready": false,
+  "stage": "asking",
+  "wait": false,
+  "card": null,
   "launch_id": "…",
   "next": "",
   "messages": [{"author": "agent", "text": "…", "at": "2026-11-27T…"}],
@@ -87,12 +90,32 @@ Tugma (oxirgi javobdagi `ask.options[]` dan `slot` va `value` aynan o'zi):
 - `chips` — aniqlangan narsalar, suhbat tepasida. `slot`: `kind`, `offer`, `goal`,
   `link`, `phone`, `channel`, `form`, `budget`.
 - `ready` — savollar tugadi va `launch` ga saqlandi; davomi 5-bo'limda (`stage`).
+- `stage` — reklama qayerda turgani: `asking`, `media`, `preparing`, `review`,
+  `creating`, `done`, `failed` (5-bo'lim). Har doim keladi.
+- `wait` — `true` bo'lsa backendda ish ketyapti: 3 soniyadan keyin `GET` qiling.
+- `card` — tayyorlangan reklama qisqachasi; faqat `stage: "review"` da, boshqa payt `null`.
 - `messages` — butun suhbat, eskisidan yangisiga (`author`: `user` yoki `agent`).
   Sahifa qayta ochilganda shundan chizing.
 - `status` — `open`, `ready`, `closed`.
 
 `ready` bo'lgandan keyin ham foydalanuvchi yozishi mumkin («byudjetni 10 qiling») —
 sozlama yangilanadi va yana `ready` keladi.
+
+### Sxema nomlari (`openapi.json`)
+
+To'liq sxema `openapi.json` da (prodda `https://api.targetolog.ai/openapi.json`):
+
+| Nima | Sxema nomi |
+|---|---|
+| Javob | `SessionOut` |
+| `ask` | `LaunchChatAskOut` |
+| `ask.options[]` | `LaunchChatOptionOut` (`opens`: `""`, `media`, `upload`, `review`, `form`) |
+| `chips[]` | `LaunchChatChipOut` |
+| `messages[]` | `LaunchChatMessageOut` |
+| `card` | `LaunchChatCardOut` (`name`, `media_count`, `age_min`, `age_max`, `genders`, `interests`, `interests_more`, `adverts[]`) |
+| `card.adverts[]` | `LaunchChatCardAdvertOut` (`primary_text`, `headline`) |
+| `turns` so'rovi | `TurnIn` |
+| `voice` javobi | `VoiceOut` |
 
 ## 3. Savollar tartibi
 

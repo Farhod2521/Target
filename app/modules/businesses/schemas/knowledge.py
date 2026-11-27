@@ -109,7 +109,7 @@ class FactOut(BaseModel):
     at: datetime | None
 
 
-class ProposalOut(BaseModel):
+class KnowledgeProposalOut(BaseModel):
     id: str
     source: str
     source_label: str
@@ -119,7 +119,7 @@ class ProposalOut(BaseModel):
     changes: list[dict[str, object]]
 
 
-class AdviceOut(BaseModel):
+class KnowledgeAdviceOut(BaseModel):
     goal_first: ChoiceOut
     reason_first: str
     goal_second: ChoiceOut | None
@@ -140,8 +140,8 @@ class KnowledgeOut(BaseModel):
     about: AboutOut | None
     items: list[ItemOut]
     facts: list[FactOut]
-    pending: list[ProposalOut]
-    advice: AdviceOut | None
+    pending: list[KnowledgeProposalOut]
+    advice: KnowledgeAdviceOut | None
 
 
 class KnowledgeCatalogOut(BaseModel):
