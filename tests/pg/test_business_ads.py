@@ -2,6 +2,7 @@
 the owner reads that business's adverts without moving the cabinet, and a
 member with a grant over the adverts works them as the owner would."""
 
+import pytest
 from fastapi.testclient import TestClient
 from metaads import PROVIDER
 from sqlalchemy import select
@@ -127,6 +128,30 @@ def test_a_targetolog_reads_and_works_the_adverts_of_their_business_only(
         assert client.get(path, headers=_on(ali, second)).status_code == 403, path
     wrong = client.get(LIST, headers={**_auth(ali), "X-Business": "not-an-id"})
     assert wrong.status_code == 404
+
+
+def test_a_member_with_no_seat_waits_and_is_told_so(
+    client: TestClient, db: Session
+) -> None:
+    from sqlalchemy import delete
+
+    from app.modules.billing.models import Subscription
+
+    world, _first, second = _two(db)
+    ali = _targetolog(client, world, second)
+    assert _found(client, _on(ali, second)) == SECOND
+
+    # The plan that gave the page its free seat is gone.
+    db.execute(delete(Subscription).where(Subscription.owner_id == world.owner.id))
+    db.commit()
+
+    shut = client.get(LIST, headers=_on(ali, second))
+    assert (shut.status_code, shut.json()["code"]) == (403, "seat_waiting")
+    shown = client.get(f"{URL}/{second.id}/members", headers=_auth(world.owner)).json()
+    assert shown["members"][0]["seat"] == "none"
+    assert (shown["seats"]["taken"], shown["seats"]["waiting"]) == (0, 1)
+    # The owner is never counted and never waits.
+    assert _found(client, _on(world.owner, second)) == SECOND
 
 
 def test_a_grant_to_read_does_not_let_a_member_change(
@@ -282,3 +307,59 @@ def test_a_member_cannot_reach_another_business_s_advert_by_its_id(
     assert found(ali, theirs) and not found(ali, others)
     # The owner, naming a business, still reaches every advert that is theirs.
     assert found(world.owner, theirs) and found(world.owner, others)
+
+
+CHAT = "/api/v3/launch-agent/sessions"
+
+
+def test_the_advert_chat_opens_to_a_member_who_may_change_the_adverts(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.common.presets import fallback_category
+    from app.modules.billing import services as billing
+
+    # The owner's setup is another matter, with tests of its own.
+    monkeypatch.setattr(billing, "require_setup_completed", lambda *_, **__: None)
+    world, first, second = _two(db)
+    second.category = fallback_category()
+    db.commit()
+    ali = _targetolog(client, world, second)
+
+    opened = client.post(CHAT, headers=_on(ali, second))
+
+    assert opened.status_code == 200, opened.text
+    state = opened.json()
+    link = next(row for row in world.open_links() if row.business_id == second.id)
+    from app.modules.ads.models import CampaignLaunch
+    from app.modules.launch_agent.models import LaunchAgentSession
+
+    launch = db.get(CampaignLaunch, state["launch_id"])
+    session = db.get(LaunchAgentSession, state["session_id"])
+    assert launch is not None and session is not None
+    # Made on the business they named, under its owner.
+    assert launch.ad_account_id == link.ad_account_id
+    assert (session.owner_id, session.business_id) == (world.owner.id, second.id)
+
+    url = f"{CHAT}/{state['session_id']}"
+    assert client.get(url, headers=_on(ali, second)).status_code == 200
+    # Another business's conversation is not read by its id.
+    assert client.get(url, headers=_on(world.owner, first)).status_code == 404
+    assert client.get(url, headers=_on(world.owner)).status_code == 200
+    # No business named: a member's login is shut out, as everywhere.
+    assert client.post(CHAT, headers=_on(ali)).status_code == 403
+
+
+def test_the_advert_chat_is_shut_to_a_member_who_only_reads(
+    client: TestClient, db: Session
+) -> None:
+    world, _, second = _two(db)
+    ali = _targetolog(
+        client,
+        world,
+        second,
+        grants=[{"area": "ads", "provider": "meta", "level": "view"}],
+    )
+
+    refused = client.post(CHAT, headers=_on(ali, second))
+
+    assert (refused.status_code, refused.json()["code"]) == (403, "no_access")

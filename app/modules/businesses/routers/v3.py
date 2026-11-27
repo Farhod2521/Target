@@ -39,6 +39,7 @@ from app.modules.businesses.exceptions import (
 )
 from app.modules.businesses.models import Business, BusinessLink, BusinessMember
 from app.modules.businesses.routers import _out as profile_out
+from app.modules.businesses.schemas import BusinessOut, ProfileIn
 from app.modules.businesses.schemas.v3 import (
     AccessOut,
     AccountChoiceOut,
@@ -74,9 +75,9 @@ from app.modules.businesses.selectors.access import (
     access_for,
     businesses_of,
     members_of,
-    seats_taken,
     works_elsewhere,
 )
+from app.modules.businesses.selectors.seats import Seats, pages_of, seats_of
 from app.modules.businesses.services import members as member_services
 from app.modules.businesses.services import networks as network_services
 from app.modules.businesses.services.members import networks_of, preset
@@ -208,13 +209,43 @@ def business(business_id: uuid.UUID, db: Db, user: CurrentUser) -> BusinessDetai
     )
 
 
+@router.put("/{business_id}/profile", response_model=BusinessOut)
+def save_profile(
+    business_id: uuid.UUID, body: ProfileIn, db: Db, user: CurrentUser
+) -> BusinessOut:
+    """The business's own profile - name, kind, country, time zone, phone,
+    site - saved by its id. The owner's alone. The body and the checks are
+    the cabinet's profile form's (``PUT /api/v1/business/pages/{page_id}``),
+    and both write the same row."""
+    from app.modules.businesses import services
+    from app.modules.businesses.routers import _cleaned
+    from app.modules.integrations.models import AdAccount, PageAccount
+
+    held = _owner_access(db, business_id, user).business
+    saved = services.save_profile(
+        db,
+        user=user,
+        page=db.get(PageAccount, held.page_id) if held.page_id else None,
+        ad_account=db.get(AdAccount, held.ad_account_id)
+        if held.ad_account_id
+        else None,
+        **_cleaned(db, body, saved=held, user=user),
+    )
+    out = profile_out(saved)
+    assert out is not None
+    return out
+
+
 def _person(user: User) -> PersonOut:
     return PersonOut(id=user.id, full_name=user.full_name, email=user.email)
 
 
-def _member_out(member: BusinessMember, *, stays: frozenset[uuid.UUID]) -> MemberOut:
+def _member_out(
+    member: BusinessMember, *, stays: frozenset[uuid.UUID], seats: Seats
+) -> MemberOut:
     return MemberOut(
         login_closes=member.user_id not in stays,
+        seat=seats.kind_of(member.id),
         id=member.id,
         user=_person(member.user),
         roles=list(member.roles),
@@ -255,12 +286,19 @@ def _working_elsewhere(
     return frozenset(members) | frozenset(managers)
 
 
-def _seats(db: Session, *, owner: User) -> SeatsOut:
-    from app.modules.crm.selectors import seat_capacity
+def _page(db: Session, business: Business) -> uuid.UUID | None:
+    return pages_of(db, [business.id]).get(business.id)
 
-    taken = seats_taken(db, owner_id=owner.id)
-    capacity = seat_capacity(db, owner=owner, at=utcnow())
-    return SeatsOut(taken=taken, capacity=capacity, free=max(0, capacity - taken))
+
+def _seats_out(db: Session, *, business: Business, seats: Seats) -> SeatsOut:
+    taken, capacity = len(seats.held), seats.free + seats.paid
+    return SeatsOut(
+        taken=taken,
+        capacity=capacity,
+        free=max(0, capacity - taken),
+        waiting=len(seats.waiting),
+        open_here=seats.open_on(_page(db, business)),
+    )
 
 
 def _members(db: Session, *, business: Business, owner: User) -> MembersOut:
@@ -272,9 +310,10 @@ def _members(db: Session, *, business: Business, owner: User) -> MembersOut:
         .order_by(User.full_name, User.email)
     )
     stays = _working_elsewhere(db, business=business, user_ids=here)
+    seats = seats_of(db, owner=owner, at=utcnow())
     return MembersOut(
-        members=[_member_out(member, stays=stays) for member in members],
-        seats=_seats(db, owner=owner),
+        members=[_member_out(member, stays=stays, seats=seats) for member in members],
+        seats=_seats_out(db, business=business, seats=seats),
         candidates=[_person(one) for one in candidates if one.id not in here],
         networks=list(networks_of(db, business_id=business.id)),
     )
@@ -379,7 +418,8 @@ def add_member(
     access = _owner_access(db, business_id, user)
     business = access.business
     sales = MemberRole.SALES in body.roles
-    if _seats(db, owner=user).free < 1:
+    if not seats_of(db, owner=user, at=utcnow()).open_on(_page(db, business)):
+        # Nobody is added to wait: a seat is bought first.
         raise NoSeat
     person: User | None = None
     if body.user_id is not None:

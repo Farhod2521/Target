@@ -146,7 +146,28 @@ def test_a_targetolog_is_added_with_a_login_and_reads_only_their_business(
     }
     assert (member["roles"], member["from_crm"]) == (["targetolog"], False)
     assert member["grants"] == [{"area": "ads", "provider": "meta", "level": "edit"}]
-    assert body["seats"] == {"taken": 1, "capacity": 2, "free": 1}
+    # The seat of this business's page is theirs; the other page's stays
+    # empty, and works only there.
+    assert member["seat"] == "free"
+    assert body["seats"] == {
+        "taken": 1,
+        "capacity": 2,
+        "free": 1,
+        "waiting": 0,
+        "open_here": False,
+    }
+    second_seats = client.get(
+        f"{URL}/{second.id}/members", headers=_auth(world.owner)
+    ).json()["seats"]
+    assert second_seats["open_here"] is True
+    # One person in one business is one seat: a second one here needs a
+    # bought seat, whatever stands empty on another page.
+    crowded = client.post(
+        f"{URL}/{first.id}/members",
+        json=_new_login("Vali", ["targetolog"]),
+        headers=_auth(world.owner),
+    )
+    assert (crowded.status_code, crowded.json()["code"]) == (409, "no_seat")
     assert body["networks"] == ["meta"]
 
     ali = db.get(User, member["user"]["id"])
@@ -197,7 +218,13 @@ def test_the_same_person_is_put_to_work_in_a_second_business(
     assert body["members"][0]["grants"] == [
         {"area": "ads", "provider": "meta", "level": "view"}
     ]
-    assert body["seats"] == {"taken": 2, "capacity": 2, "free": 0}
+    assert body["seats"] == {
+        "taken": 2,
+        "capacity": 2,
+        "free": 0,
+        "waiting": 0,
+        "open_here": False,
+    }
 
     full = client.post(
         f"{URL}/{second.id}/members",
@@ -333,3 +360,51 @@ def test_a_member_taken_out_loses_the_business_at_once(
     missing = client.delete(f"{url}/{member['id']}", headers=owner)
     assert (missing.status_code, missing.json()["code"]) == (404, "unknown_member")
     assert db.get(Business, business.id) is not None
+
+
+def test_the_owner_saves_a_business_s_profile_by_its_id(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.businesses.schemas import CUSTOM
+
+    world, other = World(db), World(db, "boshqa@example.com")
+    first, second = _business(world, "p1"), _business(world, "p2", "act_2")
+    _paid(world)
+    body = {
+        "name": "Zukko o'quv markazi",
+        "category": CUSTOM,
+        "custom_label": "O'quv markazi",
+        "country_code": "UZ",
+        "timezone": "Asia/Tashkent",
+        "contact_phone": "+998901234567",
+        "website": "https://zukko.uz/",
+    }
+
+    saved = client.put(
+        f"{URL}/{second.id}/profile", json=body, headers=_auth(world.owner)
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["name"] == "Zukko o'quv markazi"
+    assert saved.json()["custom_label"] == "O'quv markazi"
+    shown = client.get(f"{URL}/{second.id}", headers=_auth(world.owner)).json()
+    assert shown["profile"]["contact_phone"] == "+998901234567"
+    # This business's row and no other, and no new one.
+    db.expire_all()
+    assert db.get(Business, first.id).name == "Biznes p1"  # type: ignore[union-attr]
+    assert len(db.query(Business).filter(Business.user_id == world.owner.id).all()) == 2
+
+    # A member reads the profile and may not write it; a stranger sees none.
+    made = client.post(
+        f"{URL}/{second.id}/members",
+        json=_new_login("Ali", ["targetolog"]),
+        headers=_auth(world.owner),
+    ).json()
+    ali = db.get(User, made["members"][0]["user"]["id"])
+    assert ali is not None
+    refused = client.put(f"{URL}/{second.id}/profile", json=body, headers=_auth(ali))
+    assert (refused.status_code, refused.json()["code"]) == (403, "no_access")
+    hidden = client.put(
+        f"{URL}/{second.id}/profile", json=body, headers=_auth(other.owner)
+    )
+    assert hidden.status_code == 404

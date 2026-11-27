@@ -119,12 +119,24 @@ class MemberOut(BaseModel):
     # Taking them out of this business closes their login: they work nowhere
     # else of the owner's.
     login_closes: bool = False
+    # The seat they sit in: the business page's free one, a bought one, or
+    # none - they wait for a seat and may not work until one is bought.
+    seat: Literal["free", "paid", "none"] = "none"
 
 
 class SeatsOut(BaseModel):
+    """Seats across every business of the owner's. One person in one
+    business takes one seat, whatever they do there."""
+
+    # People sitting in a seat, the seats there are, and the ones empty.
     taken: int
     capacity: int
     free: int
+    # People with no seat: they may not work until one is bought.
+    waiting: int = 0
+    # Whether one more person added to THIS business would sit: its page's
+    # free seat is empty, or a bought one is.
+    open_here: bool = False
 
 
 class MembersOut(BaseModel):

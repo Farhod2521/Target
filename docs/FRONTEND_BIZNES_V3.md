@@ -103,6 +103,27 @@ uchun «Sizga biznes biriktirilmagan».
 Profilni **tahrirlash** hozircha eski yo'llarda: `PUT /api/v1/business/pages/{page_id}`
 (`page_id` — Meta tarmog'ining `page.id`). v3 da tahrirlash yo'li hali yo'q.
 
+### Profilni saqlash — faqat ega
+
+`PUT /api/v3/businesses/{id}/profile` — biznes profilini uning `id` si bo'yicha saqlaydi.
+So'rov tanasi va tekshiruvlari kabinetdagi profil formasi bilan bir xil
+(`PUT /api/v1/business/pages/{page_id}`, sxema `ProfileIn`), javob — `BusinessOut`
+(`GET /api/v3/businesses/{id}` dagi `profile`). Ikkalasi bitta qatorni yozadi, eski yo'l
+o'zgarmagan.
+
+```json
+{
+  "name": "Zukko o'quv markazi",
+  "category": "education",
+  "country_code": "UZ",
+  "timezone": "Asia/Tashkent",
+  "contact_phone": "+998901234567",
+  "website": "https://zukko.uz/"
+}
+```
+
+Xodim uchun `403 no_access`, begona uchun `404 unknown_business`.
+
 ## 5. Rollar va ruxsatlar
 
 Ruxsat — uch qismli yozuv: **bo'lim**, **tarmoq**, **daraja**.
@@ -179,10 +200,11 @@ dagi tarmoqlar bilan almashtirib ko'rsating.
       "removed_at": null,
       "from_crm": false,
       "login_closes": true,
+      "seat": "free",
       "grants": [{"area": "ads", "provider": "meta", "level": "edit"}]
     }
   ],
-  "seats": {"taken": 1, "capacity": 2, "free": 1},
+  "seats": {"taken": 1, "capacity": 2, "free": 1, "waiting": 0, "open_here": false},
   "candidates": [{"id": "…", "full_name": "Vali", "email": "vali@example.com"}],
   "networks": ["meta"]
 }
@@ -192,12 +214,24 @@ dagi tarmoqlar bilan almashtirib ko'rsating.
 |---|---|
 | `login_closes` | `true` — bu odam eganing boshqa hech bir biznesida ishlamaydi: o'chirilsa logini yopiladi |
 | `from_crm` | `true` — bu odam shu biznes CRM'ining menejeri (`sales` roli bor). Faqat ma'lumot uchun: uni ham shu yerdan o'zgartirish va o'chirish mumkin |
-| `seats` | Joylar egasining **barcha** bizneslari bo'yicha umumiy. `free: 0` bo'lsa «Xodim qo'shish» o'rniga «Joy sotib olish» ko'rsating |
+| `seat` | Xodim o'tirgan joy: `free` — shu biznes sahifasining bepul joyi, `paid` — sotib olingan joy, `none` — joysiz: ishlay olmaydi (`403 seat_waiting`), «Joy kutmoqda» deb ko'rsating |
+| `seats` | `taken` / `capacity` / `free` — egasining **barcha** bizneslari bo'yicha umumiy son. `waiting` — joysiz xodimlar soni |
+| `seats.open_here` | **Shu biznesga** yana bir odam qo'shsa joy tegadimi. `false` bo'lsa «Xodim qo'shish» o'rniga «Joy sotib olish» ko'rsating. Tugmani `free` ga emas, shunga qarab chizing: boshqa sahifaning bo'sh bepul joyi bu biznesda ishlamaydi |
 | `candidates` | Egasining boshqa biznesda ishlayotgan, bu biznesga hali qo'shilmagan odamlari. «Mavjud xodimni tanlash» ro'yxati |
 | `networks` | Ruxsat berish mumkin bo'lgan tarmoqlar |
 
 Joy qoidasi: **bitta biznesdagi bitta odam = bitta joy**, rollari nechta bo'lishidan qat'i
 nazar. Ikki biznesda ishlagan odam ikki joy egallaydi.
+
+- Pullik tarifda har bir sahifa bitta **bepul** joy beradi; u faqat o'sha sahifaning
+  biznesida ishlaydi.
+- Bitta biznesdagi ikkinchi va keyingi odamlar **sotib olingan** joyga o'tiradi
+  (`/api/v1/billing/seats`, CRM joylari bilan bitta hovuz).
+- Sotuv menejerining joyi CRM hisobi bilan bir xil (`/api/v1/crm/settings/seats`).
+  Menejer bo'lmagan xodim (targetolog) undan qolgan joyni oladi.
+- Joy yo'q bo'lsa xodim qo'shilmaydi: `409 no_seat`.
+- Joy keyin yo'qolsa (obuna tugadi, sotib olingan joy muddati o'tdi), xodim ro'yxatda
+  qoladi, `seat: "none"` bo'ladi va reklama yo'llari unga `403 seat_waiting` qaytaradi.
 
 ### Qo'shish
 
@@ -304,7 +338,8 @@ menejeri id'sini oladi); yangi ekranda shu v3 yo'lini ishlating — u targetolog
 | 403 | `no_access` | Xodim ega uchun yo'lni so'radi | Bo'limni yashiring |
 | 404 | `unknown_member` | Xodim topilmadi yoki o'chirilgan | Ro'yxatni yangilang |
 | 409 | `member_exists` | Bu odam biznesda allaqachon bor | Xabar |
-| 409 | `no_seat` | Bo'sh joy yo'q | «Joy sotib olish» ga yo'naltiring |
+| 409 | `no_seat` | Bu biznesda bo'sh joy yo'q | «Joy sotib olish» ga yo'naltiring |
+| 403 | `seat_waiting` | Xodimga joy ajratilmagan (`X-Business` bilan reklama yo'llarida) | «Sizga joy ajratilmagan, biznes egasiga murojaat qiling» sahifasi |
 | 409 | `no_pair_for_crm` | `sales` berilmoqda, lekin biznesning sahifa + akkaunt juftligi topilmadi | Ulanishlarga yo'naltiring |
 | 400 | `login_required` | Na `user_id`, na ism+email+parol | Forma xatosi |
 | 400 | `not_your_staff` | `user_id` egasining odami emas | Xabar |
@@ -354,6 +389,8 @@ Xodim logini (CRM menejeri yoki targetolog) uchun ochiq yo'llar:
 | `/api/v3/businesses`, `/{id}`, `/catalog` | **ha, yangi** |
 | `/api/v3/businesses/{id}/pixels` | **ha** — Meta reklamasiga ruxsati bo'lsa (8a-bo'lim) |
 | `/api/v1/connections/audiences*` + `X-Business` | **ha** — Meta reklamasiga ruxsati bo'lsa (8a-bo'lim) |
+| `/api/v3/launch-agent/*` + `X-Business` | **ha, yangi** — reklama chati; Meta reklamasiga `edit` ruxsati bo'lsa (suhbatni o'qish uchun `view` yetadi) |
+| `PUT /api/v3/businesses/{id}/profile` | yo'q — `403 no_access`, faqat ega |
 | `/api/v3/businesses/{id}/members` | yo'q — `403 no_access` |
 | boshqa hamma `/api/v1`, `/api/v2` | yo'q — `403`, avvalgidek |
 
@@ -607,7 +644,8 @@ Bular keyingi bosqichlarda chiqadi; hozir ularga tayanib ekran qurmang.
   bajariladigan ishlar (masalan sinxronlash) biznesni so'rov bergan ma'lumotdan oladi;
   sezilgan nomuvofiqlik bo'lsa xabar bering.
 - **AI chat va agent** xodimga hali yopiq (`/api/v1/chat`, `/api/v1/agent`).
-- **Profilni v3 dan tahrirlash.**
+- **Lidlar sahifasi** (`/api/v1/leads`) xodimga hali yopiq; menejer lidlarni CRM
+  doskasida ko'radi.
 - **Yangi biznes yaratish.** Biznes hozircha sahifa ulanib, juftlik va profil saqlanganda
   o'zi paydo bo'ladi.
 - **AI chat, hisobot, bot** hali juftlik bo'yicha.

@@ -53,6 +53,7 @@ from app.modules.crm.constants import (
 )
 from app.modules.crm.exceptions import (
     AlreadyOnBoard,
+    AlreadyOnPair,
     AlreadyTaken,
     AmountRequired,
     AmountTooBig,
@@ -1031,6 +1032,20 @@ def move_member(
     setups = {first: setup_for_update(db, scope=first)}
     setups[second] = setup_for_update(db, scope=second)
     member = _member(db, viewer=viewer, member_id=member_id)
+    # One person works a pair once. Somebody who works both pairs already
+    # cannot be moved onto the other: they are taken off this one instead.
+    held = db.scalar(
+        select(CrmMember)
+        .where(there.holds(CrmMember), CrmMember.user_id == member.user_id)
+        .with_for_update()
+    )
+    if held is not None and held.is_active:
+        raise AlreadyOnPair
+    if held is not None:
+        # A row left from when they worked there once: this one replaces it.
+        stale = held.id
+        db.expunge(held)
+        delete_rows(db, CrmMember.__table__, CrmMember.id == stale)
     crowd = db.scalar(
         select(func.count(CrmMember.id)).where(
             there.holds(CrmMember), CrmMember.is_active.is_(True)

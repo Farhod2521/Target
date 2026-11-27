@@ -68,6 +68,10 @@ def seated(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(selectors, "seated_ids", everyone)
     monkeypatch.setattr(services, "seated_ids", everyone)
+    # Seats bought, so more than one person may be put to work in a business.
+    from app.modules.billing.selectors import seats as bought
+
+    monkeypatch.setattr(bought, "paid_seats", lambda *_, **__: 10)
 
 
 def _running(db: Session, link: object) -> None:
@@ -245,13 +249,11 @@ def test_each_business_hands_its_own_leads_to_its_own_managers(
 
 
 def test_a_rop_reads_every_card_and_changes_only_their_own(
-    client: TestClient, db: Session
+    client: TestClient, db: Session, seated: None
 ) -> None:
     world = World(db)
     business = _business(world)
     _paid(world)
-    # A second page gives the plan a second free seat.
-    _business(world, "p2", "act_2")
     body = _add(client, world, business, _new_login("Vali", ["sales"]))
     body = _add(client, world, business, _new_login("Gulnora", ["sales"], is_rop=True))
     vali = db.get(User, _member(body, "vali@example.com")["user"]["id"])
@@ -659,3 +661,40 @@ def test_the_crm_s_own_removal_keeps_a_login_that_works_elsewhere(
     db.commit()
     db.expire_all()
     assert db.get(User, vali.id) is None
+
+
+def test_somebody_who_works_both_pairs_is_not_moved_onto_the_other(
+    client: TestClient, db: Session
+) -> None:
+    from app.modules.crm.exceptions import AlreadyOnPair
+    from app.modules.crm.services import move_member
+
+    world = World(db)
+    first, second = _business(world, "p1"), _business(world, "p2", "act_2")
+    _paid(world)
+    body = _add(client, world, first, _new_login("Vali", ["sales"]))
+    person = _member(body, "vali@example.com")["user"]
+    _add(client, world, second, {"user_id": person["id"], "roles": ["sales"]})
+    row = next(one for one in _rows_of(db, person["id"]) if one.business_id == first.id)
+
+    viewer = viewer_for(db, user=world.owner, wanted=_pair_key(world, first))
+    with pytest.raises(AlreadyOnPair):
+        move_member(
+            db,
+            viewer=viewer,
+            member_id=str(row.id),
+            pair_key=_pair_key(world, second),
+        )
+    db.rollback()
+
+    assert {one.business_id for one in _rows_of(db, person["id"])} == {
+        first.id,
+        second.id,
+    }
+    # Over HTTP it is a refusal the page can show, not a crash.
+    said = client.post(
+        f"/api/v1/crm/settings/members/{row.id}/move",
+        json={"pair": _pair_key(world, second)},
+        headers={**_auth(world.owner), "X-Crm-Pair": _pair_key(world, first)},
+    )
+    assert said.status_code < 500, said.text

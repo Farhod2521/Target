@@ -196,6 +196,16 @@ class SamePair(DomainError):
         super().__init__("Menejer allaqachon shu juftlikda.")
 
 
+class AlreadyOnPair(DomainError):
+    code = "already_on_pair"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Bu menejer u juftlikda ham ishlaydi. Ko'chirish o'rniga uni bu "
+            "juftlikdan olib tashlang."
+        )
+
+
 class NoSeatThere(DomainError):
     def __init__(self) -> None:
         super().__init__(

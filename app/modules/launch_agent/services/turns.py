@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.acting import acting_for
 from app.common.exceptions import DomainError, InputRefused
 from app.common.throttle import hit
 from app.modules.accounts.models import User
@@ -127,6 +128,11 @@ def session_for(
         query = query.with_for_update()
     found = db.scalar(query)
     if found is None:
+        raise SessionNotFound
+    held = acting_for(user.id)
+    if held is not None and found.business_id != held.business_id:
+        # A request that names its business reads that business's
+        # conversations: a member of one never opens another's by its id.
         raise SessionNotFound
     return found
 

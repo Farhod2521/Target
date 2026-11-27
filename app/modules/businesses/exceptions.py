@@ -66,6 +66,15 @@ class NoSeat(Conflict):
         super().__init__("Bo'sh joy yo'q. Yangi xodim uchun joy sotib oling.")
 
 
+class SeatWaiting(NotAllowed):
+    code = "seat_waiting"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Sizga joy ajratilmagan. Biznes egasi joy sotib olgach ishlay olasiz."
+        )
+
+
 class NoPairForCrm(Conflict):
     code = "no_pair_for_crm"
 

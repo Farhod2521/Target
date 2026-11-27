@@ -53,6 +53,9 @@ MEMBER_BUSINESS_PATHS = (
     # The business account's audiences, and nothing else under /connections:
     # the rest of it is the owner's whole cabinet (wallet, every page).
     "/api/v1/connections/audiences",
+    # The advert chat: it makes a Meta advert, so it asks what making one
+    # by the launch's own screens asks - «o'zgartirish» over Meta's adverts.
+    "/api/v3/launch-agent",
 )
 # The network a path works on, where it is not Meta.
 NETWORK_PATHS = (("/api/v1/google", "google"), ("/api/v1/chatgpt", "chatgpt"))
@@ -104,10 +107,16 @@ def business_scope(
     """
     from sqlalchemy import select
 
+    from app.common.db import utcnow
     from app.modules.businesses.constants import GrantArea, LinkKind
-    from app.modules.businesses.exceptions import NoAccess, UnknownBusiness
+    from app.modules.businesses.exceptions import (
+        NoAccess,
+        SeatWaiting,
+        UnknownBusiness,
+    )
     from app.modules.businesses.models import BusinessLink
     from app.modules.businesses.selectors.access import access_for
+    from app.modules.businesses.selectors.seats import NONE, seats_of
 
     named = request.headers.get(BUSINESS_HEADER, "").strip()
     if not named:
@@ -165,6 +174,12 @@ def business_scope(
     owner = db.get(User, access.business.user_id)
     if owner is None or not owner.is_active:
         raise UnknownBusiness
+    if (
+        access.member is not None
+        and seats_of(db, owner=owner, at=utcnow()).kind_of(access.member.id) == NONE
+    ):
+        # One person in one business is one seat: with none they wait.
+        raise SeatWaiting
     return owner, held
 
 
