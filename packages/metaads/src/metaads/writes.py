@@ -545,6 +545,9 @@ def _already_gone(graph: GraphClient, *, object_id: str, refused: MetaAPIError) 
     return str(row.get("effective_status") or "") == _DELETED
 
 
+_POSITIONS_SUFFIX: Final = "_positions"
+
+
 def dropped_from(
     *, sent: Mapping[str, Any], returned: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -564,6 +567,17 @@ def dropped_from(
     lost = _interest_ids(sent) - _interest_ids(returned)
     if lost:
         dropped["interests"] = sorted(lost)
+
+    # A position the objective cannot run on is left out of a list that is
+    # otherwise kept, so the list is there and the key-by-key look above
+    # misses it. Position names are plain words Meta does not rewrite.
+    for key, value in sent.items():
+        held = returned.get(key)
+        if not key.endswith(_POSITIONS_SUFFIX) or not isinstance(held, list):
+            continue
+        missing = [item for item in value or () if item not in held]
+        if missing:
+            dropped[key] = missing
 
     return dropped
 

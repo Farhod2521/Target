@@ -29,7 +29,25 @@ from core.targeting.geo import (
     pins,
     places_in,
 )
-from core.targeting.modes import AUTOMATIC_AGE_MAX, fit_automatic_ages, is_automatic
+from core.targeting.modes import (
+    AUTOMATIC_AGE_MAX,
+    AUTOMATION_FIELD,
+    AUTOMATION_KEY,
+    AUTOMATION_OFF,
+    AUTOMATION_ON,
+    fit_automatic_ages,
+    is_automatic,
+)
+from core.targeting.placements import (
+    PLACEMENT_MODES,
+    PlacementMode,
+    held_mode,
+    held_positions,
+    lonely_position,
+    platforms_of,
+    positions_fault,
+    refit,
+)
 from core.targeting.validators import MAX_AGE, MIN_AGE, clamp_age, clamp_radius
 
 MALE: Final = 1
@@ -69,6 +87,11 @@ class AudienceEdit:
     locales: tuple[int, ...] | None = None
     excluded_places: tuple[GeoPlace, ...] | None = None
     pin: tuple[str, str] | None = None
+    # Where it is shown: the mode, and each app's ticked positions.
+    placement: PlacementMode | None = None
+    positions: Mapping[str, tuple[str, ...]] | None = None
+    # The provider's own audience widening (Advantage+), on or off.
+    automatic: bool | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -87,6 +110,9 @@ class AudienceEdit:
             and self.locales is None
             and self.excluded_places is None
             and self.pin is None
+            and self.placement is None
+            and self.positions is None
+            and self.automatic is None
         )
 
 
@@ -106,6 +132,7 @@ def revised(
 
     result = copy.deepcopy(dict(spec))
     notes: list[Adjustment] = []
+    _automation(result, notes, edit=edit, special=special)
     _ages(result, notes, edit=edit, special=special)
     _genders(result, notes, edit=edit, special=special)
     _pin(result, edit=edit)
@@ -116,6 +143,7 @@ def revised(
     _locales(result, edit=edit)
     _places(result, edit=edit)
     _not_places(result, edit=edit)
+    _placement(result, notes, edit=edit)
     return result, tuple(notes)
 
 
@@ -124,6 +152,72 @@ def changed(
 ) -> bool:
     """Whether this edit would actually move anything."""
     return revise(spec, edit=edit, special=special) != dict(spec)
+
+
+def _automation(
+    spec: dict[str, Any],
+    notes: list[Adjustment],
+    *,
+    edit: AudienceEdit,
+    special: bool,
+) -> None:
+    """The provider's widening switched, and the ages it will not take moved with it.
+
+    Runs before the ages are read, so an age sent in the same edit is fitted
+    to the switch as it will be, not as it was. Whatever else sits beside the
+    switch in its block is another setting and stays. A special category is
+    built with the switch off (``builder._mode``) and stays off here.
+    """
+    if edit.automatic is None or edit.automatic == is_automatic(spec):
+        return
+    if edit.automatic and special:
+        notes.append(Adjustment(field=AUTOMATION_KEY, reason="special_ad_category"))
+        return
+    held = spec.get(AUTOMATION_KEY)
+    spec[AUTOMATION_KEY] = {
+        **(held if isinstance(held, Mapping) else {}),
+        AUTOMATION_FIELD: AUTOMATION_ON if edit.automatic else AUTOMATION_OFF,
+    }
+    if edit.automatic:
+        fit_automatic_ages(spec, notes)
+
+
+def _placement(
+    spec: dict[str, Any], notes: list[Adjustment], *, edit: AudienceEdit
+) -> None:
+    """Where it is shown; ticks alone change the positions of the mode it has."""
+    if edit.placement is None and edit.positions is None:
+        return
+    mode = edit.placement or held_mode(spec)
+    if mode not in PLACEMENT_MODES:
+        raise InvalidTargeting("these positions belong to no mode", field="placement")
+    if positions_fault(edit.positions, mode=mode) is not None:
+        raise InvalidTargeting("the positions cannot run as sent", field="positions")
+    if mode == held_mode(spec) and _same_ticks(spec, edit.positions, mode=mode):
+        # Nothing asked to move: a position Ads Manager ticked, and no owner
+        # here can, must not be lost to a save that changed something else.
+        return
+    refit(spec, notes, mode=mode, positions=edit.positions)
+    running = {
+        app: tuple(spec.get(f"{app}_positions") or ()) for app in platforms_of(mode)
+    }
+    if lonely_position(running, mode=mode) is not None:
+        raise InvalidTargeting(
+            "a position is left without its companion", field="positions"
+        )
+
+
+def _same_ticks(
+    spec: Mapping[str, Any],
+    positions: Mapping[str, tuple[str, ...]] | None,
+    *,
+    mode: str,
+) -> bool:
+    held = held_positions(spec)
+    return all(
+        set((positions or {}).get(app) or held[app]) == set(held[app])
+        for app in platforms_of(mode)
+    )
 
 
 def _ages(

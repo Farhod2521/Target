@@ -836,3 +836,218 @@ def test_a_network_that_will_not_size_it_is_said_not_zero(
 
     assert answer.status_code == 200, answer.text
     assert answer.json()["available"] is False
+
+
+def _log_targeting(db: Session) -> dict[str, object]:
+    return db.scalars(select(ActionLog)).one().request_payload["targeting"]
+
+
+def test_the_form_says_where_it_is_shown_and_what_it_may_move_to(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+    _with_spec(
+        db,
+        publisher_platforms=["instagram"],
+        instagram_positions=["stream", "story"],
+        targeting_automation={"advantage_audience": 1},
+    )
+
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers).json()
+
+    placement = form["placement"]
+    assert placement["apps"] == "instagram"
+    assert placement["appsOffered"] == ["auto", "instagram", "facebook", "fbig"]
+    assert placement["positions"]["instagram"] == ["stream", "story"]
+    assert placement["open"] is True and placement["warnings"] == {}
+    assert {
+        "value": "story",
+        "label": "Facebook Stories",
+        "needs": ["facebook.feed", "instagram.story"],
+    } in placement["positionOptions"]["facebook"]
+    assert form["advantage"] == {"on": True, "open": True, "ageMinCap": 25, "note": ""}
+
+
+def test_where_it_is_shown_is_saved_and_the_rest_of_the_audience_stays(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(
+            campaign,
+            apps="fbig",
+            positions={"instagram": ["reels", "stream"], "facebook": ["feed"]},
+        ),
+        headers=headers,
+    )
+
+    assert saved.status_code == 200, saved.text
+    targeting = _log_targeting(db)
+    assert targeting["publisher_platforms"] == ["facebook", "instagram"]
+    assert targeting["instagram_positions"] == ["stream", "reels"]
+    assert targeting["facebook_positions"] == ["feed"]
+    assert targeting["geo_locations"] == {"countries": ["UZ"]}
+    assert (targeting["age_min"], targeting["age_max"]) == (25, 45)
+
+
+def test_the_placement_sent_back_as_it_is_opens_no_change(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+    _with_spec(db, publisher_platforms=["instagram"], instagram_positions=["stream"])
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, apps="instagram", positions={"instagram": ["stream"]}),
+        headers=headers,
+    )
+
+    assert saved.status_code == 204
+    assert db.scalars(select(ActionLog)).all() == []
+
+
+def test_a_position_that_cannot_run_alone_is_refused_under_its_field(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, apps="facebook", positions={"facebook": ["story"]}),
+        headers=headers,
+    )
+
+    assert saved.status_code == 422, saved.text
+    assert "positions" in saved.text and "yolg'iz ishlamaydi" in saved.text
+    assert db.scalars(select(ActionLog)).all() == []
+
+
+def test_a_profile_visit_stays_on_instagram(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+    group = _with_spec(db, publisher_platforms=["instagram"])
+    group.destination_type_raw = "INSTAGRAM_PROFILE"
+    db.commit()
+
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers).json()
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, apps="fbig"),
+        headers=headers,
+    )
+
+    assert form["placement"]["open"] is False
+    assert form["placement"]["appsOffered"] == []
+    assert "faqat Instagram" in form["placement"]["note"]
+    assert saved.status_code == 204
+    assert db.scalars(select(ActionLog)).all() == []
+
+
+def test_a_chat_is_not_left_where_it_cannot_be_reached_and_a_form_is_warned(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+    group = db.scalars(select(AdSet)).one()
+    group.destination_type_raw = "MESSENGER"
+    db.commit()
+    url = f"/api/v1/campaigns/{campaign.id}/edit"
+
+    chat = client.get(url, headers=headers).json()["placement"]
+    refused = client.post(
+        url,
+        json={
+            "audience": {"age_min": 25, "age_max": 45, "placement_mode": "instagram"}
+        },
+        headers=headers,
+    )
+    group.destination_type_raw = "ON_AD"
+    db.commit()
+    form = client.get(url, headers=headers).json()["placement"]
+
+    assert chat["appsOffered"] == ["auto", "facebook", "fbig"]
+    assert refused.status_code == 422 and "apps" in refused.json()["detail"]["errors"]
+    assert "instagram" in form["appsOffered"]
+    assert "Faqat Instagram" in form["warnings"]["instagram"]
+
+
+def test_the_widening_is_switched_and_the_moved_ages_are_said(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, advantage=True),
+        headers=headers,
+    )
+
+    assert saved.status_code == 200, saved.text
+    targeting = _log_targeting(db)
+    assert targeting["targeting_automation"] == {"advantage_audience": 1}
+    assert "age_max" not in targeting
+    assert saved.json()["notes"] == ["Avtomatik auditoriya qoidasi bilan moslandi."]
+
+
+def test_a_special_category_cannot_switch_the_widening_on(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+    campaign.special_ad_categories = ["HOUSING"]
+    db.commit()
+
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers).json()
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, advantage=True),
+        headers=headers,
+    )
+
+    assert form["advantage"]["open"] is False and form["advantage"]["note"]
+    assert saved.status_code == 204
+    assert db.scalars(select(ActionLog)).all() == []
+
+
+def test_while_it_learns_where_it_is_shown_and_the_widening_wait(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    headers, campaign = _signed_with_campaign(client, db)
+    group = db.scalars(select(AdSet)).one()
+    group.is_learning = True
+    db.commit()
+
+    form = client.get(f"/api/v1/campaigns/{campaign.id}/edit", headers=headers).json()
+    saved = client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, apps="instagram", advantage=True),
+        headers=headers,
+    )
+
+    assert form["placement"]["open"] is False and form["advantage"]["open"] is False
+    assert "o'rganish" in form["placement"]["note"]
+    assert saved.status_code == 204
+    assert db.scalars(select(ActionLog)).all() == []
+
+
+def test_a_placement_change_is_put_back_by_the_revert(
+    client: TestClient, db: Session, queued: list
+) -> None:
+    from app.modules.ads.actions import undoing
+    from app.modules.audit.constants import ActionStatus
+
+    headers, campaign = _signed_with_campaign(client, db)
+    before = dict(db.scalars(select(AdSet)).one().targeting_raw)
+    client.patch(
+        f"/api/v1/campaigns/{campaign.id}",
+        json=_patch(campaign, apps="instagram"),
+        headers=headers,
+    )
+    log = db.scalars(select(ActionLog)).one()
+    log.status = ActionStatus.APPLIED
+    log.dry_run = False
+
+    back = undoing(log)
+
+    assert back is not None and dict(back.targeting) == before

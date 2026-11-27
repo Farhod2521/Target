@@ -17,7 +17,14 @@ from app.modules.accounts.models import User
 from app.modules.ads import selectors
 from app.modules.ads.constants import MAX_GEO_PLACES
 from app.modules.ads.contract.listing import figures_of
-from app.modules.ads.contract.words import goal_of, kind_of, network_of, place_of
+from app.modules.ads.contract.words import (
+    APPS_OUT,
+    goal_of,
+    kind_of,
+    network_of,
+    place_of,
+)
+from core.targeting.placements import platforms_of
 
 # The section a refusal names, as the form field it is drawn under.
 FORM_FIELDS: Final[dict[str, str]] = {
@@ -33,6 +40,9 @@ FORM_FIELDS: Final[dict[str, str]] = {
     "detailed": "detailed",
     "lists": "audiences",
     "limits": "endsAt",
+    "apps": "apps",
+    "positions": "positions",
+    "advantage": "advantage",
 }
 # What a save moved on its own, as the owner is told it.
 ADJUSTED: Final[dict[str, str]] = {
@@ -40,6 +50,7 @@ ADJUSTED: Final[dict[str, str]] = {
     "age_out_of_range": "Yosh ruxsat etilgan oraliqqa moslandi.",
     "radius_out_of_range": "Masofa ruxsat etilgan oraliqqa moslandi.",
     "automatic_targeting": "Avtomatik auditoriya qoidasi bilan moslandi.",
+    "unsupported_placement": "Meta'da endi yo'q joy olib tashlandi.",
     "audience_on_both_sides": "Bir auditoriya ikki tomonda edi: u chiqarilganlarda qoldi.",
 }
 GENDERS: Final[dict[str, list[int]]] = {"male": [1], "female": [2], "all": []}
@@ -64,6 +75,11 @@ class PinPatch(Camel):
     lng: str
 
 
+class PositionsPatch(Camel):
+    instagram: list[str] | None = None
+    facebook: list[str] | None = None
+
+
 class CampaignPatch(Camel):
     daily_budget: float = Field(description="Major units, as the input shows them.")
     age_min: int
@@ -83,6 +99,15 @@ class CampaignPatch(Camel):
     included_lists: list[str] | None = None
     excluded_lists: list[str] | None = None
     locales: list[int] | None = None
+    apps: Literal["auto", "fbig", "instagram", "facebook"] | None = Field(
+        None, description="Where it is shown; left out, it stays as it is."
+    )
+    positions: PositionsPatch | None = Field(
+        None, description="Each app's ticked positions; left out, they stay."
+    )
+    advantage: bool | None = Field(
+        None, description="Advantage+ audience on or off; left out, it stays."
+    )
     group: str | None = Field(None, description="Split campaigns: the group edited.")
 
 
@@ -138,6 +163,7 @@ def _audience_sent(
                 "keep_interests": True,
             }
         sent |= _people_sent(audience, patch)
+        sent |= _shown_sent(audience, patch)
     if audience["can_move"]:
         sent |= _where_sent(audience, patch)
     if not sent:
@@ -162,6 +188,36 @@ def _people_sent(audience: dict[str, Any], patch: CampaignPatch) -> dict[str, An
         chosen = getattr(patch, key)
         if chosen is not None and set(chosen) != set(audience[key]):
             sent[key] = chosen
+    return sent
+
+
+def _shown_sent(audience: dict[str, Any], patch: CampaignPatch) -> dict[str, Any]:
+    """Where it is shown and the widening switch, when either moved and may move."""
+    sent: dict[str, Any] = {}
+    advantage = audience["advantage"]
+    if (
+        patch.advantage is not None
+        and advantage["open"]
+        and patch.advantage != advantage["on"]
+    ):
+        sent["automatic"] = patch.advantage
+    placement = audience["placement"]
+    if not placement["open"] or (patch.apps is None and patch.positions is None):
+        return sent
+    apps = patch.apps or placement["apps"]
+    mode = APPS_OUT.get(apps)
+    if mode is None:
+        # Ticks sent for a mix none of the four names: there is no mode to keep.
+        return sent
+    ticks = patch.positions.model_dump(exclude_none=True) if patch.positions else {}
+    wanted = {app: items for app, items in ticks.items() if app in platforms_of(mode)}
+    moved = any(
+        set(items) != set(placement["positions"][app]) for app, items in wanted.items()
+    )
+    if apps != placement["apps"] or moved:
+        sent["placement_mode"] = mode
+        if wanted:
+            sent["placement_positions"] = wanted
     return sent
 
 
@@ -277,6 +333,8 @@ def edit_form(
         "age_bounds": (audience or {}).get("age_bounds", [18, 65]),
         "gender": gender,
         "audiences": _lists(db, owner=owner, campaign=campaign, audience=audience),
+        "placement": audience["placement"] if audience else None,
+        "advantage": audience["advantage"] if audience else None,
         "reach": [0, 0],
         "ends_at": limits["end_date"].isoformat()
         if limits and limits["end_date"]

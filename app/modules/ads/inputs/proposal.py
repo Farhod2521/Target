@@ -22,7 +22,6 @@ from app.modules.ads.constants import (
     GEO_AROUND,
     GEO_MODE_CHOICES,
     MAX_GEO_PLACES,
-    PLACEMENT_POSITION_LABELS,
     PRIMARY_TEXT_MAX,
     QUESTION_TYPES,
     DraftSection,
@@ -33,6 +32,7 @@ from app.modules.ads.constants import (
 )
 from app.modules.ads.inputs import Problems
 from app.modules.ads.inputs.ending import check_ending
+from app.modules.ads.inputs.positions import positions_problem
 from app.modules.ads.inputs.proposal_body import (
     AdvancedIn,
     AudienceIn,
@@ -66,13 +66,7 @@ from core.targeting import MAX_AGE, MIN_AGE, GeoChoice
 from core.targeting.attribution import windows_for
 from core.targeting.campaign_types import types_for
 from core.targeting.modes import DEFAULT_TARGETING_MODE
-from core.targeting.placements import (
-    OFFERED_POSITIONS,
-    POSITION_NEEDS,
-    chosen_positions,
-    lonely_position,
-    platforms_of,
-)
+from core.targeting.placements import chosen_positions, platforms_of
 
 PIN_PRECISION = Decimal("0.000001")
 NO_FORM: Final = "Bu maqsadning reklamasida lid-forma yo'q."
@@ -253,28 +247,9 @@ def _positions(body: AudienceIn, *, problems: Problems) -> dict[str, list[str]]:
         for app, items in (body.placement_positions or {}).items()
         if app in apps
     }
-    if not all(sent.values()):
-        problems.add(field, "Kamida bitta joy tanlang.")
-        return {}
-    if any(
-        item not in OFFERED_POSITIONS[app]
-        for app, items in sent.items()
-        for item in items
-    ):
-        problems.add(field, "Ro'yxatdan tanlang.")
-        return {}
-    lonely = lonely_position(sent, mode=mode)
-    if lonely is not None:
-        app, item = lonely
-        needed = " yoki ".join(
-            f"«{PLACEMENT_POSITION_LABELS[other][position]}»"
-            for other, position in POSITION_NEEDS[lonely]
-        )
-        problems.add(
-            field,
-            f"«{PLACEMENT_POSITION_LABELS[app][item]}» yolg'iz ishlamaydi: "
-            f"{needed} ham tanlang.",
-        )
+    problem = positions_problem(sent, mode=mode)
+    if problem:
+        problems.add(field, problem)
         return {}
     return {
         app: list(items) for app, items in chosen_positions(sent, mode=mode).items()

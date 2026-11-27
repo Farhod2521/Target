@@ -162,6 +162,102 @@ def fit(
     strip_retired(spec, notes)
 
 
+# The app keys a mode writes; a device or a category is not one of them.
+_APP_KEYS: Final[tuple[str, ...]] = tuple(
+    key for key in PLACEMENT_KEYS if key != "device_platforms"
+)
+_MODE_OF: Final[Mapping[frozenset[str], PlacementMode]] = {
+    frozenset({"instagram"}): "instagram",
+    frozenset({"facebook"}): "facebook",
+    frozenset({"facebook", "instagram"}): "standard",
+}
+
+
+def held_mode(spec: Mapping[str, Any]) -> PlacementMode | None:
+    """The mode a stored spec runs as; None for a mix none of the four names.
+
+    No platforms is the provider's own choice. Ads Manager can name Messenger
+    or Audience Network beside the two apps: that is none of ours, and is
+    said so rather than drawn as the nearest one.
+    """
+    platforms = spec.get("publisher_platforms")
+    if not platforms:
+        return "automatic"
+    if not isinstance(platforms, list | tuple):
+        return None
+    return _MODE_OF.get(frozenset(str(item) for item in platforms))
+
+
+def held_positions(spec: Mapping[str, Any]) -> dict[str, tuple[str, ...]]:
+    """Each app's positions as the spec runs them, of the ones an owner may tick.
+
+    An app that is running with no list runs on every position, so all are
+    ticked. An app that is not running shows what its own mode would start
+    with, ready for the day it is switched on.
+    """
+    running = set(platforms_of(held_mode(spec) or ""))
+    found: dict[str, tuple[str, ...]] = {}
+    for app, offered in OFFERED_POSITIONS.items():
+        key = f"{app}_positions"
+        given = spec.get(key)
+        if app not in running:
+            found[app] = tuple(_BLOCKS[app][key])
+        elif isinstance(given, list | tuple) and given:
+            found[app] = tuple(item for item in offered if item in given)
+        else:
+            found[app] = tuple(offered)
+    return found
+
+
+def refit(
+    spec: dict[str, Any],
+    notes: list[Adjustment],
+    *,
+    mode: PlacementMode,
+    positions: object = None,
+) -> None:
+    """Where a running advert shows, replaced; what is not an app's stays.
+
+    The launch's :func:`fit` writes a new spec and may clear everything. A
+    running one can hold a device choice made in Ads Manager, which no mode
+    here names and so none may remove. An app that keeps running and was sent
+    no ticks keeps the positions it has.
+    """
+    before = held_positions(spec)
+    kept = set(platforms_of(held_mode(spec) or ""))
+    for key in _APP_KEYS:
+        spec.pop(key, None)
+    if mode == "automatic":
+        return
+    for key, values in _BLOCKS[mode].items():
+        spec[key] = list(values)
+    ticked = chosen_positions(positions, mode=mode)
+    for app in platforms_of(mode):
+        chosen = ticked.get(app) or (before[app] if app in kept else ())
+        if chosen:
+            spec[f"{app}_positions"] = list(chosen)
+    strip_retired(spec, notes)
+
+
+def positions_fault(
+    value: object, *, mode: str
+) -> tuple[str, tuple[str, str] | None] | None:
+    """What is wrong with the ticks sent for a mode: ``empty``, ``unknown`` or ``lonely``."""
+    if not isinstance(value, Mapping):
+        return None
+    sent = {app: items for app, items in value.items() if app in platforms_of(mode)}
+    if not all(sent.values()):
+        return "empty", None
+    if any(
+        item not in OFFERED_POSITIONS[app]
+        for app, items in sent.items()
+        for item in items
+    ):
+        return "unknown", None
+    lonely = lonely_position(sent, mode=mode)
+    return ("lonely", lonely) if lonely is not None else None
+
+
 def pin_to_instagram(spec: dict[str, Any], notes: list[Adjustment]) -> None:
     """Write the Instagram-only block over whatever the mode wrote."""
     for key in PLACEMENT_KEYS:
@@ -229,11 +325,15 @@ __all__ = [
     "PlacementMode",
     "chosen_positions",
     "fit",
+    "held_mode",
+    "held_positions",
     "keep_chat_reachable",
     "lonely_position",
     "names_a_placement",
     "pin_to_instagram",
     "platforms_of",
+    "positions_fault",
+    "refit",
     "shown_positions",
     "strip_retired",
 ]

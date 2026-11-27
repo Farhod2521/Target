@@ -195,7 +195,19 @@ def last_action_of(action: Any) -> str | None:
     return "dry_run" if action.dry_run else None
 
 
+# The four choices of where an advert shows, as the cabinet names them; one
+# wording for the launch editor and for the edit of a running advert.
+APPS_IN: Final = {
+    "automatic": "auto",
+    "standard": "fbig",
+    "instagram": "instagram",
+    "facebook": "facebook",
+}
+APPS_OUT: Final = {value: key for key, value in APPS_IN.items()}
+
 __all__ = [
+    "APPS_IN",
+    "APPS_OUT",
     "RUNNING",
     "Goal",
     "Kind",

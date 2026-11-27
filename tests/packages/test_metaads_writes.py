@@ -828,3 +828,20 @@ def test_a_rehearsed_name_sends_nothing() -> None:
     set_name(object_id="120210", name="X", token="t", client=graph, dry_run=True)
 
     assert seen == []
+
+
+def test_a_position_meta_left_out_of_a_kept_list_is_reported() -> None:
+    sent = {
+        "publisher_platforms": ["instagram"],
+        "instagram_positions": ["stream", "ig_search"],
+    }
+    returned = {
+        "publisher_platforms": ["instagram"],
+        "instagram_positions": ["stream"],
+        "age_max": 65,
+    }
+
+    assert dropped_from(sent=sent, returned=returned) == {
+        "instagram_positions": ["ig_search"]
+    }
+    assert dropped_from(sent=sent, returned=sent) == {}

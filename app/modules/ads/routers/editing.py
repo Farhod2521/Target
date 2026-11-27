@@ -26,6 +26,7 @@ from app.modules.accounts.models import User
 from app.modules.ads import actions, selectors, services
 from app.modules.ads.constants import (
     GEO_SEARCHES_PER_MINUTE,
+    INSTAGRAM_ONLY_NOTE,
     LEAD_FORM_NAME_MAX,
     MAX_CUSTOM_QUESTIONS,
     MAX_GEO_PLACES,
@@ -66,6 +67,7 @@ from core.targeting import MAX_AGE, MIN_AGE, AudienceEdit
 from core.targeting.audiences import EXCLUDE_KEY, INCLUDE_KEY, AudienceRef
 from core.targeting.exceptions import InvalidTargeting
 from core.targeting.geo import GeoChoice, GeoPlace, chosen_places, pins
+from core.targeting.placements import held_mode, held_positions, platforms_of
 from core.targeting.revise import (
     Detail,
     detail_is_open,
@@ -84,6 +86,21 @@ SENT_SETTINGS = "O'zgarish yuborildi. Bir necha soniyada ko'rinadi."
 HEADLINE_LIMIT = 255
 MESSAGE_LIMIT = 2000
 DEFAULT_ZONE = "Asia/Tashkent"
+PLACEMENT_WAITS = (
+    "Reklama o'rganish davrida: bu sozlamani o'rganish tugagach o'zgartirasiz."
+)
+PLACEMENT_CLOSED = "Reklama tugagan: bu sozlama endi o'zgarmaydi."
+PLACEMENT_NOT_OFFERED = (
+    "Bu reklamada suhbat boshqa ilovada ochiladi, shuning uchun uni faqat "
+    "shu tanlovda ko'rsatib bo'lmaydi."
+)
+ADVANTAGE_SPECIAL = (
+    "Maxsus toifadagi reklamada Meta auditoriyani o'zi kengaytira olmaydi."
+)
+LEAD_ON_INSTAGRAM_ALONE = (
+    "Faqat Instagram'da qo'yilgan lid reklamalarining ko'pi umuman "
+    "ko'rsatilmagan. Facebook va Instagram'ni birga qoldirish tavsiya etiladi."
+)
 GROUP_Q = Query(
     "", description="An ad set's Meta id: edit that group only. Empty for the campaign."
 )
@@ -368,6 +385,8 @@ def _sections(
             "excluded_lists": _held_lists(edit.audience.spec, EXCLUDE_KEY),
             "locales": list(edit.audience.spec.get("locales") or []),
             "category": _category(edit.campaign),
+            "placement": _placement_shown(edit.audience),
+            "advantage": _advantage_shown(edit.audience),
         }
     if edit.limits is not None:
         limits = edit.limits
@@ -404,6 +423,50 @@ def _sections(
             external_id=str(target.external_id),
             now=utcnow(),
         ),
+    }
+
+
+def _placement_shown(target: Any) -> dict[str, Any]:
+    """Where the advert shows now, what it may be moved to, and why not when it may not."""
+    from app.modules.ads.contract.launch.edit import _position_options
+    from app.modules.ads.contract.words import APPS_IN
+    from app.modules.ads.selectors.editable import SURFACE_FORM, SURFACE_PROFILE
+
+    mode = held_mode(target.spec)
+    offered = [APPS_IN[item] for item in target.placement_modes]
+    note = ""
+    if target.surface == SURFACE_PROFILE:
+        note = INSTAGRAM_ONLY_NOTE
+    elif not target.can_change:
+        note = PLACEMENT_WAITS if target.is_learning else PLACEMENT_CLOSED
+    return {
+        "apps": APPS_IN.get(mode or "", "other"),
+        "apps_offered": offered,
+        "positions": {
+            app: list(items) for app, items in held_positions(target.spec).items()
+        },
+        "position_options": _position_options(),
+        "open": bool(offered) and target.can_change,
+        "note": note,
+        "warnings": {"instagram": LEAD_ON_INSTAGRAM_ALONE}
+        if target.surface == SURFACE_FORM and "instagram" in offered
+        else {},
+    }
+
+
+def _advantage_shown(target: Any) -> dict[str, Any]:
+    from core.targeting.modes import AUTOMATIC_MAX_AGE_MIN, is_automatic
+
+    note = ""
+    if target.special:
+        note = ADVANTAGE_SPECIAL
+    elif not target.can_change:
+        note = PLACEMENT_WAITS if target.is_learning else PLACEMENT_CLOSED
+    return {
+        "on": is_automatic(target.spec),
+        "open": target.can_change and not target.special,
+        "age_min_cap": AUTOMATIC_MAX_AGE_MIN,
+        "note": note,
     }
 
 
@@ -484,6 +547,15 @@ class AudienceSectionIn(BaseModel):
     included_lists: list[str] | None = None
     excluded_lists: list[str] | None = None
     locales: list[int] | None = None
+    placement_mode: Literal["automatic", "standard", "instagram", "facebook"] | None = (
+        Field(default=None, description="Where it is shown; none leaves it as it is.")
+    )
+    placement_positions: dict[Literal["instagram", "facebook"], list[str]] | None = (
+        Field(default=None, description="Each app's ticked positions.")
+    )
+    automatic: bool | None = Field(
+        default=None, description="Advantage+ audience on or off."
+    )
 
 
 class LimitsSectionIn(BaseModel):
@@ -601,6 +673,7 @@ def _audience_edit(
         found = _people(
             db, user=user, edit=edit, wanted=wanted, found=found, errors=errors
         )
+        found = _shown(edit=edit, wanted=wanted, found=found, errors=errors)
     if target.can_move:
         found = found or AudienceEdit()
         radius = (
@@ -616,6 +689,38 @@ def _audience_edit(
         found = replace(found, radius_km=radius)
         found = _where(db, edit=edit, wanted=wanted, found=found, errors=errors)
     return None if found is None or found.is_empty else found
+
+
+def _shown(
+    *, edit: Any, wanted: AudienceSectionIn, found: AudienceEdit, errors: dict[str, str]
+) -> AudienceEdit:
+    """Where it is shown and the widening switch, checked as the launch checks them."""
+    from app.modules.ads.inputs.positions import positions_problem
+
+    target = edit.audience
+    if wanted.automatic is not None:
+        if wanted.automatic and target.special:
+            errors["advantage"] = ADVANTAGE_SPECIAL
+        else:
+            found = replace(found, automatic=wanted.automatic)
+    if wanted.placement_mode is None and wanted.placement_positions is None:
+        return found
+    mode = wanted.placement_mode or held_mode(target.spec)
+    if mode is None or mode not in target.placement_modes:
+        errors["apps"] = (
+            INSTAGRAM_ONLY_NOTE if not target.placement_modes else PLACEMENT_NOT_OFFERED
+        )
+        return found
+    ticks: dict[str, tuple[str, ...]] = {
+        str(app): tuple(items)
+        for app, items in (wanted.placement_positions or {}).items()
+        if app in platforms_of(mode)
+    }
+    problem = positions_problem(ticks, mode=mode)
+    if problem:
+        errors["positions"] = problem
+        return found
+    return replace(found, placement=mode, positions=ticks or None)
 
 
 def _where(

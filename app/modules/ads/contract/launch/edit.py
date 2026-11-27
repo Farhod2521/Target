@@ -20,6 +20,7 @@ from app.modules.ads.constants import (
     TargetingMode,
 )
 from app.modules.ads.contract.launch.review import ad, number, text
+from app.modules.ads.contract.words import APPS_IN, APPS_OUT
 from app.modules.ads.inputs.proposal_body import ProposalIn
 from core.targeting import (
     DEFAULT_TARGETING_MODE,
@@ -37,13 +38,6 @@ from core.targeting.placements import (
 
 WHO_IN: Final = {"automatic": "auto", "interests": "interests", "broad": "broad"}
 WHO_OUT: Final = {value: key for key, value in WHO_IN.items()}
-APPS_IN: Final = {
-    "automatic": "auto",
-    "standard": "fbig",
-    "instagram": "instagram",
-    "facebook": "facebook",
-}
-APPS_OUT: Final = {value: key for key, value in APPS_IN.items()}
 # The editor's fields, as the backend's question kinds name them.
 KIND_OF: Final[dict[str, str]] = {
     "full_name": "full_name",

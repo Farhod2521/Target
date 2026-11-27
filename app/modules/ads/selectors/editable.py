@@ -18,9 +18,21 @@ from app.modules.ads.models import AdCreative, AdPreview, AdSet, Campaign
 from app.modules.ads.selectors.controls import Controls, controls_for
 from core.agent import ObjectState, check_limit_change, check_targeting_change
 from core.targeting import AudienceSketch, describe
+from core.targeting.destinations import CHANNELS
+from core.targeting.placements import PLACEMENT_MODES
 from core.targeting.validators import MIN_RADIUS_KM, SPECIAL_MIN_RADIUS_KM
 
 _NO_CATEGORY: Final = "NONE"
+
+# What the advert opens, as far as it decides where the advert may show.
+SURFACE_PROFILE: Final = "profile"
+SURFACE_FORM: Final = "form"
+_PROFILE_DESTINATION: Final = "INSTAGRAM_PROFILE"
+_PROFILE_GOALS: Final = frozenset({"PROFILE_VISIT", "VISIT_INSTAGRAM_PROFILE"})
+_FORM_DESTINATION: Final = "ON_AD"
+_FORM_GOALS: Final = frozenset({"LEAD_GENERATION", "QUALITY_LEAD"})
+# A chat in one app cannot be reached from an advert shown only in the other.
+_OTHER_APP: Final = {"messenger": "instagram", "instagram": "facebook"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +57,9 @@ class AudienceTarget:
     min_radius_km: int
     special: bool = False
     can_move: bool = False
+    # Where the advert may be shown, by what it opens; none means it is fixed.
+    placement_modes: tuple[str, ...] = PLACEMENT_MODES
+    surface: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +175,32 @@ def _audience(*, campaign: Campaign, groups: list[AdSet]) -> AudienceTarget | No
         allows_gender=not special,
         min_radius_km=SPECIAL_MIN_RADIUS_KM if special else MIN_RADIUS_KM,
         special=special,
+        placement_modes=_placement_modes(group),
+        surface=_surface(group),
     )
+
+
+def _surface(group: AdSet) -> str:
+    """The launch's own word for what this group's adverts open, read off the mirror."""
+    destination = str(group.destination_type_raw or "")
+    goal = str(group.optimization_goal_raw or "")
+    if destination == _PROFILE_DESTINATION or goal in _PROFILE_GOALS:
+        return SURFACE_PROFILE
+    for name, channel in CHANNELS.items():
+        if destination == channel.destination_type:
+            return name
+    if destination == _FORM_DESTINATION or goal in _FORM_GOALS:
+        return SURFACE_FORM
+    return ""
+
+
+def _placement_modes(group: AdSet) -> tuple[str, ...]:
+    """The modes the launch would allow this group (``builder``): a profile visit is
+    pinned to Instagram, and a chat is never left where it cannot be reached."""
+    surface = _surface(group)
+    if surface == SURFACE_PROFILE:
+        return ()
+    return tuple(mode for mode in PLACEMENT_MODES if mode != _OTHER_APP.get(surface))
 
 
 def _budget(*, campaign: Campaign, groups: list[AdSet]) -> BudgetTarget | None:
@@ -231,6 +271,8 @@ def ad_content(db: Session, *, owner: User, target: Any) -> AdContent | None:
 
 
 __all__ = [
+    "SURFACE_FORM",
+    "SURFACE_PROFILE",
     "AdContent",
     "AudienceTarget",
     "BudgetTarget",

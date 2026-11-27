@@ -608,6 +608,57 @@ class EditAudience(Camel):
     blocked: str = Field(description="Why it cannot be chosen; empty when it can.")
 
 
+class ShownPosition(Camel):
+    """One place an advert can show; ``needs``: one of these must run beside it."""
+
+    value: str
+    label: str
+    needs: list[str]
+
+
+class ShownPositions(Camel):
+    instagram: list[str]
+    facebook: list[str]
+
+
+class ShownPositionOptions(Camel):
+    instagram: list[ShownPosition]
+    facebook: list[ShownPosition]
+
+
+ShownApps = Literal["auto", "fbig", "instagram", "facebook"]
+
+
+class EditPlacement(Camel):
+    """Where a running advert is shown, in the launch editor's own words."""
+
+    apps: ShownApps | Literal["other"] = Field(
+        description="`other`: a mix made in Ads Manager that none of the four names."
+    )
+    apps_offered: list[ShownApps] = Field(
+        description="The choices this advert may take; empty when it is fixed."
+    )
+    positions: ShownPositions
+    position_options: ShownPositionOptions
+    open: bool = Field(description="False: shown, not changed; `note` says why.")
+    note: str
+    warnings: dict[str, str] = Field(
+        description="A sentence to show under a choice before it is saved, by choice."
+    )
+
+
+class EditAdvantage(Camel):
+    """Meta's own widening of the audience (Advantage+)."""
+
+    on: bool
+    open: bool = Field(description="False: shown, not changed; `note` says why.")
+    age_min_cap: int = Field(
+        description="Switched on, the lowest age may be no higher than this, "
+        "and no upper age is sent."
+    )
+    note: str
+
+
 class CampaignEdit(Camel):
     id: str
     name: str
@@ -638,6 +689,10 @@ class CampaignEdit(Camel):
     age_bounds: list[int]
     gender: Literal["all", "female", "male"]
     audiences: list[EditAudience]
+    placement: EditPlacement | None = Field(
+        None, description="None when the dialog reaches no single group's audience."
+    )
+    advantage: EditAdvantage | None = None
     reach: list[int]
     ends_at: str | None
     limit: float | None
