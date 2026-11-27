@@ -133,13 +133,14 @@ def test_the_owner_ties_a_google_account_to_one_business(
 
 
 def test_members_get_on_the_new_network_what_they_hold_on_the_others(
-    client: TestClient, db: Session
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from app.modules.billing.selectors import seats as bought
+
+    # A page's free seat holds one person: the others sit in bought seats.
+    monkeypatch.setattr(bought, "paid_seats", lambda *_, **__: 10)
     world = World(db)
     business = _business(world, "p1")
-    # A free seat comes with each page: three people need three.
-    _business(world, "p2", "act_2")
-    _business(world, "p3", "act_3")
     account = _google(world, "111")
     _paid(world)
     db.commit()
