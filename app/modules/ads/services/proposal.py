@@ -245,6 +245,7 @@ def prompt_variables(
 ) -> dict[str, str]:
     """Everything the prompt is allowed to know."""
     from app.modules.businesses.selectors import category_label
+    from app.modules.businesses.selectors.knowledge import NOTHING_KNOWN, learned
 
     goal = str(launch.answers.get("goal", ""))
     label = (
@@ -271,6 +272,7 @@ def prompt_variables(
             launch.owner.language, PROMPT_LANGUAGE["uz"]
         ),
         "offer_text": offer_text(db, launch=launch, business=business),
+        "business_knowledge": learned(db, business) or NOTHING_KNOWN,
         "copy_language": copy_language(db, launch=launch, business=business).name,
         "goal_label": str(label),
         "goal_text": str(launch.answers.get("goal_text") or "").strip() or "—",
@@ -606,7 +608,12 @@ def _facts_for(
     rows = facts_by_advert(db, launch=launch, business=business)
     if len(rows) == count:
         return rows
-    shared = AdvertFacts(offer=rows[0].offer if rows else "")
+    from app.modules.businesses.selectors.knowledge import learned
+
+    shared = AdvertFacts(
+        offer=rows[0].offer if rows else "",
+        known=rows[0].known if rows else learned(db, business),
+    )
     return [shared] * count
 
 
@@ -631,7 +638,7 @@ def _ask_review(
     variables: dict[str, object] = {
         "business_name": business.name,
         "business_category": category_label(business),
-        "offer_text": (facts[0].offer if facts else "") or "-",
+        "offer_text": _review_facts(facts[0]) if facts else "-",
         "button_action": sends_to,
         "creative_count": str(len(creatives)),
         "copy_language": language,
@@ -644,6 +651,19 @@ def _ask_review(
             prompt_name=REVIEW_PROMPT,
             prompt_version=version,
         )
+
+
+def _review_facts(facts: AdvertFacts) -> str:
+    """What the reviewer holds the words against: the offer, and what the
+    business's own people said about it earlier - a price taken from there
+    is not an invented one."""
+    if not facts.known:
+        return facts.offer or "-"
+    return (
+        f"{facts.offer or '-'}\n\n"
+        f"Said by the business's own people earlier - also a source of facts:\n"
+        f"{facts.known}"
+    )
 
 
 def _advert(

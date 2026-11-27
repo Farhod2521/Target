@@ -89,14 +89,12 @@ def _furnished(client: TestClient, db: Session) -> User:
             name="Kampaniya",
         )
     )
-    db.add(
-        Business(
-            user_id=owner.id,
-            page_id=page.id,
-            name="Gullar do'koni",
-            timezone="Asia/Tashkent",
-        )
-    )
+    # The page's profile was written when its pair was made; here it is named.
+    profile = db.scalars(select(Business).where(Business.page_id == page.id)).first()
+    if profile is None:
+        profile = Business(user_id=owner.id, page_id=page.id, timezone="Asia/Tashkent")
+        db.add(profile)
+    profile.name = "Gullar do'koni"
     db.add(BrandKit(owner_id=owner.id, page_id=page.id, brand_name="Gullar"))
     now = utcnow()
     db.add(

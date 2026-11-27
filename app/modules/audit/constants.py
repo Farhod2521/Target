@@ -184,6 +184,8 @@ class EventName(Choices):
     BUSINESS_MEMBER_ADDED = "business.member_added"
     BUSINESS_MEMBER_CHANGED = "business.member_changed"
     BUSINESS_MEMBER_REMOVED = "business.member_removed"
+    BUSINESS_KNOWLEDGE_CHANGED = "business.knowledge_changed"
+    BUSINESS_TYPE_SET = "business.type_set"
     CONNECTION_ADDED = "connection.added"
     CONNECTION_REMOVED = "connection.removed"
     CONNECTION_LOST = "connection.lost"
@@ -321,6 +323,8 @@ EVENT_NAME_LABELS = {
     EventName.BUSINESS_MEMBER_ADDED: "Biznesga xodim qo'shildi",
     EventName.BUSINESS_MEMBER_CHANGED: "Xodimning roli yoki ruxsati o'zgardi",
     EventName.BUSINESS_MEMBER_REMOVED: "Xodim biznesdan chiqarildi",
+    EventName.BUSINESS_KNOWLEDGE_CHANGED: "Biznes haqidagi ma'lumot o'zgardi",
+    EventName.BUSINESS_TYPE_SET: "Biznes turi belgilandi",
     EventName.CONNECTION_ADDED: "Reklama akkaunti ulandi",
     EventName.CONNECTION_REMOVED: "Reklama akkaunti uzildi",
     EventName.CONNECTION_LOST: "Ulanish ishlamay qoldi",

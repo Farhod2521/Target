@@ -34,7 +34,7 @@ def open_steps(facts: SetupFacts) -> list[str]:
 
 def test_a_deployment_with_no_bot_draws_no_step_and_counts_none() -> None:
     assert "telegram" not in states(READY)
-    assert progress(READY) == (4, 4)
+    assert progress(READY) == (3, 3)
 
 
 def test_with_everything_else_done_the_phone_is_the_open_step() -> None:
@@ -61,8 +61,8 @@ def test_it_never_holds_the_button() -> None:
 
 
 def test_it_is_drawn_as_an_extra_and_never_counted() -> None:
-    assert progress(OFFERED) == (4, 4)
-    assert progress(replace(OFFERED, telegram_linked=True)) == (4, 4)
+    assert progress(OFFERED) == (3, 3)
+    assert progress(replace(OFFERED, telegram_linked=True)) == (3, 3)
 
 
 def test_only_one_step_is_ever_open_with_the_phone_offered() -> None:

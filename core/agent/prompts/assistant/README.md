@@ -36,6 +36,15 @@ correct spelling.
 who write the missing answer («Meta & AI» in the office) or build the
 missing look-up. The person is never told.
 
+`v6` adds `note_business`: what the person says about their own business
+(what it sells, prices, terms) is prepared to be kept, with a button, and
+the Context's "Business" section carries what was kept before.
+
+`v7` adds `set_business_kind`: setup no longer asks what the business is,
+so the Context says when its kind is only a guess from the page or not
+known, and the assistant settles it in passing - one question, then a
+confirm button.
+
 Run the live cases after every change: `python -m tools.assistant_eval`.
 
 `v4`: the client's request to Support is part of `account_health` (where

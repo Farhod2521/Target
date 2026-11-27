@@ -88,3 +88,131 @@ GENDER_ALL = "all"
 GENDER_CODES: dict[str, list[int]] = {"male": [1], "female": [2]}
 # Where the business works, for reading only: an advert is never aimed there by itself.
 MAX_REGIONS = 10
+
+
+class AdvisedGoal(Choices):
+    """A goal the office may advise a kind of business: the catalogue's goal
+    keys, and ``telegram``, which is ``traffic`` to a Telegram link."""
+
+    LEADS = "leads"
+    MESSAGES = "messages"
+    CALLS = "calls"
+    TRAFFIC = "traffic"
+    SITE_LEADS = "site_leads"
+    TELEGRAM = "telegram"
+    PROFILE_VISITS = "profile_visits"
+    VIEWS = "views"
+
+
+ADVISED_GOAL_LABELS = {
+    AdvisedGoal.LEADS: "Ariza yig'ish (lid forma)",
+    AdvisedGoal.MESSAGES: "Xabar yozishsin",
+    AdvisedGoal.CALLS: "Qo'ng'iroq",
+    AdvisedGoal.TRAFFIC: "Saytga tashrif",
+    AdvisedGoal.SITE_LEADS: "Saytda ariza",
+    AdvisedGoal.TELEGRAM: "Telegramga o'tsin",
+    AdvisedGoal.PROFILE_VISITS: "Profilga o'tsin",
+    AdvisedGoal.VIEWS: "Ko'proq odam ko'rsin",
+}
+
+
+class SubtypeOrigin(Choices):
+    AI = "ai"
+    STAFF = "staff"
+
+
+class TypeState(Choices):
+    """How sure a business's kind is: nobody said, we guessed it from the
+    page, or the business said yes to it."""
+
+    UNSET = "unset"
+    GUESSED = "guessed"
+    CONFIRMED = "confirmed"
+
+
+class KnowledgeSource(Choices):
+    """Who a piece of knowledge came from."""
+
+    LAUNCH_AGENT = "launch_agent"
+    ASSISTANT = "assistant"
+    OWNER = "owner"
+    MEMBER = "member"
+    STAFF = "staff"
+    PAGE = "page"
+
+
+KNOWLEDGE_SOURCE_LABELS = {
+    KnowledgeSource.LAUNCH_AGENT: "Reklama yaratish chati",
+    KnowledgeSource.ASSISTANT: "AI chat",
+    KnowledgeSource.OWNER: "Biznes egasi",
+    KnowledgeSource.MEMBER: "Biznes xodimi",
+    KnowledgeSource.STAFF: "Ofis xodimi",
+    KnowledgeSource.PAGE: "Sahifadan olingan",
+}
+
+
+class ItemKind(Choices):
+    PRODUCT = "product"
+    SERVICE = "service"
+    COURSE = "course"
+    OTHER = "other"
+
+
+ITEM_KIND_LABELS = {
+    ItemKind.PRODUCT: "Mahsulot",
+    ItemKind.SERVICE: "Xizmat",
+    ItemKind.COURSE: "Kurs yoki yo'nalish",
+    ItemKind.OTHER: "Boshqa",
+}
+
+
+class ItemStatus(Choices):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class FactKey(Choices):
+    """The facts kept about a business. The list is closed so that two
+    chats write the same thing under the same name."""
+
+    CUSTOMERS = "customers"
+    AREA = "area"
+    DELIVERY = "delivery"
+    GUARANTEE = "guarantee"
+    PAYMENT = "payment"
+    PRICES = "prices"
+    HOURS = "hours"
+    ADDRESS = "address"
+    CONTACTS = "contacts"
+    ADVANTAGES = "advantages"
+    ANSWERS = "answers"
+    OTHER = "other"
+
+
+FACT_KEY_LABELS = {
+    FactKey.CUSTOMERS: "Mijozlari kim",
+    FactKey.AREA: "Qayerda ishlaydi",
+    FactKey.DELIVERY: "Yetkazib berish",
+    FactKey.GUARANTEE: "Kafolat",
+    FactKey.PAYMENT: "To'lov sharti",
+    FactKey.PRICES: "Narxlar",
+    FactKey.HOURS: "Ish vaqti",
+    FactKey.ADDRESS: "Manzil",
+    FactKey.CONTACTS: "Aloqa",
+    FactKey.ADVANTAGES: "Afzalliklari",
+    FactKey.ANSWERS: "Mijozga kim va qancha tez javob beradi",
+    FactKey.OTHER: "Boshqa",
+}
+
+# How much one business's knowledge may hold. A chat that keeps adding is
+# told the list is full instead of growing a document nobody reads.
+MAX_ITEMS = 60
+MAX_PENDING = 20
+ABOUT_CHARS = 600
+ITEM_NAME_CHARS = 80
+ITEM_PRICE_CHARS = 60
+ITEM_NOTE_CHARS = 300
+ITEM_LINK_CHARS = 300
+FACT_CHARS = 400
+SUBTYPE_NAME_CHARS = 80
+SUBTYPE_SYNONYMS = 30

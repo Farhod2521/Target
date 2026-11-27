@@ -56,9 +56,13 @@ from core.assistant.tools import (
     GUARD_TOOL,
     HEALTH_TOOL,
     HELP_TOOL,
+    KIND_TOOL,
     MAX_GAPS,
+    MAX_KINDS,
+    MAX_NOTES,
     MAX_TICKETS,
     NEW_TOOLS,
+    NOTE_TOOL,
     PLANS_TOOL,
     TICKET_TOOL,
     TOOLS,
@@ -155,6 +159,11 @@ class Desk:
     # from these (``services.gaps``).
     gaps: list[dict[str, str]] = field(default_factory=list)
     searches: list[tuple[str, int]] = field(default_factory=list)
+    # What the person said about their business, prepared to be kept: put
+    # on the waiting list with its button once the answer is finished.
+    notes: list[Any] = field(default_factory=list)
+    # The business's kind, prepared for the person's yes.
+    kinds: list[Any] = field(default_factory=list)
     _scope: PageScope | None = None
     _counted: PageScope | None = None
 
@@ -162,6 +171,11 @@ class Desk:
         if call.name == GAP_TOOL:
             # A note, not a look-up: it costs none of the answer's look-ups.
             return self._gap(call)
+        if call.name == NOTE_TOOL:
+            # Like the gap: a note of what was said, not a look-up.
+            return self._note(call)
+        if call.name == KIND_TOOL:
+            return self._kind(call)
         self.made += 1
         if self.halt is not None and self.halt.stopped:
             return ToolOutput(text=STOPPED, is_error=True)
@@ -271,6 +285,36 @@ class Desk:
                 }
             )
         return ToolOutput(text=GAP_NOTED)
+
+    def _note(self, call: ToolCall) -> ToolOutput:
+        """What the person said about their business: prepared, not kept."""
+        from app.modules.assistant.services.knowledge import ALREADY, prepared_note
+
+        if self.owner is None:
+            return ToolOutput(text=NO_ACCOUNT, is_error=True)
+        if len(self.notes) >= MAX_NOTES:
+            return ToolOutput(text=ALREADY, is_error=True)
+        note = prepared_note(self.db, owner=self.owner, arguments=call.arguments)
+        if not note.changes:
+            return ToolOutput(text=note.text, is_error=True)
+        self.notes.append(note)
+        # What they said themselves may be said back to them.
+        self.gate.allow(figures_in(note.text))
+        return ToolOutput(text=note.text)
+
+    def _kind(self, call: ToolCall) -> ToolOutput:
+        """The business's kind and name: prepared, saved by a button."""
+        from app.modules.assistant.services.knowledge import ALREADY, prepared_kind
+
+        if self.owner is None:
+            return ToolOutput(text=NO_ACCOUNT, is_error=True)
+        if len(self.kinds) >= MAX_KINDS:
+            return ToolOutput(text=ALREADY, is_error=True)
+        note = prepared_kind(self.db, owner=self.owner, arguments=call.arguments)
+        if not note.ready:
+            return ToolOutput(text=note.text, is_error=True)
+        self.kinds.append(note)
+        return ToolOutput(text=note.text)
 
     def _change(self, call: ToolCall) -> ToolOutput:
         """A change the owner asked for, checked and described by the old
@@ -607,7 +651,13 @@ def _finish(
         {**item, "kind": ButtonKind.OFFER, "state": ButtonState.OPEN}
         for item in picked(keys=choices.keys, offers=payload.get("offers", []))
     ]
-    buttons = [*desk.tickets, *offers, *desk.changes]
+    buttons = [
+        *desk.tickets,
+        *offers,
+        *desk.changes,
+        *_kept_notes(db, payload=payload, desk=desk, now=now),
+        *_kind_buttons(payload=payload, desk=desk),
+    ]
     replies = list(
         vetted_replies(choices.replies, allowed=gate.allowed, quoted=gate.quoted)
     )
@@ -675,6 +725,46 @@ def _finish(
     )
     # Last: the person already has the answer on the screen.
     _note_gap(db, payload=payload, desk=desk, now=now)
+
+
+def _kept_notes(
+    db: Session, *, payload: dict[str, Any], desk: Desk, now: datetime
+) -> list[dict[str, Any]]:
+    """The buttons for what the person said about their business, each now
+    on the business's waiting list. Whatever goes wrong here, the answer
+    itself is still shown and kept."""
+    from app.modules.assistant.services.knowledge import keep_note
+
+    if desk.owner is None:
+        return []
+    kept: list[dict[str, Any]] = []
+    for note in desk.notes:
+        try:
+            with db.begin_nested():
+                button = keep_note(
+                    db,
+                    owner=desk.owner,
+                    note=note,
+                    number=len(kept) + 1,
+                    shown_in=shown_language(payload),
+                    now=now,
+                )
+        except Exception:
+            logger.exception("assistant note not kept")
+            continue
+        if button is not None:
+            kept.append(button)
+    return kept
+
+
+def _kind_buttons(*, payload: dict[str, Any], desk: Desk) -> list[dict[str, Any]]:
+    """The button for each kind the answer prepared; nothing is written."""
+    from app.modules.assistant.services.knowledge import kind_button
+
+    return [
+        kind_button(note=note, number=number, shown_in=shown_language(payload))
+        for number, note in enumerate(desk.kinds, start=1)
+    ]
 
 
 def _note_gap(

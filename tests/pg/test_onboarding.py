@@ -123,8 +123,10 @@ def test_finish_locks_the_pair_and_switches_the_agent_on(
 
     body = client.get(START, headers=auth).json()
     assert body["setup"]["can_finish"] is True
-    assert body["setup"]["ready"] is False
-    assert body["setup"]["blocked_on"] == "profile"
+    # Describing the business is not a step any more: nothing is in the way.
+    assert body["setup"]["ready"] is True
+    assert body["setup"]["blocked_on"] == ""
+    assert "profile" not in body["setup"]["state"]
     assert body["setup"]["page"]["external_id"] == "page_1"
     assert body["next_action"] == "finish"
     chosen = body["pick"]["chosen"]
@@ -136,7 +138,7 @@ def test_finish_locks_the_pair_and_switches_the_agent_on(
     assert [o["account"]["external_id"] for o in body["pick"]["options"]] == ["act_1"]
     assert body["billing_url"] and body["page_terms_url"]
     # Leads not subscribed yet: the screen keeps asking, at most MAX_POLLS times.
-    assert body["setup"]["state"]["leads"] == "waiting"
+    assert body["setup"]["state"]["leads"] == "current"
 
     done = client.post(f"{START}/finish", headers=auth)
     assert done.status_code == 200, done.text
@@ -153,6 +155,11 @@ def test_finish_locks_the_pair_and_switches_the_agent_on(
     pair = db.scalar(select(PagePair))
     assert pair is not None
     assert (pair.page_id, pair.ad_account_id) == (page.id, account.id)
+    # The page's profile was written for it the moment the pair was fixed.
+    from app.modules.businesses.models import Business
+
+    profile = db.scalars(select(Business).where(Business.page_id == page.id)).one()
+    assert profile.name == page.name and profile.category
 
     # A later "no" is not overruled by a second press.
     policy.is_enabled = False
@@ -200,6 +207,6 @@ def test_dashboard_numbers_carry_the_setup(client: TestClient, db: Session) -> N
     assert numbers.status_code == 200, numbers.text
     setup = numbers.json()["setup"]
     assert setup["ready"] is False
-    assert (setup["done"], setup["total"]) == (0, 4)
+    assert (setup["done"], setup["total"]) == (0, 3)
     assert setup["blocked_on"] == "connect"
     assert setup["page"] is None

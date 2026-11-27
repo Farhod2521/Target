@@ -33,6 +33,8 @@ BY_HEADING: Final[dict[str, tuple[str, ...]]] = {
         "## What the agent proposed recently",
     ),
     "item": ("## The item this question is about",),
+    # Only while the business's kind is a guess or not known.
+    "kind": ("- Kinds to choose from:",),
 }
 # ... or when the person's words, now or just before, carry one of these.
 BY_WORD: Final[dict[str, tuple[str, ...]]] = {

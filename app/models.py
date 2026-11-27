@@ -15,6 +15,7 @@ from app.modules.content_studio import models as content_studio  # noqa: F401
 from app.modules.crm import models as crm  # noqa: F401
 from app.modules.destinations import models as destinations  # noqa: F401
 from app.modules.integrations import models as integrations  # noqa: F401
+from app.modules.launch_agent import models as launch_agent  # noqa: F401
 from app.modules.leads import models as leads  # noqa: F401
 from app.modules.metrics import models as metrics  # noqa: F401
 from app.modules.notifications import models as notifications  # noqa: F401

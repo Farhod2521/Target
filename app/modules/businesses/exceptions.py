@@ -128,3 +128,75 @@ class AccountBound(Conflict):
 
     def __init__(self) -> None:
         super().__init__("Bu akkaunt boshqa biznesga ulangan.")
+
+
+class UnknownDirection(NotFound):
+    code = "unknown_direction"
+
+    def __init__(self) -> None:
+        super().__init__("Bunday biznes turi yo'q.")
+
+
+class UnknownSubtype(NotFound):
+    code = "unknown_subtype"
+
+    def __init__(self) -> None:
+        super().__init__("Bunday yo'nalish yo'q.")
+
+
+class SubtypeNameTaken(Conflict):
+    code = "subtype_name_taken"
+
+    def __init__(self) -> None:
+        super().__init__("Bu nomli yo'nalish shu turda allaqachon bor.")
+
+
+class BadSubtype(DomainError):
+    code = "bad_subtype"
+
+    def __init__(self, reason: str = "") -> None:
+        super().__init__(reason or "Yo'nalish noto'g'ri yozilgan.")
+
+
+class BadAdvice(DomainError):
+    code = "bad_advice"
+
+    def __init__(self, reason: str = "") -> None:
+        super().__init__(reason or "Tavsiya noto'g'ri yozilgan.")
+
+
+class BadKnowledgeChange(DomainError):
+    code = "bad_knowledge_change"
+
+    def __init__(self, reason: str = "") -> None:
+        super().__init__(reason or "O'zgarish noto'g'ri yozilgan.")
+
+
+class UnknownItem(NotFound):
+    code = "unknown_item"
+
+    def __init__(self) -> None:
+        super().__init__("Bunday taklif topilmadi.")
+
+
+class UnknownProposal(NotFound):
+    code = "unknown_proposal"
+
+    def __init__(self) -> None:
+        super().__init__("Bu taklif endi yo'q: tasdiqlangan yoki rad etilgan.")
+
+
+class KnowledgeMoved(Conflict):
+    code = "knowledge_moved"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Ma'lumot boshqa joydan o'zgartirildi. Yangisini o'qib, qayta urinib ko'ring."
+        )
+
+
+class KnowledgeFull(Conflict):
+    code = "knowledge_full"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)

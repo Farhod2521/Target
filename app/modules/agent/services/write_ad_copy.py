@@ -26,6 +26,7 @@ from app.modules.audit.constants import LLMPurpose
 from app.modules.audit.services import record_llm_result
 from app.modules.businesses.models import Business
 from app.modules.businesses.selectors import category_label
+from app.modules.businesses.selectors.knowledge import NOTHING_KNOWN, learned
 from core.agent import CreativeProposal, Finding
 from core.agent.copy_check import AdWords, check_against_offer
 from core.written import UZBEK, written_in, written_or
@@ -54,6 +55,7 @@ class _Sources:
     offer: str
     sends_to: str
     facts: str
+    known: str = ""
 
 
 def writable(
@@ -137,13 +139,17 @@ def _sources(
         else str(business.offer_text or "")
     )
     sends_to = button_action(db, launch=launch) if launch is not None else NO_BUTTON
-    # Everything the prompt says the words may take a fact from: the offer
-    # and the advert's own three fields.
+    # Everything the prompt says the words may take a fact from: the offer,
+    # the advert's own three fields, and what the business's people said
+    # about it earlier.
     current = (creative.message, creative.headline, creative.description)
-    facts = "\n".join(part for part in (offer, *current) if part)
+    known = learned(db, business)
+    facts = "\n".join(part for part in (offer, *current, known) if part)
     if not facts.strip():
         raise _NoWordsError("no_offer")
-    return _Sources(creative=creative, offer=offer, sends_to=sends_to, facts=facts)
+    return _Sources(
+        creative=creative, offer=offer, sends_to=sends_to, facts=facts, known=known
+    )
 
 
 def _written(
@@ -161,6 +167,7 @@ def _written(
             creative=sources.creative,
             offer=sources.offer,
             sends_to=sources.sends_to,
+            known=sources.known,
         ),
     )
     if proposal is None:
@@ -217,6 +224,7 @@ def _variables(
     creative: AdCreative,
     offer: str,
     sends_to: str,
+    known: str = "",
 ) -> dict[str, str]:
     """Everything the prompt may know, assembled explicitly."""
     return {
@@ -224,6 +232,7 @@ def _variables(
         "business_category": category_label(business),
         "city": business.city or "-",
         "offer_text": offer or "-",
+        "business_knowledge": known or NOTHING_KNOWN,
         "button_action": sends_to,
         "current_primary_text": creative.message or "-",
         "current_headline": creative.headline or "-",

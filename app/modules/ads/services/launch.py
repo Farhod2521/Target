@@ -165,6 +165,12 @@ def start_launch(
     page = active_page(db, owner=user)
     check_campaign_allowance(db, owner=user)
     business = business_for_page(db, owner=user, page=page)
+    if (business is None or not business.category) and page is not None:
+        # Nobody is asked to describe the business before advertising: a
+        # page that reached here with no profile gets one written from it.
+        from app.modules.businesses.services.auto_profile import ensure_profile
+
+        business = ensure_profile(db, owner_id=user.id, page=page) or business
     if business is None or not business.category:
         raise ProfileIncomplete
     provider = provider_for(db, owner=user)

@@ -13,7 +13,9 @@ from core.agent import AccountFacts
 from core.agent.benchmark import benchmarks
 
 
-def account_block(*, account: AccountFacts, business: Business, language: str) -> str:
+def account_block(
+    *, account: AccountFacts, business: Business, language: str, known: str = ""
+) -> str:
     """Who the business is and what its account did. Everything it may know.
 
     Assembled explicitly rather than by handing over rows. A prompt that
@@ -24,6 +26,9 @@ def account_block(*, account: AccountFacts, business: Business, language: str) -
     No qualified count and no cost per qualified lead: the owner's quality
     mark they rest on is switched off, and a nought here is a nought the
     sentence would explain - see CLAUDE.md on CPQL.
+
+    ``known`` is what the business's people said about it in earlier
+    conversations (``businesses.selectors.knowledge.learned``), ready lines.
     """
     trade = category_label(business)
     return "\n".join(
@@ -35,6 +40,7 @@ def account_block(*, account: AccountFacts, business: Business, language: str) -
             f"- Nomi: {business.name}",
             f"- Sohasi: {trade}",
             f"- Nima sotadi: {business.offer_text or trade}",
+            *([known] if known else []),
             f"- Valyuta: {account.currency}",
             "",
             f"## The account over the last {account.window_days} days",

@@ -36,6 +36,8 @@ PASSWORD_ROLES = (Role.SUPPORT, Role.OWNER)
 SALES_ROLES = (Role.SALES, Role.SALES_LEAD, Role.OWNER)
 SALES_LEAD_ROLES = (Role.SALES_LEAD, Role.OWNER)
 FAULT_ROLES = (Role.ENGINEER,)
+# Who writes what a kind of business is advised and keeps the narrower kinds.
+BUSINESS_TYPE_ROLES = (Role.OWNER, Role.ENGINEER)
 
 
 class Severity(Choices):
@@ -113,6 +115,10 @@ class ActionKind(Choices):
     DIRECTION_CREATED = "direction_created"
     DIRECTION_UPDATED = "direction_updated"
     DIRECTION_DELETED = "direction_deleted"
+    TYPE_RULE_SAVED = "type_rule_saved"
+    SUBTYPE_CREATED = "subtype_created"
+    SUBTYPE_CHANGED = "subtype_changed"
+    SUBTYPE_MERGED = "subtype_merged"
     SALES_VIEW = "sales_view"
     SALES_CLAIMED = "sales_claimed"
     SALES_RETURNED = "sales_returned"
@@ -176,6 +182,10 @@ ACTION_KIND_LABELS = {
     ActionKind.DIRECTION_CREATED: "Yo'nalish yaratildi",
     ActionKind.DIRECTION_UPDATED: "Yo'nalish o'zgartirildi",
     ActionKind.DIRECTION_DELETED: "Yo'nalish o'chirildi",
+    ActionKind.TYPE_RULE_SAVED: "Biznes turi tavsiyasi yozildi",
+    ActionKind.SUBTYPE_CREATED: "Tor yo'nalish yaratildi",
+    ActionKind.SUBTYPE_CHANGED: "Tor yo'nalish o'zgartirildi",
+    ActionKind.SUBTYPE_MERGED: "Tor yo'nalishlar birlashtirildi",
     ActionKind.SALES_VIEW: "Sotuv kartasi ochildi",
     ActionKind.SALES_CLAIMED: "Sotuvga olindi",
     ActionKind.SALES_RETURNED: "Sotuvdan qaytarildi",

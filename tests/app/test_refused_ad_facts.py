@@ -27,6 +27,8 @@ def test_the_facts_hold_the_advert_s_headline_and_description(
     monkeypatch.setattr(write_ad_copy, "creative_of", lambda *_, **__: creative)
     monkeypatch.setattr(write_ad_copy, "adset_launch", lambda *_, **__: None)
     monkeypatch.setattr(write_ad_copy, "campaign_launch", lambda *_, **__: None)
+    # Nothing was ever said about this business beyond its profile.
+    monkeypatch.setattr(write_ad_copy, "learned", lambda *_, **__: "")
     finding = SimpleNamespace(ref=SimpleNamespace(id="ad1"))
     business = SimpleNamespace(offer_text="Stomatologiya")
 

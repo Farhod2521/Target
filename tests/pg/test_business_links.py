@@ -162,22 +162,29 @@ def test_a_second_run_changes_nothing(db: Session) -> None:
     assert db.scalar(select(Business.id).where(Business.page_id.is_(None))) is None
 
 
-def test_a_page_with_no_profile_waits_and_no_profile_is_made_for_it(
+def test_a_page_with_no_profile_gets_one_written_from_the_page(
     db: Session,
 ) -> None:
+    """Nobody is asked to fill a profile in: a paired page with none gets
+    one from what the page says, and its pair is bound at once."""
     world = World(db)
     page = world.page("p1", profile=False)
+    page.location_city = "Samarqand"
     world.pair(page, world.account("act_1"))
 
     done = world.sync()
 
-    assert done.waiting == 1
-    assert world.links() == []
-    assert db.scalars(select(Business)).all() == []
-
-    world.profile(page)
-    assert world.sync().bound == 1
+    assert (done.bound, done.waiting) == (1, 0)
     assert len(world.open_links()) == 1
+    profile = _profile_of(db, page)
+    assert profile.name == page.name
+    assert profile.city == "Samarqand"
+    assert profile.category  # a placeholder the launch can start from
+    assert profile.direction_id is None  # and nobody chose it
+    assert profile.timezone
+
+    assert world.sync().changed == 0
+    assert len(db.scalars(select(Business)).all()) == 1
 
 
 def test_a_second_pair_on_the_page_is_a_business_of_its_own(db: Session) -> None:

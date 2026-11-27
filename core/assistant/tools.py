@@ -1,13 +1,15 @@
 """What the one chat's assistant may call while it answers.
 
 The fifteen look-ups of the old chat are used as they are
-(``core/chat/lookups.py``). Eight are new: a check of the account's own
+(``core/chat/lookups.py``). Ten are new: a check of the account's own
 state, a search of known problems and their steps, a ticket for a person
 in Support - prepared, never sent, until the client presses its button -
 a note to the team about a question that was left unanswered, the
 product's own plans, prices and dollar rate, what the CRM did with each
-campaign's leads, what the half-hourly guard warned about or stopped, and
-the invite link and wallet.
+campaign's leads, what the half-hourly guard warned about or stopped, the
+invite link and wallet, and a note of what the person said about their own
+business - kept only when they press its button - and the business's
+kind, confirmed the same way.
 
 How to read a result travels with the result (``READING``), not in the
 prompt: the model is told about a look-up's output when it has one in hand,
@@ -31,9 +33,29 @@ PLANS_TOOL: Final = "plans_and_prices"
 CRM_TOOL: Final = "crm_outcomes"
 GUARD_TOOL: Final = "guard_alerts"
 WALLET_TOOL: Final = "referrals_and_wallet"
+NOTE_TOOL: Final = "note_business"
+KIND_TOOL: Final = "set_business_kind"
 
 MAX_TICKETS: Final = 1
 MAX_GAPS: Final = 1
+MAX_NOTES: Final = 1
+MAX_KINDS: Final = 1
+# The facts kept about a business, as ``businesses.constants.FactKey``
+# spells them: the list is closed, and a test holds the two together.
+FactName = Literal[
+    "customers",
+    "area",
+    "delivery",
+    "guarantee",
+    "payment",
+    "prices",
+    "hours",
+    "address",
+    "contacts",
+    "advantages",
+    "answers",
+    "other",
+]
 # What is missing: words a person can write, or something that has to be built.
 GAP_ANSWER: Final = "answer"
 GAP_BUILD: Final = "tool"
@@ -125,6 +147,120 @@ class GapReport(Arguments):
     )
 
 
+class SoldNote(Arguments):
+    """One thing the business sells, as the person said it."""
+
+    name: str = Field(
+        min_length=2,
+        max_length=80,
+        description=(
+            "The product, service or course by its own short name, as the "
+            "person wrote it - 'Ingliz tili kursi', 'Changyutgich Hoover "
+            "H-Free'. One thing per entry, never a list in one name. To "
+            "change something already kept, use its name exactly as the "
+            "Context has it."
+        ),
+    )
+    kind: Literal["product", "service", "course", "other"] = Field(
+        default="other", description="What kind of thing it is."
+    )
+    price: str = Field(
+        default="",
+        max_length=60,
+        description=(
+            "Its price exactly as the person wrote it, with the currency - "
+            "'450 000 so'm', 'oyiga 600 000 so'm'. Empty when they gave "
+            "none: never work one out."
+        ),
+    )
+    note: str = Field(
+        default="",
+        max_length=300,
+        description=(
+            "One short line the person said about it - who it is for, how "
+            "long it lasts, what is included. Empty when they said nothing."
+        ),
+    )
+    gone: bool = Field(
+        default=False,
+        description=(
+            "True when the person said they no longer sell this. It is "
+            "then taken off the list, not deleted."
+        ),
+    )
+
+
+class FactNote(Arguments):
+    """One lasting fact about how the business works."""
+
+    key: FactName = Field(
+        description=(
+            "Which fact: customers (who buys), area (where it works), "
+            "delivery, guarantee, payment (instalments, cards), prices (the "
+            "general level or a price list), hours, address, contacts, "
+            "advantages (why people choose it), answers (who answers "
+            "customers and how fast), other."
+        ),
+    )
+    value: str = Field(
+        min_length=2,
+        max_length=400,
+        description=(
+            "The fact in the person's own words and language, short. "
+            "Numbers exactly as written."
+        ),
+    )
+
+
+class BusinessNote(Arguments):
+    """What the person just said about their own business, to be kept."""
+
+    about: str = Field(
+        default="",
+        max_length=600,
+        description=(
+            "What the business does, in one or two sentences in the "
+            "person's language - only when they described it and the "
+            "Context has no description or theirs changes it. Empty "
+            "otherwise."
+        ),
+    )
+    items: list[SoldNote] = Field(default_factory=list, max_length=8)
+    facts: list[FactNote] = Field(default_factory=list, max_length=6)
+
+
+class BusinessKind(Arguments):
+    """What kind of business this is, for the person to confirm."""
+
+    direction: str = Field(
+        min_length=2,
+        max_length=64,
+        description=(
+            "The kind's key, exactly as the Context's 'Kinds to choose "
+            "from' line writes it - 'education', 'ecommerce'. Only a key "
+            "from that line."
+        ),
+    )
+    subtype: str = Field(
+        default="",
+        max_length=80,
+        description=(
+            "The narrower kind inside it, two or three plain words in "
+            "Uzbek (latin script) - 'ingliz tili kurslari', 'oshxona "
+            "mebeli', 'stomatologiya'. Never a brand, the business's own "
+            "name or a city. Empty when what they said does not show it."
+        ),
+    )
+    name: str = Field(
+        default="",
+        max_length=255,
+        description=(
+            "The business's name as the person said it should be called. "
+            "Empty unless they gave one or corrected the one in the Context."
+        ),
+    )
+
+
 def _tool(name: str, arguments: type, *lines: str) -> Tool:
     return Tool(name=name, description=" ".join(lines), arguments=arguments)
 
@@ -209,6 +345,36 @@ NEW_TOOLS: Final[tuple[Tool, ...]] = (
         "paid, the wallet's balance (earned, spent on plans, taken out), the",
         "requests to take money out, and whether taking it out to a card is",
         "open. Use it for referral, bonus, balance or 'pul yechish' questions.",
+    ),
+    _tool(
+        NOTE_TOOL,
+        BusinessNote,
+        "Keep what the person just told you about their own business, so the",
+        "next advert and the next answer start from it: what the business",
+        "does, a product, service or course with its price, something they no",
+        "longer sell, a lasting fact (delivery, guarantee, payment terms,",
+        "hours, address, who their customers are). Nothing is saved: the",
+        "person sees a button under your answer and it is kept only when they",
+        "press it. Call it when their message states such a thing as a fact",
+        "about their business and the Context's Business section does not",
+        "already hold it. Only what they said themselves, in their words -",
+        "never a guess, never something you read in an advert or a look-up,",
+        "never a figure about the account, never a one-off (today's discount,",
+        "this week's plan). At most once per answer, with everything new in",
+        "one call. It costs no look-up; answer their question as usual.",
+    ),
+    _tool(
+        KIND_TOOL,
+        BusinessKind,
+        "Prepare the business's kind - its direction from the closed list,",
+        "the narrower kind inside it, and its name - for the person to",
+        "confirm with a button. Nothing is saved until they press. Call it",
+        "when the Context says the kind is a guess or not known and the",
+        "person has just said what their business does or agreed with the",
+        "guess, or when they say the kind or the name in the Context is",
+        "wrong and give the right one. Never from your own guess alone: only",
+        "from what they said in this conversation. At most once per answer;",
+        "it costs no look-up.",
     ),
     _tool(
         GAP_TOOL,
@@ -405,16 +571,24 @@ __all__ = [
     "GUARD_TOOL",
     "HEALTH_TOOL",
     "HELP_TOOL",
+    "KIND_TOOL",
     "MAX_GAPS",
+    "MAX_KINDS",
+    "MAX_NOTES",
     "MAX_TICKETS",
     "NEW_TOOLS",
+    "NOTE_TOOL",
     "READING",
     "TICKET_TOOL",
     "TOOLS",
     "TOOL_NAMES",
     "WALLET_TOOL",
+    "BusinessKind",
+    "BusinessNote",
+    "FactNote",
     "GapReport",
     "HelpSearch",
+    "SoldNote",
     "TicketDraft",
     "with_reading",
 ]

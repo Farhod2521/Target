@@ -50,6 +50,9 @@ from core.inbox import InboxItem
 
 EVERYTHING: frozenset[Section] = frozenset(SECTIONS)
 
+# How many unanswered proposals about the business the model is told of.
+WAITING_LINES = 6
+
 
 def chat_context(
     db: Session,
@@ -200,7 +203,12 @@ def _account(
 ) -> AccountDigest | None:
     """The subscription over the window, cut by Facebook page."""
     from app.modules.agent.selectors import last
-    from app.modules.businesses.selectors import business_for, category_label
+    from app.modules.businesses.selectors import business_for
+    from app.modules.businesses.selectors.knowledge import (
+        known,
+        learned_text,
+        waiting_lines,
+    )
     from app.modules.metrics.selectors.lead_sources import (
         other_currency_campaigns,
         other_currency_spend,
@@ -210,6 +218,7 @@ def _account(
     business = business_for(db, owner)
     if business is None:
         return None
+    kept = known(db, business)
     accounts = subscribed_accounts(db, owner=owner)
     account = accounts[0] if accounts else None
     currency = page_campaigns(db, owner=owner).currency or (
@@ -227,9 +236,14 @@ def _account(
     return AccountDigest(
         business=BusinessDigest(
             name=business.name,
-            category=category_label(business),
+            # A profile we wrote ourselves holds a placeholder nobody chose.
+            category=kept.type_label or "not known yet",
             offer=business.offer_text,
             currency=currency,
+            known=tuple(learned_text(kept).splitlines()),
+            **_kind_lines(db, kept),
+            # The newest few: an old proposal nobody answered is not news.
+            waiting=tuple(waiting_lines(kept)[-WAITING_LINES:]),
         ),
         totals=TotalsDigest(
             window_days=CONTEXT_WINDOW_DAYS,
@@ -295,6 +309,23 @@ def _account(
         else (),
         omitted=tuple(name for name in SECTIONS if name not in wants),
     )
+
+
+def _kind_lines(db: Session, kept: Any) -> dict[str, str]:
+    """How sure the business's kind is, while somebody still has to say."""
+    from app.modules.assistant.services.knowledge import kind_choices
+    from app.modules.businesses.constants import TypeState
+
+    if kept.type_state == TypeState.CONFIRMED:
+        return {}
+    if kept.type_state == TypeState.GUESSED:
+        kind = kept.type_label + (
+            f" → {kept.subtype.name}" if kept.subtype is not None else ""
+        )
+        note = f"{kind} - our guess from their page, NOT confirmed by them"
+    else:
+        note = "not known yet - nobody said what this business does"
+    return {"kind_note": note, "kind_choices": kind_choices(db)}
 
 
 def connection_down(db: Session, *, accounts: Any) -> ConnectionDown | None:

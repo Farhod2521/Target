@@ -33,7 +33,7 @@ def test_the_old_look_ups_are_kept_and_eight_are_added() -> None:
         WALLET_TOOL,
     }
     assert new <= TOOL_NAMES
-    assert len(TOOLS) == len(LOOKUPS) + 8
+    assert len(TOOLS) == len(LOOKUPS) + 10
     assert len(TOOL_NAMES) == len(TOOLS)
 
 

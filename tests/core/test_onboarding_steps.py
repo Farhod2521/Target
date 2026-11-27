@@ -37,14 +37,12 @@ def states(facts: SetupFacts) -> dict[str, str]:
 
 class TestOrder:
     def test_a_new_account_is_on_the_connection(self) -> None:
-        """The first step is connecting, not describing.
-
-        The profile describes one page - one trade, one town, one set of
-        hours - so asking for it before a page exists is asking somebody to
-        describe a business the cabinet cannot yet name.
-        """
+        """The first step is connecting. Nobody is asked to describe the
+        business: its profile is written from the page when the pair is
+        made, and its kind is settled in conversation."""
         assert states(SetupFacts())["connect"] == "current"
-        assert states(SetupFacts())["profile"] == "waiting"
+        assert "profile" not in states(SetupFacts())
+        assert "profile" not in ORDER
 
     def test_only_one_step_is_ever_open(self) -> None:
         for facts in (SetupFacts(), READY, SetupFacts(has_profile=True)):
@@ -58,7 +56,7 @@ class TestOrder:
         assert marks["connect"] == "done"
         assert marks["page"] == "current"
         assert marks["ad_account"] == "waiting"
-        assert marks["profile"] == "waiting"
+        assert marks["leads"] == "waiting"
         assert marks["leads"] == "waiting"
 
     def test_an_expired_connection_does_not_unpick_the_page(self) -> None:
@@ -79,21 +77,17 @@ class TestOrder:
 
 
 class TestProfile:
-    def test_a_profile_without_a_category_is_not_finished(self) -> None:
-        """The category is what selects a preset; the wizard refuses without
-        one, so a profile saved without it is not a step somebody has done.
-
-        Asked with everything above it done, because the profile is the
-        fourth step rather than the first: a profile describes one page,
-        and there is nothing to describe until a page is chosen.
-        """
-        facts = SetupFacts(
-            connected=True,
-            ad_account_chosen=True,
-            page_chosen=True,
-            has_profile=True,
+    def test_a_business_nobody_described_holds_nothing(self) -> None:
+        """Describing the business is no longer a step of preparation: with
+        the page and the account chosen, the next thing is leads - whatever
+        the profile says or lacks."""
+        facts = SetupFacts(connected=True, ad_account_chosen=True, page_chosen=True)
+        assert states(facts)["leads"] == "current"
+        assert is_ready(facts)
+        assert blocking(facts) == ""
+        assert progress(facts) == progress(
+            _with(facts, has_profile=True, has_category=True)
         )
-        assert states(facts)["profile"] == "current"
 
 
 class TestConnection:
@@ -161,7 +155,6 @@ class TestGate:
 
     def test_every_gate_refuses_on_its_own(self) -> None:
         holes = {
-            "profile": {"has_category": False},
             "connect": {"connected": False},
             "ad_account": {"ad_account_chosen": False},
             "page": {"page_chosen": False},
@@ -180,15 +173,13 @@ class TestGate:
 
 
 class TestFinish:
-    def test_the_profile_does_not_hold_the_finish_press(self) -> None:
-        """The press fixes the account and the page. The profile is per page
-        and stays editable afterwards, so an owner with several pages would
-        otherwise lose the button every time they looked at an undescribed
-        one - but it still holds the launch."""
+    def test_the_profile_holds_neither_the_finish_press_nor_the_launch(self) -> None:
+        """The press fixes the account and the page. The profile is written
+        for the page by the product itself, so it is in nobody's way."""
         facts = _with(READY, has_profile=False, has_category=False)
         assert can_finish(facts)
-        assert not is_ready(facts)
-        assert blocking(facts) == "profile"
+        assert is_ready(facts)
+        assert blocking(facts) == ""
 
     def test_every_choice_the_press_fixes_holds_it(self) -> None:
         holes = {
@@ -211,14 +202,14 @@ class TestFinish:
 
 class TestProgress:
     def test_it_counts_the_drawn_rows_and_not_the_gates(self) -> None:
-        """Four rows on the screen: the page and its account are one."""
-        assert progress(SetupFacts()) == (0, 4)
-        assert progress(READY) == (4, 4)
-        assert progress(_with(READY, leads_subscribed=False)) == (3, 4)
+        """Three rows on the screen: the page and its account are one."""
+        assert progress(SetupFacts()) == (0, 3)
+        assert progress(READY) == (3, 3)
+        assert progress(_with(READY, leads_subscribed=False)) == (2, 3)
 
     def test_the_page_row_is_finished_only_with_its_account(self) -> None:
-        assert progress(_with(READY, ad_account_chosen=False)) == (3, 4)
-        assert progress(_with(READY, page_chosen=False)) == (3, 4)
+        assert progress(_with(READY, ad_account_chosen=False)) == (2, 3)
+        assert progress(_with(READY, page_chosen=False)) == (2, 3)
 
 
 class TestPairedRow:

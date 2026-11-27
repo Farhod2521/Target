@@ -9,7 +9,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.modules.ads.models import CampaignLaunch
-from app.modules.businesses.models import BusinessLink
+from app.modules.businesses.models import Business, BusinessLink
 from app.modules.businesses.services import links
 from app.modules.chat.models import ChatSession
 from app.modules.crm.models import CrmCard, CrmStage
@@ -44,22 +44,20 @@ def test_a_rolled_back_pair_links_nothing_later(db: Session) -> None:
     assert db.scalars(select(PagePair)).all() == []
 
 
-def test_a_profile_saved_after_the_pair_links_it_and_fills_the_rows(
+def test_a_pair_with_no_profile_is_linked_at_commit_and_fills_the_rows(
     db: Session,
 ) -> None:
+    """Nobody describes the business first: the commit that makes the pair
+    writes the page's profile, links it, and stamps the rows."""
     world = World(db)
     page, account = world.page("p1", profile=False), world.account("act_1")
     world.pair(page, account)
     rows = _rows(world, page, account)
     db.commit()
-    assert world.links() == []
-    assert rows["card"].business_id is None
-
-    profile = world.profile(page)
-    db.commit()
 
     (link,) = world.open_links()
-    assert link.business_id == profile.id
+    profile = db.get(Business, link.business_id)
+    assert profile is not None and profile.page_id == page.id
     for name, row in rows.items():
         db.refresh(row)
         assert row.business_id == profile.id, name
@@ -144,8 +142,8 @@ def test_a_row_that_names_no_page_or_an_unlinked_one_is_left_empty(
     db: Session,
 ) -> None:
     world = World(db)
+    # A page nobody paired: it has no business to stamp a row with.
     page, account = world.page("p1", profile=False), world.account("act_1")
-    world.pair(page, account)
     db.commit()
     form = LeadForm(
         owner_id=world.owner.id, provider=PROVIDER, external_id="f1", page_id=page.id

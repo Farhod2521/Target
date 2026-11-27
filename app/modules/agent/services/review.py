@@ -71,6 +71,7 @@ def review(
     language: str,
     causes: Mapping[str, Diagnosis] | None = None,
     history: Callable[[list[Finding]], str] | None = None,
+    known: str = "",
 ) -> tuple[list[Reviewed], LLMResult[AgentReview]]:
     """The shortlist, judged. Raises whatever ``llmkit`` raises.
 
@@ -94,7 +95,9 @@ def review(
         raise ValueError("a review needs something to review")
     template, version = prompts().get(PROMPT)
     system = render(template, {"account": ""}).rstrip()
-    tail = account_block(account=account, business=business, language=language)
+    tail = account_block(
+        account=account, business=business, language=language, known=known
+    )
     reviewed: list[Reviewed] = []
     total: LLMResult[AgentReview] | None = None
     with claude(tier=UNATTENDED) as client:

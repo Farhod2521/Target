@@ -200,6 +200,12 @@ def _business_for(
         )
     )
     if profile is None:
+        # Nobody is asked to fill a profile in any more: a paired page with
+        # none gets one written from the page itself.
+        from app.modules.businesses.services.auto_profile import ensure_profile
+
+        profile = ensure_profile(db, owner_id=owner_id, page=page)
+    if profile is None:
         return None
     if profile.id not in taken:
         return profile.id, False

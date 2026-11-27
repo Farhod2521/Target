@@ -40,6 +40,10 @@ class ButtonKind:
     CHANGE = "change"
     # A proposal the agent had already made (``Actions you may offer``).
     OFFER = "offer"
+    # What the person said about their business, to be kept (``note_business``).
+    KNOWLEDGE = "knowledge"
+    # The business's kind and name, to be confirmed (``set_business_kind``).
+    BUSINESS_KIND = "business_kind"
     # A visitor: leave a name and a phone for Support.
     GUEST_TICKET = "guest_ticket"
 
@@ -144,6 +148,8 @@ LOOKING: Final[dict[str, str]] = {
     "account_health": "Hisobingiz holatini tekshiryapman…",
     "help_search": "Yechimlar bazasidan qidiryapman…",
     "create_ticket": "Mutaxassis uchun zayavka tayyorlayapman…",
+    "note_business": "Biznesingiz haqida eslab qolyapman…",
+    "set_business_kind": "Biznes turini tayyorlayapman…",
     "plans_and_prices": "Tariflarni ko'ryapman…",
     "crm_outcomes": "CRM natijalarini ko'ryapman…",
     "guard_alerts": "Qo'riqchi ogohlantirishlarini ko'ryapman…",

@@ -10,11 +10,15 @@ StepId = Literal[
 
 StepState = Literal["done", "current", "attention", "waiting", "optional"]
 
-ORDER: tuple[StepId, ...] = ("connect", "page", "ad_account", "profile", "leads")
+# No "profile" step: nobody is asked to describe the business any more. Its
+# profile is written from the page when the pair is made, and its kind is
+# worked out in conversation (``businesses.services.auto_profile``). The id
+# stays in ``StepId`` for a screen that still knows it.
+ORDER: tuple[StepId, ...] = ("connect", "page", "ad_account", "leads")
 
 PAIRED: tuple[StepId, StepId] = ("page", "ad_account")
 
-GATES: tuple[StepId, ...] = ("connect", "page", "ad_account", "profile")
+GATES: tuple[StepId, ...] = ("connect", "page", "ad_account")
 
 FINISH_GATES: tuple[StepId, ...] = ("connect", "page", "ad_account")
 
@@ -87,7 +91,7 @@ _ATTENTION: dict[StepId, Callable[[SetupFacts], bool]] = {
 
 
 def plan(facts: SetupFacts) -> tuple[Step, ...]:
-    """The five steps and the optional sixth, each in one state."""
+    """The four steps and the optional ones, each in one state."""
     steps: list[Step] = []
     current_taken = False
 

@@ -25,6 +25,14 @@ class BusinessDigest:
     category: str
     offer: str
     currency: str
+    # What its people said about it in earlier conversations, as ready
+    # lines, and what was proposed to be kept and is not answered yet.
+    known: tuple[str, ...] = ()
+    waiting: tuple[str, ...] = ()
+    # Set only while the kind is a guess or not known: how sure it is, and
+    # the closed list a confirmed one is chosen from.
+    kind_note: str = ""
+    kind_choices: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,6 +284,7 @@ class ChatContext:
             f"- Name: {business.name}",
             f"- Category: {business.category}",
             f"- Sells: {business.offer}",
+            *_known_lines(business),
             f"- Currency: {business.currency}",
             f"- Account maturity: {account.maturity}",
             "",
@@ -329,6 +338,22 @@ OUTSIDE_ITEM: str = (
 )
 
 UNPLACED: str = "adverts no page could be found for"
+
+
+def _known_lines(business: BusinessDigest) -> list[str]:
+    """What is kept about the business, and what waits for its owner's yes."""
+    lines: list[str] = []
+    if business.kind_note:
+        lines.append(f"- Kind: {business.kind_note}")
+        if business.kind_choices:
+            lines.append(f"- Kinds to choose from: {business.kind_choices}")
+    if business.known:
+        lines += ["- Kept about the business, said by its own people:"]
+        lines += [f"  {line}" for line in business.known]
+    if business.waiting:
+        lines += ["- Proposed to be kept, waiting for the owner's yes:"]
+        lines += [f"  - {line}" for line in business.waiting]
+    return lines
 
 
 def _down_lines(down: ConnectionDown | None) -> list[str]:

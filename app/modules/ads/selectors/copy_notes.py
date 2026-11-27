@@ -57,20 +57,27 @@ def copy_language(
 
 @dataclass(frozen=True, slots=True)
 class AdvertFacts:
+    """What one advert's words may take a fact from: the offer, the
+    picture's own note, and what the business's people said earlier."""
+
     offer: str
     brief: str = ""
+    known: str = ""
 
     @property
     def joined(self) -> str:
-        return "\n".join(part for part in (self.offer, self.brief) if part)
+        return "\n".join(part for part in (self.offer, self.brief, self.known) if part)
 
 
 def facts_by_advert(
     db: Session, *, launch: CampaignLaunch, business: Business
 ) -> list[AdvertFacts]:
+    from app.modules.businesses.selectors.knowledge import learned
+
     offer = offer_text(db, launch=launch, business=business)
+    known = learned(db, business)
     return [
-        AdvertFacts(offer=offer, brief=row.brief.strip())
+        AdvertFacts(offer=offer, brief=row.brief.strip(), known=known)
         for row in variants_needing_words(db, launch=launch)
     ]
 

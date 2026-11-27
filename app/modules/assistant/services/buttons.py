@@ -1,6 +1,7 @@
 """What can be pressed under an answer, and where each press has got to.
 
-Three kinds, one door. A **ticket** goes to Support: the request is written
+Four kinds, one door. A **note** keeps what the person said about their
+business (``services.knowledge``). A **ticket** goes to Support: the request is written
 into the client's support chat (Telegram follows from its hook) and put on
 Support's board. A **change** is the old chat's prepared change, carried out
 by the Reklama screen's own service. An **offer** is a proposal the agent had
@@ -80,6 +81,8 @@ def press(
         return _confirm_change(db, owner=owner, row=row, index=index)
     if kind == ButtonKind.OFFER:
         return _approve_offer(db, owner=owner, row=row, index=index)
+    if kind in (ButtonKind.KNOWLEDGE, ButtonKind.BUSINESS_KIND):
+        return _save_note(db, owner=owner, row=row, index=index, now=now)
     return Pressed(kind=kind, key=key, state=ButtonState.GONE, text=GONE_WORDS)
 
 
@@ -93,6 +96,10 @@ def dismiss(
     item = row.buttons[index]
     if item.get("state") != ButtonState.OPEN:
         return state_of(db, owner=owner, message_id=message_id, key=key, now=now)
+    if item.get("kind") == ButtonKind.KNOWLEDGE:
+        from app.modules.assistant.services.knowledge import drop
+
+        drop(db, owner=owner, item=item, now=now)
     _write(db, row, index, state=ButtonState.DISMISSED)
     return Pressed(
         kind=str(item.get("kind", "")),
@@ -126,6 +133,8 @@ def drawn(db: Session, *, owner: User, item: dict[str, Any], now: datetime) -> P
         return _change_state(db, owner=owner, item=item)
     if kind == ButtonKind.OFFER:
         return _offer_state(db, owner=owner, item=item, now=now)
+    if kind in (ButtonKind.KNOWLEDGE, ButtonKind.BUSINESS_KIND):
+        return Pressed(kind=kind, key=key, state=state, text=_note_words(item))
     return Pressed(kind=kind, key=key, state=state, text="")
 
 
@@ -365,6 +374,34 @@ def _change_state(db: Session, *, owner: User, item: dict[str, Any]) -> Pressed:
             return at(ButtonState.DONE, "O'zgarish Meta tomonida ko'rinmadi.")
         return at(ButtonState.DONE, APPLIED)
     return at(ButtonState.REFUSED, _refused_words(db, log=log))
+
+
+def _save_note(
+    db: Session, *, owner: User, row: AssistantMessage, index: int, now: datetime
+) -> Pressed:
+    """What the person said about their business becomes its knowledge; its
+    kind becomes the one they confirmed."""
+    from app.modules.assistant.services.knowledge import save, save_kind
+
+    item = row.buttons[index]
+    key = str(item.get("key", ""))
+    kind = str(item.get("kind", ""))
+    write = save_kind if kind == ButtonKind.BUSINESS_KIND else save
+    state, words = write(db, owner=owner, item=item, now=now)
+    _write(db, row, index, state=state, state_words=words)
+    return Pressed(
+        kind=kind,
+        key=key,
+        state=state,
+        text=words or GONE_WORDS,
+    )
+
+
+def _note_words(item: dict[str, Any]) -> str:
+    """A pressed note's line: the words it ended with."""
+    if item.get("state") == ButtonState.GONE:
+        return GONE_WORDS
+    return str(item.get("state_words") or "")
 
 
 def _approve_offer(

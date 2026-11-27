@@ -342,7 +342,10 @@ def _events(
     query = select(Event).where(Event.owner_id == owner.id, Event.name.in_(names))
     member = Event.payload["member_id"].as_string()
     if who == "manager":
-        query = query.where(member.is_not(None))
+        # Done BY a manager: such an event carries the manager's name. One
+        # that only names a member (a business's member being added) is
+        # about them, not theirs.
+        query = query.where(Event.payload["member"].as_string().is_not(None))
     elif who == "customer":
         query = query.where(
             Event.name.like("user.%"), or_(member.is_(None), member == "")

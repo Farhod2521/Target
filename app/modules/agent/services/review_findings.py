@@ -23,6 +23,7 @@ from app.modules.audit.services import record_llm_result
 from app.modules.billing.selectors.promo import ai_budget
 from app.modules.businesses.models import Business
 from app.modules.businesses.selectors import business_for_page
+from app.modules.businesses.selectors.knowledge import learned
 from app.modules.integrations.models import AdAccount
 from core.agent import AccountFacts, Finding, Policy, cap, scan
 from core.agent.diagnosis import Diagnosis, diagnose
@@ -185,6 +186,7 @@ def _ask(
             business=business,
             findings=findings,
             language=user.language,
+            known=learned(db, business),
             causes=found_causes,
             history=lambda part: past_block(
                 findings=part, past=past, now=now, currency=facts.currency

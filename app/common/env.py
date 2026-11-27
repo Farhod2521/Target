@@ -168,6 +168,11 @@ class Env(BaseSettings):
         default="stage", alias="SHOTSTACK_ENV"
     )
     elevenlabs_api_key: str = Field(default="", alias="ELEVENLABS_API_KEY")
+    # The advert chat's own key: a spoken message into words. Kept apart
+    # from the montage's so each is counted and capped by itself.
+    elevenlabs_voice_api_key: str = Field(
+        default="", alias="ELEVENLABS_VOICE_API_KEY"
+    )
     montage_pipeline: Literal["v2", "v3"] = Field(
         default="v2", alias="MONTAGE_PIPELINE"
     )

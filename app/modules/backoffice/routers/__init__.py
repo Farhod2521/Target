@@ -24,6 +24,7 @@ from app.modules.backoffice.routers.blocks import (
     suggestions_router as block_suggestions,
 )
 from app.modules.backoffice.routers.broadcasts import router as broadcasts
+from app.modules.backoffice.routers.business_types import router as business_types
 from app.modules.backoffice.routers.crm import router as crm
 from app.modules.backoffice.routers.customers import router as customers
 from app.modules.backoffice.routers.dashboard import router as dashboard
@@ -60,6 +61,7 @@ router.include_router(facebook)
 router.include_router(activity)
 router.include_router(promo)
 router.include_router(directions)
+router.include_router(business_types)
 # Before the account chats: their `/support/{id}` would take `guests`.
 router.include_router(support_guests)
 router.include_router(support)

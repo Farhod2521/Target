@@ -37,6 +37,7 @@ from app.modules.agent.services.write_ad_copy import with_ad_copy, writable
 from app.modules.audit.constants import LLMPurpose
 from app.modules.audit.services import record_llm_result
 from app.modules.businesses.models import Business
+from app.modules.businesses.selectors.knowledge import learned
 from app.modules.integrations.models import AdAccount
 from core.agent import AccountFacts, Finding, Policy, scan
 from core.agent.diagnosis import Diagnosis, diagnose
@@ -203,6 +204,7 @@ def _explained(
             business=business,
             findings=[item.finding for item in plain],
             language=owner.language,
+            known=learned(db, business),
             causes=causes,
         )
     except LLMError as exc:
