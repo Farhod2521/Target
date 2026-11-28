@@ -11,6 +11,251 @@ tushuntiradi. Har bosqich tugaganda shu hujjatga yangi bo'lim qo'shiladi.
 - API turlarini backenddan to'liq qayta generatsiya qilish **shart emas** (u `bridges/crm.ts` va `bridges/sales.ts` ni buzadi). Quyidagi turlarni qo'lda qo'shing.
 - Qiymatlar, ro'yxatlar va qulf sabablari backenddan keladi. Frontda statik ro'yxat yoki standart qiymat yozilmaydi.
 
+**Hujjat tuzilishi:** avval «Qanday ishlaydi» — hamma bosqichga umumiy
+mexanizm (bir marta o'qiladi). Keyin har bosqich uchun API va ekran qoidalari.
+
+---
+
+## Qanday ishlaydi
+
+### 0.1. Uch daraja va qaysi sozlama qayerda turadi
+
+Meta'da reklama uch qavatdan iborat. Har sozlama faqat bitta qavatda turadi,
+shuning uchun uni tahrirlaydigan yo'l ham o'sha qavatning id'sini oladi.
+
+| Daraja | Bizda | Bu yerda turadigan sozlamalar |
+|---|---|---|
+| Kampaniya (`campaign`) | Ro'yxatdagi qator | Nom, sarf limiti, byudjet (agar CBO bo'lsa) |
+| Guruh (`adset`) | Daraxtdagi ikkinchi qavat | Nom, byudjet (ABO), auditoriya, joylashuv, Advantage+ auditoriya, tugash sanasi, narx chegarasi, attribution, chastota |
+| Reklama (`ad`) | Daraxtdagi uchinchi qavat | Nom, matn, sarlavha, tavsif, tugma, havola, UTM, rasm/video, karusel kartalari, lid forma, chat salomi |
+
+Ikki xil id bor, ularni aralashtirmang:
+
+- **bizning id** (UUID) — faqat kampaniyada: `/campaigns/{id}/edit`, `PATCH /campaigns/{id}`;
+- **Meta id** (`externalId`, uzun raqam) — guruh va reklamada, hamda `/campaigns/manage/{level}/{externalId}/…` yo'llarida uchala daraja uchun.
+
+Foydalanuvchi ko'pincha «kampaniyani tahrirlayman» deb o'ylaydi, lekin
+auditoriya va joylashuv aslida **guruhniki**. Kampaniyada bitta guruh bo'lsa,
+tahrir oynasi shu guruhni o'zi topadi. Bir nechta guruh bo'lsa, oyna
+`?group=<guruh externalId>` bilan ochiladi; busiz guruhga tegishli bo'limlar
+`null` keladi va chizilmaydi.
+
+### 0.2. Bitta o'zgarishning yo'li
+
+Hech bir o'zgarish Meta'ga so'rov ichida yuborilmaydi. Yo'l har doim bir xil:
+
+```
+foydalanuvchi «Saqlash»ni bosadi
+   │
+   ▼
+backend tekshiradi ──► xato bo'lsa: 422 / 400 / 409 (hech narsa yozilmaydi)
+   │
+   ▼
+o'zgarish tarixga «kutilmoqda» bo'lib yoziladi, javob darhol qaytadi:
+ControlState { pending: true, action: { id, status: "pending" } }
+   │
+   ▼
+orqa fondagi ishchi Meta'ga yuboradi (odatda 1–5 soniya)
+   │
+   ├─► Meta qabul qildi  → status: "applied", bazadagi nusxa yangilanadi
+   └─► Meta rad etdi     → status: "failed", failure to'ldiriladi
+```
+
+Front javobni olgach, **o'sha obyektning holatini so'rab turadi**:
+
+`GET /campaigns/manage/{level}/{externalId}/state?tries={oldingi javobdagi tries}`
+
+- har `pollSeconds` soniyada (hozir 2), `pending: false` bo'lguncha;
+- `tries`ni o'zingiz sanamang — har javobdagi `tries`ni keyingi so'rovga qaytaring;
+- 15 urinishdan keyin backend `pending: false, stalled: true` qaytaradi: so'rashni to'xtating.
+
+Bu mexanizm yangi emas — to'xtatish/yoqish va byudjet shu bilan ishlaydi.
+Yangi imkoniyatlarning hammasi shu `ControlState`ni qaytaradi, shuning uchun
+mavjud holat satri (status line) komponentini qayta ishlating.
+
+```ts
+type ControlState = {
+  level: "campaign" | "adset" | "ad";
+  externalId: string;
+  pending: boolean;        // hali yo'lda: yana so'rang
+  stalled: boolean;        // uzoq cho'zildi: so'rashni to'xtating
+  failure: {               // Meta rad etgan bo'lsa
+    text: string;
+    fix: { label: string; url: string } | null;
+    explanationHtml: string | null;
+    explaining: boolean | null;
+  } | null;
+  action: { id: string; status: string; dryRun: boolean; revertible: boolean } | null;
+  tries: number;
+  pollSeconds: number;
+  refused: string | null;  // umuman yuborilmadi: sababi
+  gone: boolean | null;    // obyekt o'chirilgan
+  notes: string[];         // backend o'zi moslagan narsalar
+};
+```
+
+### 0.3. Natija holatlari va nima ko'rsatiladi
+
+| Holat | Qanday taniladi | Foydalanuvchiga |
+|---|---|---|
+| Yo'lda | `pending: true` | Spinner, «Saqlanmoqda…». Shu obyektning boshqaruvlari vaqtincha o'chiriladi. |
+| Bajarildi | `pending: false`, `failure: null`, `action.status: "applied"` | «Saqlandi». Formani **qaytadan o'qing** (`GET …/edit`) — Meta ba'zi qiymatni o'zgartirgan bo'lishi mumkin. `notes` bo'lsa ko'rsating. |
+| Meta rad etdi | `failure` to'la | `failure.text`ni ko'rsating. `fix` bo'lsa — tugma (`label`, `url`). `explaining: true` — AI tushuntirish yozmoqda, yana so'rang; tayyor bo'lgach `explanationHtml` keladi. |
+| Cho'zildi | `stalled: true` | «Hali tugamadi, birozdan keyin sahifani yangilang». Xato emas: o'zgarish keyinroq bajarilishi mumkin. |
+| Yuborilmadi | `refused` to'la | Matnni ko'rsating. Meta'ga hech narsa ketmagan. |
+| Obyekt yo'q | `gone: true` | Qatorni ro'yxatdan olib tashlang. |
+
+Muhim: **«bajarildi» degani Meta qabul qildi degani**, reklama darhol shu
+ko'rinishda ishlay boshladi degani emas. Ayrim o'zgarishlardan keyin Meta
+reklamani qayta ko'rikdan o'tkazadi (0.6-bandga qarang).
+
+### 0.4. Saqlashdan oldingi xatolar
+
+Uch xil shakl bor, har biri boshqa joyda ko'rsatiladi:
+
+| Kod | Tana | Ma'nosi | Qayerda ko'rsatiladi |
+|---|---|---|---|
+| `422` | `problems: { maydon: "matn" }` | Maydon noto'g'ri to'ldirilgan | O'sha maydon ostida |
+| `400` | `detail: "matn"`, `code: "…"` | Bu o'zgarish shu reklamaga qo'llanmaydi yoki hech narsa o'zgarmagan | Toast yoki bo'lim ostida. `code`ga qarab mantiq yozish mumkin, matnni esa `detail`dan oling |
+| `409` | `detail`, `code: "refused"`, ba'zan `problems` | Qoida ruxsat bermadi (masalan o'rganish davri) | Toast; `problems` bo'lsa maydon ostida |
+| `204` | bo'sh | Forma o'zgarmagan holda saqlandi | Oynani jimgina yoping |
+
+Ayrim yo'llar (to'xtatish/yoqish, byudjet) qoidaning rad javobini xato kodi
+bilan emas, `200` va `ControlState.refused` ichida qaytaradi. Shuning uchun
+har javobda **ikkalasini** tekshiring: HTTP kodi va `refused`.
+
+Matnlar foydalanuvchi tilida keladi. Frontda xato matni yozilmaydi.
+
+### 0.5. «Yuborilmagan», `null` va «o'zgarmagan»
+
+Bu qoida hamma yangi maydonlarga tegishli va eng ko'p xato shu yerda chiqadi:
+
+| Front nima yubordi | Backend nima qiladi |
+|---|---|
+| Maydon tanada **yo'q** | Tegmaydi. Meta'dagi qiymat qoladi. |
+| Maydon hozirgi qiymati bilan | O'zgarish deb hisoblamaydi. |
+| Maydon yangi qiymat bilan | O'zgartiradi. |
+| Maydon aniq `null` (`endsAt`, `limit`, `costCap`, `frequency`) | Sozlamani **olib tashlaydi**. |
+| Bo'sh satr `""` (`urlTags`, karta `headline`/`description`) | Qiymatni **tozalaydi**. |
+
+Shundan ikki amaliy xulosa:
+
+1. Forma holatida `undefined` (tegilmagan) va `null` (olib tashlandi)ni alohida saqlang. JSON'ga aylantirishda tegilmagan maydonni tanadan olib tashlang.
+2. Backend qiymatni o'qiy olmagan bo'lsa (`urlTags.value: null`, `readable: false`), o'sha maydonni bo'sh ko'rsatmang va yubormang — aks holda foydalanuvchi bilmagan holda sozlamani o'chirib yuboradi.
+
+### 0.6. Meta nimaga ruxsat beradi va oqibati nima
+
+| O'zgarish | Meta'da nima bo'ladi | Foydalanuvchiga aytiladigan oqibat |
+|---|---|---|
+| Nom (uchala daraja) | Faqat yozuv | Hech qanday. O'rganish davrida ham ochiq. |
+| Byudjet | Guruh sozlamasi yangilanadi | Katta o'zgarish o'rganishni qayta boshlashi mumkin (ogohlantirish, to'smaydi). |
+| Tugash sanasi, sarf limiti | Yangilanadi yoki olib tashlanadi | Hech qanday. |
+| Auditoriya, joylashuv, Advantage+ | Guruh targetingi **butunlay almashtiriladi** | O'rganish qaytadan boshlanadi. O'rganish davrida yopiq. |
+| Narx chegarasi, attribution, chastota | Guruh sozlamasi yangilanadi | O'rganishni qayta boshlaydi (ogohlantirish, to'smaydi). |
+| Matn, sarlavha, tugma, havola, UTM, karta, rasm/video, forma, chat salomi | **Yangi kreativ** yaratiladi | Qayta ko'rik. 0.7-bandga qarang. |
+
+O'zgartirib **bo'lmaydi** (Meta ruxsat bermaydi, bizda ham yo'q):
+
+- kampaniya maqsadi;
+- byudjet qayerda turishi (kampaniyadami, guruhdami) va uning turi (kunlik ↔ butun muddatga);
+- maxsus toifa belgisi;
+- nashr qilingan lid formaning savollari (o'rniga nusxa olib yangi forma — 2.7-band);
+- post asosida qilingan reklamaning matni va tugmasi (`canSwap: false`).
+
+Bunday holatda yo'l bitta: nusxa olish yoki yangi reklama ishga tushirish.
+
+### 0.7. Kreativ o'zgarmas — reklama tahririning asosiy g'oyasi
+
+Meta'da reklama ko'rinishi (kreativ) yaratilgach **o'zgarmaydi**. Shuning uchun
+«matnni tuzatish» aslida: eski kreativdan nusxa → o'zgargan maydon qo'yiladi →
+yangi kreativ yaratiladi → u reklamaga ulanadi. Bu ulash ikki xil bo'ladi va
+foydalanuvchi tanlaydi (`inPlace`):
+
+| | `inPlace: false` (standart) | `inPlace: true` |
+|---|---|---|
+| Nima bo'ladi | Yangi reklama ochiladi, eskisi to'xtatiladi | O'sha reklamaning kreativi almashtiriladi |
+| Reklama id'si | Yangi | O'sha |
+| Layk, izoh, ulashishlar | Eski reklamada qoladi, yangisi noldan | Noldan boshlanadi |
+| Statistika | Eskisi alohida saqlanadi, solishtirish mumkin | Bir qatorda davom etadi |
+| Ko'rik | Yangi reklama ko'rikdan o'tadi | Shu reklama qayta ko'rikdan o'tadi, o'tguncha ko'rsatilmaydi |
+| Orqaga qaytish | Eskisini yoqib, yangisini to'xtatish | Yo'q |
+
+Front buni saqlashdan oldin aytishi kerak: tugma, havola, UTM, karta
+o'zgarishi ham matn o'zgarishi bilan **bir xil** oqibatga ega. Bir saqlashda
+bir nechta maydon o'zgarsa, bitta yangi kreativ yaratiladi (har maydonga
+alohida emas) — shuning uchun maydonlarni bitta «Saqlash» ostiga yig'ing.
+
+`inPlace: false`dan keyin daraxtda yangi qator paydo bo'ladi: ro'yxatni
+qaytadan o'qing.
+
+### 0.8. Qulflar
+
+Qulf doim backenddan keladi (`open`, `locks`, `canChange`, `note`). Front
+holatni o'zi hisoblamaydi.
+
+| Sabab | Nima yopiladi | Nima ochiq qoladi |
+|---|---|---|
+| **O'rganish davri** (`"learning"`) — guruh yangi yoki yaqinda jiddiy o'zgargan, Meta kimga ko'rsatishni o'rganmoqda | Auditoriya, joylashuv, Advantage+, reklama tahriri | Nom, byudjet (ogohlantirish bilan), narx chegarasi/attribution/chastota (ogohlantirish bilan), to'xtatish/yoqish |
+| **Kampaniya tugagan** (`"closed"` / `"ended"`) | Hammasi | Nusxa olish |
+| **Reklama turi** | Shu turga to'g'ri kelmaydigan sozlama (`offered: false`, `appsOffered: []`, `buttons` bitta) | Qolgani |
+| **Rad etilgan reklama** | — | Reklama tahriri o'rganish davrida ham ochiq (tuzatish uchun) |
+
+Yopiq bo'limni yashirmang: o'chirilgan holda chizing va `note`ni ko'rsating —
+foydalanuvchi sozlama borligini va nega hozir yopiqligini bilishi kerak.
+Faqat `offered: false` / `null` bo'limlar umuman chizilmaydi (bu reklamaga
+tegishli emas).
+
+### 0.9. Tarix va «Qaytarish»
+
+- Har o'zgarish tarixga yoziladi: `GET /campaigns/{id}/history` — `text`, `at`, `by`, `status`, `level`.
+- `ControlState.action.revertible: true` bo'lsa, «Qaytarish» tugmasini chizing:
+  `POST /campaigns/manage/{level}/{externalId}/revert` tanasi `{ "log": "<action.id>" }`.
+- «Qaytarish» ham oddiy o'zgarish: o'sha yo'ldan o'tadi, `ControlState` qaytaradi, tarixga yoziladi.
+
+| O'zgarish | Qaytariladimi |
+|---|---|
+| Nom, byudjet, tugash sanasi, sarf limiti | Ha — avvalgi qiymat (yoki «yo'q» holati) tiklanadi |
+| Auditoriya, joylashuv, Advantage+ | Ha — avvalgi targeting aynan tiklanadi |
+| Narx chegarasi, attribution, chastota | Ha |
+| Reklama tahriri (kreativ) | **Yo'q.** `inPlace: false`da eski reklama to'xtatilgan holda turadi — uni yoqish mumkin |
+
+### 0.10. Qiymatlar qayerdan o'qiladi
+
+| Manba | Qaysi maydonlar | Front uchun oqibat |
+|---|---|---|
+| Bizning bazadagi nusxa (Meta bilan vaqti-vaqti bilan tenglashtiriladi) | Nom, byudjet, auditoriya, joylashuv, tugash sanasi, matn, tugma, havola, kartalar | Tez, doim keladi. Ads Manager'da hozirgina qilingan o'zgarish bir necha daqiqa kechikishi mumkin. |
+| Meta'dan shu so'rov paytida | `urlTags.value`, butun `…/delivery` formasi | Sekinroq (0.5–2 s), **kelmasligi mumkin** (`null` / `readable: false`). Bo'lim ochilganda so'rang, skeleton ko'rsating, «qayta urinish» qo'ying. |
+
+### 0.11. AI chat bilan bog'liqligi
+
+AI chat alohida mexanizm emas. Chatdagi tasdiqlash tugmasi bosilganda o'sha
+0.2-banddagi yo'l ishlaydi: o'sha tekshiruvlar, o'sha tarix, o'sha «Qaytarish».
+Farqi faqat kim to'ldirgani: formani foydalanuvchi emas, AI to'ldiradi va
+foydalanuvchi `before → after`ni ko'rib tasdiqlaydi. Shuning uchun chatda
+bajarilgan o'zgarish Reklama sahifasida ham darhol ko'rinishi kerak — tugma
+bosilgach kampaniya ma'lumotlarini yangilang (query invalidation).
+
+### 0.12. Ekranlar xaritasi
+
+| Ekran (front) | Nima qo'shiladi | Bo'lim |
+|---|---|---|
+| Tahrir oynasi, auditoriya bo'limi (`EditSheet.tsx`) | Joylashuv, Advantage+ auditoriya | 1-bosqich |
+| Tahrir oynasi, yangi «Kengaytirilgan» bo'limi | Narx chegarasi, attribution, chastota | 3-bosqich |
+| Tahrir oynasi, muddat va limit | «Tugash sanasiz», limitni olib tashlash | 4-bosqich |
+| Reklama tahriri (`AdEdit.tsx`) | Tugma, havola, UTM, karusel kartalari, shablon, formadan nusxa | 2-bosqich |
+| Daraxt va Expert jadvali (`Tree.tsx`, `Manager.tsx`) | Guruh va reklama nomini joyida tahrirlash | 4-bosqich |
+| AI chat | Yangi turdagi tasdiqlash tugmalari | 6-bosqich |
+
+Tavsiya etilgan qurish tartibi: 4 (eng kichik, mexanizmni sinab olish uchun)
+→ 1 → 2 → 3 → 6.
+
+### 0.13. Hozirgi holat
+
+- Backend production'da. Barcha o'zgarishlar **qo'shimcha**: front hech narsa qilmasa, eski ekranlar avvalgidek ishlaydi.
+- Bazada o'zgarish yo'q.
+- Har bosqich oxiridagi «Hali tekshirilmagan» ro'yxatidagi narsalar real Meta'da hali sinalmagan. Sinov natijasi chiqquncha yangi bo'limlarni foydalanuvchilarga ochmang (flag ostida quring).
+- `action.dryRun: true` — sinov muhiti: o'zgarish Meta'ga yuborilmagan, faqat tarixga yozilgan. Bunda holat satrida «sinov» belgisini ko'rsating.
+
 ---
 
 ## 1-bosqich. Joylashuvlar va Advantage+ auditoriya
